@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AEON Bench — local MVP</title>
+  <link rel="stylesheet" href="/static/styles.css?v=22" />
+</head>
+<body>
+  <header>
+    <div class="brand">▲ <b>AEON</b>//BENCH <span class="tag">local mvp</span></div>
+    <div class="hauth" id="headerAuth"></div>
+    <div class="suite" id="suiteInfo">suite…</div>
+  </header>
+
+  <main>
+    <nav class="tabs" id="tabs">
+      <span class="tabgroup" data-label="Boards">
+        <button class="tab active" data-board="text">Text</button>
+        <button class="tab" data-board="vision">Vision</button>
+        <button class="tab" data-board="audio">Audio</button>
+      </span>
+      <span class="tabgroup" data-label="Your lab">
+        <button class="tab" data-live="1">Live</button>
+        <button class="tab" data-run="1" hidden>Run</button>
+      </span>
+      <span class="tabgroup" data-label="Evidence">
+        <button class="tab" data-harness="1">Harnesses</button>
+        <button class="tab" data-compare="1">Compare</button>
+        <button class="tab" data-subs="1">Submissions</button>
+      </span>
+      <span class="tabgroup" data-label="Arena">
+        <button class="tab" data-arena="app">Apps</button>
+        <button class="tab" data-arena="game">Games</button>
+        <button class="tab" data-arena="animation">Animations</button>
+      </span>
+      <button class="tab admin-tab" data-admin="1" id="adminTab" hidden>Admin</button>
+    </nav>
+
+    <section class="panel" id="boardPanel">
+      <div class="lbhead">
+        <h2>Leaderboard</h2>
+        <details class="weights-wrap">
+          <summary>Category weights</summary>
+          <div class="weights" id="weights"></div>
+        </details>
+      </div>
+      <div class="lbtools">
+        <div id="eligBar" class="eligbar"></div>
+        <div id="filters" class="filters"></div>
+        <div id="vramFilter" class="vramfilter"></div>
+      </div>
+      <div class="grid2">
+        <div id="board" class="mcards"></div>
+        <div class="chartwrap"><div id="radar"></div><div id="chartNote" class="note"></div></div>
+      </div>
+    </section>
+
+
+    <section class="panel" id="harnessPanel" hidden>
+      <div class="lbhead"><h2>AI Harness evaluation</h2></div>
+      <p class="lede">One model, three agentic harnesses — exact versions disclosed.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">How each model performs through the three agentic harnesses the controlled pod runs the suite through — <b>Hermes</b>, <b>OpenClaw</b> and <b>OpenCode</b>. Each cell is the model's agentic score on that harness; the <b>exact release version</b> used is shown beneath the score (and travels with every report). Column headers link to each harness's upstream repo.</p>
+      </details>
+      <div id="harnessMatrix" class="harness-wrap"></div>
+    </section>
+
+    <section class="panel" id="comparePanel" hidden>
+      <div class="lbhead"><h2>Compare by seed</h2></div>
+      <p class="lede">Same seed = identical 20 questions — a true A/B.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">A <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>. Pick a seed: every model that ran it answered the <b>identical 20 questions</b>, so this is a true A/B — you can see exactly where each model is stronger, by category and on individual questions.</p>
+      </details>
+      <div class="cmp-pick"><label>seed&nbsp;<select id="cmpSeed"></select></label> <span id="cmpBadge" class="cmp-badge"></span></div>
+      <div id="cmpBody"></div>
+    </section>
+
+    <section class="panel" id="livePanel" hidden>
+      <div class="lbhead"><h2>Live benchmark <span id="liveDot" class="live-dot"></span></h2></div>
+      <p class="lede">Watch the pod score cases as they stream in.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">Watch a controlled run as it happens — per-category progress and the prompts + answers as each case is scored. Streams in as the pod checkpoints (every few cases); no run in progress shows an idle state.</p>
+      </details>
+      <div id="liveBody"></div>
+    </section>
+
+    <section class="panel" id="runPanel" hidden>
+      <div class="lbhead"><h2>Run a benchmark</h2></div>
+      <p class="lede">Launch from your lab: quick endpoint run, or one-button verified HF run.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note"><b>Point at a running model</b> for a quick local run, or paste a <b>Hugging Face link</b> for a one-button <b>verified</b> run — the pod pulls the weights, checks their signature against HF, serves them, benchmarks, and submits an attested result.</p>
+      </details>
+
+      <div class="run-cards">
+        <div class="run-card">
+          <h3>▶ Benchmark a running model</h3>
+          <p class="note">An OpenAI-compatible endpoint you're already serving. Scored <span class="tag">self-reported</span>.</p>
+          <div class="row">
+            <label>Base URL<input id="reBase" type="text" value="http://127.0.0.1:8000/v1" /></label>
+            <label>Model name<input id="reModel" type="text" placeholder="as the server reports it" /></label>
+          </div>
+          <div class="row">
+            <label>API key<select id="reKey"></select></label>
+            <label>Scope<select id="reDiff">
+              <option value="">Full suite</option><option value="easy">Easy</option>
+              <option value="medium">Medium</option><option value="hard">Hard</option>
+              <option value="expert">Expert</option>
+            </select></label>
+            <button id="reLaunch" class="primary">▶ Launch</button>
+          </div>
+        </div>
+
+        <div class="run-card">
+          <h3>✓ Verified HuggingFace run</h3>
+          <p class="note">Pull → verify signature → serve → benchmark → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result.</p>
+          <div class="row">
+            <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
+          </div>
+          <div class="row">
+            <label>HF token <span class="note">(gated repos)</span><select id="hfKey"></select></label>
+            <label>Scope<select id="hfDiff">
+              <option value="">Full suite</option><option value="easy">Easy</option>
+              <option value="medium">Medium</option><option value="hard">Hard</option>
+              <option value="expert">Expert</option>
+            </select></label>
+            <button id="hfLaunch" class="primary">▶ Pull, verify &amp; benchmark</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="runStatus" class="status"></div>
+      <div id="runJobs" class="run-jobs"></div>
+
+      <div class="run-card">
+        <h3>Saved keys &amp; tokens</h3>
+        <p class="note">Stored only in this pod (shown masked, never sent back in full). Use for authenticated endpoints and gated Hugging Face repos.</p>
+        <div id="savedKeys" class="key-list"></div>
+        <div class="row">
+          <label>Name<input id="keyName" type="text" placeholder="e.g. dgx-vllm" /></label>
+          <label>Type<select id="keyKind"><option value="api_key">API key</option><option value="hf_token">HF token</option></select></label>
+          <label>Value<input id="keyVal" type="password" placeholder="secret" autocomplete="off" /></label>
+          <button id="keyAdd" class="ghost">＋ Save</button>
+        </div>
+        <div id="podTokenRow" class="row" hidden>
+          <label>Pod access token <span class="note">(this pod is locked)</span><input id="podToken" type="password" placeholder="x-aeon-pod-token" autocomplete="off" /></label>
+          <button id="podTokenSave" class="ghost">Set</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="audioPanel" hidden>
+      <h2>Audio — capability-gated</h2>
+      <p class="lede">Audio input is probed, never assumed — the suite unlocks once transport is confirmed.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">LM Studio audio input (<code>input_audio</code>) is unconfirmed by design. Pick an audio model above (e.g. <code>qwen3-omni</code>) and probe the endpoint to see if audio transport is accepted. A full ASR / translation / understanding suite is built once transport is confirmed.</p>
+      </details>
+      <button id="audioProbe" class="primary">▶ Test audio support</button>
+      <div id="audioStatus" class="status"></div>
+    </section>
+
+    <section class="panel" id="arenaPanel" hidden>
+      <div class="lbhead">
+        <h2 id="arenaTitle">Generated Apps</h2>
+        <div class="arena-gen">
+          <label class="arena-prompt-l">prompt
+            <select id="arenaPrompt"></select>
+          </label>
+          <button id="arenaGenBtn" class="ghost" title="Generate this with the model selected up top">+ generate with model under test</button>
+          <span id="arenaAuth" class="arena-auth"></span>
+        </div>
+      </div>
+      <p class="note arena-howto">Each round the category is shuffled — a random task, two random models, rendered live in isolated sandboxes. <b>Click a frame to interact</b> (games take keyboard/mouse). Models are hidden until you vote; pick the better result — or vote with the <b>A</b> / <b>B</b> / <b>T</b> keys.</p>
+      <div id="arenaNow" class="arena-now"></div>
+
+      <div class="arena-stage">
+        <div class="arena-side">
+          <div class="arena-head"><span class="arena-badge a">A</span><span class="arena-model" id="modelA">hidden</span><span class="arena-meta" id="metaA"></span></div>
+          <iframe class="arena-frame" id="frameA" sandbox="allow-scripts allow-pointer-lock" title="artifact A"></iframe>
+        </div>
+        <div class="arena-side">
+          <div class="arena-head"><span class="arena-badge b">B</span><span class="arena-model" id="modelB">hidden</span><span class="arena-meta" id="metaB"></span></div>
+          <iframe class="arena-frame" id="frameB" sandbox="allow-scripts allow-pointer-lock" title="artifact B"></iframe>
+        </div>
+      </div>
+
+      <div class="arena-vote">
+        <button class="vote a" data-w="a">◄ A is better</button>
+        <button class="vote tie" data-w="tie">tie / both weak</button>
+        <button class="vote b" data-w="b">B is better ►</button>
+        <button id="arenaSkip" class="ghost">skip ↻</button>
+      </div>
+      <div id="arenaMsg" class="status"></div>
+
+      <h3 class="arena-rankhead">Human-vote ranking <span class="note" id="arenaRankNote"></span></h3>
+      <table id="arenaRank"><thead><tr>
+        <th class="rank">#</th><th>model</th><th class="num">Elo</th>
+        <th class="num">W</th><th class="num">L</th><th class="num">T</th><th class="num">win%</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="panel" id="subsPanel" hidden>
+      <div class="lbhead">
+        <h2>Submissions — full transparency</h2>
+        <select id="subsBoard">
+          <option value="">all boards</option><option value="text">text</option><option value="vision">vision</option>
+        </select>
+      </div>
+      <p class="lede">Every run, fully inspectable: prompt, answer, score, judge.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">Every benchmark run is fully inspectable: what the model was asked, exactly how it answered, the score, and <b>how + by what it was judged</b> (with rationale). Pick a run to view its complete results — and verify it against the signed manifest.</p>
+      </details>
+      <div class="subs-wrap">
+        <div id="subsList" class="subs-list"></div>
+        <div id="subsDetail" class="subs-detail"><p class="note" style="text-align:left">Select a submission on the left to view its full results.</p></div>
+      </div>
+    </section>
+
+    <section class="panel launch" id="runBench">
+      <details class="run-details">
+        <summary>Run your own benchmark — from your lab, never from this page</summary>
+        <p class="runblurb">
+          Results are produced by a <strong>controlled pod you run on your own hardware</strong> —
+          never from here. The pod pulls the model from Hugging Face, <strong>verifies its
+          signature</strong> against the HF reference, serves it with a recorded recipe, runs the
+          suite through the Hermes / OpenClaw / OpenCode harnesses, and submits a signed result.
+        </p>
+        <div class="runcta">
+          <a class="primary" id="ghLink" href="https://github.com/AEON-7/aeon-pod" target="_blank" rel="noopener">▶ Get the pod on GitHub</a>
+          <a class="ghost" href="/api/pod/docker-compose.yml" download>⬇ docker-compose.yml</a>
+          <a class="ghost" href="/api/pod/agents.md" download>⬇ agents.md</a>
+          <a class="ghost" href="/api/pod/run-a-benchmark.md" target="_blank" rel="noopener">📖 How to run / view / submit</a>
+        </div>
+        <pre class="runquick"><code>git clone https://github.com/AEON-7/aeon-pod &amp;&amp; cd aeon-pod
+cp .env.example .env          # set AEON_HF_LINK + AEON_MOTHERSHIP
+docker compose up             # pull → verify → serve → bench → submit</code></pre>
+        <div id="status" class="status"></div>
+      </details>
+    </section>
+
+    <section class="panel" id="adminPanel" hidden>
+      <div class="lbhead">
+        <h2>Admin — integrity &amp; moderation</h2>
+        <button id="adminRefresh" class="ghost">↻ refresh</button>
+      </div>
+      <p class="note" id="adminSummary" style="text-align:left"></p>
+      <h3 class="arena-rankhead" style="border-top:0;margin-top:4px">Benches <span class="note">— disqualify a faulty bench (kept, marked, unranked) or re-judge its Tier-1 cases</span></h3>
+      <div id="adminBenches" class="admin-benches"></div>
+      <h3 class="arena-rankhead">Evaluators <span class="note">— honeypot accuracy gates whether each account's votes count · history shows the evidence</span></h3>
+      <table id="evalTable"><thead><tr>
+        <th>user</th><th class="num">honeypot</th><th class="num">accuracy</th>
+        <th>standing</th><th class="num">counted</th><th class="num">cast</th><th>action</th>
+      </tr></thead><tbody></tbody></table>
+      <h3 class="arena-rankhead">Generated artifacts
+        <select id="adminKind">
+          <option value="app">Apps</option><option value="game">Games</option><option value="animation">Animations</option>
+        </select>
+        <span class="note">— delete broken or inappropriate generations</span>
+      </h3>
+      <div id="adminArtifacts" class="admin-arts"></div>
+    </section>
+
+    <div id="authModal" class="modal" hidden>
+      <div class="modal-card">
+        <button class="modal-x" id="authClose" title="close">×</button>
+        <h3 id="authTitle">Create an evaluator account</h3>
+        <p class="note" style="text-align:left;margin:0 0 10px">Anonymous — just a username and password. No email, no recovery (yet).</p>
+        <label class="modal-l">username
+          <input id="authUser" maxlength="24" autocomplete="username" spellcheck="false" placeholder="3–24 chars" />
+        </label>
+        <label class="modal-l">password
+          <span class="pwrow">
+            <input id="authPass" type="password" autocomplete="current-password" placeholder="6+ chars, any symbols" />
+            <button type="button" id="authShow" class="ghost pwshow">show</button>
+          </span>
+        </label>
+        <div id="authErr" class="err modal-err"></div>
+        <div class="modal-actions">
+          <button id="authSubmit" class="primary">Create account</button>
+          <button id="authToggle" class="ghost">have an account? log in</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="panel" id="detailPanel" hidden>
+      <h2>Run detail — <span id="detailModel"></span> <span class="tag" id="detailRun"></span></h2>
+      <table id="detail"><thead><tr>
+        <th>case</th><th>cat</th><th>tier</th><th>score</th><th>evidence</th>
+        <th>ttft</th><th>tok/s</th><th>e2e</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+  </main>
+
+  <footer>
+    Deterministic Tier-0 + binary-rubric Tier-1 (judge defaults to the launching model).
+    Speed shown separately, never folded into the quality rank. · <span id="ver"></span>
+  </footer>
+
+  <script src="/static/app.js?v=22"></script>
+</body>
+</html>

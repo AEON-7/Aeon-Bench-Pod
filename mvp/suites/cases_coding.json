@@ -1,0 +1,362 @@
+[
+  {
+    "id": "coding.parse.0001",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `sum_of_digits(n)` that takes a non-negative integer `n` and returns the sum of its decimal digits. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert sum_of_digits(0) == 0\nassert sum_of_digits(7) == 7\nassert sum_of_digits(123) == 6\nassert sum_of_digits(99999) == 45\nassert sum_of_digits(1000000) == 1"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.string.0002",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `count_vowels(s)` that returns the number of vowels (a, e, i, o, u, case-insensitive) in the string `s`. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert count_vowels('') == 0\nassert count_vowels('xyz') == 0\nassert count_vowels('AeIoU') == 5\nassert count_vowels('Hello World') == 3\nassert count_vowels('rhythm') == 0"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.array.0003",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `second_largest(nums)` that returns the second largest DISTINCT value in the list `nums`, or None if there is no such value. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert second_largest([1, 2, 3]) == 2\nassert second_largest([5, 5, 5]) is None\nassert second_largest([10]) is None\nassert second_largest([3, 1, 4, 1, 5, 9, 2, 6]) == 6\nassert second_largest([-1, -2, -3]) == -2\nassert second_largest([7, 7, 4]) == 4"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.number.0004",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `is_prime(n)` that returns True iff the integer `n` is a prime number. Handle n < 2 by returning False. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert is_prime(0) is False\nassert is_prime(1) is False\nassert is_prime(2) is True\nassert is_prime(17) is True\nassert is_prime(1) is False\nassert is_prime(561) is False\nassert is_prime(7919) is True\nassert is_prime(-7) is False"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.string.0005",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `reverse_words(s)` that reverses the order of words in `s` while preserving single spaces between words, and strips leading/trailing whitespace. Collapse any run of internal whitespace to a single space. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert reverse_words('hello world') == 'world hello'\nassert reverse_words('  the sky  is blue ') == 'blue is sky the'\nassert reverse_words('single') == 'single'\nassert reverse_words('   ') == ''\nassert reverse_words('a b c d') == 'd c b a'"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.intervals.0006",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `merge_intervals(intervals)` that takes a list of `[start, end]` pairs (integers, start <= end) and returns a new list of non-overlapping intervals sorted by start, merging any that overlap or touch (i.e. [1,3] and [3,5] merge into [1,5]). Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert merge_intervals([]) == []\nassert merge_intervals([[1, 3]]) == [[1, 3]]\nassert merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]]) == [[1, 6], [8, 10], [15, 18]]\nassert merge_intervals([[1, 4], [4, 5]]) == [[1, 5]]\nassert merge_intervals([[5, 6], [1, 2], [3, 4]]) == [[1, 2], [3, 4], [5, 6]]\nassert merge_intervals([[1, 10], [2, 3], [4, 5]]) == [[1, 10]]"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.stack.0007",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `is_balanced(s)` that returns True iff every bracket in `s` is properly matched and nested. Consider three bracket types: () [] {}. Non-bracket characters are ignored. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert is_balanced('') is True\nassert is_balanced('()') is True\nassert is_balanced('([]{})') is True\nassert is_balanced('([)]') is False\nassert is_balanced('(((') is False\nassert is_balanced('a(b)c[d]{e}') is True\nassert is_balanced(']') is False\nassert is_balanced('{[()()]}') is True"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.dp.0008",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `climb_stairs(n)` that returns the number of distinct ways to climb a staircase of `n` steps when you may take either 1 or 2 steps at a time. climb_stairs(0) is 1. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert climb_stairs(0) == 1\nassert climb_stairs(1) == 1\nassert climb_stairs(2) == 2\nassert climb_stairs(3) == 3\nassert climb_stairs(5) == 8\nassert climb_stairs(10) == 89"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.dp.0009",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `longest_common_subsequence(a, b)` that returns the LENGTH of the longest common subsequence of strings `a` and `b`. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert longest_common_subsequence('', 'abc') == 0\nassert longest_common_subsequence('abcde', 'ace') == 3\nassert longest_common_subsequence('abc', 'abc') == 3\nassert longest_common_subsequence('abc', 'def') == 0\nassert longest_common_subsequence('AGGTAB', 'GXTXAYB') == 4\nassert longest_common_subsequence('bsbininm', 'jmjkbkjkv') == 1"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.recursion.0010",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `flatten(lst)` that takes an arbitrarily nested list of integers and returns a flat list of the integers in left-to-right order. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert flatten([]) == []\nassert flatten([1, 2, 3]) == [1, 2, 3]\nassert flatten([1, [2, [3, [4]]]]) == [1, 2, 3, 4]\nassert flatten([[1, 2], [], [3, [4, 5]]]) == [1, 2, 3, 4, 5]\nassert flatten([[[[]]]]) == []\nassert flatten([1, [2, 3], 4, [[5]]]) == [1, 2, 3, 4, 5]"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.ds.0011",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `top_k_frequent(nums, k)` that returns the `k` most frequent elements in `nums`, ordered from most frequent to least. Break ties by SMALLER value first. The result must have exactly k elements (assume k valid). Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert top_k_frequent([1, 1, 1, 2, 2, 3], 2) == [1, 2]\nassert top_k_frequent([1], 1) == [1]\nassert top_k_frequent([4, 4, 5, 5, 6], 2) == [4, 5]\nassert top_k_frequent([3, 3, 1, 1, 2], 3) == [1, 3, 2]\nassert top_k_frequent([7, 8, 9], 1) == [7]"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.string.0012",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `are_anagrams(a, b)` that returns True iff `a` and `b` are anagrams of each other, considering only alphabetic characters and ignoring case and spaces/punctuation. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert are_anagrams('listen', 'silent') is True\nassert are_anagrams('Dormitory', 'Dirty Room') is True\nassert are_anagrams('hello', 'world') is False\nassert are_anagrams('', '') is True\nassert are_anagrams('A gentleman', 'Elegant man') is True\nassert are_anagrams('abc', 'abcd') is False"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.number.0013",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `gcd(a, b)` that returns the greatest common divisor of two non-negative integers `a` and `b` (with gcd(0, 0) == 0). Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert gcd(0, 0) == 0\nassert gcd(12, 8) == 4\nassert gcd(17, 5) == 1\nassert gcd(100, 0) == 100\nassert gcd(0, 7) == 7\nassert gcd(48, 180) == 12\nassert gcd(270, 192) == 6"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.array.0014",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `max_subarray_sum(nums)` that returns the maximum sum of any non-empty contiguous subarray of `nums` (Kadane's algorithm). Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert max_subarray_sum([1]) == 1\nassert max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6\nassert max_subarray_sum([-1, -2, -3]) == -1\nassert max_subarray_sum([5, 4, -1, 7, 8]) == 23\nassert max_subarray_sum([-5]) == -5\nassert max_subarray_sum([3, -2, 5, -1]) == 6"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.string.0015",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `compress(s)` that performs basic run-length compression: each maximal run of a repeated character c of length L becomes c followed by L, but ONLY if that makes the string shorter; otherwise return the original `s`. Example: 'aaabbc' -> 'a3b2c1' (length 6 == 6, not shorter, so return 'aaabbc'). 'aaaabbbb' -> 'a4b4'. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert compress('') == ''\nassert compress('aaabbc') == 'aaabbc'\nassert compress('aaaabbbb') == 'a4b4'\nassert compress('abcdef') == 'abcdef'\nassert compress('aaaaaaaaaa') == 'a10'\nassert compress('aabb') == 'aabb'"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.matrix.0016",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `rotate90(matrix)` that returns a NEW matrix that is the input square matrix rotated 90 degrees CLOCKWISE. Do not mutate the input. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert rotate90([[1]]) == [[1]]\nassert rotate90([[1, 2], [3, 4]]) == [[3, 1], [4, 2]]\nassert rotate90([[1, 2, 3], [4, 5, 6], [7, 8, 9]]) == [[7, 4, 1], [8, 5, 2], [9, 6, 3]]\nm = [[1, 2], [3, 4]]\n_ = rotate90(m)\nassert m == [[1, 2], [3, 4]]"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.binsearch.0017",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `search_insert(nums, target)` that, given a sorted ascending list of DISTINCT integers `nums` and a `target`, returns the index where target is found, or the index where it would be inserted to keep the list sorted. Must run in O(log n). Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert search_insert([], 5) == 0\nassert search_insert([1, 3, 5, 6], 5) == 2\nassert search_insert([1, 3, 5, 6], 2) == 1\nassert search_insert([1, 3, 5, 6], 7) == 4\nassert search_insert([1, 3, 5, 6], 0) == 0\nassert search_insert([10], 10) == 0"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.ds.0018",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Implement an LRU cache as a class `LRUCache` with constructor `LRUCache(capacity)` and methods `get(key)` (returns the value or -1 if absent) and `put(key, value)`. When capacity is exceeded, evict the LEAST recently used key. Both get and put count as uses. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "c = LRUCache(2)\nc.put(1, 1)\nc.put(2, 2)\nassert c.get(1) == 1\nc.put(3, 3)\nassert c.get(2) == -1\nc.put(4, 4)\nassert c.get(1) == -1\nassert c.get(3) == 3\nassert c.get(4) == 4"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.array.0019",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `move_zeroes(nums)` that returns a new list with all zeroes moved to the end while preserving the relative order of the non-zero elements. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert move_zeroes([0, 1, 0, 3, 12]) == [1, 3, 12, 0, 0]\nassert move_zeroes([0, 0, 0]) == [0, 0, 0]\nassert move_zeroes([1, 2, 3]) == [1, 2, 3]\nassert move_zeroes([]) == []\nassert move_zeroes([0, 0, 1]) == [1, 0, 0]\nassert move_zeroes([4, 0, 5, 0, 0, 6]) == [4, 5, 6, 0, 0, 0]"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.string.0020",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `roman_to_int(s)` that converts a valid Roman numeral string (uppercase, value 1..3999) to its integer value, honoring subtractive pairs (IV=4, IX=9, XL=40, XC=90, CD=400, CM=900). Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert roman_to_int('III') == 3\nassert roman_to_int('IV') == 4\nassert roman_to_int('IX') == 9\nassert roman_to_int('LVIII') == 58\nassert roman_to_int('MCMXCIV') == 1994\nassert roman_to_int('MMMCMXCIX') == 3999\nassert roman_to_int('XL') == 40"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.number.0021",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `int_to_base(n, b)` that converts a non-negative integer `n` to its string representation in base `b` (2 <= b <= 16), using lowercase digits 0-9a-f. int_to_base(0, b) == '0'. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert int_to_base(0, 2) == '0'\nassert int_to_base(5, 2) == '101'\nassert int_to_base(255, 16) == 'ff'\nassert int_to_base(8, 8) == '10'\nassert int_to_base(100, 10) == '100'\nassert int_to_base(31, 16) == '1f'\nassert int_to_base(7, 2) == '111'"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.recursion.0022",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `generate_parens(n)` that returns a list of all distinct strings of `n` pairs of well-formed parentheses, in any order. The returned list must contain exactly the Catalan(n) valid strings with no duplicates. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert generate_parens(0) == ['']\nassert sorted(generate_parens(1)) == ['()']\nassert sorted(generate_parens(2)) == ['(())', '()()']\nassert sorted(generate_parens(3)) == sorted(['((()))','(()())','(())()','()(())','()()()'])\nassert len(generate_parens(4)) == 14\nassert all(g.count('(') == g.count(')') for g in generate_parens(4))"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.array.0023",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `product_except_self(nums)` that returns a list `out` where `out[i]` is the product of every element of `nums` except `nums[i]`. Do NOT use division. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert product_except_self([1, 2, 3, 4]) == [24, 12, 8, 6]\nassert product_except_self([2, 3]) == [3, 2]\nassert product_except_self([0, 4, 0]) == [0, 0, 0]\nassert product_except_self([5, 0, 2]) == [0, 10, 0]\nassert product_except_self([-1, 1, 0, -3, 3]) == [0, 0, 9, 0, 0]\nassert product_except_self([1, 1]) == [1, 1]"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "coding.graph.0024",
+    "category": "Coding",
+    "tier": 0,
+    "prompt": "Write a Python function `num_islands(grid)` that takes a 2D list of '1' (land) and '0' (water) characters and returns the number of connected islands. Cells connect 4-directionally (up/down/left/right). The grid may be empty. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "assert num_islands([]) == 0\nassert num_islands([['0', '0'], ['0', '0']]) == 0\nassert num_islands([['1', '1', '0'], ['1', '0', '0'], ['0', '0', '1']]) == 2\nassert num_islands([['1', '0', '1', '0', '1']]) == 3\nassert num_islands([['1', '1', '1'], ['1', '1', '1']]) == 1\nassert num_islands([['1']]) == 1"
+        }
+      ],
+      "combine": "all"
+    }
+  }
+]

@@ -1,0 +1,28 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# pod runtime state — NEVER commit the device key, local DB, or blobs
+.aeon/
+**/device_key.pem
+mvp/pod.db
+mvp/pod.db-wal
+mvp/pod.db-shm
+mvp/aeon.db
+mvp/aeon.db-*
+mvp/.aeon_attest_key.pem
+mvp/artifacts_store/
+mvp/blobs/
+mvp/aeon/assets/audio/
+
+# secrets / env
+.env
+*.env
+!.env.example
+!deploy/pod/.env.example
+
+# logs
+*.log

@@ -1,0 +1,623 @@
+[
+  {
+    "id": "math.arith.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute the exact value of 4873 * 6219. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "30305187"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.arith.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute 91234 * 8765 - 12345678. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "787320332"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.arith.0003",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Evaluate 2^31 - 5^11. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "2098655523"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.arith.0004",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute the integer quotient and you need not show the remainder: what is floor(987654321 / 12345)? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "80004"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.arith.0005",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute 123456789 mod 99991 (the remainder when 123456789 is divided by 99991). Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "67895"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.modexp.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute 7^222 mod 1000 (the last three digits of 7 raised to the 222). Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "49"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.modexp.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute 3^1000 mod 1009. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "404"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.modinv.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Find the modular inverse of 17 modulo 101, i.e. the unique integer x with 0 <= x < 101 such that 17*x is congruent to 1 modulo 101. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "6"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.crt.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Find the smallest positive integer x such that x is congruent to 2 mod 5, x is congruent to 3 mod 7, and x is congruent to 2 mod 9. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "227"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.gcd.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute gcd(0461952, 0327600) — the greatest common divisor of 461952 and 327600. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "144"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.lcm.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute the least common multiple lcm(420, 1078). Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "32340"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.gcd.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute gcd(2^20 - 1, 2^12 - 1). Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "15"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.base.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Convert the binary number 11010110101 to decimal (base 10). Put the final answer inside \\boxed{} as a base-10 integer.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "1717"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.base.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Convert the hexadecimal number 0x1F3A7 to decimal (base 10). Put the final answer inside \\boxed{} as a base-10 integer.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "127911"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.base.0003",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Convert the base-7 number 6541 (written in base 7) to decimal (base 10). Put the final answer inside \\boxed{} as a base-10 integer.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "2332"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.base.0004",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Write the decimal number 2026 in base 3. Take that base-3 representation as a literal string of digits and read it as a base-10 integer. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "2210001"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.pct.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "A price is increased by 25% and then the new price is decreased by 20%. If the original price was 480 dollars, what is the final price in dollars? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "480"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.pct.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "What is 37.5% of 1024? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "384"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.interest.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "You invest 1000 dollars at a nominal annual interest rate of 8%, compounded quarterly, for 3 years. What is the final amount in dollars, rounded to the nearest cent (two decimal places)? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "1268.24"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.interest.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "You deposit 2500 dollars at a nominal annual rate of 6%, compounded monthly, for 5 years. Give the final balance in dollars rounded to the nearest cent. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3372.13"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.linear.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Solve for x: 7x - 19 = 3x + 53. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "18"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.linear.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Solve the system of equations  3x + 2y = 16  and  5x - y = 9. Put the solution inside \\boxed{} as the value of x followed by the value of y, comma-separated (x, y).",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3, 4",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.quad.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Solve x^2 - 7x - 18 = 0. Put the two roots inside \\boxed{} as a comma-separated list.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "-2, 9",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.quad.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Solve 2x^2 - x - 15 = 0. The roots are rational; one is an integer and one is a fraction. Put both roots inside \\boxed{} as a comma-separated list (write the fraction as a decimal).",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "-2.5, 3",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.quad.0003",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Solve x^2 = 529. Put both solutions inside \\boxed{} as a comma-separated list.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "-23, 23",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.seq.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "An arithmetic sequence has first term a_1 = 7 and common difference d = 4. What is the 100th term a_100? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "403"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.seq.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "A geometric sequence has first term 3 and common ratio 2. What is the sum of the first 12 terms? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "12285"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.seq.0003",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Let F(1)=1, F(2)=1, and F(n)=F(n-1)+F(n-2). Compute F(40), the 40th Fibonacci number. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "102334155"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.seq.0004",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute the sum of all multiples of 3 between 1 and 1000 inclusive. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "166833"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.comb.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "How many distinct ways are there to choose a committee of 5 people from a group of 18? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "8568"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.comb.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "How many distinct arrangements are there of all the letters of the word MISSISSIPPI? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "34650"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.comb.0003",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "In how many ways can 8 distinct books be arranged on a shelf if 3 particular books must all be together (treated as one block, and the 3 may be ordered among themselves)? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "4320"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.prob.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "A fair coin is flipped 5 times. The probability of getting exactly 2 heads is a fraction p/q in lowest terms. Put your answer inside \\boxed{} as \"p, q\" (numerator, denominator), comma-separated and fully reduced.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "5, 16",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.prob.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Two cards are drawn at random without replacement from a standard 52-card deck. The probability that both are aces is a fraction p/q in lowest terms. Put your answer inside \\boxed{} as \"p, q\" (numerator, denominator), comma-separated and fully reduced.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "1, 221",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.nt.prime.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "What is the 100th prime number? (The 1st prime is 2.) Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "541"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.nt.div.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "How many positive divisors does 360 have? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "24"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.nt.div.0002",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute the sum of all positive divisors of 496 (including 1 and 496). Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "992"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.nt.totient.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Compute Euler's totient phi(360): the number of integers from 1 to 360 that are coprime to 360. Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "96"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.nt.factor.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "What is the largest prime factor of 600851475143? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "6857"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.digits.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "Let N = 2^100. What is the sum of the decimal digits of N? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "115"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "math.nt.trailzeros.0001",
+    "category": "Math",
+    "tier": 0,
+    "prompt": "How many trailing zeros does 100! (100 factorial) have? Put the final answer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "24"
+        }
+      ],
+      "combine": "all"
+    }
+  }
+]

@@ -1,0 +1,543 @@
+[
+  {
+    "id": "reasoning.syllogism.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Consider these premises: (1) All members of the Vorlon council are diplomats. (2) All diplomats are registered citizens. Does it logically follow that all members of the Vorlon council are registered citizens? Reason carefully, then answer with exactly yes or no inside \\boxed{} (e.g. \\boxed{yes}).",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.syllogism.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Premises: (1) All sculptors are artists. (2) Some welders are artists. Does it NECESSARILY follow that some welders are sculptors? Answer with exactly yes or no inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*no\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.syllogism.0003",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Premises: (1) No reptiles are mammals. (2) All vipers are reptiles. Does it follow that no vipers are mammals? Answer yes or no inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.syllogism.0004",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Premises: (1) All koalas are herbivores. (2) No herbivores are predators. Does it follow that some koalas are predators? Answer yes or no inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*no\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.batball.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "A notebook and a pencil cost $1.30 together. The notebook costs $1.00 more than the pencil. How many cents does the PENCIL cost? Put only the number of cents inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "15"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.batball.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "A racket and a shuttlecock cost $2.40 in total. The racket costs $2.00 more than the shuttlecock. How many cents does the shuttlecock cost? Put only the number of cents inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "20"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.rate.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "If 5 machines take 5 minutes to make 5 widgets, how many minutes would 100 machines take to make 100 widgets? Put only the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "5"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.work.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Pipe A alone fills a tank in 4 hours; pipe B alone fills it in 6 hours. With both pipes open, how many hours does it take to fill the tank? Give the exact answer as a decimal inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "2.4"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.work.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Alice paints a fence in 10 hours, Bob in 15 hours, Carol in 30 hours. Working together at their constant rates, how many hours do they need to paint one fence? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "5"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.work.0003",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "If Sam can mow a lawn in 6 hours and Dana can mow the same lawn in 6 hours, how many hours does it take them to mow it together? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.mixture.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "You have 10 liters of a 40% acid solution. How many liters of PURE WATER must you add to dilute it to a 25% acid solution? Put the number of liters inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "6"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.mixture.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "A metallurgist mixes an unknown amount of a 60%-copper alloy with 40 kg of a 20%-copper alloy to obtain a 30%-copper alloy. How many kilograms of the 60% alloy are used? Give the exact decimal (rounded to 4 decimal places) inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "13.3333"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.speed.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "A cyclist rides from town A to town B at 30 mph, then immediately returns along the SAME road at 60 mph. What is her average speed for the whole round trip, in mph? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "40"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.speed.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Two trains are 120 miles apart on the same track, heading toward each other. One travels at 40 mph, the other at 60 mph. How many hours until they meet? Give the decimal inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "1.2"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.age.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "In 5 years, Ann will be exactly twice as old as Bob is today. Bob is 12 years old today. How old is Ann today? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "19"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.word.algebra.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "A widget costs 9 dollars plus half of its own price. What is the price of the widget, in dollars? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "18"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.kk.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "On an island, knights always tell the truth and knaves always lie. A says: 'B is a knave.' B says: 'Both A and B are knaves.' Is A a knight? Answer with exactly yes or no inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.kk.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Knights always tell the truth; knaves always lie. A person named A declares: 'I am a knave.' Could any consistent islander (knight or knave) make this statement? Answer with exactly yes or no inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*no\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.kk.0003",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Knights always tell the truth and knaves always lie. There are three islanders A, B, C. A says: 'All three of us are knaves.' B says: 'C is a knight.' C says: 'A is a knave.' Exactly how many of the three are knights? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "2"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.kk.0004",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Knights always tell the truth, knaves always lie. A says: 'B is a knight.' B says: 'A and I are of opposite types.' Is B a knave? Answer yes or no inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.date.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "On what day of the week did January 1, 2000 fall? Answer with exactly one capitalized weekday name (Monday..Sunday) inside \\boxed{} (e.g. \\boxed{Monday}).",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*Saturday\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.date.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "How many days are there from February 1, 2024 up to (but not including) March 1, 2024? (Note: 2024 is a leap year.) Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "29"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.date.0003",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "What calendar date is exactly 90 days after November 15, 2025? Answer in ISO format YYYY-MM-DD inside \\boxed{} (e.g. \\boxed{2026-01-01}).",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*2026\\-02\\-13\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.date.0004",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "If today is a Wednesday, what day of the week will it be 100 days from now? Answer with exactly one capitalized weekday name inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*Friday\\s*\\}",
+          "mode": "must_match"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.date.0005",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "In the calendar year 2026, on how many months does the 13th day of the month fall on a Friday? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.grid.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Three houses stand in a row at positions 1, 2, and 3 (left to right). Each is painted a different color: red, green, or blue. Clues: (1) The green house is immediately to the right of the red house. (2) The blue house is at position 1. At which position number (1, 2, or 3) is the GREEN house? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.grid.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Four runners \u2014 Ann, Ben, Cara, and Dan \u2014 finish a race in places 1st through 4th (no ties). Clues: (1) Ann finished ahead of Ben. (2) Cara finished last. (3) Dan finished immediately after Ann. In which place (1, 2, 3, or 4) did Ben finish? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.grid.0003",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Three people each own exactly one pet (cat, dog, or fish) and drink exactly one beverage (tea, coffee, or milk); all six are distinct across the people. Clues: (1) The cat owner drinks tea. (2) The person who drinks milk owns the fish. Which beverage does the DOG owner drink? Respond in the form <answer>X</answer> where X is exactly one of tea, coffee, milk.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "closed_set",
+          "slot": "answer",
+          "options": [
+            "tea",
+            "coffee",
+            "milk"
+          ],
+          "answer": "coffee"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.grid.0004",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "There are five lockers numbered 1 to 5, and exactly one contains a prize. Clues: (1) The prize locker has an odd number. (2) It is not locker 1. (3) It is not locker 5. Which locker number contains the prize? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "3"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.seq.0001",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "What number comes next in the sequence 2, 3, 5, 8, 13, ...? (Each term is the sum of the two preceding terms.) Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "21"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.seq.0002",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Find the next term: 1, 2, 4, 7, 11, 16, ...? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "22"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.seq.0003",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "What comes next: 0, 3, 8, 15, 24, ...? (Hint: each term is one less than a perfect square.) Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "35"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.seq.0004",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Determine the next number: 3, 6, 9, 18, 21, 42, ...? (The rule alternates between two operations.) Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "45"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.seq.0005",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "What is the next term in the sequence 2, 3, 5, 7, 11, 13, ...? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "17"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "reasoning.seq.0006",
+    "category": "Reasoning",
+    "tier": 0,
+    "prompt": "Find the next number in 1, 3, 6, 10, 15, ...? Put the number inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "21"
+        }
+      ],
+      "combine": "all"
+    }
+  }
+]

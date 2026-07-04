@@ -1,0 +1,687 @@
+[
+  {
+    "id": "creativity.haiku.0001",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a haiku about winter frost. Output ONLY the three lines of the haiku, one line each, no title, no commentary. The poem MUST contain the word 'frost'. Do NOT use the standalone word 'I' anywhere.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 3 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 3.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 3
+          }
+        },
+        {
+          "id": "has_frost",
+          "question": "Does the response contain the word 'frost'?",
+          "decision_rule": "True iff /frost/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "frost",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "no_first_person",
+          "question": "Does the response AVOID the standalone pronoun 'I'?",
+          "decision_rule": "True iff /\\bI\\b/i is absent.",
+          "required": false,
+          "polarity": "negative",
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\bI\\b",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.acrostic.0002",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a 5-line acrostic poem where the FIRST letter of each line spells RAVEN (line 1 starts with R, line 2 with A, line 3 with V, line 4 with E, line 5 with N). Output only the five lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 5 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 5.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 5
+          }
+        },
+        {
+          "id": "acrostic",
+          "question": "Do the first letters of the 5 lines spell RAVEN?",
+          "decision_rule": "True iff line1 begins R, line2 A, line3 V, line4 E, line5 N (case-insensitive).",
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "^\\s*R[^\\n]*\\n\\s*A[^\\n]*\\n\\s*V[^\\n]*\\n\\s*E[^\\n]*\\n\\s*N",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.sixword.0003",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a six-word story. It MUST be exactly six words on a single line, and it MUST include the word 'shoes'. Output only the six words.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "one_line",
+          "question": "Does the response have exactly 1 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 1.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 1
+          }
+        },
+        {
+          "id": "six_words",
+          "question": "Is the story exactly six words?",
+          "decision_rule": "True iff the line has exactly 6 whitespace-separated word tokens.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "^\\s*\\S+(?:\\s+\\S+){5}\\s*$",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_shoes",
+          "question": "Does the response contain the word 'shoes'?",
+          "decision_rule": "True iff /shoes/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "shoes",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.stanza.0004",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a poem about a river in EXACTLY three stanzas separated by blank lines. The whole poem must have exactly nine non-empty lines (three lines per stanza). It must contain the word 'river'. Output only the poem.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "stanzas",
+          "question": "Does the response have exactly 3 stanzas (blank-line-separated)?",
+          "decision_rule": "Count blank-line-separated blocks; true iff exactly 3.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "stanza",
+            "op": "==",
+            "n": 3
+          }
+        },
+        {
+          "id": "nine_lines",
+          "question": "Does the response have exactly 9 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 9.",
+          "required": false,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 9
+          }
+        },
+        {
+          "id": "has_river",
+          "question": "Does the response contain the word 'river'?",
+          "decision_rule": "True iff /river/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "river",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.limerick.0005",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a limerick (5 lines) about an astronaut. It must mention the word 'moon'. Do not use any digits (0-9). Output only the five lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 5 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 5.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 5
+          }
+        },
+        {
+          "id": "has_moon",
+          "question": "Does the response contain the word 'moon'?",
+          "decision_rule": "True iff /moon/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "moon",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "no_digits",
+          "question": "Does the response AVOID any digit?",
+          "decision_rule": "True iff /[0-9]/i is absent.",
+          "required": false,
+          "polarity": "negative",
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "[0-9]",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.blurb.0006",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a marketing blurb for a desk lamp called Lumora. Use between 2 and 4 sentences. You MUST mention the brand name 'Lumora'. You must NOT use the word 'best'. Output only the blurb.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "min_sentences",
+          "question": "Does the response have >= 2 sentences?",
+          "decision_rule": "Count sentences (split on .!?); true iff count >= 2.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "sentence",
+            "op": ">=",
+            "n": 2
+          }
+        },
+        {
+          "id": "max_sentences",
+          "question": "Does the response have <= 4 sentences?",
+          "decision_rule": "Count sentences (split on .!?); true iff count <= 4.",
+          "required": false,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "sentence",
+            "op": "<=",
+            "n": 4
+          }
+        },
+        {
+          "id": "has_brand",
+          "question": "Does the response contain the brand name 'Lumora'?",
+          "decision_rule": "True iff /Lumora/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "Lumora",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "no_best",
+          "question": "Does the response AVOID the word 'best'?",
+          "decision_rule": "True iff /\\bbest\\b/i is absent.",
+          "required": false,
+          "polarity": "negative",
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\bbest\\b",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.alliteration.0007",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write 4 lines of poetry where EVERY line begins with the letter S. Output only the four lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 4 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 4.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 4
+          }
+        },
+        {
+          "id": "all_S",
+          "question": "Does every one of the 4 lines begin with the letter S?",
+          "decision_rule": "True iff lines 1-4 each start (after optional whitespace) with S/s.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "^\\s*S[^\\n]*\\n\\s*S[^\\n]*\\n\\s*S[^\\n]*\\n\\s*S",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.couplets.0008",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a 6-line poem about an old clock. It must contain the word 'clock' and the word 'time'. Output only the six lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 6 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 6.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 6
+          }
+        },
+        {
+          "id": "has_clock",
+          "question": "Does the response contain the word 'clock'?",
+          "decision_rule": "True iff /clock/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "clock",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_time",
+          "question": "Does the response contain the word 'time'?",
+          "decision_rule": "True iff /\\btime\\b/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\btime\\b",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.microfic.0009",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a piece of microfiction of at least 3 sentences about an unopened letter. It must contain at least one line of quoted dialogue (text inside double quotes) and must contain the word 'letter'. Output only the story.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "min_sentences",
+          "question": "Does the response have >= 3 sentences?",
+          "decision_rule": "Count sentences (split on .!?); true iff count >= 3.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "sentence",
+            "op": ">=",
+            "n": 3
+          }
+        },
+        {
+          "id": "has_dialogue",
+          "question": "Does the response contain at least one double-quoted passage?",
+          "decision_rule": "True iff /\"[^\"]+\"/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\"[^\"]+\"",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_letter",
+          "question": "Does the response contain the word 'letter'?",
+          "decision_rule": "True iff /letter/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "letter",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.lipogram.0010",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a 4-line poem that NEVER uses the letter 'e' (a lipogram). It must contain the word 'moon'. Output only the four lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 4 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 4.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 4
+          }
+        },
+        {
+          "id": "no_e",
+          "question": "Does the response AVOID the letter e?",
+          "decision_rule": "True iff /e/i is absent.",
+          "required": false,
+          "polarity": "negative",
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "e",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_moon",
+          "question": "Does the response contain the word 'moon'?",
+          "decision_rule": "True iff /moon/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "moon",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.seasonal.0011",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a 4-line poem about autumn. It must contain the word 'leaves' and the word 'gold'. Output only the four lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 4 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 4.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 4
+          }
+        },
+        {
+          "id": "has_leaves",
+          "question": "Does the response contain the word 'leaves'?",
+          "decision_rule": "True iff /leaves/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "leaves",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_gold",
+          "question": "Does the response contain the word 'gold'?",
+          "decision_rule": "True iff /gold/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "gold",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.named.0012",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a poem in EXACTLY two stanzas (separated by one blank line) about the night sky. It must name the constellation 'Orion'. Output only the poem.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "stanzas",
+          "question": "Does the response have exactly 2 stanzas (blank-line-separated)?",
+          "decision_rule": "Count blank-line-separated blocks; true iff exactly 2.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "stanza",
+            "op": "==",
+            "n": 2
+          }
+        },
+        {
+          "id": "has_orion",
+          "question": "Does the response contain the constellation 'Orion'?",
+          "decision_rule": "True iff /Orion/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "Orion",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.opener.0013",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a single-sentence story opening that ends with a question mark and contains the word 'midnight'. Output only the sentence.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "ends_q",
+          "question": "Does the response end with a question mark?",
+          "decision_rule": "True iff the trimmed text ends with '?'.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\?\\s*$",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_midnight",
+          "question": "Does the response contain the word 'midnight'?",
+          "decision_rule": "True iff /midnight/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "midnight",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "no_internal_period",
+          "question": "Is it a single sentence (no internal sentence-ending punctuation)?",
+          "decision_rule": "True iff there is no '.', '!' or '?' before the final character.",
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "[.!?].*\\S",
+            "mode": "must_not_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.rhyme.0014",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a rhyming couplet (exactly 2 lines) about a star. Line 1 must end with the word 'light' and line 2 must end with the word 'night'. Output only the two lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 2 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 2.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 2
+          }
+        },
+        {
+          "id": "ends_light_night",
+          "question": "Does line 1 end in 'light' and line 2 end in 'night'?",
+          "decision_rule": "True iff line1 ends with 'light' and line2 ends with 'night' (ignoring trailing punctuation).",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "light[\\s\\W]*\\n[^\\n]*night[\\s\\W]*$",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_star",
+          "question": "Does the response contain the word 'star'?",
+          "decision_rule": "True iff /star/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "star",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.numbered.0015",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a 3-item numbered list of instructions for brewing tea. Each item on its own line, starting with '1.', '2.', '3.' respectively. It must mention 'water'. Output only the list.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 3 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 3.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 3
+          }
+        },
+        {
+          "id": "numbered",
+          "question": "Do the three lines start with 1., 2., 3. in order?",
+          "decision_rule": "True iff line1 starts '1.', line2 '2.', line3 '3.'.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "^\\s*1\\.[^\\n]*\\n\\s*2\\.[^\\n]*\\n\\s*3\\.",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_water",
+          "question": "Does the response contain the word 'water'?",
+          "decision_rule": "True iff /water/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "water",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creativity.dialogue.0016",
+    "category": "Prose",
+    "tier": 1,
+    "prompt": "Write a 4-line dialogue exchange. EVERY line must be wrapped in double quotes. The conversation must mention a 'key'. Output only the four quoted lines.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "lines",
+          "question": "Does the response have exactly 4 non-empty lines?",
+          "decision_rule": "Count non-empty lines; true iff exactly 4.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "line",
+            "op": "==",
+            "n": 4
+          }
+        },
+        {
+          "id": "all_quoted",
+          "question": "Is every one of the 4 lines wrapped in double quotes?",
+          "decision_rule": "True iff each non-empty line both starts and ends with a double quote.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "^\\s*\"[^\"\\n]*\"\\s*\\n\\s*\"[^\"\\n]*\"\\s*\\n\\s*\"[^\"\\n]*\"\\s*\\n\\s*\"[^\"\\n]*\"\\s*$",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "has_key",
+          "question": "Does the response contain the word 'key'?",
+          "decision_rule": "True iff /key/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "key",
+            "mode": "must_match"
+          }
+        }
+      ]
+    }
+  }
+]

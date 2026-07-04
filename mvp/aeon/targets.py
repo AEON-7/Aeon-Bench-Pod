@@ -1,0 +1,396 @@
+"""Target adapters — how the runner talks to a model under test / a judge.
+
+`OpenAITarget` speaks the OpenAI-compatible /v1 API (Ollama, LM Studio, vLLM,
+TGI, llama.cpp server, OpenAI, ...). It streams so we can measure TTFT and
+decode throughput honestly (DESIGN §11). `MockTarget` returns canned answers
+so the pipeline + dashboard can be exercised without a model.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import time
+import urllib.error
+import urllib.request
+
+
+class TargetError(RuntimeError):
+    pass
+
+
+def _clean(messages):
+    """Send only standard OpenAI fields (drop internal tags like _case_id)."""
+    return [{"role": m["role"], "content": m["content"]} for m in messages]
+
+
+def _ipv4(url):
+    """Avoid the Windows localhost->::1 slow-refuse: prefer the IPv4 loopback."""
+    return url.replace("//localhost", "//127.0.0.1")
+
+
+# ---- multimodal content helpers (vision board) ----
+
+def text_block(text):
+    return {"type": "text", "text": text}
+
+
+def image_block(png_bytes):
+    b64 = base64.b64encode(png_bytes).decode()
+    return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64}}
+
+
+def audio_block(wav_bytes, fmt="wav"):
+    b64 = base64.b64encode(wav_bytes).decode()
+    return {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
+
+
+def _prompt_chars(messages):
+    """Total characters of prompt text across messages (str or block-list content)."""
+    total = 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, str):
+            total += len(c)
+        elif isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict) and blk.get("type") == "text":
+                    total += len(blk.get("text") or "")
+    return total
+
+
+def _input_tokens(messages, usage):
+    """(input_tokens, estimated) — prefer server-reported usage.prompt_tokens
+    (vLLM sends it in the final stream chunk when stream_options.include_usage
+    is set); otherwise fall back to a chars//4 estimate and say so honestly."""
+    tok = (usage or {}).get("prompt_tokens")
+    if isinstance(tok, (int, float)) and tok > 0:
+        return int(tok), False
+    return max(1, _prompt_chars(messages) // 4), True
+
+
+def _img_stats(messages):
+    """(n_images, total_decoded_bytes) across image_url blocks in the messages."""
+    n, nbytes = 0, 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict) and blk.get("type") == "image_url":
+                    n += 1
+                    url = blk.get("image_url", {}).get("url", "")
+                    payload = url.split(",", 1)[1] if "," in url else url
+                    nbytes += (len(payload) * 3) // 4
+    return n, nbytes
+
+
+def _audio_stats(messages):
+    """(n_audio, total_decoded_bytes) across input_audio blocks in the messages."""
+    n, nbytes = 0, 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict) and blk.get("type") == "input_audio":
+                    n += 1
+                    payload = blk.get("input_audio", {}).get("data", "")
+                    nbytes += (len(payload) * 3) // 4
+    return n, nbytes
+
+
+class OpenAITarget:
+    def __init__(self, base_url, model, api_key=None, timeout=180):
+        self.base_url = _ipv4(base_url.rstrip("/"))
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout
+
+    def _headers(self):
+        h = {"Content-Type": "application/json"}
+        if self.api_key:
+            h["Authorization"] = "Bearer " + self.api_key
+        return h
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        """Return {text, ttft_ms, decode_tps, e2e_ms, output_tokens}.
+
+        Streams; falls back to a non-streaming request if the server rejects
+        the stream (then ttft/decode_tps are null — never faked as e2e).
+        """
+        try:
+            res = self._chat_stream(messages, temperature, max_tokens)
+        except TargetError:
+            raise
+        except Exception:
+            res = self._chat_once(messages, temperature, max_tokens)
+        n, nbytes = _img_stats(messages)
+        if n:
+            res["n_images"] = n
+            res["image_bytes"] = nbytes
+            # honest label: this TTFT includes upload + server decode + prefill (§6c.5)
+            res["ttft_after_image_ms"] = res.get("ttft_ms")
+        na, abytes = _audio_stats(messages)
+        if na:
+            res["n_audio"] = na
+            res["audio_bytes"] = abytes
+            # honest label: this TTFT includes upload + server decode + prefill (§6c.5)
+            res["ttft_after_audio_ms"] = res.get("ttft_ms")
+        return res
+
+    def _post(self, payload, stream):
+        url = self.base_url + "/chat/completions"
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
+        return urllib.request.urlopen(req, timeout=self.timeout)
+
+    def _chat_stream(self, messages, temperature, max_tokens):
+        payload = {
+            "model": self.model,
+            "messages": _clean(messages),
+            "stream": True,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream_options": {"include_usage": True},
+        }
+        t0 = time.perf_counter()
+        ttft = None          # time to the FIRST generated token of ANY kind (incl. hidden reasoning)
+        chunks = 0           # streamed token-chunks (reasoning + content) — for timing + fallback count
+        parts = []           # ANSWER text only (content); reasoning is never part of the answer
+        usage = None
+        finish = None        # finish_reason of the last choice; "length" == hit max_tokens (truncated)
+        try:
+            resp = self._post(payload, stream=True)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise TargetError(f"HTTP {e.code} from {self.base_url}: {body}")
+        with resp as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                payload_str = line[5:].strip()
+                if payload_str == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(payload_str)
+                except json.JSONDecodeError:
+                    continue
+                choices = obj.get("choices") or []
+                if choices:
+                    if choices[0].get("finish_reason"):
+                        finish = choices[0]["finish_reason"]
+                    delta = choices[0].get("delta") or {}
+                    c = delta.get("content")
+                    # Reasoning models stream hidden thinking in a separate field BEFORE the
+                    # answer. It counts toward generation timing + throughput, but is NOT part
+                    # of the answer text. (Without this, TTFT inflates to the whole think time
+                    # and decode_tps divides all tokens by the tiny content-only window.)
+                    reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                    if (c or reasoning) and ttft is None:
+                        ttft = time.perf_counter() - t0
+                    if c or reasoning:
+                        chunks += 1
+                    if c:
+                        parts.append(c)
+                if obj.get("usage"):
+                    usage = obj["usage"]
+        t_last = time.perf_counter()
+        text = "".join(parts)
+        if not text and chunks == 0:
+            # Server streamed nothing useful — treat as a non-stream fallback.
+            return self._chat_once(messages, temperature, max_tokens)
+        out_tok = (usage or {}).get("completion_tokens") or chunks or max(1, len(text) // 4)
+        in_tok, in_est = _input_tokens(messages, usage)
+        decode_span = (t_last - t0) - (ttft or 0.0)
+        tps = (out_tok / decode_span) if decode_span > 1e-6 else None
+        return {
+            "text": text,
+            "ttft_ms": round(ttft * 1000, 2) if ttft is not None else None,
+            "decode_tps": round(tps, 2) if tps else None,
+            "e2e_ms": round((t_last - t0) * 1000, 2),
+            "output_tokens": out_tok,
+            "input_tokens": in_tok,
+            "input_tokens_estimated": in_est,
+            "finish_reason": finish,
+            "truncated": finish == "length",
+            "streamed": True,
+        }
+
+    def _chat_once(self, messages, temperature, max_tokens):
+        payload = {
+            "model": self.model,
+            "messages": _clean(messages),
+            "stream": False,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        t0 = time.perf_counter()
+        try:
+            resp = self._post(payload, stream=False)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise TargetError(f"HTTP {e.code} from {self.base_url}: {body}")
+        with resp as r:
+            obj = json.loads(r.read().decode("utf-8", "replace"))
+        t_last = time.perf_counter()
+        choice0 = (obj.get("choices") or [{}])[0]
+        text = choice0.get("message", {}).get("content", "") or ""
+        finish = choice0.get("finish_reason")
+        out_tok = (obj.get("usage") or {}).get("completion_tokens") or max(1, len(text) // 4)
+        in_tok, in_est = _input_tokens(messages, obj.get("usage"))
+        return {
+            "text": text,
+            "ttft_ms": None,          # not measurable without streaming — never faked
+            "decode_tps": None,
+            "e2e_ms": round((t_last - t0) * 1000, 2),
+            "output_tokens": out_tok,
+            "input_tokens": in_tok,
+            "input_tokens_estimated": in_est,
+            "finish_reason": finish,
+            "truncated": finish == "length",
+            "streamed": False,
+        }
+
+
+class MockTarget:
+    """Deterministic canned answers keyed by case id, for pipeline/UI testing.
+
+    Two personas: 'mock-good' answers correctly; 'mock-sloppy' makes the kinds
+    of mistakes weak models make (wrong format, off-by, verbose).
+    """
+
+    GOOD = {
+        "math.mul": "The product is \\boxed{391}.",
+        "math.div": "\\boxed{12}",
+        "math.quad": "The roots are \\boxed{3, -5}.",
+        "if.pong": "PONG",
+        "if.three_colors": "red\ngreen\nblue",
+        "if.no_e": "An odd941 quiz",
+        "reason.syllogism": "Yes. \\boxed{yes}",
+        "reason.batball": "\\boxed{5}",
+        "code.add": "```python\ndef add(a, b):\n    return a + b\n```",
+        "code.palindrome": "```python\ndef is_palindrome(s):\n    s = s.lower()\n    return s == s[::-1]\n```",
+        "prose.ocean3": "The tide breathes slow on shoals of grey\nthe ocean folds the light away\nand gulls go scattering with the spray",
+    }
+    SLOPPY = {
+        "math.mul": "Let me compute 17 times 23... it is 17*23 = 371.",
+        "math.div": "144/12 equals 12, so the answer is 12.",
+        "math.quad": "x = 3 or x = 5",
+        "if.pong": "Sure! PONG!",
+        "if.three_colors": "Here are some colors: red, green, blue, yellow.",
+        "if.no_e": "Here are several letters everywhere.",
+        "reason.syllogism": "Hmm, not necessarily. \\boxed{no}",
+        "reason.batball": "The ball costs \\boxed{10} cents.",
+        "code.add": "```python\ndef add(a, b):\n    return a - b\n```",
+        "code.palindrome": "def is_palindrome(s): return s == s[::-1]",
+        "prose.ocean3": "The ocean is very big and blue and I like it a lot because it has waves and fish and boats.",
+    }
+
+    def __init__(self, persona="mock-good"):
+        self.model = persona
+        self.table = self.GOOD if persona == "mock-good" else self.SLOPPY
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        case_id = messages[0].get("_case_id") if messages else None
+        text = self.table.get(case_id, "I am not sure.")
+        time.sleep(0.01)
+        toks = max(1, len(text) // 4)
+        return {
+            "text": text,
+            "ttft_ms": 12.0,
+            "decode_tps": 95.0,
+            "e2e_ms": 10.0 + toks,
+            "output_tokens": toks,
+            "streamed": True,
+        }
+
+
+class MockVisionTarget:
+    """Canned slot-formatted answers for the vision suite, keyed by _case_id —
+    lets the vision board be exercised with zero GPU. probe_vision() short-circuits
+    this class to vision_ok=True, so these only need to satisfy the suite cases."""
+
+    GOOD = {
+        "vision.ocr.token": "<ocr>AEON</ocr>",
+        "vision.count.circles": "<count>4</count>",
+        "vision.color.square": "<answer>red</answer>",
+        "vision.spatial.quadrant": "<answer>top-left</answer>",
+        "vision.relation.leftof": "<answer>red circle</answer>",
+        "vision.chart.maxbar": "<answer>B</answer>",
+        "vision.chart.value": "<count>3</count>",
+        "vision.vqa.mcq": "<answer>triangle</answer>",
+        "vision.detail.tiny": "<ocr>k7</ocr>",
+        "vision.multi.morecount": "<answer>second</answer>",
+        "vision.describe.scene": "<object>circle</object><color>red</color>",
+    }
+
+    def __init__(self, persona="mock-vision"):
+        self.model = persona
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        cid = messages[0].get("_case_id") if messages else None
+        text = self.GOOD.get(cid, "<answer>unknown</answer>")
+        n, nbytes = _img_stats(messages)
+        time.sleep(0.005)
+        return {"text": text, "ttft_ms": 11.0, "decode_tps": 90.0, "e2e_ms": 9.0,
+                "output_tokens": max(1, len(text) // 4), "streamed": True,
+                "n_images": n, "image_bytes": nbytes, "ttft_after_image_ms": 11.0}
+
+
+class MockAudioTarget:
+    """Slot-formatted answers for the audio suite, keyed by _case_id — lets the
+    audio board be exercised with zero GPU. probe_audio() short-circuits this
+    class to audio_ok=True. The gold table is DERIVED from audio_suite's own
+    deterministic checkers (count_slot/closed_set), so it never drifts from the
+    suite. Personas: 'mock-audio*' answers correctly; any '*-bad' persona
+    answers wrong on every case (for scoring-path tests)."""
+
+    def __init__(self, persona="mock-audio"):
+        self.model = persona
+        self.bad = persona.endswith("-bad")
+        self._table = None
+
+    def _gold(self):
+        if self._table is None:
+            from . import audio_suite  # deferred: no import cycle (audio_suite imports audiogen only)
+            table = {}
+            for c in audio_suite.CASES:
+                chk = c["eval"]["checkers"][0]
+                if chk["type"] == "count_slot":
+                    slot = chk.get("slot", "count")
+                    table[c["id"]] = f"<{slot}>{chk['value']}</{slot}>"
+                else:  # closed_set
+                    slot = chk.get("slot", "answer")
+                    table[c["id"]] = f"<{slot}>{chk['answer']}</{slot}>"
+            self._table = table
+        return self._table
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        cid = messages[0].get("_case_id") if messages else None
+        if self.bad:
+            text = "<answer>zzzz</answer><count>-999</count>"  # in-slot but wrong everywhere
+        else:
+            text = self._gold().get(cid, "<answer>unknown</answer>")
+        n, nbytes = _audio_stats(messages)
+        time.sleep(0.005)
+        return {"text": text, "ttft_ms": 11.0, "decode_tps": 90.0, "e2e_ms": 9.0,
+                "output_tokens": max(1, len(text) // 4), "streamed": True,
+                "n_audio": n, "audio_bytes": nbytes, "ttft_after_audio_ms": 11.0}
+
+
+def list_models(base_url, timeout=2, api_key=None):
+    """Best-effort list of model ids from an OpenAI-compatible or Ollama endpoint."""
+    base = _ipv4(base_url.rstrip("/"))
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    candidates = [base + "/models", base.rsplit("/v1", 1)[0] + "/api/tags"]
+    for url in candidates:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                obj = json.loads(r.read().decode("utf-8", "replace"))
+            if isinstance(obj, dict) and "data" in obj:          # OpenAI /v1/models
+                return [m["id"] for m in obj["data"]]
+            if isinstance(obj, dict) and "models" in obj:        # Ollama /api/tags
+                return [m["name"] for m in obj["models"]]
+        except Exception:
+            continue
+    return []

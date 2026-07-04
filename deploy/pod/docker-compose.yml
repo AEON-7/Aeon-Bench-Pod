@@ -1,0 +1,252 @@
+# AEON Bench — POD appliance (the controlled A→B benchmark you run on YOUR GPU host).
+#
+# This brings up the whole local stack a user spins up to benchmark a model on their own
+# hardware and submit results to a mothership. The flow (see AGENTS.md for detail):
+#
+#   model-under-test  pull → hash-verify HF weights → serve on a fixed alias (vLLM /
+#                     aeon-vllm-ultimate on a DGX Spark)            [the "B" — the served model]
+#   aeon-pod          benchmark the served alias through each harness, then submit the
+#                     ed25519-signed results bundle to the mothership   [the "A" — control plane]
+#   hermes/openclaw/  the 3 vanilla agent harnesses the agentic suite is driven THROUGH, each
+#   opencode          pointed at `model-under-test`; their exact release versions are disclosed
+#                     in the report (harnesses.py)
+#
+# Quickstart:  cp .env.example .env  &&  edit .env  &&  docker compose up --build
+# See docs/run-a-benchmark.md and docs/pod-quickstart.md.
+#
+# Build context is the repo root (`../..`) so the pod image can COPY mvp/. Run from this dir:
+#   docker compose -f deploy/pod/docker-compose.yml up --build   (or `cd deploy/pod && docker compose up`)
+
+name: aeon-pod
+
+services:
+
+  # ── The served model under test ("B") ──────────────────────────────────────────────────────
+  # vLLM serves the local weights on the FIXED alias `model-under-test` (modelhost.DEFAULT_ALIAS)
+  # — every harness + the pod talk to this alias, never to a raw model name. On a DGX Spark the
+  # pod's recipe defaults the ENGINE to `aeon-vllm-ultimate`; this compose ships vanilla vLLM as
+  # the portable default and documents the swap below.
+  #
+  # The weights are pulled+verified by the `pull` step (below) into the shared volume; vLLM then
+  # serves them from disk. AEON_HF_LINK selects the model.
+  model-under-test:
+    # TODO verify the exact image tag you want to pin. vllm/vllm-openai:latest is the upstream
+    #   OpenAI-compatible server image; pin a concrete tag (e.g. vllm/vllm-openai:v0.6.3) for
+    #   reproducibility. On a DGX Spark (GB10/arm64) use the aeon-vllm-ultimate image instead
+    #   (see the commented block below) — that is the pod's DGX-Spark default engine.
+    image: ${AEON_VLLM_IMAGE:-vllm/vllm-openai:latest}   # TODO verify / pin a concrete tag
+    depends_on:
+      pull:
+        condition: service_completed_successfully
+    command:
+      - "--model"
+      - "/weights"                       # the verified local snapshot (see `pull`)
+      - "--served-model-name"
+      - "model-under-test"               # FIXED alias — must match modelhost.DEFAULT_ALIAS
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      # --max-model-len / --quantization are model-dependent; the pod's derive_recipe() computes
+      # them from config.json. Set AEON_MAX_MODEL_LEN / AEON_QUANT in .env to override here.
+      # TODO verify any model-specific serve flags (tensor-parallel, dtype, trust-remote-code).
+    environment:
+      HF_HOME: /hf-cache
+    volumes:
+      - weights:/weights:ro              # verified weights (read-only to the engine)
+      - hf-cache:/hf-cache
+    ports:
+      - "${AEON_TARGET_PORT:-8000}:8000" # OpenAI-compatible API: http://localhost:8000/v1
+    # GPU access via the NVIDIA Container Toolkit.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/v1/models || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s                 # large-weight load can be slow
+
+  # ── DGX Spark default engine (aeon-vllm-ultimate) ───────────────────────────────────────────
+  # On a DGX Spark, replace the `image:` above with the first-party signed engine image and set
+  # AEON_SYSTEM=dgx-spark in .env (modelhost.is_dgx_spark / derive_recipe default it). It serves
+  # the SAME `model-under-test` alias on :8000, so nothing else changes. Example:
+  #
+  #   model-under-test:
+  #     image: ${AEON_ULTIMATE_IMAGE:-ghcr.io/aeon-bench/aeon-vllm-ultimate:latest}  # TODO verify tag/digest
+  #     command: ["serve", "/weights", "--served-model-name", "model-under-test",
+  #               "--host", "0.0.0.0", "--port", "8000", "--max-model-len", "${AEON_MAX_MODEL_LEN:-8192}"]
+  #   (cosign-verify the digest first — see trust-architecture §2.2 first-party exception.)
+
+  # ── Weight pull + hash-verify (modelhost) ───────────────────────────────────────────────────
+  # One-shot: resolve the HF link → pull the snapshot (hub-verified per file) → hash-verify into a
+  # content-addressed weights_hash and compare to HF's published LFS sha256 (the SIGNATURE that the
+  # bytes on disk ARE exactly repo@sha). Lands the verified snapshot in the shared `weights` volume.
+  pull:
+    build:
+      context: ../..                     # repo root (Dockerfile COPYs mvp/)
+      dockerfile: deploy/pod/Dockerfile
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import os, json, sys
+        sys.path.insert(0, "/app/mvp")
+        from pod import modelhost as mh
+        link = os.environ["AEON_HF_LINK"]
+        repo, rev = mh.resolve(link)
+        print(f"[pull] {repo}@{rev}", flush=True)
+        ref = mh.fetch_ref(repo, rev)
+        mh.pull(repo, ref.get("revision") or rev, "/weights")
+        v = mh.verify("/weights", ref)
+        print("[verify]", json.dumps({k: v[k] for k in
+              ("verified","method","weights_hash","revision","n_weight_files","lfs_checked","mismatches")}), flush=True)
+        if not v["verified"]:
+            print("[verify] WEIGHTS DID NOT VERIFY — refusing to serve", file=sys.stderr); sys.exit(1)
+        json.dump({"repo": repo, "revision": ref.get("revision") or rev, "verification": v,
+                   "recipe": mh.derive_recipe("/weights", ref, engine=os.environ.get("AEON_ENGINE") or None)},
+                  open("/weights/.aeon-modelref.json", "w"))
+    environment:
+      AEON_HF_LINK: ${AEON_HF_LINK:?set AEON_HF_LINK in .env (HF repo id or URL)}
+      AEON_SYSTEM: ${AEON_SYSTEM:-}      # set to dgx-spark to force the aeon-vllm-ultimate recipe
+      AEON_ENGINE: ${AEON_ENGINE:-}      # pin engine: vllm | aeon-vllm-ultimate | llama.cpp
+      HF_HOME: /hf-cache
+      HF_TOKEN: ${HF_TOKEN:-}            # needed for gated/private repos
+    volumes:
+      - weights:/weights
+      - hf-cache:/hf-cache
+
+  # ── Harness: Hermes Agent (official docker image) ───────────────────────────────────────────
+  # NousResearch/hermes-agent — deployed as docker (harnesses.py: deploy="docker"). Pointed at the
+  # served alias; its release version is captured via `hermes --version` and disclosed in the report.
+  hermes:
+    # TODO verify the official image + tag. harnesses.py only gives the repo
+    #   (github.com/NousResearch/hermes-agent); pin the published image:tag or digest here.
+    image: ${AEON_HERMES_IMAGE:-ghcr.io/nousresearch/hermes-agent:latest}   # TODO verify image + pin tag
+    depends_on:
+      model-under-test:
+        condition: service_healthy
+    environment:
+      # Hermes is OpenAI-compatible (harnesses.py: endpoint_env="OPENAI_BASE_URL").
+      OPENAI_BASE_URL: "http://model-under-test:8000/v1"
+      OPENAI_API_KEY: "${AEON_TARGET_API_KEY:-sk-local}"
+      AEON_HARNESS_MODEL: "model-under-test"
+    restart: "no"
+    # The pod orchestrates the agentic pass through this harness; this service is the harness
+    # runtime the pod talks to. (Orchestration wiring is harness-specific — see AGENTS.md.)
+
+  # ── Harness: OpenClaw (npm wrapper image) ───────────────────────────────────────────────────
+  openclaw:
+    build:
+      context: .
+      dockerfile: harness-openclaw.Dockerfile
+      args:
+        OPENCLAW_VERSION: ${AEON_OPENCLAW_VERSION:-0.17.0}   # TODO verify pinned version exists
+    depends_on:
+      model-under-test:
+        condition: service_healthy
+    environment:
+      OPENAI_BASE_URL: "http://model-under-test:8000/v1"
+      OPENAI_API_KEY: "${AEON_TARGET_API_KEY:-sk-local}"
+      OPENCLAW_MODEL: "model-under-test"
+    restart: "no"
+
+  # ── Harness: OpenCode (npm wrapper image) ───────────────────────────────────────────────────
+  opencode:
+    build:
+      context: .
+      dockerfile: harness-opencode.Dockerfile
+      args:
+        OPENCODE_VERSION: ${AEON_OPENCODE_VERSION:-0.3.0}    # TODO verify pinned version exists
+    depends_on:
+      model-under-test:
+        condition: service_healthy
+    environment:
+      OPENAI_BASE_URL: "http://model-under-test:8000/v1"
+      OPENAI_API_KEY: "${AEON_TARGET_API_KEY:-sk-local}"
+      OPENCODE_MODEL: "model-under-test"
+    restart: "no"
+
+  # ── The pod control plane ("A") ─────────────────────────────────────────────────────────────
+  # Benchmarks the served alias and submits the signed bundle. Runs once and exits. The flags map
+  # 1:1 to aeon_pod.py:  --target --model --mothership --engine --hardware --hf-repo --judge
+  #   --max-tokens. The device key + local pod.db persist in the `pod-state` volume (~/.aeon).
+  aeon-pod:
+    build:
+      context: ../..
+      dockerfile: deploy/pod/Dockerfile
+    depends_on:
+      pull:                                # the verified weights + .aeon-modelref.json must exist first
+        condition: service_completed_successfully
+      model-under-test:
+        condition: service_healthy
+      # harnesses are needed for the agentic passes; they start once the model is healthy.
+      hermes: {condition: service_started}
+      openclaw: {condition: service_started}
+      opencode: {condition: service_started}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      # --modelref makes this an ATTESTED (globally-rankable) run: it carries the pull sidecar's
+      # weights_hash + per-file hashes + recipe so the mothership re-verifies against HF before
+      # ranking. (Swap to --target/--model alone for a self_reported LOCAL run.)
+      - |
+        exec python -m pod.aeon_pod \
+          --target   "http://model-under-test:8000/v1" \
+          --modelref "/weights/.aeon-modelref.json" \
+          --mothership "$${AEON_MOTHERSHIP}" \
+          --harness  all \
+          $${AEON_HARDWARE:+--hardware "$${AEON_HARDWARE}"} \
+          $${AEON_JUDGE:+--judge "$${AEON_JUDGE}"} \
+          $${AEON_JUDGE_URL:+--judge-url "$${AEON_JUDGE_URL}"} \
+          $${AEON_JUDGE_KEY:+--judge-key "$${AEON_JUDGE_KEY}"} \
+          $${AEON_MAX_TOKENS:+--max-tokens "$${AEON_MAX_TOKENS}"} \
+          $${AEON_LIMIT:+--limit "$${AEON_LIMIT}"}
+    environment:
+      AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:?set AEON_MOTHERSHIP in .env (mothership base URL)}
+      AEON_HF_LINK:    ${AEON_HF_LINK:?set AEON_HF_LINK in .env}
+      AEON_ENGINE:     ${AEON_ENGINE:-}          # vllm | aeon-vllm-ultimate (DGX default) | llama.cpp
+      AEON_HARDWARE:   ${AEON_HARDWARE:-}        # label, e.g. "NVIDIA DGX Spark GB10 128GB"
+      AEON_SYSTEM:     ${AEON_SYSTEM:-}          # dgx-spark to force the ultimate recipe
+      AEON_JUDGE:      ${AEON_JUDGE:-}           # FRONTIER judge id, or empty = deterministic-only (never self-judge)
+      AEON_JUDGE_URL:  ${AEON_JUDGE_URL:-}
+      AEON_JUDGE_KEY:  ${AEON_JUDGE_KEY:-}
+      AEON_MAX_TOKENS: ${AEON_MAX_TOKENS:-2048}  # reasoning models need headroom
+      AEON_LIMIT:      ${AEON_LIMIT:-}           # first N cases only (quick smoke); empty = full suite
+      AEON_KEEP_WEIGHTS: ${AEON_KEEP_WEIGHTS:-1} # keep verified weights after the run (volume persists regardless)
+      AEON_TARGET_API_KEY: ${AEON_TARGET_API_KEY:-sk-local}
+    volumes:
+      - pod-state:/root/.aeon            # ed25519 device key (enrolled once) + local pod.db
+      - weights:/weights                 # read the pull sidecar's .aeon-modelref.json (verification)
+      # Optional: mount a generated suite corpus so it overrides the built-ins:
+      #   - ./suites:/app/mvp/suites:ro
+    restart: "no"
+
+  # ── Your LOCAL lab dashboard ("your lab") ───────────────────────────────────────────────────
+  # The SAME app in POD role (AEON_ROLE=pod), reading the local pod.db the control plane writes:
+  # your runs over time + the LIVE view (per-category progress + the prompt/answer feed) as the
+  # pod benchmarks. Local only — nothing here is public. The mothership shows a run only once you
+  # submit a verified one and it's accepted. Open http://localhost:8080.
+  pod-dashboard:
+    build:
+      context: ../..
+      dockerfile: deploy/pod/Dockerfile
+    entrypoint: ["python", "serve.py"]
+    working_dir: /app/mvp
+    environment:
+      AEON_ROLE: pod                     # local lab: Live view + your own runs
+      AEON_DB: /root/.aeon/pod.db        # the SAME SQLite the aeon-pod control plane writes (WAL: safe concurrent read)
+      AEON_PORT: "8080"
+    volumes:
+      - pod-state:/root/.aeon            # shares the device key + pod.db with aeon-pod
+    ports:
+      - "${AEON_DASH_PORT:-8080}:8080"   # your lab dashboard
+    restart: unless-stopped
+
+volumes:
+  weights:      # verified model snapshot, shared pull → engine
+  hf-cache:     # huggingface_hub download cache
+  pod-state:    # ~/.aeon — device key + local SQLite dashboard (PERSIST to keep your enrolled key)

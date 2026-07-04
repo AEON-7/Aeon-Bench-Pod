@@ -1,0 +1,576 @@
+[
+  {
+    "id": "instruction.lines_exact.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output exactly 7 lines. Each line must contain a single distinct country name and nothing else. No blank lines, no numbering, no extra prose.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 7
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.lines_exact.0002",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Produce a haiku-shaped list of exactly 3 lines describing dawn. Output only the 3 lines, no title, no blank lines.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.sentences_exact.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write a paragraph about photosynthesis containing EXACTLY 4 sentences. Each sentence must end with a period. Output only the paragraph.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "sentence",
+          "op": "==",
+          "n": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.stanzas_exact.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write a poem with EXACTLY 2 stanzas, separated by a single blank line. Output only the poem.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "stanza",
+          "op": "==",
+          "n": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.forbid_letter.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write one sentence about a sunny park that does NOT contain the letter 'e' (neither uppercase nor lowercase). Output only the sentence.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "e",
+          "mode": "must_not_match",
+          "ignore_case": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.forbid_letter.0002",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write a single short sentence that avoids BOTH the letter 'a' and the letter 'o'. Output only the sentence.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "a",
+          "mode": "must_not_match",
+          "ignore_case": true
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "o",
+          "mode": "must_not_match",
+          "ignore_case": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.require_token.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write two sentences of travel advice. The exact word 'passport' MUST appear at least once. Output only the two sentences.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\bpassport\\b",
+          "mode": "must_match"
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.uppercase_only.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Reply with a single short motto in ALL UPPERCASE letters. It may contain letters, spaces, and punctuation, but NO lowercase letters at all. Output only the motto.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "[a-z]",
+          "mode": "must_not_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.lowercase_only.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Reply with a single sentence entirely in lowercase. It must contain NO uppercase letters whatsoever (proper nouns must also be lowercased). Output only the sentence.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "[A-Z]",
+          "mode": "must_not_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.line_prefix_digit.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "List exactly 5 steps to brew tea, one per line. EVERY line must begin with a digit (0-9). Do not output any blank lines or any other text.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 5
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A(?:\\s*\\d[^\\n]*(?:\\n|\\Z))+\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.line_suffix_bang.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write exactly 4 motivational lines. EVERY line must end with an exclamation mark '!'. Output only the 4 lines, no blank lines.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 4
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A(?:[^\\n]*!(?:\\n|\\Z))+\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.json_shape.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output a SINGLE-LINE JSON object and nothing else. It must have exactly three keys in this order: \"name\" (a string), \"age\" (an integer), \"active\" (a boolean true/false). Example shape: {\"name\": \"...\", \"age\": 0, \"active\": true}. No code fences, no extra text.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A\\{\"name\":\\s*\"[^\"]*\",\\s*\"age\":\\s*\\d+,\\s*\"active\":\\s*(?:true|false)\\}\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.json_array.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output ONLY a JSON array on a single line containing EXACTLY three quoted string elements naming primary colors. Example: [\"x\", \"y\", \"z\"]. No other text.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A\\[\\s*\"[^\"]*\"\\s*,\\s*\"[^\"]*\"\\s*,\\s*\"[^\"]*\"\\s*\\]\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.closed_set.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Which compass direction is opposite to WEST? Reply using the format <answer>X</answer> where X is exactly one of: NORTH, SOUTH, EAST, WEST. Output nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "closed_set",
+          "slot": "answer",
+          "options": [
+            "NORTH",
+            "SOUTH",
+            "EAST",
+            "WEST"
+          ],
+          "answer": "EAST"
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.closed_set.0002",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "A traffic light is showing the color that means 'stop'. Reply with the color using the format <answer>X</answer> where X is exactly one of: RED, AMBER, GREEN. Nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "closed_set",
+          "slot": "answer",
+          "options": [
+            "RED",
+            "AMBER",
+            "GREEN"
+          ],
+          "answer": "RED"
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.count_slot.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "How many letters are in the word 'INSTRUCTION'? Reply with the count using the format <count>N</count> and nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "count_slot",
+          "slot": "count",
+          "value": 11
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.count_slot.0002",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Count the vowels (a, e, i, o, u) in the phrase 'deterministic evaluation'. Reply using the format <count>N</count> and nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "count_slot",
+          "slot": "count",
+          "value": 10
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.exact_token.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Reply with ONLY the word ACKNOWLEDGED and nothing else. No punctuation, no quotes.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "exact_match",
+          "value": "ACKNOWLEDGED",
+          "ignore_case": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.verbatim_slot.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Transcribe the following text EXACTLY, inside an <answer>...</answer> slot, and output nothing else: The quick brown fox jumps over the lazy dog.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "cer_threshold",
+          "slot": "answer",
+          "value": "The quick brown fox jumps over the lazy dog.",
+          "threshold": 0.05,
+          "normalize": "strict"
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.compose_forbid_count.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write exactly 3 lines praising autumn. The word 'leaf' (and 'leaves') is FORBIDDEN. Output only the 3 lines, no blank lines.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 3
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\bleaf|leaves\\b",
+          "mode": "must_not_match",
+          "ignore_case": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.word_count_exact.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write a slogan of EXACTLY five words on a single line. Words are separated by single spaces. No leading/trailing spaces, no punctuation, no line breaks. Output only the slogan.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A[A-Za-z]+(?: [A-Za-z]+){4}\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.must_prefix.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write a two-sentence weather report. It MUST begin with the exact phrase 'FORECAST:' (uppercase, followed by a space). Output only the report.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\AFORECAST: ",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.no_digits.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write a sentence describing a recipe step. It must NOT contain any digit characters (0-9); spell out any numbers as words. Output only the sentence.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\d",
+          "mode": "must_not_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.palindrome.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Reply with a single word that is a palindrome (reads the same forwards and backwards) written in ALL UPPERCASE letters. It must be at least 5 letters long. Output only the word, with no spaces or punctuation.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A[A-Z]{5,}\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "[a-z0-9 ]",
+          "mode": "must_not_match",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.bullet_dash.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output a bulleted list of exactly 4 items naming kitchen tools. EVERY line must start with a hyphen and a space ('- '). No blank lines, no other text.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 4
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A(?:- [^\\n]+(?:\\n|\\Z))+\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.compose_req_forbid.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Write one sentence about coffee that INCLUDES the word 'aroma' but does NOT include the word 'bitter'. Output only the sentence.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\baroma\\b",
+          "mode": "must_match",
+          "ignore_case": true
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\bbitter\\b",
+          "mode": "must_not_match",
+          "ignore_case": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.numbered_list.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output exactly 3 lines. Line 1 must start with '1.', line 2 with '2.', line 3 with '3.', each followed by a space and a fruit name. No blank lines, no other text.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "==",
+          "n": 3
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A1\\. [^\\n]+\\n2\\. [^\\n]+\\n3\\. [^\\n]+\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "instruction.lines_atmost.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Summarize the water cycle in AT MOST 2 non-empty lines. Output only the summary.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "op": "<=",
+          "n": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.sentences_atleast.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Explain why the sky is blue using AT LEAST 3 sentences, each ending with a period. Output only the explanation.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "sentence",
+          "op": ">=",
+          "n": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.hex_color.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output a single CSS hex color code for pure red and nothing else. It must be in the exact format #RRGGBB using uppercase hexadecimal digits (e.g. #1A2B3C).",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A#[0-9A-F]{6}\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.csv_fields.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output a single CSV line with EXACTLY 4 comma-separated fields listing the seasons in order, with no spaces around commas and no trailing newline content. Output only that line.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A[^,\\n]+,[^,\\n]+,[^,\\n]+,[^,\\n]+\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "instruction.phone_format.0001",
+    "category": "Instruction",
+    "tier": 0,
+    "prompt": "Output a single fictional US phone number in the EXACT format (XXX) XXX-XXXX where each X is a digit. Output only the phone number, nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "regex_constraint",
+          "pattern": "\\A\\(\\d{3}\\) \\d{3}-\\d{4}\\Z",
+          "mode": "must_match",
+          "ignore_case": false
+        }
+      ]
+    }
+  }
+]

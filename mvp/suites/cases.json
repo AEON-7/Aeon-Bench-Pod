@@ -1,0 +1,5393 @@
+[
+ {
+  "id": "math.arith.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute the exact value of 4873 * 6219. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "30305187"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.arith.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute 91234 * 8765 - 12345678. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "787320332"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.arith.0003",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Evaluate 2^31 - 5^11. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2098655523"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.arith.0004",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute the integer quotient and you need not show the remainder: what is floor(987654321 / 12345)? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "80004"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.arith.0005",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute 123456789 mod 99991 (the remainder when 123456789 is divided by 99991). Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "67895"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.modexp.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute 7^222 mod 1000 (the last three digits of 7 raised to the 222). Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "49"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.modexp.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute 3^1000 mod 1009. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "404"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.modinv.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Find the modular inverse of 17 modulo 101, i.e. the unique integer x with 0 <= x < 101 such that 17*x is congruent to 1 modulo 101. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.crt.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Find the smallest positive integer x such that x is congruent to 2 mod 5, x is congruent to 3 mod 7, and x is congruent to 2 mod 9. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "227"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.gcd.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute gcd(0461952, 0327600) — the greatest common divisor of 461952 and 327600. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "144"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.lcm.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute the least common multiple lcm(420, 1078). Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "32340"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.gcd.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute gcd(2^20 - 1, 2^12 - 1). Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "15"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.base.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Convert the binary number 11010110101 to decimal (base 10). Put the final answer inside \\boxed{} as a base-10 integer.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1717"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.base.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Convert the hexadecimal number 0x1F3A7 to decimal (base 10). Put the final answer inside \\boxed{} as a base-10 integer.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "127911"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.base.0003",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Convert the base-7 number 6541 (written in base 7) to decimal (base 10). Put the final answer inside \\boxed{} as a base-10 integer.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2332"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.base.0004",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Write the decimal number 2026 in base 3. Take that base-3 representation as a literal string of digits and read it as a base-10 integer. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2210001"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.pct.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "A price is increased by 25% and then the new price is decreased by 20%. If the original price was 480 dollars, what is the final price in dollars? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "480"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.pct.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "What is 37.5% of 1024? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "384"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.interest.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "You invest 1000 dollars at a nominal annual interest rate of 8%, compounded quarterly, for 3 years. What is the final amount in dollars, rounded to the nearest cent (two decimal places)? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1268.24"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.interest.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "You deposit 2500 dollars at a nominal annual rate of 6%, compounded monthly, for 5 years. Give the final balance in dollars rounded to the nearest cent. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3372.13"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.linear.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Solve for x: 7x - 19 = 3x + 53. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "18"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.linear.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Solve the system of equations  3x + 2y = 16  and  5x - y = 9. Put the solution inside \\boxed{} as the value of x followed by the value of y, comma-separated (x, y).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3, 4",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.quad.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Solve x^2 - 7x - 18 = 0. Put the two roots inside \\boxed{} as a comma-separated list.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-2, 9",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.quad.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Solve 2x^2 - x - 15 = 0. The roots are rational; one is an integer and one is a fraction. Put both roots inside \\boxed{} as a comma-separated list (write the fraction as a decimal).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-2.5, 3",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.quad.0003",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Solve x^2 = 529. Put both solutions inside \\boxed{} as a comma-separated list.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-23, 23",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.seq.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "An arithmetic sequence has first term a_1 = 7 and common difference d = 4. What is the 100th term a_100? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "403"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.seq.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "A geometric sequence has first term 3 and common ratio 2. What is the sum of the first 12 terms? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "12285"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.seq.0003",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Let F(1)=1, F(2)=1, and F(n)=F(n-1)+F(n-2). Compute F(40), the 40th Fibonacci number. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "102334155"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.seq.0004",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute the sum of all multiples of 3 between 1 and 1000 inclusive. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "166833"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.comb.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "How many distinct ways are there to choose a committee of 5 people from a group of 18? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "8568"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.comb.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "How many distinct arrangements are there of all the letters of the word MISSISSIPPI? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "34650"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.comb.0003",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "In how many ways can 8 distinct books be arranged on a shelf if 3 particular books must all be together (treated as one block, and the 3 may be ordered among themselves)? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4320"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.prob.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "A fair coin is flipped 5 times. The probability of getting exactly 2 heads is a fraction p/q in lowest terms. Put your answer inside \\boxed{} as \"p, q\" (numerator, denominator), comma-separated and fully reduced.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5, 16",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.prob.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Two cards are drawn at random without replacement from a standard 52-card deck. The probability that both are aces is a fraction p/q in lowest terms. Put your answer inside \\boxed{} as \"p, q\" (numerator, denominator), comma-separated and fully reduced.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1, 221",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.nt.prime.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "What is the 100th prime number? (The 1st prime is 2.) Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "541"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.nt.div.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "How many positive divisors does 360 have? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "24"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.nt.div.0002",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute the sum of all positive divisors of 496 (including 1 and 496). Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "992"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.nt.totient.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Compute Euler's totient phi(360): the number of integers from 1 to 360 that are coprime to 360. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "96"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.nt.factor.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "What is the largest prime factor of 600851475143? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6857"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.digits.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "Let N = 2^100. What is the sum of the decimal digits of N? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "115"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.nt.trailzeros.0001",
+  "category": "Math",
+  "tier": 0,
+  "prompt": "How many trailing zeros does 100! (100 factorial) have? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "24"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.syllogism.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Consider these premises: (1) All members of the Vorlon council are diplomats. (2) All diplomats are registered citizens. Does it logically follow that all members of the Vorlon council are registered citizens? Reason carefully, then answer with exactly yes or no inside \\boxed{} (e.g. \\boxed{yes}).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.syllogism.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Premises: (1) All sculptors are artists. (2) Some welders are artists. Does it NECESSARILY follow that some welders are sculptors? Answer with exactly yes or no inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*no\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.syllogism.0003",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Premises: (1) No reptiles are mammals. (2) All vipers are reptiles. Does it follow that no vipers are mammals? Answer yes or no inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.syllogism.0004",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Premises: (1) All koalas are herbivores. (2) No herbivores are predators. Does it follow that some koalas are predators? Answer yes or no inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*no\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.batball.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "A notebook and a pencil cost $1.30 together. The notebook costs $1.00 more than the pencil. How many cents does the PENCIL cost? Put only the number of cents inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "15"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.batball.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "A racket and a shuttlecock cost $2.40 in total. The racket costs $2.00 more than the shuttlecock. How many cents does the shuttlecock cost? Put only the number of cents inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "20"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.rate.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "If 5 machines take 5 minutes to make 5 widgets, how many minutes would 100 machines take to make 100 widgets? Put only the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.work.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Pipe A alone fills a tank in 4 hours; pipe B alone fills it in 6 hours. With both pipes open, how many hours does it take to fill the tank? Give the exact answer as a decimal inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2.4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.work.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Alice paints a fence in 10 hours, Bob in 15 hours, Carol in 30 hours. Working together at their constant rates, how many hours do they need to paint one fence? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.work.0003",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "If Sam can mow a lawn in 6 hours and Dana can mow the same lawn in 6 hours, how many hours does it take them to mow it together? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.mixture.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "You have 10 liters of a 40% acid solution. How many liters of PURE WATER must you add to dilute it to a 25% acid solution? Put the number of liters inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.mixture.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "A metallurgist mixes an unknown amount of a 60%-copper alloy with 40 kg of a 20%-copper alloy to obtain a 30%-copper alloy. How many kilograms of the 60% alloy are used? Give the exact decimal (rounded to 4 decimal places) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "13.3333"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.speed.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "A cyclist rides from town A to town B at 30 mph, then immediately returns along the SAME road at 60 mph. What is her average speed for the whole round trip, in mph? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "40"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.speed.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Two trains are 120 miles apart on the same track, heading toward each other. One travels at 40 mph, the other at 60 mph. How many hours until they meet? Give the decimal inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1.2"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.age.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "In 5 years, Ann will be exactly twice as old as Bob is today. Bob is 12 years old today. How old is Ann today? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "19"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.word.algebra.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "A widget costs 9 dollars plus half of its own price. What is the price of the widget, in dollars? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "18"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.kk.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "On an island, knights always tell the truth and knaves always lie. A says: 'B is a knave.' B says: 'Both A and B are knaves.' Is A a knight? Answer with exactly yes or no inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.kk.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Knights always tell the truth; knaves always lie. A person named A declares: 'I am a knave.' Could any consistent islander (knight or knave) make this statement? Answer with exactly yes or no inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*no\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.kk.0003",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Knights always tell the truth and knaves always lie. There are three islanders A, B, C. A says: 'All three of us are knaves.' B says: 'C is a knight.' C says: 'A is a knave.' Exactly how many of the three are knights? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.kk.0004",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Knights always tell the truth, knaves always lie. A says: 'B is a knight.' B says: 'A and I are of opposite types.' Is B a knave? Answer yes or no inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*yes\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.date.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "On what day of the week did January 1, 2000 fall? Answer with exactly one capitalized weekday name (Monday..Sunday) inside \\boxed{} (e.g. \\boxed{Monday}).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Saturday\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.date.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "How many days are there from February 1, 2024 up to (but not including) March 1, 2024? (Note: 2024 is a leap year.) Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "29"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.date.0003",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "What calendar date is exactly 90 days after November 15, 2025? Answer in ISO format YYYY-MM-DD inside \\boxed{} (e.g. \\boxed{2026-01-01}).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*2026\\-02\\-13\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.date.0004",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "If today is a Wednesday, what day of the week will it be 100 days from now? Answer with exactly one capitalized weekday name inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Friday\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.date.0005",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "In the calendar year 2026, on how many months does the 13th day of the month fall on a Friday? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.grid.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Three houses stand in a row at positions 1, 2, and 3 (left to right). Each is painted a different color: red, green, or blue. Clues: (1) The green house is immediately to the right of the red house. (2) The blue house is at position 1. At which position number (1, 2, or 3) is the GREEN house? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.grid.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Four runners — Ann, Ben, Cara, and Dan — finish a race in places 1st through 4th (no ties). Clues: (1) Ann finished ahead of Ben. (2) Cara finished last. (3) Dan finished immediately after Ann. In which place (1, 2, 3, or 4) did Ben finish? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.grid.0003",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Three people each own exactly one pet (cat, dog, or fish) and drink exactly one beverage (tea, coffee, or milk); all six are distinct across the people. Clues: (1) The cat owner drinks tea. (2) The person who drinks milk owns the fish. Which beverage does the DOG owner drink? Respond in the form <answer>X</answer> where X is exactly one of tea, coffee, milk.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "closed_set",
+     "slot": "answer",
+     "options": [
+      "tea",
+      "coffee",
+      "milk"
+     ],
+     "answer": "coffee"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.grid.0004",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "There are five lockers numbered 1 to 5, and exactly one contains a prize. Clues: (1) The prize locker has an odd number. (2) It is not locker 1. (3) It is not locker 5. Which locker number contains the prize? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.seq.0001",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "What number comes next in the sequence 2, 3, 5, 8, 13, ...? (Each term is the sum of the two preceding terms.) Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "21"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.seq.0002",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Find the next term: 1, 2, 4, 7, 11, 16, ...? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "22"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.seq.0003",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "What comes next: 0, 3, 8, 15, 24, ...? (Hint: each term is one less than a perfect square.) Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "35"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.seq.0004",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Determine the next number: 3, 6, 9, 18, 21, 42, ...? (The rule alternates between two operations.) Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "45"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.seq.0005",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "What is the next term in the sequence 2, 3, 5, 7, 11, 13, ...? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "17"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.seq.0006",
+  "category": "Reasoning",
+  "tier": 0,
+  "prompt": "Find the next number in 1, 3, 6, 10, 15, ...? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "21"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.parse.0001",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `sum_of_digits(n)` that takes a non-negative integer `n` and returns the sum of its decimal digits. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert sum_of_digits(0) == 0\nassert sum_of_digits(7) == 7\nassert sum_of_digits(123) == 6\nassert sum_of_digits(99999) == 45\nassert sum_of_digits(1000000) == 1"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.string.0002",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `count_vowels(s)` that returns the number of vowels (a, e, i, o, u, case-insensitive) in the string `s`. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_vowels('') == 0\nassert count_vowels('xyz') == 0\nassert count_vowels('AeIoU') == 5\nassert count_vowels('Hello World') == 3\nassert count_vowels('rhythm') == 0"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.array.0003",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `second_largest(nums)` that returns the second largest DISTINCT value in the list `nums`, or None if there is no such value. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert second_largest([1, 2, 3]) == 2\nassert second_largest([5, 5, 5]) is None\nassert second_largest([10]) is None\nassert second_largest([3, 1, 4, 1, 5, 9, 2, 6]) == 6\nassert second_largest([-1, -2, -3]) == -2\nassert second_largest([7, 7, 4]) == 4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.number.0004",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `is_prime(n)` that returns True iff the integer `n` is a prime number. Handle n < 2 by returning False. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert is_prime(0) is False\nassert is_prime(1) is False\nassert is_prime(2) is True\nassert is_prime(17) is True\nassert is_prime(1) is False\nassert is_prime(561) is False\nassert is_prime(7919) is True\nassert is_prime(-7) is False"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.string.0005",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `reverse_words(s)` that reverses the order of words in `s` while preserving single spaces between words, and strips leading/trailing whitespace. Collapse any run of internal whitespace to a single space. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert reverse_words('hello world') == 'world hello'\nassert reverse_words('  the sky  is blue ') == 'blue is sky the'\nassert reverse_words('single') == 'single'\nassert reverse_words('   ') == ''\nassert reverse_words('a b c d') == 'd c b a'"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.intervals.0006",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `merge_intervals(intervals)` that takes a list of `[start, end]` pairs (integers, start <= end) and returns a new list of non-overlapping intervals sorted by start, merging any that overlap or touch (i.e. [1,3] and [3,5] merge into [1,5]). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert merge_intervals([]) == []\nassert merge_intervals([[1, 3]]) == [[1, 3]]\nassert merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]]) == [[1, 6], [8, 10], [15, 18]]\nassert merge_intervals([[1, 4], [4, 5]]) == [[1, 5]]\nassert merge_intervals([[5, 6], [1, 2], [3, 4]]) == [[1, 2], [3, 4], [5, 6]]\nassert merge_intervals([[1, 10], [2, 3], [4, 5]]) == [[1, 10]]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.stack.0007",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `is_balanced(s)` that returns True iff every bracket in `s` is properly matched and nested. Consider three bracket types: () [] {}. Non-bracket characters are ignored. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert is_balanced('') is True\nassert is_balanced('()') is True\nassert is_balanced('([]{})') is True\nassert is_balanced('([)]') is False\nassert is_balanced('(((') is False\nassert is_balanced('a(b)c[d]{e}') is True\nassert is_balanced(']') is False\nassert is_balanced('{[()()]}') is True"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.dp.0008",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `climb_stairs(n)` that returns the number of distinct ways to climb a staircase of `n` steps when you may take either 1 or 2 steps at a time. climb_stairs(0) is 1. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert climb_stairs(0) == 1\nassert climb_stairs(1) == 1\nassert climb_stairs(2) == 2\nassert climb_stairs(3) == 3\nassert climb_stairs(5) == 8\nassert climb_stairs(10) == 89"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.dp.0009",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `longest_common_subsequence(a, b)` that returns the LENGTH of the longest common subsequence of strings `a` and `b`. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert longest_common_subsequence('', 'abc') == 0\nassert longest_common_subsequence('abcde', 'ace') == 3\nassert longest_common_subsequence('abc', 'abc') == 3\nassert longest_common_subsequence('abc', 'def') == 0\nassert longest_common_subsequence('AGGTAB', 'GXTXAYB') == 4\nassert longest_common_subsequence('bsbininm', 'jmjkbkjkv') == 1"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.recursion.0010",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `flatten(lst)` that takes an arbitrarily nested list of integers and returns a flat list of the integers in left-to-right order. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert flatten([]) == []\nassert flatten([1, 2, 3]) == [1, 2, 3]\nassert flatten([1, [2, [3, [4]]]]) == [1, 2, 3, 4]\nassert flatten([[1, 2], [], [3, [4, 5]]]) == [1, 2, 3, 4, 5]\nassert flatten([[[[]]]]) == []\nassert flatten([1, [2, 3], 4, [[5]]]) == [1, 2, 3, 4, 5]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.ds.0011",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `top_k_frequent(nums, k)` that returns the `k` most frequent elements in `nums`, ordered from most frequent to least. Break ties by SMALLER value first. The result must have exactly k elements (assume k valid). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert top_k_frequent([1, 1, 1, 2, 2, 3], 2) == [1, 2]\nassert top_k_frequent([1], 1) == [1]\nassert top_k_frequent([4, 4, 5, 5, 6], 2) == [4, 5]\nassert top_k_frequent([3, 3, 1, 1, 2], 3) == [1, 3, 2]\nassert top_k_frequent([7, 8, 9], 1) == [7]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.string.0012",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `are_anagrams(a, b)` that returns True iff `a` and `b` are anagrams of each other, considering only alphabetic characters and ignoring case and spaces/punctuation. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert are_anagrams('listen', 'silent') is True\nassert are_anagrams('Dormitory', 'Dirty Room') is True\nassert are_anagrams('hello', 'world') is False\nassert are_anagrams('', '') is True\nassert are_anagrams('A gentleman', 'Elegant man') is True\nassert are_anagrams('abc', 'abcd') is False"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.number.0013",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `gcd(a, b)` that returns the greatest common divisor of two non-negative integers `a` and `b` (with gcd(0, 0) == 0). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert gcd(0, 0) == 0\nassert gcd(12, 8) == 4\nassert gcd(17, 5) == 1\nassert gcd(100, 0) == 100\nassert gcd(0, 7) == 7\nassert gcd(48, 180) == 12\nassert gcd(270, 192) == 6"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.array.0014",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `max_subarray_sum(nums)` that returns the maximum sum of any non-empty contiguous subarray of `nums` (Kadane's algorithm). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert max_subarray_sum([1]) == 1\nassert max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6\nassert max_subarray_sum([-1, -2, -3]) == -1\nassert max_subarray_sum([5, 4, -1, 7, 8]) == 23\nassert max_subarray_sum([-5]) == -5\nassert max_subarray_sum([3, -2, 5, -1]) == 6"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.string.0015",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `compress(s)` that performs basic run-length compression: each maximal run of a repeated character c of length L becomes c followed by L, but ONLY if that makes the string shorter; otherwise return the original `s`. Example: 'aaabbc' -> 'a3b2c1' (length 6 == 6, not shorter, so return 'aaabbc'). 'aaaabbbb' -> 'a4b4'. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert compress('') == ''\nassert compress('aaabbc') == 'aaabbc'\nassert compress('aaaabbbb') == 'a4b4'\nassert compress('abcdef') == 'abcdef'\nassert compress('aaaaaaaaaa') == 'a10'\nassert compress('aabb') == 'aabb'"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.matrix.0016",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `rotate90(matrix)` that returns a NEW matrix that is the input square matrix rotated 90 degrees CLOCKWISE. Do not mutate the input. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert rotate90([[1]]) == [[1]]\nassert rotate90([[1, 2], [3, 4]]) == [[3, 1], [4, 2]]\nassert rotate90([[1, 2, 3], [4, 5, 6], [7, 8, 9]]) == [[7, 4, 1], [8, 5, 2], [9, 6, 3]]\nm = [[1, 2], [3, 4]]\n_ = rotate90(m)\nassert m == [[1, 2], [3, 4]]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.binsearch.0017",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `search_insert(nums, target)` that, given a sorted ascending list of DISTINCT integers `nums` and a `target`, returns the index where target is found, or the index where it would be inserted to keep the list sorted. Must run in O(log n). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert search_insert([], 5) == 0\nassert search_insert([1, 3, 5, 6], 5) == 2\nassert search_insert([1, 3, 5, 6], 2) == 1\nassert search_insert([1, 3, 5, 6], 7) == 4\nassert search_insert([1, 3, 5, 6], 0) == 0\nassert search_insert([10], 10) == 0"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.ds.0018",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Implement an LRU cache as a class `LRUCache` with constructor `LRUCache(capacity)` and methods `get(key)` (returns the value or -1 if absent) and `put(key, value)`. When capacity is exceeded, evict the LEAST recently used key. Both get and put count as uses. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "c = LRUCache(2)\nc.put(1, 1)\nc.put(2, 2)\nassert c.get(1) == 1\nc.put(3, 3)\nassert c.get(2) == -1\nc.put(4, 4)\nassert c.get(1) == -1\nassert c.get(3) == 3\nassert c.get(4) == 4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.array.0019",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `move_zeroes(nums)` that returns a new list with all zeroes moved to the end while preserving the relative order of the non-zero elements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert move_zeroes([0, 1, 0, 3, 12]) == [1, 3, 12, 0, 0]\nassert move_zeroes([0, 0, 0]) == [0, 0, 0]\nassert move_zeroes([1, 2, 3]) == [1, 2, 3]\nassert move_zeroes([]) == []\nassert move_zeroes([0, 0, 1]) == [1, 0, 0]\nassert move_zeroes([4, 0, 5, 0, 0, 6]) == [4, 5, 6, 0, 0, 0]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.string.0020",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `roman_to_int(s)` that converts a valid Roman numeral string (uppercase, value 1..3999) to its integer value, honoring subtractive pairs (IV=4, IX=9, XL=40, XC=90, CD=400, CM=900). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert roman_to_int('III') == 3\nassert roman_to_int('IV') == 4\nassert roman_to_int('IX') == 9\nassert roman_to_int('LVIII') == 58\nassert roman_to_int('MCMXCIV') == 1994\nassert roman_to_int('MMMCMXCIX') == 3999\nassert roman_to_int('XL') == 40"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.number.0021",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `int_to_base(n, b)` that converts a non-negative integer `n` to its string representation in base `b` (2 <= b <= 16), using lowercase digits 0-9a-f. int_to_base(0, b) == '0'. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert int_to_base(0, 2) == '0'\nassert int_to_base(5, 2) == '101'\nassert int_to_base(255, 16) == 'ff'\nassert int_to_base(8, 8) == '10'\nassert int_to_base(100, 10) == '100'\nassert int_to_base(31, 16) == '1f'\nassert int_to_base(7, 2) == '111'"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.recursion.0022",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `generate_parens(n)` that returns a list of all distinct strings of `n` pairs of well-formed parentheses, in any order. The returned list must contain exactly the Catalan(n) valid strings with no duplicates. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert generate_parens(0) == ['']\nassert sorted(generate_parens(1)) == ['()']\nassert sorted(generate_parens(2)) == ['(())', '()()']\nassert sorted(generate_parens(3)) == sorted(['((()))','(()())','(())()','()(())','()()()'])\nassert len(generate_parens(4)) == 14\nassert all(g.count('(') == g.count(')') for g in generate_parens(4))"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.array.0023",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `product_except_self(nums)` that returns a list `out` where `out[i]` is the product of every element of `nums` except `nums[i]`. Do NOT use division. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert product_except_self([1, 2, 3, 4]) == [24, 12, 8, 6]\nassert product_except_self([2, 3]) == [3, 2]\nassert product_except_self([0, 4, 0]) == [0, 0, 0]\nassert product_except_self([5, 0, 2]) == [0, 10, 0]\nassert product_except_self([-1, 1, 0, -3, 3]) == [0, 0, 9, 0, 0]\nassert product_except_self([1, 1]) == [1, 1]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.graph.0024",
+  "category": "Coding",
+  "tier": 0,
+  "prompt": "Write a Python function `num_islands(grid)` that takes a 2D list of '1' (land) and '0' (water) characters and returns the number of connected islands. Cells connect 4-directionally (up/down/left/right). The grid may be empty. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert num_islands([]) == 0\nassert num_islands([['0', '0'], ['0', '0']]) == 0\nassert num_islands([['1', '1', '0'], ['1', '0', '0'], ['0', '0', '1']]) == 2\nassert num_islands([['1', '0', '1', '0', '1']]) == 3\nassert num_islands([['1', '1', '1'], ['1', '1', '1']]) == 1\nassert num_islands([['1']]) == 1"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.lines_exact.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output exactly 7 lines. Each line must contain a single distinct country name and nothing else. No blank lines, no numbering, no extra prose.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 7
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.lines_exact.0002",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Produce a haiku-shaped list of exactly 3 lines describing dawn. Output only the 3 lines, no title, no blank lines.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.sentences_exact.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write a paragraph about photosynthesis containing EXACTLY 4 sentences. Each sentence must end with a period. Output only the paragraph.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 4
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.stanzas_exact.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write a poem with EXACTLY 2 stanzas, separated by a single blank line. Output only the poem.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "op": "==",
+     "n": 2
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.forbid_letter.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write one sentence about a sunny park that does NOT contain the letter 'e' (neither uppercase nor lowercase). Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.forbid_letter.0002",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write a single short sentence that avoids BOTH the letter 'a' and the letter 'o'. Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "a",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "o",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.require_token.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write two sentences of travel advice. The exact word 'passport' MUST appear at least once. Output only the two sentences.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bpassport\\b",
+     "mode": "must_match"
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.uppercase_only.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Reply with a single short motto in ALL UPPERCASE letters. It may contain letters, spaces, and punctuation, but NO lowercase letters at all. Output only the motto.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "[a-z]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.lowercase_only.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Reply with a single sentence entirely in lowercase. It must contain NO uppercase letters whatsoever (proper nouns must also be lowercased). Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "[A-Z]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.line_prefix_digit.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "List exactly 5 steps to brew tea, one per line. EVERY line must begin with a digit (0-9). Do not output any blank lines or any other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:\\s*\\d[^\\n]*(?:\\n|\\Z))+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.line_suffix_bang.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write exactly 4 motivational lines. EVERY line must end with an exclamation mark '!'. Output only the 4 lines, no blank lines.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:[^\\n]*!(?:\\n|\\Z))+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.json_shape.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output a SINGLE-LINE JSON object and nothing else. It must have exactly three keys in this order: \"name\" (a string), \"age\" (an integer), \"active\" (a boolean true/false). Example shape: {\"name\": \"...\", \"age\": 0, \"active\": true}. No code fences, no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\{\"name\":\\s*\"[^\"]*\",\\s*\"age\":\\s*\\d+,\\s*\"active\":\\s*(?:true|false)\\}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.json_array.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output ONLY a JSON array on a single line containing EXACTLY three quoted string elements naming primary colors. Example: [\"x\", \"y\", \"z\"]. No other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\[\\s*\"[^\"]*\"\\s*,\\s*\"[^\"]*\"\\s*,\\s*\"[^\"]*\"\\s*\\]\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.closed_set.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Which compass direction is opposite to WEST? Reply using the format <answer>X</answer> where X is exactly one of: NORTH, SOUTH, EAST, WEST. Output nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "closed_set",
+     "slot": "answer",
+     "options": [
+      "NORTH",
+      "SOUTH",
+      "EAST",
+      "WEST"
+     ],
+     "answer": "EAST"
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.closed_set.0002",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "A traffic light is showing the color that means 'stop'. Reply with the color using the format <answer>X</answer> where X is exactly one of: RED, AMBER, GREEN. Nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "closed_set",
+     "slot": "answer",
+     "options": [
+      "RED",
+      "AMBER",
+      "GREEN"
+     ],
+     "answer": "RED"
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.count_slot.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "How many letters are in the word 'INSTRUCTION'? Reply with the count using the format <count>N</count> and nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "count_slot",
+     "slot": "count",
+     "value": 11
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.exact_token.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Reply with ONLY the word ACKNOWLEDGED and nothing else. No punctuation, no quotes.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "ACKNOWLEDGED",
+     "ignore_case": true
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.verbatim_slot.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Transcribe the following text EXACTLY, inside an <answer>...</answer> slot, and output nothing else: The quick brown fox jumps over the lazy dog.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "cer_threshold",
+     "slot": "answer",
+     "value": "The quick brown fox jumps over the lazy dog.",
+     "threshold": 0.05,
+     "normalize": "strict"
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.compose_forbid_count.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write exactly 3 lines praising autumn. The word 'leaf' (and 'leaves') is FORBIDDEN. Output only the 3 lines, no blank lines.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bleaf|leaves\\b",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.word_count_exact.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write a slogan of EXACTLY five words on a single line. Words are separated by single spaces. No leading/trailing spaces, no punctuation, no line breaks. Output only the slogan.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[A-Za-z]+(?: [A-Za-z]+){4}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.must_prefix.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write a two-sentence weather report. It MUST begin with the exact phrase 'FORECAST:' (uppercase, followed by a space). Output only the report.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AFORECAST: ",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.no_digits.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write a sentence describing a recipe step. It must NOT contain any digit characters (0-9); spell out any numbers as words. Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\d",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.bullet_dash.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output a bulleted list of exactly 4 items naming kitchen tools. EVERY line must start with a hyphen and a space ('- '). No blank lines, no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:- [^\\n]+(?:\\n|\\Z))+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.compose_req_forbid.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Write one sentence about coffee that INCLUDES the word 'aroma' but does NOT include the word 'bitter'. Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\baroma\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bbitter\\b",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.numbered_list.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output exactly 3 lines. Line 1 must start with '1.', line 2 with '2.', line 3 with '3.', each followed by a space and a fruit name. No blank lines, no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A1\\. [^\\n]+\\n2\\. [^\\n]+\\n3\\. [^\\n]+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.lines_atmost.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Summarize the water cycle in AT MOST 2 non-empty lines. Output only the summary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "<=",
+     "n": 2
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.sentences_atleast.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Explain why the sky is blue using AT LEAST 3 sentences, each ending with a period. Output only the explanation.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": ">=",
+     "n": 3
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.hex_color.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output a single CSS hex color code for pure red and nothing else. It must be in the exact format #RRGGBB using uppercase hexadecimal digits (e.g. #1A2B3C).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A#[0-9A-F]{6}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.csv_fields.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output a single CSV line with EXACTLY 4 comma-separated fields listing the seasons in order, with no spaces around commas and no trailing newline content. Output only that line.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[^,\\n]+,[^,\\n]+,[^,\\n]+,[^,\\n]+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.phone_format.0001",
+  "category": "Instruction",
+  "tier": 0,
+  "prompt": "Output a single fictional US phone number in the EXACT format (XXX) XXX-XXXX where each X is a digit. Output only the phone number, nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\(\\d{3}\\) \\d{3}-\\d{4}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.haiku.0001",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a haiku about winter frost. Output ONLY the three lines of the haiku, one line each, no title, no commentary. The poem MUST contain the word 'frost'. Do NOT use the standalone word 'I' anywhere.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 3 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 3.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 3
+     }
+    },
+    {
+     "id": "has_frost",
+     "question": "Does the response contain the word 'frost'?",
+     "decision_rule": "True iff /frost/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "frost",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_first_person",
+     "question": "Does the response AVOID the standalone pronoun 'I'?",
+     "decision_rule": "True iff /\\bI\\b/i is absent.",
+     "required": false,
+     "polarity": "negative",
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bI\\b",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.acrostic.0002",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a 5-line acrostic poem where the FIRST letter of each line spells RAVEN (line 1 starts with R, line 2 with A, line 3 with V, line 4 with E, line 5 with N). Output only the five lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 5 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 5.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 5
+     }
+    },
+    {
+     "id": "acrostic",
+     "question": "Do the first letters of the 5 lines spell RAVEN?",
+     "decision_rule": "True iff line1 begins R, line2 A, line3 V, line4 E, line5 N (case-insensitive).",
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*R[^\\n]*\\n\\s*A[^\\n]*\\n\\s*V[^\\n]*\\n\\s*E[^\\n]*\\n\\s*N",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.sixword.0003",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a six-word story. It MUST be exactly six words on a single line, and it MUST include the word 'shoes'. Output only the six words.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_line",
+     "question": "Does the response have exactly 1 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 1.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "six_words",
+     "question": "Is the story exactly six words?",
+     "decision_rule": "True iff the line has exactly 6 whitespace-separated word tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*\\S+(?:\\s+\\S+){5}\\s*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_shoes",
+     "question": "Does the response contain the word 'shoes'?",
+     "decision_rule": "True iff /shoes/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "shoes",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.stanza.0004",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a poem about a river in EXACTLY three stanzas separated by blank lines. The whole poem must have exactly nine non-empty lines (three lines per stanza). It must contain the word 'river'. Output only the poem.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "stanzas",
+     "question": "Does the response have exactly 3 stanzas (blank-line-separated)?",
+     "decision_rule": "Count blank-line-separated blocks; true iff exactly 3.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 3
+     }
+    },
+    {
+     "id": "nine_lines",
+     "question": "Does the response have exactly 9 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 9.",
+     "required": false,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 9
+     }
+    },
+    {
+     "id": "has_river",
+     "question": "Does the response contain the word 'river'?",
+     "decision_rule": "True iff /river/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "river",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.limerick.0005",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a limerick (5 lines) about an astronaut. It must mention the word 'moon'. Do not use any digits (0-9). Output only the five lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 5 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 5.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 5
+     }
+    },
+    {
+     "id": "has_moon",
+     "question": "Does the response contain the word 'moon'?",
+     "decision_rule": "True iff /moon/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "moon",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_digits",
+     "question": "Does the response AVOID any digit?",
+     "decision_rule": "True iff /[0-9]/i is absent.",
+     "required": false,
+     "polarity": "negative",
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.blurb.0006",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a marketing blurb for a desk lamp called Lumora. Use between 2 and 4 sentences. You MUST mention the brand name 'Lumora'. You must NOT use the word 'best'. Output only the blurb.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "min_sentences",
+     "question": "Does the response have >= 2 sentences?",
+     "decision_rule": "Count sentences (split on .!?); true iff count >= 2.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": ">=",
+      "n": 2
+     }
+    },
+    {
+     "id": "max_sentences",
+     "question": "Does the response have <= 4 sentences?",
+     "decision_rule": "Count sentences (split on .!?); true iff count <= 4.",
+     "required": false,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "<=",
+      "n": 4
+     }
+    },
+    {
+     "id": "has_brand",
+     "question": "Does the response contain the brand name 'Lumora'?",
+     "decision_rule": "True iff /Lumora/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "Lumora",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_best",
+     "question": "Does the response AVOID the word 'best'?",
+     "decision_rule": "True iff /\\bbest\\b/i is absent.",
+     "required": false,
+     "polarity": "negative",
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bbest\\b",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.alliteration.0007",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write 4 lines of poetry where EVERY line begins with the letter S. Output only the four lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 4 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 4.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "all_S",
+     "question": "Does every one of the 4 lines begin with the letter S?",
+     "decision_rule": "True iff lines 1-4 each start (after optional whitespace) with S/s.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*S[^\\n]*\\n\\s*S[^\\n]*\\n\\s*S[^\\n]*\\n\\s*S",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.couplets.0008",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a 6-line poem about an old clock. It must contain the word 'clock' and the word 'time'. Output only the six lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 6 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 6.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 6
+     }
+    },
+    {
+     "id": "has_clock",
+     "question": "Does the response contain the word 'clock'?",
+     "decision_rule": "True iff /clock/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "clock",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_time",
+     "question": "Does the response contain the word 'time'?",
+     "decision_rule": "True iff /\\btime\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\btime\\b",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.microfic.0009",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a piece of microfiction of at least 3 sentences about an unopened letter. It must contain at least one line of quoted dialogue (text inside double quotes) and must contain the word 'letter'. Output only the story.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "min_sentences",
+     "question": "Does the response have >= 3 sentences?",
+     "decision_rule": "Count sentences (split on .!?); true iff count >= 3.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": ">=",
+      "n": 3
+     }
+    },
+    {
+     "id": "has_dialogue",
+     "question": "Does the response contain at least one double-quoted passage?",
+     "decision_rule": "True iff /\"[^\"]+\"/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\"[^\"]+\"",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_letter",
+     "question": "Does the response contain the word 'letter'?",
+     "decision_rule": "True iff /letter/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "letter",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.lipogram.0010",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a 4-line poem that NEVER uses the letter 'e' (a lipogram). It must contain the word 'moon'. Output only the four lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 4 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 4.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "no_e",
+     "question": "Does the response AVOID the letter e?",
+     "decision_rule": "True iff /e/i is absent.",
+     "required": false,
+     "polarity": "negative",
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "e",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_moon",
+     "question": "Does the response contain the word 'moon'?",
+     "decision_rule": "True iff /moon/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "moon",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.seasonal.0011",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a 4-line poem about autumn. It must contain the word 'leaves' and the word 'gold'. Output only the four lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 4 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 4.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "has_leaves",
+     "question": "Does the response contain the word 'leaves'?",
+     "decision_rule": "True iff /leaves/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "leaves",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_gold",
+     "question": "Does the response contain the word 'gold'?",
+     "decision_rule": "True iff /gold/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "gold",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.named.0012",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a poem in EXACTLY two stanzas (separated by one blank line) about the night sky. It must name the constellation 'Orion'. Output only the poem.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "stanzas",
+     "question": "Does the response have exactly 2 stanzas (blank-line-separated)?",
+     "decision_rule": "Count blank-line-separated blocks; true iff exactly 2.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 2
+     }
+    },
+    {
+     "id": "has_orion",
+     "question": "Does the response contain the constellation 'Orion'?",
+     "decision_rule": "True iff /Orion/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "Orion",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.opener.0013",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a single-sentence story opening that ends with a question mark and contains the word 'midnight'. Output only the sentence.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "ends_q",
+     "question": "Does the response end with a question mark?",
+     "decision_rule": "True iff the trimmed text ends with '?'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\?\\s*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_midnight",
+     "question": "Does the response contain the word 'midnight'?",
+     "decision_rule": "True iff /midnight/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "midnight",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_internal_period",
+     "question": "Is it a single sentence (no internal sentence-ending punctuation)?",
+     "decision_rule": "True iff there is no '.', '!' or '?' before the final character.",
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[.!?].*\\S",
+      "mode": "must_not_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.rhyme.0014",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a rhyming couplet (exactly 2 lines) about a star. Line 1 must end with the word 'light' and line 2 must end with the word 'night'. Output only the two lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 2 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 2.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 2
+     }
+    },
+    {
+     "id": "ends_light_night",
+     "question": "Does line 1 end in 'light' and line 2 end in 'night'?",
+     "decision_rule": "True iff line1 ends with 'light' and line2 ends with 'night' (ignoring trailing punctuation).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "light[\\s\\W]*\\n[^\\n]*night[\\s\\W]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_star",
+     "question": "Does the response contain the word 'star'?",
+     "decision_rule": "True iff /star/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "star",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.numbered.0015",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a 3-item numbered list of instructions for brewing tea. Each item on its own line, starting with '1.', '2.', '3.' respectively. It must mention 'water'. Output only the list.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 3 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 3.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 3
+     }
+    },
+    {
+     "id": "numbered",
+     "question": "Do the three lines start with 1., 2., 3. in order?",
+     "decision_rule": "True iff line1 starts '1.', line2 '2.', line3 '3.'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*1\\.[^\\n]*\\n\\s*2\\.[^\\n]*\\n\\s*3\\.",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_water",
+     "question": "Does the response contain the word 'water'?",
+     "decision_rule": "True iff /water/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "water",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "creativity.dialogue.0016",
+  "category": "Prose",
+  "tier": 1,
+  "prompt": "Write a 4-line dialogue exchange. EVERY line must be wrapped in double quotes. The conversation must mention a 'key'. Output only the four quoted lines.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 4 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 4.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "all_quoted",
+     "question": "Is every one of the 4 lines wrapped in double quotes?",
+     "decision_rule": "True iff each non-empty line both starts and ends with a double quote.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*\"[^\"\\n]*\"\\s*\\n\\s*\"[^\"\\n]*\"\\s*\\n\\s*\"[^\"\\n]*\"\\s*\\n\\s*\"[^\"\\n]*\"\\s*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_key",
+     "question": "Does the response contain the word 'key'?",
+     "decision_rule": "True iff /key/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "key",
+      "mode": "must_match"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "math.easy.percent-of-240",
+  "category": "Math",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "What is 15% of 240? Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "36"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.easy.lcm-12-18",
+  "category": "Math",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Find the least common multiple (LCM) of 12 and 18. Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "36"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.easy.linear-7x-minus-4",
+  "category": "Math",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Solve for x: 7x - 4 = 31. Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.easy.mean-five-numbers",
+  "category": "Math",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Compute the arithmetic mean (average) of the five numbers 12, 19, 23, 30, and 16. Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "20"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.easy.add-fractions-3-4-1-6",
+  "category": "Math",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Compute 3/4 + 1/6 and express the result as a single decimal value. Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.9166666667"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.easy.rectangle-perimeter-8x5",
+  "category": "Math",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "A rectangle has a length of 8 cm and a width of 5 cm. What is its perimeter in centimeters? Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "26"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.medium.acid-mixture",
+  "category": "Math",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "A chemist has 40 liters of a solution that is 30% acid by volume. How many liters of pure acid must be added so that the resulting mixture is 50% acid by volume? Show your reasoning and put the final answer (in liters) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "16"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.medium.multiples-of-7-sum",
+  "category": "Math",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Find the sum of all integer multiples of 7 that lie between 100 and 300, inclusive. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5586"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.medium.compound-interest-3yr",
+  "category": "Math",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "$5000 is invested at an annual interest rate of 8%, compounded annually. What is the total amount in the account after 3 years? Give the exact value in dollars and put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6298.56"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.medium.two-dice-sum-prob",
+  "category": "Math",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Two fair six-sided dice are rolled. What is the probability that the sum of the two dice is greater than 9? Express your answer as a decimal rounded to four places and put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.1667"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.medium.trains-meeting-time",
+  "category": "Math",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Two trains start at the same time from stations 360 km apart and travel toward each other on parallel tracks. One train travels at 70 km/h and the other at 90 km/h. After how many hours do they meet? Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2.25"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.medium.circle-minus-inscribed-square",
+  "category": "Math",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "A square is inscribed in a circle of radius 10 (all four vertices lie on the circle). Find the area of the region inside the circle but outside the square. Use pi = 3.14159 and round your final answer to two decimal places. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "114.16"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.crt-three-congruences",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Find the smallest positive integer x that simultaneously satisfies all three congruences:\n  x ≡ 2 (mod 3)\n  x ≡ 3 (mod 5)\n  x ≡ 2 (mod 7)\nWork carefully through the Chinese Remainder Theorem. Put the final integer answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "23"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.derangement-exactly-two-fixed",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Five distinct letters are placed at random, one each, into five envelopes addressed to those five letters (a uniformly random permutation). How many of the 120 possible placements have EXACTLY two letters in their correct envelope (and the other three all in wrong envelopes)? Note the common trap: the remaining three must form a derangement, not just be 'not all correct'. Put the final integer count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "20"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.last-two-digits-power",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Determine the last two digits of 7^2023 (equivalently, 7^2023 mod 100). Use the cyclic behaviour of powers of 7 modulo 100 rather than computing the full number. Put the final two-digit answer (as an integer, e.g. 7 written as 07 should be given as the number 7) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "43"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.heron-area-13-14-15",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A triangle has side lengths 13, 14, and 15. Using Heron's formula, compute its exact area. Put the final numeric area inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "84"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.coin-change-30-cents",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Using any number of pennies (1¢), nickels (5¢), dimes (10¢), and quarters (25¢), in how many distinct ways can you make exactly 30 cents? Order does not matter — only the multiset of coins counts. Enumerate carefully (a common trap is to miss combinations involving the quarter). Put the final integer count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "18"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.vieta-sum-of-squares",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Let r, s, t be the three roots (with multiplicity) of the cubic x^3 - 6x^2 + 11x - 6 = 0. Without necessarily finding the roots individually, use Vieta's formulas to compute r^2 + s^2 + t^2. Recall r^2+s^2+t^2 = (r+s+t)^2 - 2(rs+rt+st). Put the final integer value inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "14"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.expert.tower-mod-100",
+  "category": "Math",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Compute the last two digits of the power tower 17^(17^17) (that is, 17 raised to the power 17^17). Equivalently, find 17^(17^17) mod 100. Show your reasoning using the multiplicative order of 17 modulo 100, then put the final answer (a number from 0 to 99) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "77"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.expert.vieta-cube-sum",
+  "category": "Math",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Let a, b, c be the three roots (real or complex) of the cubic x^3 - 6x^2 + 11x - 6 = 0. Without necessarily finding the roots individually, use Newton's identities or symmetric-function relations to compute a^3 + b^3 + c^3. Put the final numeric value inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "36"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.expert.integral-x3-lnx",
+  "category": "Math",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Evaluate the definite integral of x^3 * ln(x) with respect to x from x = 1 to x = e (where e is Euler's number). Use integration by parts. Give the final answer as a decimal number rounded to four decimal places, and put that decimal inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "10.2997"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.expert.totient-1000",
+  "category": "Math",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Count the positive integers n with 1 <= n <= 1000 that are coprime to 1000 (i.e. gcd(n, 1000) = 1). Use the formula for Euler's totient function via the prime factorization of 1000. Put the final count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "400"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.expert.limit-tan-sin",
+  "category": "Math",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Evaluate the limit as x approaches 0 of (tan(x) - x) / (x - sin(x)). Use Taylor series expansions of tan(x) and sin(x) to third order (or repeated L'Hopital's rule) to resolve the indeterminate 0/0 form. Put the final numeric value of the limit inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.palindrome_word.0001",
+  "category": "Instruction",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Reply with a single English word that is a palindrome (reads the same forwards and backwards) and is exactly five letters long. Output ONLY that word in lowercase, with no punctuation, quotes, or extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A([a-z])([a-z])[a-z]\\2\\1\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.decreasing_ints.0001",
+  "category": "Instruction",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Output exactly three positive integers in strictly decreasing order, separated by a comma and a single space. The exact format is: N, N, N (for example: 9, 5, 1). Output only that line, with no leading/trailing spaces and nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\d+, \\d+, \\d+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.bold_lines.0001",
+  "category": "Instruction",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Output exactly 3 lines, each naming a planet. EVERY line must be wrapped in Markdown bold, i.e. begin with '**' and end with '**' with the planet name in between (and no other asterisks). No blank lines, no numbering, no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:\\*\\*[^\\n*]+\\*\\*(?:\\n|\\Z)){3}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.iso_date.0001",
+  "category": "Instruction",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Output a single fictional calendar date in strict ISO 8601 format YYYY-MM-DD, where YYYY is a 4-digit year, MM is a 2-digit month, and DD is a 2-digit day (use leading zeros as needed). Output only the date, nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\d{4}-\\d{2}-\\d{2}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.star_bullets.0001",
+  "category": "Instruction",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Output a bulleted list of exactly 5 items naming musical instruments. EVERY line must start with an asterisk and a single space ('* '). Do not use any period anywhere in the response. No blank lines, no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:\\* [^\\n]+(?:\\n|\\Z)){5}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\.",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.question_only.0001",
+  "category": "Instruction",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a single question on one line. It MUST end with a question mark '?', and it must NOT contain any period '.' or exclamation mark '!' anywhere. Output only the question, with no quotes or extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\?\\s*\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[.!]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.medium.acrostic-frost",
+  "category": "Instruction",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write an acrostic poem of EXACTLY 5 lines about winter. Reading the first letter of each line from top to bottom must spell the word FROST (so line 1 starts with F, line 2 with R, line 3 with O, line 4 with S, line 5 with T). Output only the 5 lines, one line per row, with no blank lines, no title, and no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[Ff][^\\n]*\\n[Rr][^\\n]*\\n[Oo][^\\n]*\\n[Ss][^\\n]*\\n[Tt][^\\n]*\\Z",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.medium.eight-word-ocean",
+  "category": "Instruction",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a single sentence of EXACTLY eight words on one line. The word 'ocean' MUST appear somewhere in the sentence. Words are separated by single spaces; use only letters (no digits, no punctuation of any kind, no leading or trailing spaces, no line breaks). Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[A-Za-z]+(?: [A-Za-z]+){7}\\Z",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bocean\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.medium.five-questions",
+  "category": "Instruction",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write EXACTLY 5 lines, one question per line, all about space exploration. EVERY line must end with a question mark '?'. Output only the 5 lines, with no blank lines, no numbering, and no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:[^\\n]*\\?(?:\\n|\\Z)){5}\\Z",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.medium.iso-date-format",
+  "category": "Instruction",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Output a single fictional calendar date in strict ISO 8601 format YYYY-MM-DD, where the month is between 01 and 12 and the day is between 01 and 31 (use exactly two digits for month and day, with leading zeros where needed). Output only the date string and nothing else — no surrounding text, quotes, or explanation.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])\\Z",
+     "mode": "must_match"
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.medium.titlecase-no-and",
+  "category": "Instruction",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Output exactly 6 words on a single line naming natural landscape features (for example: mountains, rivers). Each word must be in Title Case (a single uppercase letter followed by lowercase letters), the words must be separated by single spaces, and the word 'And' must NOT appear. No punctuation, no digits, no line breaks, no leading or trailing spaces. Output only the six words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[A-Z][a-z]+(?: [A-Z][a-z]+){5}\\Z",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bAnd\\b",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.medium.csv-three-numeric",
+  "category": "Instruction",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Output a single CSV line with EXACTLY 3 comma-separated fields and nothing else. The first field must be a non-empty word made of letters only, and the second and third fields must each be an integer made of digits only. Use no spaces anywhere (no spaces around the commas), and no trailing text or newline content. Example shape: apple,4,12. Output only that one line.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[A-Za-z]+,\\d+,\\d+\\Z",
+     "mode": "must_match"
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.hard.acrostic-code",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write an acrostic of EXACTLY 4 lines whose first letters, read top to bottom, spell the word CODE. That is: line 1 must begin with an uppercase 'C', line 2 with an uppercase 'O', line 3 with an uppercase 'D', and line 4 with an uppercase 'E'. Each line must be a short phrase. Output only the 4 lines, with no blank lines, no numbering, and no title.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AC[^\\n]*\\nO[^\\n]*\\nD[^\\n]*\\nE[^\\n]*\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.hard.primes-csv",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "On a single line, output the first 8 prime numbers in increasing order, separated by ', ' (a comma followed by exactly one space). Do not include the number 1, do not include any non-prime number, do not add a trailing comma, and do not output anything else on the line or any surrounding text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A2, 3, 5, 7, 11, 13, 17, 19\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.hard.conditional-parity",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Consider the word 'BENCHMARK'. If it contains an ODD number of letters, reply with the single word ODD in all uppercase. If it contains an EVEN number of letters, reply with the single word EVEN in all lowercase. Output only that one word and nothing else (no explanation, no punctuation).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "ODD",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.hard.river-no-s",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write exactly one sentence about a river. The sentence MUST contain the word 'river', MUST NOT contain the letter 's' (neither uppercase 'S' nor lowercase 's') anywhere, and MUST end with a single period. Output only the sentence.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "river",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "s",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\.\\s*\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.hard.json-ordered-sum",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Output ONLY a single-line JSON object (no code fences, no extra text) with EXACTLY these three keys in this exact order: \"a\", \"b\", \"sum\". Set \"a\" to 17, \"b\" to 25, and \"sum\" to the value of a plus b. Use the exact shape {\"a\": 17, \"b\": 25, \"sum\": N} with a single space after each colon and after each comma.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\{\"a\": 17, \"b\": 25, \"sum\": 42\\}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "instruction.hard.day-schedule",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Output exactly 5 lines forming a schedule. Line k (for k = 1 to 5) MUST begin with the literal prefix 'Day k: ' (for example 'Day 1: '), in increasing order from 1 to 5, followed by a short activity. Do not output any blank lines, any numbering other than the Day prefix, or any other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\ADay 1: [^\\n]+\\nDay 2: [^\\n]+\\nDay 3: [^\\n]+\\nDay 4: [^\\n]+\\nDay 5: [^\\n]+\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.expert.acrostic-prime-lines",
+  "category": "Instruction",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write exactly 5 lines. Reading the FIRST letter of each line from top to bottom must spell the word CLOUD (line 1 starts with C, line 2 with L, line 3 with O, line 4 with U, line 5 with D). Every line must end with a period. The word 'sky' is FORBIDDEN anywhere in the response. Output only the 5 lines, one per line, no blank lines, no numbering.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AC[^\\n]*\\.\\nL[^\\n]*\\.\\nO[^\\n]*\\.\\nU[^\\n]*\\.\\nD[^\\n]*\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bsky\\b",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.expert.iso-utc-strict",
+  "category": "Instruction",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Output a SINGLE line and nothing else: a timestamp in the exact format YYYY-MM-DDThh:mm:ssZ (24-hour UTC, capital T separator, trailing capital Z, no fractional seconds, no offset). Use the moment 9:05 PM on 7 March 2025. Do not output any other text, label, code fence, or whitespace.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A2025-03-07T21:05:00Z\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.expert.ascending-sentences",
+  "category": "Instruction",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a paragraph of EXACTLY 4 sentences about the ocean. The sentences must contain, in order, exactly 3, 4, 5, and 6 words respectively (a 'word' is a maximal run of letters; ignore punctuation). End each sentence with a single period and separate sentences with one space. Output only the paragraph on one line, no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[A-Za-z]+ [A-Za-z]+ [A-Za-z]+\\. [A-Za-z]+ [A-Za-z]+ [A-Za-z]+ [A-Za-z]+\\. [A-Za-z]+ [A-Za-z]+ [A-Za-z]+ [A-Za-z]+ [A-Za-z]+\\. [A-Za-z]+ [A-Za-z]+ [A-Za-z]+ [A-Za-z]+ [A-Za-z]+ [A-Za-z]+\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.expert.pipe-reverse-alpha",
+  "category": "Instruction",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Take these five words: apple, mango, cherry, banana, date. Output them sorted in strict REVERSE alphabetical order (Z to A), joined by ' | ' (space pipe space), on a single line with no leading or trailing characters and nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\Amango \\| date \\| cherry \\| banana \\| apple\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.expert.lipogram-no-e",
+  "category": "Instruction",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write exactly 3 lines describing a sunrise. The letter 'e' (uppercase or lowercase) must NOT appear anywhere in your entire response. The word 'sun' must appear at least once. Output only the 3 lines, no blank lines, no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bsun\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.expert.json-balanced-ledger",
+  "category": "Instruction",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Output a SINGLE-LINE JSON object and nothing else (no code fence, no surrounding text). It must have exactly three integer keys in this order: \"debit\", \"credit\", \"balance\". Set \"debit\" to 350 and \"credit\" to 125. The \"balance\" must equal debit minus credit. Use the exact spacing of this template: {\"debit\": <int>, \"credit\": <int>, \"balance\": <int>}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\{\"debit\": 350, \"credit\": 125, \"balance\": 225\\}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.easy.number-sequence-diff",
+  "category": "Reasoning",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Look at this sequence: 2, 6, 12, 20, 30, ... The differences between consecutive terms are increasing. What is the next term in the sequence? Put only the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "42"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.easy.day-of-week-mod",
+  "category": "Reasoning",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Today is Wednesday. What day of the week will it be exactly 100 days from today? Reason about the remainder when dividing by 7, then give the day name (e.g. Monday) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*[Ff]riday\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.easy.age-word-problem",
+  "category": "Reasoning",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Maria is currently 3 times as old as her brother. In 4 years, she will be only twice as old as her brother will be then. How old is Maria now? Put only the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "12"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.easy.transitive-ranking",
+  "category": "Reasoning",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "In a race, Tom finished ahead of Uma, Uma finished ahead of Vik, Vik finished ahead of Wes, and Wes finished ahead of Xi. No two runners tied. Who finished in third place? Give only the runner's name inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "Vik",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.easy.clock-angle-330",
+  "category": "Reasoning",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "On a standard 12-hour analog clock, what is the smaller angle, in degrees, between the hour hand and the minute hand at exactly 3:30? Remember the hour hand moves as the minutes pass. Put only the number of degrees inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "75"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.easy.ratio-partition-marbles",
+  "category": "Reasoning",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "A bag contains only red and blue marbles in the ratio 3 to 2. There are 25 marbles in total. How many of them are red? Put only the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "15"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.medium.knave-different-types",
+  "category": "Reasoning",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "On an island, every inhabitant is either a knight (who always tells the truth) or a knave (who always lies). You meet two inhabitants, A and B. A says: \"B is a knave.\" B says: \"A and I are of different types.\" Determine what A is. Answer with exactly one word, either knight or knave. Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*knave\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.medium.three-daughters-ages",
+  "category": "Reasoning",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "A census taker asks a woman the ages (positive whole numbers) of her three daughters. She says: \"The product of their ages is 36, and the sum of their ages equals the number on the house next door.\" The census taker walks next door, reads the number, returns, and says he still cannot determine the ages. The woman replies, \"The oldest one has red hair,\" and now he knows. What are the three ages? List them in nondecreasing order, separated by commas, and put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2,2,9",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.medium.tank-two-fill-one-drain",
+  "category": "Reasoning",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "A water tank starts empty. Pipe A alone fills it in 6 hours. Pipe B alone fills it in 4 hours. A drain valve, when open, empties a full tank in 12 hours. All three are opened at the same time on the empty tank and stay open. How many hours does it take to fill the tank? Put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.medium.day-of-week-march",
+  "category": "Reasoning",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "In a particular non-leap year, January 1st falls on a Sunday. On what day of the week does March 1st of that same year fall? (Recall January has 31 days and February has 28 days in a non-leap year.) Answer with the day name, capitalized, and put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Wednesday\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.medium.two-marbles-same-color",
+  "category": "Reasoning",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "A bag contains 4 red marbles and 6 blue marbles. You draw 2 marbles at random without replacement. What is the probability that both drawn marbles are the same color? Give your answer as a decimal rounded to four decimal places, and put your final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.4667"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.counterfeit-12-coins",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "You have 12 visually identical coins. Exactly one is counterfeit and differs in weight from the genuine coins, but you do NOT know whether the fake is heavier or lighter. You have a two-pan balance scale (it only tells you which side is heavier, or that the two sides are equal). What is the minimum number of weighings that is GUARANTEED to both identify the counterfeit coin AND determine whether it is heavier or lighter, in the worst case? Justify using a counting argument, then put the final number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.mother-child-age-trap",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A mother is currently exactly 21 years older than her child. In exactly 6 years from now, the mother will be exactly 5 times as old as the child is at that time. Treating ages as exact real numbers (negative ages are allowed and represent time before birth), what is the child's CURRENT age, expressed in months? Set up the equations carefully and do not assume the answer must be positive. Put the final answer (in months) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-9"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.five-house-ordering",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Five houses stand in a row, numbered 1 to 5 from left to right. Each house is a different color: red, green, blue, yellow, white. From these clues, determine the position number of the GREEN house:\n1. The red house is immediately to the right of the green house.\n2. The blue house is at one of the two ends of the row.\n3. The yellow house is somewhere to the left of the red house (not necessarily adjacent).\n4. The white house is in the middle (position 3).\n5. The green house is not in position 1.\nThe solution is unique. Work through the constraints, then put the position number of the green house inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.three-children-conditional",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A family has exactly three children. Assume each child is independently a boy or a girl with probability 1/2, and that the four equally likely birth-order combinations of \"two boys and one girl\" etc. are all weighted by their actual counts. Given the information that AT LEAST TWO of the three children are boys, what is the probability that ALL THREE children are boys? Enumerate the equally likely outcomes carefully (do not fall for the trap of answering 1/2). Express the probability as a decimal and put it inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.25"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.snail-well-climb",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A snail is at the bottom of a well that is 12 meters deep. During each day it climbs up 4 meters, but during each following night it slips back down 3 meters. It starts climbing at the beginning of day 1. On which numbered day does the snail FIRST reach (or pass) the top of the well? Be careful: the snail escapes as soon as it reaches the top during a day's climb, before any night slip can occur, so the answer is not simply 12. Put the day number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "9"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.expert.spy-knight-knave",
+  "category": "Reasoning",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "On an island, every inhabitant is exactly one of three types: a knight (always tells the truth), a knave (always lies), or a spy (may either lie or tell the truth). You meet three inhabitants A, B, and C, and you are told that among the three there is exactly one knight, exactly one knave, and exactly one spy. They make the following statements:\n- A says: \"B is a knight.\"\n- B says: \"A is a knight.\"\n- C says: \"A is a knave.\"\nThese statements determine the three types uniquely. Which inhabitant is the spy? Answer with exactly one letter, A, B, or C, inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*B\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.expert.bayes-two-headed-coin",
+  "category": "Reasoning",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "A box contains two coins. One is an ordinary fair coin (heads with probability 1/2). The other is a trick coin with heads on both sides (heads with probability 1). You pick one of the two coins uniformly at random, then flip that same coin three times; all three flips come up heads. Given this evidence, what is the probability that you picked the two-headed coin? Give the exact decimal value rounded to four decimal places, and put that decimal inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.8889"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.expert.nim-three-piles",
+  "category": "Reasoning",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Two players play a game of Nim with three piles of stones containing 12, 19, and 27 stones. Players alternate turns; on a turn a player removes any positive number of stones from a single pile of their choice. The player who removes the last stone wins (normal play convention). You move first. It can be shown there is exactly one winning first move. For that move, how many stones must you remove? Put the number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.expert.concat-digit-count",
+  "category": "Reasoning",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write the integers from 1 to 20 in order with no separators, forming the single long string 1234567891011121314151617181920. Counting every occurrence across the whole string, how many times does the digit 1 appear? Put the count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "12"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.expert.crt-three-residues",
+  "category": "Reasoning",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Find the unique three-digit integer N (that is, 100 <= N <= 999) that simultaneously satisfies all three congruences:\n- N leaves remainder 1 when divided by 7,\n- N leaves remainder 2 when divided by 9,\n- N leaves remainder 3 when divided by 11.\nThere is exactly one such three-digit value. Put N inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "344"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.easy.fizzbuzz-value",
+  "category": "Coding",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a Python function `fizzbuzz_value(n)` that takes an integer `n` and returns the string 'FizzBuzz' if `n` is divisible by both 3 and 5, 'Fizz' if divisible only by 3, 'Buzz' if divisible only by 5, and otherwise the decimal string representation of `n` (e.g. fizzbuzz_value(7) -> '7'). Note that 0 is divisible by everything. Output only a single Python code block, with the function named `fizzbuzz_value`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert fizzbuzz_value(1) == '1'\nassert fizzbuzz_value(3) == 'Fizz'\nassert fizzbuzz_value(5) == 'Buzz'\nassert fizzbuzz_value(15) == 'FizzBuzz'\nassert fizzbuzz_value(30) == 'FizzBuzz'\nassert fizzbuzz_value(9) == 'Fizz'\nassert fizzbuzz_value(20) == 'Buzz'\nassert fizzbuzz_value(7) == '7'\nassert fizzbuzz_value(0) == 'FizzBuzz'",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.easy.celsius-to-fahrenheit",
+  "category": "Coding",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a Python function `celsius_to_fahrenheit(c)` that converts a temperature `c` given in degrees Celsius to degrees Fahrenheit and returns the result as a float, using the formula F = C * 9/5 + 32. Output only a single Python code block, with the function named `celsius_to_fahrenheit`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert abs(celsius_to_fahrenheit(0) - 32.0) < 1e-9\nassert abs(celsius_to_fahrenheit(100) - 212.0) < 1e-9\nassert abs(celsius_to_fahrenheit(-40) - (-40.0)) < 1e-9\nassert abs(celsius_to_fahrenheit(37) - 98.6) < 1e-9\nassert abs(celsius_to_fahrenheit(20) - 68.0) < 1e-9",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.easy.count-words",
+  "category": "Coding",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a Python function `count_words(s)` that returns the number of words in the string `s`, where words are maximal runs of non-whitespace characters separated by any amount of whitespace. Leading, trailing, and repeated whitespace must not create empty words; an empty or all-whitespace string has 0 words. Output only a single Python code block, with the function named `count_words`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_words('') == 0\nassert count_words('   ') == 0\nassert count_words('hello') == 1\nassert count_words('the quick brown fox') == 4\nassert count_words('  spaced   out  words ') == 3\nassert count_words('one') == 1",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.easy.running-total",
+  "category": "Coding",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a Python function `running_total(nums)` that takes a list of numbers and returns a new list of the same length where the element at index i is the sum of nums[0..i] inclusive (the running cumulative sum). An empty input returns an empty list. Output only a single Python code block, with the function named `running_total`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert running_total([]) == []\nassert running_total([1, 2, 3, 4]) == [1, 3, 6, 10]\nassert running_total([5]) == [5]\nassert running_total([-1, 1, -1, 1]) == [-1, 0, -1, 0]\nassert running_total([0, 0, 0]) == [0, 0, 0]\nassert running_total([10, -5, 3]) == [10, 5, 8]",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.easy.most-frequent-char",
+  "category": "Coding",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a Python function `most_frequent(s)` that returns the character that appears most often in the string `s`. If several characters tie for the highest count, return whichever of those tied characters appears EARLIEST (its first occurrence has the smallest index) in `s`. For an empty string, return None. Output only a single Python code block, with the function named `most_frequent`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert most_frequent('') is None\nassert most_frequent('a') == 'a'\nassert most_frequent('aabbbcc') == 'b'\nassert most_frequent('abcabc') == 'a'\nassert most_frequent('mississippi') == 'i'\nassert most_frequent('xxyyzz') == 'x'",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.easy.to-snake-case",
+  "category": "Coding",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a Python function `to_snake_case(s)` that converts a camelCase identifier to snake_case: every uppercase letter is replaced by an underscore followed by its lowercase form, and all other characters are left unchanged (e.g. 'helloWorld' -> 'hello_world'). The input contains only ASCII letters and never starts with an uppercase letter. Output only a single Python code block, with the function named `to_snake_case`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert to_snake_case('helloWorld') == 'hello_world'\nassert to_snake_case('thisIsATest') == 'this_is_a_test'\nassert to_snake_case('already') == 'already'\nassert to_snake_case('') == ''\nassert to_snake_case('myXMLParser') == 'my_x_m_l_parser'\nassert to_snake_case('a') == 'a'",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.medium.spiral-order",
+  "category": "Coding",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a Python function `spiral_order(matrix)` that takes a 2D list (a possibly non-square m x n matrix, or an empty list) and returns a flat list of its elements visited in clockwise spiral order, starting from the top-left, going right across the top row, then down the right column, then left, then up, and inward. Output only a single Python code block, with a function named `spiral_order`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert spiral_order([]) == []\nassert spiral_order([[1]]) == [1]\nassert spiral_order([[1, 2, 3], [4, 5, 6], [7, 8, 9]]) == [1, 2, 3, 6, 9, 8, 7, 4, 5]\nassert spiral_order([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]]) == [1, 2, 3, 4, 8, 12, 11, 10, 9, 5, 6, 7]\nassert spiral_order([[1, 2], [3, 4], [5, 6]]) == [1, 2, 4, 6, 5, 3]\nassert spiral_order([[1, 2, 3]]) == [1, 2, 3]\nassert spiral_order([[1], [2], [3]]) == [1, 2, 3]",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.medium.string-to-integer",
+  "category": "Coding",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a Python function `my_atoi(s)` that converts a string to a 32-bit signed integer following these rules: skip leading spaces; read an optional single '+' or '-' sign; read the following consecutive digits as a number and stop at the first non-digit character; if no digits were read, return 0; clamp the result to the signed 32-bit range [-2147483648, 2147483647]. Do not use Python's int() on the whole string to bypass the parsing rules. Output only a single Python code block, with a function named `my_atoi`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert my_atoi('42') == 42\nassert my_atoi('   -42') == -42\nassert my_atoi('4193 with words') == 4193\nassert my_atoi('words and 987') == 0\nassert my_atoi('') == 0\nassert my_atoi('+-12') == 0\nassert my_atoi('-91283472332') == -2147483648\nassert my_atoi('91283472332') == 2147483647\nassert my_atoi('  +0042') == 42\nassert my_atoi('3.14') == 3",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.medium.simplify-unix-path",
+  "category": "Coding",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a Python function `simplify_path(path)` that takes an absolute Unix-style file path and returns its canonical form. Rules: the result starts with a single '/'; a single period '.' refers to the current directory and is dropped; a double period '..' moves up one directory (and is ignored at the root); multiple consecutive slashes are treated as a single slash; the canonical path has no trailing slash unless it is the root '/'. Names like '...' are valid directory names, not special. Output only a single Python code block, with a function named `simplify_path`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert simplify_path('/home/') == '/home'\nassert simplify_path('/../') == '/'\nassert simplify_path('/home//foo/') == '/home/foo'\nassert simplify_path('/a/./b/../../c/') == '/c'\nassert simplify_path('/') == '/'\nassert simplify_path('/a/../../b/../c//.//') == '/c'\nassert simplify_path('/...') == '/...'",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.medium.pascal-row",
+  "category": "Coding",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a Python function `pascal_row(n)` that returns the n-th row (0-indexed) of Pascal's triangle as a list of integers. Row 0 is [1], row 1 is [1, 1], row 2 is [1, 2, 1], and so on; entry k of row n equals the binomial coefficient C(n, k). Output only a single Python code block, with a function named `pascal_row`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert pascal_row(0) == [1]\nassert pascal_row(1) == [1, 1]\nassert pascal_row(2) == [1, 2, 1]\nassert pascal_row(3) == [1, 3, 3, 1]\nassert pascal_row(4) == [1, 4, 6, 4, 1]\nassert pascal_row(5) == [1, 5, 10, 10, 5, 1]\nassert sum(pascal_row(10)) == 1024\nassert pascal_row(6) == [1, 6, 15, 20, 15, 6, 1]",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.medium.frequency-sort",
+  "category": "Coding",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a Python function `frequency_sort(s)` that returns a string containing the characters of `s` reordered by decreasing frequency. All occurrences of the same character must be grouped together. When two characters have the same frequency, the one with the smaller Unicode code point (i.e. ordered by ord) must come first. Uppercase and lowercase letters are distinct characters. Output only a single Python code block, with a function named `frequency_sort`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert frequency_sort('') == ''\nassert frequency_sort('a') == 'a'\nassert frequency_sort('tree') == 'eert'\nassert frequency_sort('cccaaa') == 'aaaccc'\nassert frequency_sort('Aabb') == 'bbAa'\nassert frequency_sort('loveleetcode') == 'eeeelloocdtv'",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.medium.coin-change-min",
+  "category": "Coding",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a Python function `coin_change(coins, amount)` that returns the minimum number of coins needed to make up `amount` using any quantity of the given coin denominations (a list of positive integers), or -1 if it is impossible. coin_change(coins, 0) is 0. Use dynamic programming so it handles amounts in the thousands efficiently. Output only a single Python code block, with a function named `coin_change`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert coin_change([1, 2, 5], 11) == 3\nassert coin_change([2], 3) == -1\nassert coin_change([1], 0) == 0\nassert coin_change([1], 2) == 2\nassert coin_change([2, 5, 10, 1], 27) == 4\nassert coin_change([186, 419, 83, 408], 6249) == 20\nassert coin_change([5], 0) == 0",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.edit-distance",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `edit_distance(a, b)` that returns the minimum number of single-character edits (insertion, deletion, or substitution) required to transform string `a` into string `b` (Levenshtein distance). Output only a single Python code block containing the function named `edit_distance`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert edit_distance('', '') == 0\nassert edit_distance('abc', '') == 3\nassert edit_distance('', 'abc') == 3\nassert edit_distance('kitten', 'sitting') == 3\nassert edit_distance('horse', 'ros') == 3\nassert edit_distance('intention', 'execution') == 5\nassert edit_distance('flaw', 'lawn') == 2\nassert edit_distance('abc', 'abc') == 0",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.spiral-matrix",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `spiral_order(matrix)` that takes an m x n 2D list of integers and returns a flat list of all elements visited in clockwise spiral order, starting from the top-left, going right across the top row, then down the right column, etc. The matrix may be empty or non-square. Output only a single Python code block containing the function named `spiral_order`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert spiral_order([]) == []\nassert spiral_order([[1]]) == [1]\nassert spiral_order([[1, 2], [3, 4]]) == [1, 2, 4, 3]\nassert spiral_order([[1, 2, 3], [4, 5, 6], [7, 8, 9]]) == [1, 2, 3, 6, 9, 8, 7, 4, 5]\nassert spiral_order([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]]) == [1, 2, 3, 4, 8, 12, 11, 10, 9, 5, 6, 7]\nassert spiral_order([[1], [2], [3]]) == [1, 2, 3]\nassert spiral_order([[1, 2, 3]]) == [1, 2, 3]",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.word-break",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `word_break(s, words)` that returns True iff the string `s` can be segmented into a space-separated sequence of one or more words from the list `words`. Each word may be reused any number of times. The empty string is always segmentable (returns True). Output only a single Python code block containing the function named `word_break`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert word_break('leetcode', ['leet', 'code']) is True\nassert word_break('applepenapple', ['apple', 'pen']) is True\nassert word_break('catsandog', ['cats', 'dog', 'sand', 'and', 'cat']) is False\nassert word_break('', ['a']) is True\nassert word_break('a', ['a']) is True\nassert word_break('aaaaaaa', ['aaaa', 'aaa']) is True\nassert word_break('cars', ['car', 'ca', 'rs']) is True",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.coin-change-min",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `coin_change(coins, amount)` that returns the fewest number of coins from the list `coins` (each coin usable an unlimited number of times) needed to make up exactly `amount`. If the amount cannot be made, return -1. coin_change(coins, 0) is 0. Output only a single Python code block containing the function named `coin_change`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert coin_change([1, 2, 5], 11) == 3\nassert coin_change([2], 3) == -1\nassert coin_change([1], 0) == 0\nassert coin_change([1, 3, 4], 6) == 2\nassert coin_change([2, 5, 10, 1], 27) == 4\nassert coin_change([5], 5) == 1\nassert coin_change([186, 419, 83, 408], 6249) == 20",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.course-schedule-cycle",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `can_finish(num_courses, prerequisites)` where courses are labeled 0..num_courses-1 and `prerequisites` is a list of pairs [a, b] meaning course a depends on course b (b must be taken before a). Return True iff it is possible to finish all courses, i.e. the dependency graph has no cycle. Output only a single Python code block containing the function named `can_finish`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert can_finish(2, [[1, 0]]) is True\nassert can_finish(2, [[1, 0], [0, 1]]) is False\nassert can_finish(1, []) is True\nassert can_finish(4, [[1, 0], [2, 1], [3, 2]]) is True\nassert can_finish(3, [[0, 1], [1, 2], [2, 0]]) is False\nassert can_finish(5, [[1, 0], [2, 0], [3, 1], [3, 2], [4, 3]]) is True",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.expert.max-circular-subarray",
+  "category": "Coding",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a Python function `max_circular_subarray(nums)` that returns the maximum possible sum of a non-empty contiguous subarray of the CIRCULAR integer array `nums` (the array wraps around, so a subarray may run off the end and continue from the beginning, but each element is used at most once). For `nums = [5, -3, 5]` the answer is 10 (take index 2 then index 0). If all elements are negative, return the largest single element. Assume `nums` is non-empty. Output only a single Python code block with a function named `max_circular_subarray`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert max_circular_subarray([1, -2, 3, -2]) == 3\nassert max_circular_subarray([5, -3, 5]) == 10\nassert max_circular_subarray([-3, -2, -3]) == -2\nassert max_circular_subarray([3, -1, 2, -1]) == 4\nassert max_circular_subarray([3, -2, 2, -3]) == 3\nassert max_circular_subarray([-2, -3, -1]) == -1\nassert max_circular_subarray([8, -1, 3, 4]) == 15\nassert max_circular_subarray([2, -2, 2, -2, 2]) == 4\nassert max_circular_subarray([7]) == 7",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.expert.expr-eval-precedence",
+  "category": "Coding",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a Python function `evaluate(expr)` that parses and evaluates an arithmetic expression string and returns an integer. The grammar supports: non-negative integer literals, the binary operators + - * / with standard precedence (* and / bind tighter than + and -) and left-to-right associativity, parentheses for grouping, and unary plus/minus. Division is INTEGER division that TRUNCATES TOWARD ZERO (so evaluate('-10/3') == -3, not -4). Spaces may appear anywhere and must be ignored. You may not use eval/exec or any expression-parsing library. Output only a single Python code block with a function named `evaluate`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert evaluate('1+2*3') == 7\nassert evaluate('(1+2)*3') == 9\nassert evaluate('2*3+4*5') == 26\nassert evaluate('10/3') == 3\nassert evaluate('-10/3') == -3\nassert evaluate('7-3-2') == 2\nassert evaluate('2*(3+(4-1))') == 12\nassert evaluate('100/7/2') == 7\nassert evaluate('-(3+4)*2') == -14\nassert evaluate('3+ -2') == 1\nassert evaluate('(2+3)*(4-1)') == 15",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.expert.lis-length",
+  "category": "Coding",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a Python function `lis_length(nums)` that returns the length of the longest STRICTLY increasing subsequence of the integer list `nums` (elements need not be contiguous, and the subsequence must be strictly increasing so equal values cannot both be kept). Return 0 for an empty list. Your solution should run in O(n log n) time. Output only a single Python code block with a function named `lis_length`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert lis_length([]) == 0\nassert lis_length([10, 9, 2, 5, 3, 7, 101, 18]) == 4\nassert lis_length([0, 1, 0, 3, 2, 3]) == 4\nassert lis_length([7, 7, 7, 7]) == 1\nassert lis_length([1, 3, 6, 7, 9, 4, 10, 5, 6]) == 6\nassert lis_length([4, 10, 4, 3, 8, 9]) == 3\nassert lis_length([5]) == 1\nassert lis_length([2, 2, 2, 1, 3]) == 2",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.expert.word-break",
+  "category": "Coding",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a Python function `word_break(s, words)` that returns True iff the string `s` can be segmented into a sequence of one or more words, each of which appears in the list `words` (words may be reused any number of times). The empty string is always segmentable (return True). Beware: a greedy longest-match-first approach is INCORRECT here (e.g. 'aaaaaaa' with words ['aaaa','aaa'] is segmentable as 'aaaa'+'aaa', but other splits fail). Output only a single Python code block with a function named `word_break`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert word_break('leetcode', ['leet', 'code']) is True\nassert word_break('applepenapple', ['apple', 'pen']) is True\nassert word_break('catsandog', ['cats', 'dog', 'sand', 'and', 'cat']) is False\nassert word_break('', ['a']) is True\nassert word_break('aaaaaaa', ['aaaa', 'aaa']) is True\nassert word_break('ab', ['a']) is False\nassert word_break('cars', ['car', 'ca', 'rs']) is True\nassert word_break('aaaaaab', ['aaaa', 'aaa']) is False",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.expert.edit-distance",
+  "category": "Coding",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a Python function `edit_distance(a, b)` that returns the Levenshtein edit distance between strings `a` and `b`: the minimum number of single-character insertions, deletions, or substitutions needed to transform `a` into `b`. Output only a single Python code block with a function named `edit_distance`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert edit_distance('', '') == 0\nassert edit_distance('horse', 'ros') == 3\nassert edit_distance('intention', 'execution') == 5\nassert edit_distance('abc', 'abc') == 0\nassert edit_distance('', 'abc') == 3\nassert edit_distance('kitten', 'sitting') == 3\nassert edit_distance('sunday', 'saturday') == 3\nassert edit_distance('abcdef', 'azced') == 3",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.expert.dijkstra-shortest-path",
+  "category": "Coding",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a Python function `shortest_path(graph, start, end)` that returns the length of the shortest path from node `start` to node `end` in a directed, non-negatively weighted graph. The graph is given as a dict mapping each node to a list of `(neighbor, weight)` tuples (weights are non-negative integers; a node with no outgoing edges may be absent or map to an empty list). Return the total weight of the shortest path, 0 if `start == end`, and -1 if `end` is unreachable from `start`. Use an efficient (Dijkstra-style) approach. Output only a single Python code block with a function named `shortest_path`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "g = {'A': [('B', 1), ('C', 4)], 'B': [('C', 2), ('D', 5)], 'C': [('D', 1)], 'D': []}\nassert shortest_path(g, 'A', 'D') == 4\nassert shortest_path(g, 'A', 'C') == 3\nassert shortest_path(g, 'A', 'A') == 0\nassert shortest_path(g, 'D', 'A') == -1\ng2 = {0: [(1, 10), (2, 3)], 1: [(2, 1), (3, 2)], 2: [(1, 4), (3, 8), (4, 2)], 3: [(4, 7)], 4: [(3, 9)]}\nassert shortest_path(g2, 0, 3) == 9\nassert shortest_path(g2, 0, 4) == 5\nassert shortest_path(g2, 0, 1) == 7\nassert shortest_path({'X': []}, 'X', 'Y') == -1",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.easy.coffee-tagline",
+  "category": "Prose",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a tagline for a coffee shop. It MUST be exactly five words on a single line, and it MUST include the word 'coffee'. Output only the five words, with no quotation marks or commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 1
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*\\S+(?:\\s+\\S+){4}\\s*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "coffee",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.easy.travel-two-stanza",
+  "category": "Prose",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a short poem about a long journey in EXACTLY two stanzas separated by a single blank line. Each stanza must have exactly two lines, so the whole poem has exactly four non-empty lines. The poem must contain the word 'home'. Output only the poem.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "op": "==",
+     "n": 2
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "home",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.easy.dialogue-dash-lines",
+  "category": "Prose",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a four-line dialogue between two people. Put each spoken line on its own line, and begin EVERY line with a dash ('-') followed by a space. The dialogue must have exactly four non-empty lines. Output only the dialogue.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*-[^\\n]*\\n\\s*-[^\\n]*\\n\\s*-[^\\n]*\\n\\s*-",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.easy.autumn-no-exclaim",
+  "category": "Prose",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a calm description of an autumn scene in exactly three sentences. It MUST contain the word 'autumn'. Do NOT use any exclamation marks. Output only the three sentences as a single paragraph.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "autumn",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "!",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.easy.rain-no-digits",
+  "category": "Prose",
+  "difficulty": "easy",
+  "tier": 0,
+  "prompt": "Write a four-line poem about a rainy day. It must mention the word 'rain'. Do not use any digits (0-9) anywhere. Output only the four lines.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "rain",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[0-9]",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.medium.three-stanza-rain",
+  "category": "Prose",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a short poem in exactly 3 stanzas. Separate each stanza from the next with one blank line. The poem must use the word \"rain\" at least once. Output only the poem, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\brain\\b",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.medium.lipogram-no-the",
+  "category": "Prose",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a vivid paragraph describing a small boat sailing at night. Constraint: it must be exactly 4 sentences long (each ending in a period, question mark, or exclamation point), and the word \"the\" must NEVER appear as a standalone word anywhere in your answer (words that merely contain those letters, such as 'theatre' or 'gather', are fine). Avoid abbreviations and decimals. Output only the paragraph.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bthe\\b",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.medium.acrostic-storm",
+  "category": "Prose",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write an acrostic poem of exactly 5 lines where the first letter of each line, read top to bottom, spells the word STORM. That is: line 1 starts with S, line 2 with T, line 3 with O, line 4 with R, line 5 with M. The poem should evoke a thunderstorm. Output only the 5 lines, no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?im)^\\s*S.*\\n\\s*T.*\\n\\s*O.*\\n\\s*R.*\\n\\s*M",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.medium.two-sentence-em-dash",
+  "category": "Prose",
+  "difficulty": "medium",
+  "tier": 0,
+  "prompt": "Write a tense two-sentence vignette about mountain climbers reaching a summit. It must be exactly 2 sentences (each ending in a period, question mark, or exclamation point), and at least one of the sentences must contain an em dash (the — character). Do not use any abbreviations or decimal points. Output only the two sentences.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 2
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "—",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.acrostic-winter-tetrastich",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a 6-line poem that is an acrostic spelling WINTER down the first letters of the lines (line 1 begins with W, then I, N, T, E, R). EVERY line must contain EXACTLY four words. The poem must include the word 'snow' at least once. Do NOT use any commas anywhere in the poem. Output only the six lines, one line each, with no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 6
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*W[^\\n,]*\\n\\s*I[^\\n,]*\\n\\s*N[^\\n,]*\\n\\s*T[^\\n,]*\\n\\s*E[^\\n,]*\\n\\s*R[^\\n,]*\\s*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "snow",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": ",",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.dialogue-alternating-speakers",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a short play-script dialogue of EXACTLY eight lines. Every line MUST begin with a speaker label that is either 'A: ' or 'B: ', and the speakers MUST strictly alternate starting with A (so the lines are A, B, A, B, A, B, A, B). The dialogue must mention the word 'ghost'. Do NOT use any question marks anywhere. Output only the eight dialogue lines with no stage directions, titles, or extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 8
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^A: [^\\n]*\\nB: [^\\n]*\\nA: [^\\n]*\\nB: [^\\n]*\\nA: [^\\n]*\\nB: [^\\n]*\\nA: [^\\n]*\\nB: [^\\n]*\\s*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "ghost",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\?",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.abecedarian-five-sentences",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a single-line paragraph of EXACTLY five sentences about planning a vegetable garden. It must be abecedarian: the first sentence must start with a word beginning with the letter 'A', the second with 'B', the third with 'C', the fourth with 'D', and the fifth with 'E', in that order. The paragraph must include the word 'garden'. Output only the paragraph on one line with no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 1
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*A\\w*\\b[^.!?]*[.!?]+\\s+B\\w*\\b[^.!?]*[.!?]+\\s+C\\w*\\b[^.!?]*[.!?]+\\s+D\\w*\\b[^.!?]*[.!?]+\\s+E\\w*\\b[^.!?]*[.!?]+\\s*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "garden",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.refrain-three-quatrains",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a poem in EXACTLY three stanzas separated by single blank lines, where each stanza has exactly four lines (12 non-empty lines in total). The LAST line of every stanza must be the identical refrain: and still the lighthouse turns. The poem must include the word 'sea'. Do NOT use the word 'love' anywhere. Output only the poem.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 12
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(and still the lighthouse turns[\\s\\S]*?){3}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bsea\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\blove\\b",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.word-count-palindrome-tanka",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a 5-line poem whose per-line WORD counts form the palindrome 2, 3, 4, 3, 2 (line 1 has exactly 2 words, line 2 exactly 3 words, line 3 exactly 4 words, line 4 exactly 3 words, line 5 exactly 2 words). The poem must contain the word 'moon'. Do NOT use the word 'and' anywhere. Output only the five lines, one per line, with no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^[ \\t]*\\S+[ \\t]+\\S+[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){2}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){2}[ \\t]*\\n[ \\t]*\\S+[ \\t]+\\S+[ \\t]*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "moon",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\band\\b",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.expert.diminishing-verse",
+  "category": "Prose",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a 5-line free-verse poem about a village vanishing under snow. The poem must form a strict word-count descent: line 1 has exactly 5 words, line 2 exactly 4 words, line 3 exactly 3 words, line 4 exactly 2 words, and line 5 exactly 1 word. The poem must contain the word 'silence'. Do NOT use any commas anywhere in the poem. Output ONLY the five lines, one line each, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*(?:\\S+\\s+){4}\\S+\\s*\\n\\s*(?:\\S+\\s+){3}\\S+\\s*\\n\\s*(?:\\S+\\s+){2}\\S+\\s*\\n\\s*\\S+\\s+\\S+\\s*\\n\\s*\\S+\\s*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bsilence\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": ",",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.expert.telestich-snow",
+  "category": "Prose",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a 4-line telestich poem (a poem where the LAST letters of the lines, read top to bottom, spell a word). The final letters of the four lines must spell S, N, O, W in that order: line 1 must end with the letter s, line 2 with n, line 3 with o, and line 4 with w. The poem must contain the word 'cold'. Output ONLY the four lines, one line each, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^[^\\n]*s\\n[^\\n]*n\\n[^\\n]*o\\n[^\\n]*w\\s*$",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bcold\\b",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.expert.anaphora-lipogram",
+  "category": "Prose",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a 4-line poem with two simultaneous constraints. First, anaphora: every line must begin with the word 'Always'. Second, lipogram: the entire poem must NOT contain the letter 'e' anywhere (neither uppercase nor lowercase). Output ONLY the four lines, one line each, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*Always[^\\n]*\\n\\s*Always[^\\n]*\\n\\s*Always[^\\n]*\\n\\s*Always[^\\n]*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.expert.refrain-frame",
+  "category": "Prose",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a 6-line poem about the sea that is framed by an identical refrain: line 1 and line 6 must be the EXACT same sentence, verbatim and case-identical, namely 'The tide returns what the tide once took'. Lines 2 through 5 must be different lines of your own. Output ONLY the six lines, one line each, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 6
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*The tide returns what the tide once took\\b[\\s\\S]*\\n\\s*The tide returns what the tide once took\\s*$",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.expert.snowball-sentence",
+  "category": "Prose",
+  "difficulty": "expert",
+  "tier": 0,
+  "prompt": "Write a single 'snowball' sentence: a grammatical English sentence of exactly seven words where each successive word is exactly one letter longer than the one before it. The first word must be 1 letter, the second 2 letters, the third 3 letters, the fourth 4, the fifth 5, the sixth 6, and the seventh 7 letters. The sentence must be on one line and must end with a period (or '!' or '?'). Output ONLY that one sentence, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 1
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*[A-Za-z]\\W+[A-Za-z]{2}\\W+[A-Za-z]{3}\\W+[A-Za-z]{4}\\W+[A-Za-z]{5}\\W+[A-Za-z]{6}\\W+[A-Za-z]{7}[.!?]\\s*$",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.divisors-mult6-not4",
+  "prompt": "Let N = 2^4 * 3^2 * 5 * 7. Count the positive divisors d of N that are a multiple of 6 but NOT a multiple of 4. (Hint: write d = 2^a * 3^b * 5^c * 7^e with 0<=a<=4, 0<=b<=2, 0<=c<=1, 0<=e<=1; the divisibility-by-6 condition forces a>=1 and b>=1, while NOT-divisible-by-4 forces a<2, i.e. a=1.) Put the final integer count inside \\boxed{}.",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "8"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.sum-powers-mod-1000",
+  "prompt": "Compute (2^100 + 3^100 + 4^100) mod 1000 (the last three digits of the sum). Use modular exponentiation and the cyclic behaviour of powers modulo 1000 rather than computing the full numbers. Put the final integer (a value from 0 to 999) inside \\boxed{}.",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "753"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.distinct-triples-sum-20",
+  "prompt": "How many ordered triples of positive integers (a, b, c) with a < b < c satisfy a + b + c = 20? Equivalently, in how many ways can 20 be written as a sum of three DISTINCT positive integers (order not counting)? Enumerate carefully. Put the final integer count inside \\boxed{}.",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "24"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "math.hard.telescoping-fraction-reduced",
+  "prompt": "Evaluate the exact sum S = sum_{k=1}^{10} 1/(k*(k+2)). Use the partial-fraction / telescoping identity 1/(k(k+2)) = (1/2)(1/k - 1/(k+2)). Give S as a single fully reduced fraction p/q (lowest terms, positive denominator). Output ONLY the fraction in the exact form p/q with a single '/' and no spaces, no surrounding text, no whitespace, and nothing else.",
+  "category": "Math",
+  "difficulty": "hard",
+  "tier": 0,
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A175/264\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.hard.collatz-steps",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function named `collatz_steps(n)` that takes a positive integer `n` and returns the number of steps required to reach 1 under the Collatz process: while the number is not 1, replace it with n//2 if it is even, or 3*n+1 if it is odd, counting each replacement as one step. For n == 1 the count is 0. Return the integer step count (do not print it). Put your function in a single ```python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert collatz_steps(1) == 0\nassert collatz_steps(2) == 1\nassert collatz_steps(6) == 8\nassert collatz_steps(7) == 16\nassert collatz_steps(27) == 111\nassert collatz_steps(97) == 118\n",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.hard.acrostic-benchmark",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write an acrostic of EXACTLY 9 lines. Reading the FIRST letter of each line from top to bottom must spell the word BENCHMARK (line 1 starts with B, line 2 with E, line 3 with N, line 4 with C, line 5 with H, line 6 with M, line 7 with A, line 8 with R, line 9 with K). EVERY line must end with a single period '.'. Output only the 9 lines, one per line, with no blank lines, no numbering, no title, and no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 9
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AB[^\\n]*\\.\\nE[^\\n]*\\.\\nN[^\\n]*\\.\\nC[^\\n]*\\.\\nH[^\\n]*\\.\\nM[^\\n]*\\.\\nA[^\\n]*\\.\\nR[^\\n]*\\.\\nK[^\\n]*\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.hard.json-rectangle",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Output ONLY a single-line JSON object (no code fences, no surrounding text) with EXACTLY these four integer keys in this exact order: \"width\", \"height\", \"area\", \"perimeter\". Set \"width\" to 24 and \"height\" to 37. The \"area\" must equal width times height, and the \"perimeter\" must equal 2 times (width plus height). Use the exact spacing of this template: {\"width\": <int>, \"height\": <int>, \"area\": <int>, \"perimeter\": <int>} (a single space after each colon and after each comma).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\{\"width\": 24, \"height\": 37, \"area\": 888, \"perimeter\": 122\\}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "instruction.hard.length-sort-desc",
+  "category": "Instruction",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Take these seven words: kiwi, fig, banana, cherry, apple, plum, date. Sort them primarily by DECREASING word length (longest first), and for words of equal length break ties by ascending alphabetical order. Output the sorted words on a single line joined by ' > ' (a space, a greater-than sign, and a space), with no leading or trailing characters and nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\Abanana > cherry > apple > date > kiwi > plum > fig\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.self-descriptive-number",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A 10-digit number is called self-descriptive if, for every position i from 0 to 9 (reading the number left to right, so the leftmost digit is at position 0), the digit at position i equals the total number of times the digit i appears in the whole 10-digit number. For example, in a self-descriptive number the digit in position 0 tells you how many 0s the number contains. Leading zeros are NOT allowed (the number must be a genuine 10-digit number, so its first digit is at least 1). There is exactly one such 10-digit number. Find it and put it inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6210001000"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.mcnugget-frobenius",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A shop sells chicken nuggets only in boxes of exactly 6, 9, or 20 nuggets. By buying some combination of whole boxes (you may buy any nonnegative number of each box size, including zero of a size), you can obtain certain totals of nuggets exactly. Some totals are impossible; for instance 5 nuggets cannot be bought, but 44 can (one 20 and four 6s). What is the LARGEST total number of nuggets that CANNOT be purchased exactly using these box sizes? Put that number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "43"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.dice-stop-expected-sum",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "You repeatedly roll a fair six-sided die (faces 1 through 6, each with probability 1/6) and keep a running total of the numbers rolled. You stop rolling the instant the running total first reaches or exceeds 12. Let S be the value of the running total at the moment you stop (this can be anywhere from 12 up to 17). Compute the exact expected value E[S]. Give your answer as a decimal rounded to exactly four decimal places, and put it inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "13.6723"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.lattice-paths-avoid-point",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Consider a grid of integer lattice points. A monotone lattice path from (0,0) to (6,6) is a sequence of unit steps where each step moves either one unit to the right (increasing x by 1) or one unit up (increasing y by 1). Count the number of such monotone lattice paths from (0,0) to (6,6) that DO NOT pass through the point (3,3). Put the exact count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "524"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "reasoning.hard.race-constraint-order",
+  "category": "Reasoning",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Five runners A, B, C, D, and E finish a race in distinct positions numbered 1 (first) through 5 (last); there are no ties. The following facts hold:\n1. B finished in the position immediately before C (that is, C's position number is exactly one more than B's).\n2. A finished ahead of D (A's position number is smaller than D's).\n3. E finished neither first nor last.\n4. D did not finish last.\n5. Exactly one runner finished between A and E (the difference of their position numbers is exactly 2).\nThese facts determine the finishing order uniquely. In what position (a number from 1 to 5) did runner B finish? Put the position number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.trapping-rain-water",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `trap(height)` that takes a list of non-negative integers `height` representing an elevation map where the width of each bar is 1, and returns the total amount of rain water (in unit squares) that can be trapped between the bars after raining. Water above index i is bounded by the tallest bar to its left and the tallest bar to its right, minus the bar's own height (never negative). An empty list traps 0. Output only a single Python code block containing the function named `trap`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert trap([]) == 0\nassert trap([1]) == 0\nassert trap([0,1,0,2,1,0,1,3,2,1,2,1]) == 6\nassert trap([4,2,0,3,2,5]) == 9\nassert trap([3,0,3]) == 3\nassert trap([5,4,3,2,1]) == 0\nassert trap([2,0,2]) == 2\nassert trap([4,2,3]) == 1",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.longest-palindromic-substring",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `longest_palindrome(s)` that returns the longest contiguous substring of `s` that reads the same forwards and backwards. If several substrings tie for the maximum length, return the one that starts at the smallest index (the leftmost). Return the empty string for empty input; a single character is itself a palindrome. Output only a single Python code block containing the function named `longest_palindrome`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert longest_palindrome('') == ''\nassert longest_palindrome('a') == 'a'\nassert longest_palindrome('cbbd') == 'bb'\nassert longest_palindrome('babad') == 'bab'\nassert longest_palindrome('forgeeksskeegfor') == 'geeksskeeg'\nassert longest_palindrome('abcda') == 'a'\nassert longest_palindrome('aaaa') == 'aaaa'\nassert longest_palindrome('abacdfgdcaba') == 'aba'",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.min-window-substring",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `min_window(s, t)` that returns the shortest contiguous substring of `s` that contains every character of `t` including duplicates (i.e. at least as many of each character as `t` requires); order does not matter. If no such window exists, return the empty string. If several windows tie for the minimum length, return the one that starts at the smallest index. Output only a single Python code block containing the function named `min_window`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert min_window('ADOBECODEBANC', 'ABC') == 'BANC'\nassert min_window('a', 'a') == 'a'\nassert min_window('a', 'aa') == ''\nassert min_window('', 'a') == ''\nassert min_window('aa', 'aa') == 'aa'\nassert min_window('bba', 'ab') == 'ba'\nassert min_window('cabwefgewcwaefgcf', 'cae') == 'cwae'\nassert min_window('abc', 'd') == ''",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.regex-dot-star-match",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a Python function `is_match(s, p)` that returns True iff the pattern `p` matches the ENTIRE string `s`. In `p`, a '.' matches any single character, and a '*' matches zero or more of the element immediately preceding it (a literal character or a '.'). Every '*' in `p` is guaranteed to have a valid preceding element. The match must cover the whole input (not a partial/prefix match). You may not use the `re` module or any regular-expression engine. Output only a single Python code block containing the function named `is_match`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert is_match('aa', 'a') is False\nassert is_match('aa', 'a*') is True\nassert is_match('ab', '.*') is True\nassert is_match('aab', 'c*a*b') is True\nassert is_match('mississippi', 'mis*is*p*.') is False\nassert is_match('', '.*') is True\nassert is_match('', '') is True\nassert is_match('abc', '') is False\nassert is_match('ab', '.*c') is False\nassert is_match('aaa', 'a*a') is True\nassert is_match('aaa', 'ab*a*c*a') is True",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "coding.hard.decode-ways-count",
+  "category": "Coding",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "A message of digits is encoded to letters using the mapping 'A'->'1', 'B'->'2', ..., 'Z'->'26'. Write a Python function `num_decodings(s)` that returns the number of distinct ways the digit string `s` can be decoded back into letters. A group of digits may map to a letter only if it forms a number in the range 1..26 with no leading zero (so '0' alone or a leading-zero pair like '06' is invalid and contributes no decoding). Return 0 if `s` is empty or cannot be decoded at all. Output only a single Python code block containing the function named `num_decodings`.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert num_decodings('12') == 2\nassert num_decodings('226') == 3\nassert num_decodings('0') == 0\nassert num_decodings('06') == 0\nassert num_decodings('1') == 1\nassert num_decodings('10') == 1\nassert num_decodings('27') == 1\nassert num_decodings('2101') == 1\nassert num_decodings('11106') == 2\nassert num_decodings('100') == 0\nassert num_decodings('2611055971756562') == 4",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.double-acrostic-frost",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a 5-line poem with TWO simultaneous constraints. First, it must be an acrostic spelling FROST down the first letters of the lines (line 1 begins with F, then R, O, S, T). Second, EVERY line must END with the letter 'e'. The poem must contain the word 'ice'. Do NOT use any commas anywhere. Output only the five lines, one per line, with no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AF[^\\n,]*e\\nR[^\\n,]*e\\nO[^\\n,]*e\\nS[^\\n,]*e\\nT[^\\n,]*e\\Z",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bice\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": ",",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.mirror-refrain-octave",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write an 8-line poem with a mirrored refrain structure. Line 1 and line 8 must be the EXACT same sentence, verbatim and case-identical: We count the stars we cannot name. Line 4 and line 5 must also be an identical pair, verbatim and case-identical: The night forgets what daylight knew. Lines 2, 3, 6, and 7 must be your own distinct lines. The poem must contain the word 'dark'. Do NOT use any exclamation marks. Output only the eight lines.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 8
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AWe count the stars we cannot name\\n[^\\n]+\\n[^\\n]+\\nThe night forgets what daylight knew\\nThe night forgets what daylight knew\\n[^\\n]+\\n[^\\n]+\\nWe count the stars we cannot name\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bdark\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "!",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.reverse-abecedarian-quintet",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a single-line paragraph of EXACTLY five sentences describing a harbor at dusk. It must be a REVERSE abecedarian: the first sentence must start with a word beginning with 'E', the second with 'D', the third with 'C', the fourth with 'B', and the fifth with 'A', in that descending order. The paragraph must include the word 'evening'. Output only the paragraph on one line with no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 1
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A\\s*E\\w*\\b[^.!?]*[.!?]+\\s+D\\w*\\b[^.!?]*[.!?]+\\s+C\\w*\\b[^.!?]*[.!?]+\\s+B\\w*\\b[^.!?]*[.!?]+\\s+A\\w*\\b[^.!?]*[.!?]+\\s*\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bevening\\b",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.anaphora-lipogram-s-hexastich",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a 6-line poem with two simultaneous constraints. First, anaphora: every line must begin with the word 'Never'. Second, lipogram: the entire poem must NOT contain the letter 's' anywhere (neither uppercase nor lowercase). The poem must contain the word 'moon'. Output only the six lines, one per line, with no title and no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 6
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\ANever[^\\n]*\\nNever[^\\n]*\\nNever[^\\n]*\\nNever[^\\n]*\\nNever[^\\n]*\\nNever[^\\n]*\\Z",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bmoon\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "s",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "prose.hard.acrostic-storm-pentastich",
+  "category": "Prose",
+  "difficulty": "hard",
+  "tier": 0,
+  "prompt": "Write a 5-line poem that is an acrostic spelling STORM down the first letters of the lines (line 1 begins with S, then T, O, R, M). EVERY line must contain EXACTLY five words. The poem must include the word 'thunder' at least once. Do NOT use any semicolons anywhere in the poem. Output only the five lines, one line each, with no extra text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^\\s*S[^\\n;]*\\n\\s*T[^\\n;]*\\n\\s*O[^\\n;]*\\n\\s*R[^\\n;]*\\n\\s*M[^\\n;]*\\s*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "^[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*$",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "thunder",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": ";",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

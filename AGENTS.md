@@ -1,0 +1,92 @@
+# AGENTS.md — set up an AEON Bench Pod
+
+> Read this first. It gets the pod **installed and running** on a host. Once it's up, follow
+> [`SKILL.md`](SKILL.md) to actually deploy + operate benchmarks. Harness internals live in
+> [`deploy/pod/AGENTS.md`](deploy/pod/AGENTS.md); the judging methodology lives in the
+> mothership's `AGENTS.md` (you don't need it to run a pod — the pod judges deterministically).
+
+## What this is
+
+The **pod** is the appliance you run on your own hardware to benchmark a model through a
+controlled, verifiable pipeline and submit an attested result:
+
+```
+pull (HuggingFace) → verify weights (LFS sha256 + manifest) → serve (recorded recipe)
+→ benchmark (text · agentic ×3 harnesses · vision · audio · arena · perf)
+→ sign (ed25519 device key) → submit → mothership (aeon-bench.com)
+```
+
+Attested runs are eligible for the global leaderboard. Pointing at an endpoint you already
+serve gives a **self-reported** run (useful locally, never globally ranked).
+
+## Prerequisites
+
+- **Docker** + the **NVIDIA Container Toolkit** (for GPU serving). `docker run --rm --gpus all …`
+  must work. The harness images are built on first run, so BuildKit should be enabled (default).
+- A **GPU** to serve the model under test — *or* an existing OpenAI-compatible endpoint to point at.
+- Outbound HTTPS to `huggingface.co` (pull weights) and to your mothership (submit).
+- Optional native path: **Python 3.11+** (`pip install -r mvp/requirements.txt`).
+- **~2× the model's disk size** free for the verified weight snapshot + HF cache.
+
+## Fastest path — one command (Docker Compose)
+
+```bash
+cp deploy/pod/.env.example .env      # then edit .env
+#   AEON_HF_LINK=org/Your-Model            # the model to benchmark
+#   AEON_MOTHERSHIP=https://aeon-bench.com # where to submit (default already points here)
+#   HF_TOKEN=hf_…                          # only for gated/private repos
+docker compose -f deploy/pod/docker-compose.yml up --build
+```
+
+What happens: the `pull` step resolves the HF link, downloads + **hash-verifies** the weights;
+the engine serves them on the fixed alias `model-under-test`; the pod benchmarks that alias —
+**spinning up a fresh agentic-harness container per task** (Hermes / OpenClaw / OpenCode, built
+from latest upstream on first `up`) — then submits the signed bundle. The first build takes a
+few minutes (three harness images); later runs reuse them.
+
+> **DGX Spark / GB10:** set `AEON_SYSTEM=dgx-spark` and use the first-party engine image
+> `ghcr.io/aeon-7/aeon-vllm-ultimate:latest` (DFlash speculative decoding). See its startup
+> guide at `github.com/AEON-7/vllm-ultimate-dgx-spark`. **Serve ≥64K context** (`--max-model-len
+> 65536`) — the Hermes harness rejects models reporting a <64K window.
+
+## Native path — the pod dashboard (GUI)
+
+```bash
+cd mvp && pip install -r requirements.txt
+AEON_ROLE=pod python serve.py         # http://localhost:8080
+```
+
+Open the dashboard and use the **Run** tab: point at a running model for a quick local run, or
+paste a HuggingFace link for a one-button **verified** run. It shows live per-category progress
+and streams the prompt/answer feed. Saved API keys / HF tokens are stored only in this pod.
+
+## Config surface (`.env` / environment)
+
+| var | meaning |
+|---|---|
+| `AEON_HF_LINK` | HF repo id or URL of the model under test (verified flow) |
+| `AEON_MOTHERSHIP` | mothership base URL to submit to (default `https://aeon-bench.com`) |
+| `AEON_HARDWARE` | label recorded with the run, e.g. `"NVIDIA DGX Spark GB10 128GB"` (else auto-detected) |
+| `AEON_SYSTEM` | `dgx-spark` to force the `aeon-vllm-ultimate` recipe |
+| `AEON_JUDGE` / `_URL` / `_KEY` | optional frontier judge for Tier-1 (else deterministic-only; never self-judges silently) |
+| `HF_TOKEN` | gated/private HF repos |
+| `AEON_MAX_TOKENS` | generation cap (reasoning models need headroom; default 2048) |
+| `AEON_LIMIT` | first-N cases only (quick smoke) |
+
+## State that persists (don't delete)
+
+- **`~/.aeon/device_key.pem`** — the pod's ed25519 identity, enrolled with the mothership once.
+  Deleting it re-enrolls as a new device. (Mounted as the `pod-state` volume in compose.)
+- `~/.aeon/pod.db` — your local run history (the dashboard reads it live).
+
+## Verify the install
+
+```bash
+cd mvp
+python -m pod.aeon_pod --help          # the runner CLI
+# smoke: 4 cases against any OpenAI-compatible endpoint (self-reported, not ranked)
+python -m pod.aeon_pod --target http://127.0.0.1:8000/v1 --model <served-name> \
+  --mothership "$AEON_MOTHERSHIP" --limit 4
+```
+
+Next: [`SKILL.md`](SKILL.md) — deploy + operate a full benchmark.

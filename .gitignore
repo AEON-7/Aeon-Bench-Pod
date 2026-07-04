@@ -26,3 +26,6 @@ mvp/aeon/assets/audio/
 
 # logs
 *.log
+
+# suite backups
+mvp/suites/*.bak-*

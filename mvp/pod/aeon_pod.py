@@ -450,7 +450,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
                  key_path=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                  judge_key=None, harness_ids=None, limit=None, difficulty=None, fast=False, seed=None,
                  per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
-                 arena_per_kind=2, audio=True, perf=False):
+                 arena_per_kind=2, audio=True, perf=False, harness_only=False):
     """Split-pod path: a `pull` sidecar already PULLED + HASH-VERIFIED the weights (writing
     .aeon-modelref.json) and an engine already SERVES them at --target. Benchmark that endpoint
     and submit ATTESTED, carrying the sidecar's verification (weights_hash + per-file hashes +
@@ -505,29 +505,32 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
                       weights_per_file=ver.get("per_file") or {}, recipe=recipe,
                       deployment_manifest=deployment_manifest, bench_seed=bench_seed)
     pod = Pod(mothership, key_path or DEFAULT_KEY)
-    # Benchmark LOCALLY into the pod's own pod.db — the POD dashboard reads it live (per case, no
-    # network). The mothership only ever receives a COMPLETE, verified run, submitted once here, and
-    # shows it once accepted. (No mid-run streaming: the pod owns its data; a killed run's cases stay
-    # in pod.db + are visible in the pod's dashboard for the user to re-run or submit.)
-    _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
-        temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
-        retry_max_tokens=retry_max_tokens, concurrency=concurrency)
-    print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
+    st, r = 0, {"skipped": "harness_only"}
+    if not harness_only:
+        # Benchmark LOCALLY into the pod's own pod.db — the POD dashboard reads it live (per case, no
+        # network). The mothership only ever receives a COMPLETE, verified run, submitted once here, and
+        # shows it once accepted. (No mid-run streaming: the pod owns its data; a killed run's cases stay
+        # in pod.db + are visible in the pod's dashboard for the user to re-run or submit.)
+        _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
+            temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
+            retry_max_tokens=retry_max_tokens, concurrency=concurrency)
+        print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
 
-    # ARENA generation (games/apps/animations) is part of EVERY benchmark: generate from the
-    # served model NOW and ship the artifacts INSIDE the signed text-run bundle (ingest saves
-    # them into the arena on the final commit).
-    artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
-                                 per_kind=arena_per_kind) if arena_per_kind else []
+        # ARENA generation (games/apps/animations) is part of EVERY benchmark: generate from the
+        # served model NOW and ship the artifacts INSIDE the signed text-run bundle (ingest saves
+        # them into the arena on the final commit).
+        artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
+                                     per_kind=arena_per_kind) if arena_per_kind else []
 
-    st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
-        suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
-        judge_model=judge, artifacts=artifacts, **provenance)
-    print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> {mothership}: "
-          f"HTTP {st}  {json.dumps(r)[:300]}")
+        st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
+            suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
+            judge_model=judge, artifacts=artifacts, **provenance)
+        print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> {mothership}: "
+              f"HTTP {st}  {json.dumps(r)[:300]}")
 
     # AGENTIC through each REAL harness (fresh container state per model-run; env-execution tasks
     # scored on observable outcomes). Measures the harness AND the model together.
+    hstatuses = []
     for h in (harness_ids or []):
         try:
             from aeon import agentic_v2
@@ -545,22 +548,34 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
         hscored = [x["score"] for x in hresults if isinstance(x["score"], float)]
         print(f"[pod] harness {h}: mean {sum(hscored)/len(hscored):.3f} over {len(hscored)} tasks"
               if hscored else f"[pod] harness {h}: no scored tasks")
-        hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
-            suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
-            judge_model=judge, harness=disc.get("harness", h),
-            harness_version=disc.get("harness_version"), **provenance)
-        print(f"[pod] submit (harness {h} {disc.get('harness_version', '?')}) -> HTTP {hst}  {json.dumps(hr)[:200]}")
+        # A submit blip on one harness must not abort the others (each is an independent bundle).
+        try:
+            hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
+                suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
+                judge_model=judge, harness=disc.get("harness", h),
+                harness_version=disc.get("harness_version"), **provenance)
+            print(f"[pod] submit (harness {h} {disc.get('harness_version', '?')}) -> HTTP {hst}  {json.dumps(hr)[:200]}")
+        except Exception as e:
+            hst = 0
+            print(f"[pod] submit (harness {h}) FAILED: {e}")
+        hstatuses.append(hst)
+
+    # In harness-only mode the text submit was skipped, so `st` is a placeholder — report the
+    # harness submits instead so the caller's exit code reflects whether the harness data LANDED
+    # (all 200 -> ok; any failure -> non-zero so a sweep re-runs this model).
+    if harness_only:
+        st = 200 if (hstatuses and all(s == 200 for s in hstatuses)) else (hstatuses[-1] if hstatuses else 0)
 
     # VISION suite (probe-gated; a text-only model records capability_absent, not submitted).
-    if vision:
+    if vision and not harness_only:
         _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
                            max_tokens=max_tokens, temperature=temperature)
     # AUDIO suite (probe-gated the same way).
-    if audio:
+    if audio and not harness_only:
         _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
                           temperature=temperature)
     # PERFORMANCE grid (direct concurrency ladder + per-harness timing).
-    if perf:
+    if perf and not harness_only:
         _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
                          harness_ids=harness_ids)
     return st, r
@@ -615,6 +630,8 @@ def main():
         "generated by the served model and shipped in the signed bundle; 0 disables")
     ap.add_argument("--perf", action="store_true", help="run the PERFORMANCE grid (direct c=1/4/8/16/32 x "
         "categories: tok/s, TTFT, prefill tok/s; + per-harness task timing) and submit as aeon-perf-v1")
+    ap.add_argument("--harness-only", action="store_true", help="run ONLY the agentic harness pass "
+        "(skip text/arena/vision/audio/perf) — targeted harness re-run at a given served context")
     ap.add_argument("--judge", default=None, help="FRONTIER judge model id (else deterministic-only; never self)")
     ap.add_argument("--judge-url", default=None, help="judge endpoint (defaults to --target)")
     ap.add_argument("--judge-key", default=None, help="judge API key")
@@ -632,7 +649,7 @@ def main():
             judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key, harness_ids=hids, limit=a.limit,
             difficulty=a.difficulty, fast=a.fast, seed=a.seed, per_cell=a.per_cell,
             retry_max_tokens=a.retry_max_tokens, concurrency=a.concurrency, vision=not a.no_vision,
-            arena_per_kind=a.arena, audio=not a.no_audio, perf=a.perf)
+            arena_per_kind=a.arena, audio=not a.no_audio, perf=a.perf, harness_only=a.harness_only)
     elif a.hf_link:                                   # single-process controlled flow
         st, _ = run_controlled(a.hf_link, a.mothership, engine=a.engine, hardware=a.hardware,
             board=a.board, suite_id=a.suite_id, key_path=a.key, weights_dir=a.weights_dir,

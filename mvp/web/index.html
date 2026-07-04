@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AEON Bench — local MVP</title>
-  <link rel="stylesheet" href="/static/styles.css?v=22" />
+  <link rel="stylesheet" href="/static/styles.css?v=24" />
 </head>
 <body>
   <header>
     <div class="brand">▲ <b>AEON</b>//BENCH <span class="tag">local mvp</span></div>
     <div class="hauth" id="headerAuth"></div>
-    <button id="tipBtn" class="tip-btn" type="button" title="Support the developer">♥ Tip the Dev</button>
+    <button id="tipBtn" class="tip-btn" type="button" title="Support the developer"><span class="tip-hi">♥</span> Tip the Dev</button>
     <div class="suite" id="suiteInfo">suite…</div>
   </header>
 
@@ -232,12 +232,12 @@
           suite through the Hermes / OpenClaw / OpenCode harnesses, and submits a signed result.
         </p>
         <div class="runcta">
-          <a class="primary" id="ghLink" href="https://github.com/AEON-7/aeon-pod" target="_blank" rel="noopener">▶ Get the pod on GitHub</a>
+          <a class="primary" id="ghLink" href="https://github.com/AEON-7/Aeon-Bench-Pod" target="_blank" rel="noopener">▶ Get the pod on GitHub</a>
           <a class="ghost" href="/api/pod/docker-compose.yml" download>⬇ docker-compose.yml</a>
           <a class="ghost" href="/api/pod/agents.md" download>⬇ agents.md</a>
           <a class="ghost" href="/api/pod/run-a-benchmark.md" target="_blank" rel="noopener">📖 How to run / view / submit</a>
         </div>
-        <pre class="runquick"><code>git clone https://github.com/AEON-7/aeon-pod &amp;&amp; cd aeon-pod
+        <pre class="runquick"><code>git clone https://github.com/AEON-7/Aeon-Bench-Pod &amp;&amp; cd Aeon-Bench-Pod
 cp .env.example .env          # set AEON_HF_LINK + AEON_MOTHERSHIP
 docker compose up             # pull → verify → serve → bench → submit</code></pre>
         <div id="status" class="status"></div>
@@ -306,11 +306,19 @@ docker compose up             # pull → verify → serve → bench → submit</
           Join the Patreon <span class="tip-patreon-sub">— exclusive content, software, 3D print files &amp; more</span>
         </a>
         <div class="tip-or"><span>or tip crypto directly</span></div>
-        <div class="tip-wallets">
-          <div class="tip-w"><span class="tip-chain tip-btc">BTC</span><code class="tip-addr">bc1q09xmzn00q4z3c5raene0f3pzn9d9pvawfm0py4</code><button class="tip-copy" type="button">copy</button></div>
-          <div class="tip-w"><span class="tip-chain tip-eth">ETH</span><code class="tip-addr">0x1512667F6D61454ad531d2E45C0a5d1fd82D0500</code><button class="tip-copy" type="button">copy</button></div>
-          <div class="tip-w"><span class="tip-chain tip-sol">SOL</span><code class="tip-addr">DgQsjHdAnT5PNLQTNpJdpLS3tYGpVcsHQCkpoiAKsw8t</code><button class="tip-copy" type="button">copy</button></div>
-          <div class="tip-w"><span class="tip-chain tip-xmr">XMR</span><code class="tip-addr">836XrSKw4R76vNi3QPJ5Fa9ugcyvE2cWmKSPv3AhpTNNKvqP8v5ba9JRL4Vh7UnFNjDz3E2GXZDVVenu3rkZaNdUFhjAvgd</code><button class="tip-copy" type="button">copy</button></div>
+        <div class="tip-crypto">
+          <div class="tip-chains" role="tablist" aria-label="cryptocurrency">
+            <button class="tip-chip is-active" type="button" data-chain="btc" role="tab">BTC</button>
+            <button class="tip-chip" type="button" data-chain="eth" role="tab">ETH</button>
+            <button class="tip-chip" type="button" data-chain="sol" role="tab">SOL</button>
+            <button class="tip-chip" type="button" data-chain="xmr" role="tab">XMR</button>
+          </div>
+          <div class="tip-qr"><img id="tipQr" src="/static/qr-btc.svg" alt="BTC wallet QR code" width="152" height="152" /></div>
+          <code class="tip-addr" id="tipAddr">bc1q09xmzn00q4z3c5raene0f3pzn9d9pvawfm0py4</code>
+          <div class="tip-actions">
+            <button class="tip-copy" id="tipCopy" type="button">Copy address</button>
+            <a class="tip-wallet-open" id="tipOpen" href="bitcoin:bc1q09xmzn00q4z3c5raene0f3pzn9d9pvawfm0py4">Open in wallet ↗</a>
+          </div>
         </div>
         <div class="tip-note">The ETH address also accepts L2s (Base, Arbitrum, Optimism, Polygon) &amp; EVM tokens. Thank you 🙏</div>
       </div>
@@ -319,9 +327,8 @@ docker compose up             # pull → verify → serve → bench → submit</
 
   <footer>
     <div class="tipjar">
-      <span class="tipjar-heart">♥</span>
       <span class="tipjar-msg">Built by one person — soul, time, money &amp; sleepless nights poured in. If AEON Bench has been useful to you, a tip keeps the benchmarks and open releases coming.</span>
-      <button id="tipBtnFoot" class="tip-btn tip-btn-lg" type="button">Tip the Dev</button>
+      <button id="tipBtnFoot" class="tip-btn tip-btn-lg" type="button"><span class="tip-hi">♥</span> Tip the Dev</button>
     </div>
     <div class="foot-fine">
       Deterministic Tier-0 + binary-rubric Tier-1 (judge defaults to the launching model).
@@ -329,6 +336,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>

@@ -570,9 +570,24 @@ function closeAuth() {
 }
 
 // ---- Tip jar ----
+// address + wallet URI scheme per chain (QR SVGs are pre-generated at /static/qr-<chain>.svg)
+const TIP_WALLETS = {
+  btc: { addr: "bc1q09xmzn00q4z3c5raene0f3pzn9d9pvawfm0py4", scheme: "bitcoin:" },
+  eth: { addr: "0x1512667F6D61454ad531d2E45C0a5d1fd82D0500", scheme: "ethereum:" },
+  sol: { addr: "DgQsjHdAnT5PNLQTNpJdpLS3tYGpVcsHQCkpoiAKsw8t", scheme: "solana:" },
+  xmr: { addr: "836XrSKw4R76vNi3QPJ5Fa9ugcyvE2cWmKSPv3AhpTNNKvqP8v5ba9JRL4Vh7UnFNjDz3E2GXZDVVenu3rkZaNdUFhjAvgd", scheme: "monero:" },
+};
+function tipSelectChain(chain) {
+  const w = TIP_WALLETS[chain]; if (!w) return;
+  const qr = $("#tipQr"); if (qr) { qr.src = "/static/qr-" + chain + ".svg"; qr.alt = chain.toUpperCase() + " wallet QR code"; }
+  const a = $("#tipAddr"); if (a) a.textContent = w.addr;
+  const o = $("#tipOpen"); if (o) o.href = w.scheme + w.addr;   // deep-links to any installed wallet app
+  $$(".tip-chip").forEach((c) => c.classList.toggle("is-active", c.dataset.chain === chain));
+}
 let _tipOpener = null;
 function openTip(ev) {
   _tipOpener = (ev && ev.currentTarget) || null;
+  tipSelectChain("btc");                 // always open on a consistent default chain
   $("#tipModal").hidden = false;
   const c = $("#tipClose"); if (c) setTimeout(() => c.focus(), 30);
 }
@@ -580,9 +595,9 @@ function closeTip() {
   $("#tipModal").hidden = true;
   if (_tipOpener && _tipOpener.focus) _tipOpener.focus();   // return focus to the opener
 }
-async function _copyAddr(btn) {
-  const el = btn.parentElement.querySelector(".tip-addr");
-  const addr = (el.textContent || "").trim();
+async function _copyTipAddr() {
+  const el = $("#tipAddr"), btn = $("#tipCopy");
+  const addr = ((el && el.textContent) || "").trim();
   try { await navigator.clipboard.writeText(addr); }
   catch {                                             // clipboard API unavailable/denied → select+execCommand
     const r = document.createRange(); r.selectNodeContents(el);
@@ -590,8 +605,10 @@ async function _copyAddr(btn) {
     try { document.execCommand("copy"); } catch (_) {}
     s.removeAllRanges();
   }
-  const prev = btn.textContent; btn.textContent = "copied ✓"; btn.classList.add("copied");
-  setTimeout(() => { btn.textContent = prev; btn.classList.remove("copied"); }, 1400);
+  if (btn) {
+    const prev = btn.textContent; btn.textContent = "Copied ✓"; btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = prev; btn.classList.remove("copied"); }, 1400);
+  }
 }
 
 async function authSubmit() {
@@ -1549,7 +1566,8 @@ async function init() {
   { const tf = $("#tipBtnFoot"); if (tf) tf.onclick = openTip; }
   { const tc = $("#tipClose"); if (tc) tc.onclick = closeTip; }
   { const tm = $("#tipModal"); if (tm) tm.onclick = (e) => { if (e.target.id === "tipModal") closeTip(); }; }
-  $$(".tip-copy").forEach((b) => b.onclick = () => _copyAddr(b));
+  { const tc = $("#tipCopy"); if (tc) tc.onclick = _copyTipAddr; }
+  $$(".tip-chip").forEach((c) => c.onclick = () => tipSelectChain(c.dataset.chain));
   // arena hotkeys: A / B / T vote (ignored while typing, only when the arena is up + votable)
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("#tipModal").hidden) { closeTip(); return; }      // Esc closes the tip modal

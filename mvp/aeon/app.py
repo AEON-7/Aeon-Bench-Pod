@@ -79,12 +79,12 @@ class VerdictBody(BaseModel):
     creativity_reason: str | None = None
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
     return FileResponse(os.path.join(WEB, "index.html"))
 
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 def healthz():
     """Liveness + drain signal for the edge load-balancer and zero-downtime deploys.
     The rolling-deploy script (deploy/onyx/scripts/deploy.sh) touches /tmp/draining

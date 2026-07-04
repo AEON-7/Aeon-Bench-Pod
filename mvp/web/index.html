@@ -10,6 +10,7 @@
   <header>
     <div class="brand">▲ <b>AEON</b>//BENCH <span class="tag">local mvp</span></div>
     <div class="hauth" id="headerAuth"></div>
+    <button id="tipBtn" class="tip-btn" type="button" title="Support the developer">♥ Tip the Dev</button>
     <div class="suite" id="suiteInfo">suite…</div>
   </header>
 
@@ -125,6 +126,11 @@
               <option value="expert">Expert</option>
             </select></label>
             <button id="hfLaunch" class="primary">▶ Pull, verify &amp; benchmark</button>
+          </div>
+          <div class="row preset-row">
+            <span class="note">Presets:</span>
+            <button id="hfComprehensive" class="ghost" title="Everything on: all harnesses + vision + audio + arena + perf">Comprehensive</button>
+            <button id="hfHardBench" class="ghost" title="Hard + expert tiers through every harness (no vision/audio/arena/perf)">Hard Bench</button>
           </div>
         </div>
       </div>
@@ -289,13 +295,40 @@ docker compose up             # pull → verify → serve → bench → submit</
         <th>ttft</th><th>tok/s</th><th>e2e</th>
       </tr></thead><tbody></tbody></table>
     </section>
+
+    <div id="tipModal" class="modal" hidden>
+      <div class="modal-card tip-card">
+        <button class="modal-x" id="tipClose" title="close">×</button>
+        <div class="tip-heart">♥</div>
+        <h3 class="tip-title">Support the work</h3>
+        <p class="tip-blurb">I pour my soul, time, money, and sleepless nights into this. If it's been valuable to you, please consider a tip to support the continued work — every bit goes straight back into more compute, more models, and more open releases.</p>
+        <a class="tip-patreon" href="https://patreon.com/AeonForge7?utm_medium=unknown&amp;utm_source=join_link&amp;utm_campaign=creatorshare_creator&amp;utm_content=copyLink" target="_blank" rel="noopener noreferrer">
+          Join the Patreon <span class="tip-patreon-sub">— exclusive content, software, 3D print files &amp; more</span>
+        </a>
+        <div class="tip-or"><span>or tip crypto directly</span></div>
+        <div class="tip-wallets">
+          <div class="tip-w"><span class="tip-chain tip-btc">BTC</span><code class="tip-addr">bc1q09xmzn00q4z3c5raene0f3pzn9d9pvawfm0py4</code><button class="tip-copy" type="button">copy</button></div>
+          <div class="tip-w"><span class="tip-chain tip-eth">ETH</span><code class="tip-addr">0x1512667F6D61454ad531d2E45C0a5d1fd82D0500</code><button class="tip-copy" type="button">copy</button></div>
+          <div class="tip-w"><span class="tip-chain tip-sol">SOL</span><code class="tip-addr">DgQsjHdAnT5PNLQTNpJdpLS3tYGpVcsHQCkpoiAKsw8t</code><button class="tip-copy" type="button">copy</button></div>
+          <div class="tip-w"><span class="tip-chain tip-xmr">XMR</span><code class="tip-addr">836XrSKw4R76vNi3QPJ5Fa9ugcyvE2cWmKSPv3AhpTNNKvqP8v5ba9JRL4Vh7UnFNjDz3E2GXZDVVenu3rkZaNdUFhjAvgd</code><button class="tip-copy" type="button">copy</button></div>
+        </div>
+        <div class="tip-note">The ETH address also accepts L2s (Base, Arbitrum, Optimism, Polygon) &amp; EVM tokens. Thank you 🙏</div>
+      </div>
+    </div>
   </main>
 
   <footer>
-    Deterministic Tier-0 + binary-rubric Tier-1 (judge defaults to the launching model).
-    Speed shown separately, never folded into the quality rank. · <span id="ver"></span>
+    <div class="tipjar">
+      <span class="tipjar-heart">♥</span>
+      <span class="tipjar-msg">Built by one person — soul, time, money &amp; sleepless nights poured in. If AEON Bench has been useful to you, a tip keeps the benchmarks and open releases coming.</span>
+      <button id="tipBtnFoot" class="tip-btn tip-btn-lg" type="button">Tip the Dev</button>
+    </div>
+    <div class="foot-fine">
+      Deterministic Tier-0 + binary-rubric Tier-1 (judge defaults to the launching model).
+      Speed shown separately, never folded into the quality rank. · <span id="ver"></span>
+    </div>
   </footer>
 
-  <script src="/static/app.js?v=22"></script>
+  <script src="/static/app.js?v=23"></script>
 </body>
 </html>

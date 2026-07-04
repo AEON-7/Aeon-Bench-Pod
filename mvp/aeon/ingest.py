@@ -15,12 +15,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import time
 import uuid
 
-from . import attest, db, judge_policy
+from . import attest, avscan, db, judge_policy
+
+# Verified-only acceptance. When set (the PUBLIC mothership sets AEON_ATTESTED_ONLY=1),
+# submit_results REFUSES any bundle that would not earn 'attested' — the mothership
+# stores ONLY verified HF-pull runs. Default off, so pods/dev keep the "store
+# self_reported locally" behaviour unchanged.
+_ATTESTED_ONLY = os.environ.get("AEON_ATTESTED_ONLY", "0") == "1"
 
 MAX_BUNDLE_BYTES = 4 * 1024 * 1024     # 4 MB results-bundle cap (pre-parse)
 MAX_CASES = 2000
@@ -155,6 +162,22 @@ def submit_results(run_id, run_token, raw_body_bytes):
     # more results — each batch is token-authed and dedups by (run_id, case_id), so a mid-run kill
     # keeps every case already submitted (no catastrophic loss).
     final = bool(bundle.get("final", True))
+    # VERIFIED-ONLY (mothership): refuse anything that would not earn 'attested'
+    # BEFORE claiming/committing — nothing untrusted is stored. The run is left
+    # OPEN (not quarantined) so a pod can retry the same run_id if HF was merely
+    # transiently unreachable; the note distinguishes that from a genuine
+    # endpoint/self-reported run that can never qualify.
+    if _ATTESTED_ONLY:
+        _hf, _sha, _verified = _resolve_identity(bundle)
+        if _trust_tier(bundle, _verified) not in ELIGIBLE_TIERS:
+            transient = _verified in ("claim", "claim_unverified")
+            return {"error": "not attested", "reason": "NOT_ATTESTED", "verified_state": _verified,
+                    "note": ("this mothership accepts ONLY attested (verified HF-pull) runs. "
+                             + ("HF verification did not confirm the served weights right now — "
+                                "retry shortly; if it persists, check the repo/revision + weights hashes."
+                                if transient else
+                                "this looks like an endpoint / self-reported run — run the controlled "
+                                "HF-pull flow (pull → hash-verify → serve → sign) to qualify."))}, 403
     if final and not db.claim_pod_run(run_id, "committed"):
         return {"error": "already submitted", "reason": "REPLAY_NONCE"}, 409
     tier = _commit(pod, bundle, final)
@@ -250,8 +273,15 @@ def _save_artifacts(pod, bundle):
             gen_ms = a.get("gen_ms")
             if not isinstance(gen_ms, (int, float)) or isinstance(gen_ms, bool):
                 gen_ms = None
+            capped = _cap_html(html)
+            # AV scan the artifact HTML (the only untrusted bytes we will re-serve).
+            # NEVER scan results[*].raw_output — that's model output and false-positives.
+            clean, detail = avscan.scan(capped)
+            if not clean:
+                print(f"[ingest] artifact quarantined ({detail}) run={pod.get('run_id')} kind={kind} pid={pid}")
+                continue                                # drop it — do not persist known-bad content
             db.save_artifact(uuid.uuid4().hex[:10], kind=kind, prompt_id=pid,
-                             model=model, html=_cap_html(html), ok=True, gen_ms=gen_ms)
+                             model=model, html=capped, ok=True, gen_ms=gen_ms)
             saved += 1
         except Exception:
             continue

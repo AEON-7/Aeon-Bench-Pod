@@ -8,9 +8,13 @@ so the pipeline + dashboard can be exercised without a model.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
+import os
+import socket
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -377,6 +381,73 @@ class MockAudioTarget:
                 "n_audio": n, "audio_bytes": nbytes, "ttft_after_audio_ms": 11.0}
 
 
+# SSRF guard for the caller-driven list_models fetch: only http/https, no redirects, a bounded read,
+# and a resolved-IP block on internal address space so it can't be used to hit a cloud metadata
+# service. The primary SSRF fix is app.py gating /api/models to the pod; this is defense-in-depth.
+# NOTE: the pod's WHOLE JOB is to list models from its LOCAL serving endpoint (default
+# 127.0.0.1:8000/v1) or a LAN/Tailscale box (e.g. 192.168.x / 100.x CGNAT), so loopback + private +
+# CGNAT are ALLOWED by default; set AEON_SSRF_STRICT=1 to also reject those (public targets only).
+# The cloud-metadata link-local range (169.254/16, fd00-style unique-local) is NEVER a legitimate
+# model endpoint and is blocked unconditionally.
+_LIST_MAX = 2 * 1024 * 1024      # hard cap on the outbound response body (was an unbounded read)
+_SSRF_STRICT = os.environ.get("AEON_SSRF_STRICT") == "1"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow 3xx — a redirect could bounce a validated host to an internal one."""
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _ip_is_blocked(ip):
+    """True for any address list_models must not fetch from. Always blocks the metadata/link-local
+    range and other non-routable specials; additionally blocks loopback/private/CGNAT/ULA when
+    AEON_SSRF_STRICT=1 (those are legitimate LOCAL model endpoints on a pod otherwise)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    # Unconditional: the cloud-metadata / link-local range (169.254.169.254 lives here) and other
+    # reserved/unspecified/multicast space are never a real model endpoint.
+    if addr.is_link_local or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+        return True
+    if not _SSRF_STRICT:
+        return False
+    # Strict (public-only) mode: also reject loopback, RFC1918 private, ULA, and CGNAT.
+    if addr.is_loopback or addr.is_private or not addr.is_global:
+        return True
+    if isinstance(addr, ipaddress.IPv4Address) and addr in ipaddress.ip_network("100.64.0.0/10"):
+        return True  # CGNAT
+    return False
+
+
+def _safe_open(url, headers, timeout):
+    """Open `url` only after its host resolves to an allowed IP, pinning that IP into the request
+    to defeat DNS-rebinding (re-check after DNS resolution), with redirects disabled."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise TargetError("only http/https targets are allowed")
+    host = parts.hostname
+    if not host:
+        raise TargetError("no host in target url")
+    # Resolve + validate EVERY address the host maps to (reject if any is blocked).
+    infos = socket.getaddrinfo(host, parts.port, proto=socket.IPPROTO_TCP)
+    ips = {ai[4][0] for ai in infos}
+    if not ips or any(_ip_is_blocked(ip) for ip in ips):
+        raise TargetError("target host resolves to a blocked address")
+    pin = next(iter(ips))
+    # Pin the resolved IP into the URL and send Host: so a second DNS lookup can't swap the target.
+    netloc = f"[{pin}]" if ":" in pin else pin
+    if parts.port:
+        netloc += f":{parts.port}"
+    pinned = urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    req = urllib.request.Request(pinned, headers={**headers, "Host": host})
+    return _NO_REDIRECT_OPENER.open(req, timeout=timeout)
+
+
 def list_models(base_url, timeout=2, api_key=None):
     """Best-effort list of model ids from an OpenAI-compatible or Ollama endpoint."""
     base = _ipv4(base_url.rstrip("/"))
@@ -384,9 +455,11 @@ def list_models(base_url, timeout=2, api_key=None):
     candidates = [base + "/models", base.rsplit("/v1", 1)[0] + "/api/tags"]
     for url in candidates:
         try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                obj = json.loads(r.read().decode("utf-8", "replace"))
+            with _safe_open(url, headers, timeout) as r:   # scheme+host validated, no redirects
+                raw = r.read(_LIST_MAX + 1)
+            if len(raw) > _LIST_MAX:                        # bound the outbound read (unbounded-read finding)
+                return []
+            obj = json.loads(raw.decode("utf-8", "replace"))
             if isinstance(obj, dict) and "data" in obj:          # OpenAI /v1/models
                 return [m["id"] for m in obj["data"]]
             if isinstance(obj, dict) and "models" in obj:        # Ollama /api/tags

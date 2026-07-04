@@ -115,6 +115,80 @@ footer {
   color: var(--faint); font-size: 11px; text-align: center; padding: 18px;
   border-top: 1px solid var(--line); margin-top: 8px;
 }
+.foot-fine { max-width: 720px; margin: 10px auto 0; }
+
+/* ---- Tip jar ------------------------------------------------------------ */
+/* Header + footer "Tip the Dev" trigger. Cyan = interactive (system law);
+   the ♥ carries the warmth in magenta so the button stays on-brand. */
+.tip-btn {
+  background: transparent; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600;
+  letter-spacing: .2px; cursor: pointer; white-space: nowrap;
+  transition: background var(--t, .15s) var(--ease-out, ease), border-color .15s, box-shadow .15s, transform .1s;
+}
+.tip-btn::first-letter { color: var(--live); }   /* the ♥ glyph */
+.tip-btn:hover {
+  border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.tip-btn:active { transform: translateY(1px); }
+.tip-btn-lg { font-size: 13px; padding: 8px 18px; }
+
+.tipjar {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  flex-wrap: wrap; max-width: 760px; margin: 0 auto 4px; text-align: left;
+}
+.tipjar-heart { color: var(--live); font-size: 18px; line-height: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--live) 55%, transparent)); }
+.tipjar-msg { color: var(--muted); font-size: 12px; line-height: 1.5; flex: 1 1 320px; }
+
+/* ---- Tip modal ---------------------------------------------------------- */
+.tip-card { max-width: 460px; text-align: center; }
+.tip-heart {
+  font-size: 34px; line-height: 1; color: var(--live);
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--live) 60%, transparent));
+  animation: tipbeat 2.4s ease-in-out infinite;
+}
+@keyframes tipbeat { 0%, 90%, 100% { transform: scale(1); } 45% { transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .tip-heart { animation: none; } }
+.tip-title { margin: 8px 0 6px; font-size: 18px; letter-spacing: .3px; }
+.tip-blurb { color: var(--muted); font-size: 13.5px; line-height: 1.62; margin: 0 auto 16px; max-width: 40ch; }
+.tip-patreon {
+  display: block; text-decoration: none; text-align: center;
+  background: linear-gradient(180deg, #ff4d86, var(--live)); color: #1a0410;
+  font-weight: 700; font-size: 13.5px; padding: 11px 14px; border-radius: var(--r-m);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--live) 35%, transparent);
+  transition: filter .15s, box-shadow .15s, transform .1s;
+}
+.tip-patreon:hover { filter: brightness(1.08); box-shadow: 0 0 26px color-mix(in srgb, var(--live) 50%, transparent); }
+.tip-patreon:active { transform: translateY(1px); }
+.tip-patreon-sub { display: block; font-weight: 500; font-size: 11px; opacity: .82; margin-top: 2px; }
+.tip-or {
+  display: flex; align-items: center; gap: 10px; margin: 16px 2px 12px;
+  color: var(--faint); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+}
+.tip-or::before, .tip-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.tip-wallets { display: flex; flex-direction: column; gap: 7px; }
+.tip-w {
+  display: flex; align-items: center; gap: 8px; text-align: left;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-s); padding: 7px 8px;
+}
+.tip-chain {
+  flex: 0 0 34px; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 700;
+  letter-spacing: .5px; color: var(--accent); text-align: center;
+}
+.tip-addr {
+  flex: 1 1 auto; min-width: 0; font-family: ui-monospace, monospace; font-size: 11px;
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tip-copy {
+  flex: 0 0 auto; background: transparent; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: var(--r-s);
+  padding: 4px 9px; font-size: 11px; cursor: pointer; transition: background .12s, border-color .12s;
+}
+.tip-copy:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: var(--accent); }
+.tip-copy.copied { color: var(--ok, #37e39b); border-color: color-mix(in srgb, var(--ok, #37e39b) 55%, transparent); }
+.tip-note { color: var(--faint); font-size: 11px; line-height: 1.5; margin-top: 14px; }
 
 .spin { display: inline-block; animation: sp 1s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg); } }
@@ -534,6 +608,32 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .sub-a pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0 0; padding: 8px; background: #07070d;
   border: 1px solid var(--line); border-radius: var(--r-s); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4);
   max-height: 300px; overflow: auto; font-size: 12px; }
+
+/* ---- harness transparency: the agentic tool-call trajectory drill-down ---- */
+.harness-tbl td.hclick { cursor: pointer; transition: box-shadow .12s var(--ease-out); }
+.harness-tbl td.hclick:hover, .harness-tbl td.hclick:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 10px rgba(0, 240, 255, .18); outline: none; }
+.harness-case { border-color: var(--border-strong); }
+.sub-traj { font-size: 13px; margin: 6px 0; }
+.sub-traj .micro { display: block; color: var(--faint); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 4px; }
+ol.traj { list-style: none; counter-reset: step; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px; }
+ol.traj .traj-step { counter-increment: step; display: flex; align-items: baseline; gap: 8px;
+  padding: 5px 8px; background: #07070d; border: 1px solid var(--line);
+  border-left: 2px solid var(--accent); border-radius: var(--r-s); }
+ol.traj .traj-step::before { content: counter(step); color: var(--faint);
+  font-family: ui-monospace, monospace; font-size: 10px; min-width: 14px; text-align: right; flex: none; }
+.traj-tool { color: var(--accent); font-family: ui-monospace, monospace; font-size: 12px;
+  font-weight: 600; flex: none; }
+.traj-args { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11.5px;
+  word-break: break-all; }
+.traj-empty, .traj-err { font-family: ui-monospace, monospace; font-size: 11.5px;
+  padding: 5px 8px; border-radius: var(--r-s); }
+.traj-empty { color: var(--faint); }
+.traj-err { color: var(--bad); background: rgba(255, 93, 122, .08); border: 1px solid rgba(255, 93, 122, .3); }
+.sub-r .crit { font-family: ui-monospace, monospace; }
+.sub-r .crit-detail { color: var(--faint); font-size: 11.5px; }
 
 /* ---------------------------------------------------------------- live view */
 .live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--faint); margin-left: 4px; vertical-align: middle; position: relative; }

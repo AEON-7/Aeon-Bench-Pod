@@ -18,11 +18,12 @@ from pydantic import BaseModel
 from . import accounts, admin, arena, attest, db, evaluators, ingest, modelmeta, probe, runner, scoring, vram
 from . import suite as suite_mod
 from . import vision_suite
+from . import agentic_v2
 from .targets import OpenAITarget, list_models
 
 WEB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-POD_REPO_URL = os.environ.get("AEON_POD_REPO", "https://github.com/AEON-7/aeon-pod")
+POD_REPO_URL = os.environ.get("AEON_POD_REPO", "https://github.com/AEON-7/Aeon-Bench-Pod")
 # ROLE splits the SAME app into two dashboards: 'pod' = the user's LOCAL lab (their own runs + the
 # LIVE view, read from local pod.db, plus a submit-verified action); 'mothership' = the GLOBAL
 # authority (only accepted/attested runs — no live, no in-progress). Default mothership (safe).
@@ -83,6 +84,18 @@ def index():
     return FileResponse(os.path.join(WEB, "index.html"))
 
 
+@app.get("/healthz")
+def healthz():
+    """Liveness + drain signal for the edge load-balancer and zero-downtime deploys.
+    The rolling-deploy script (deploy/onyx/scripts/deploy.sh) touches /tmp/draining
+    inside a replica to pull it from the WAF rotation BEFORE recycling it; the WAF's
+    active health probe sees the 503 and fails over to the peer within ~1s, so a
+    request never lands on a container that is about to stop."""
+    if os.path.exists("/tmp/draining"):
+        return JSONResponse({"ok": False, "draining": True}, status_code=503)
+    return {"ok": True}
+
+
 @app.get("/api/config")
 def config():
     """Dashboard role — the frontend shows the Live tab + local-lab affordances (Run tab) only on a pod."""
@@ -97,6 +110,12 @@ def get_suite():
 
 @app.get("/api/models")
 def get_models(target: str = "http://127.0.0.1:11434/v1", api_key: str | None = None):
+    # SSRF fix: /api/models is a pod/local-lab affordance (the Run tab); the mothership dashboard
+    # never uses it. Gate it behind the SAME pod-only guard as /api/pod/* so it 404s off-pod and a
+    # caller can't drive the mothership into arbitrary outbound requests. (targets.list_models also
+    # validates the scheme/host as defense-in-depth.)
+    if (g := _require_pod()):
+        return g
     return {"target": target, "models": list_models(target, api_key=api_key or DEFAULT_KEY)}
 
 
@@ -444,7 +463,39 @@ class AdminRunBody(BaseModel):
 
 def _prompt_map(board):
     cases = vision_suite.CASES if board == "vision" else suite_mod.CASES
-    return {c["id"]: c.get("prompt", "") for c in cases}
+    pm = {c["id"]: c.get("prompt", "") for c in cases}
+    # Harness (agentic-v2) runs are stored under the text board but their case ids come from
+    # agentic_v2.CASES — fold them in so harness-case prompts resolve in the transparency drill-down.
+    for c in agentic_v2.CASES:
+        pm.setdefault(c["id"], c.get("prompt", ""))
+    return pm
+
+
+def _harness_transparency(raw_out):
+    """Parse a harness result's stored transcript ({answer, steps:[{tool,args}], raw}) into a
+    STRUCTURED transparency object the UI can render: the agent's final answer, its tool-call
+    trajectory (one entry per step), and a slice of the raw harness output. Tolerant of a
+    malformed/absent transcript (an errored run stores {error: ...} instead)."""
+    doc = {}
+    try:
+        doc = json.loads(raw_out) if raw_out else {}
+    except (ValueError, TypeError):
+        doc = {}
+    if not isinstance(doc, dict):
+        doc = {}
+    steps = doc.get("steps")
+    trajectory = []
+    if isinstance(steps, list):
+        for s in steps:
+            if isinstance(s, dict):
+                trajectory.append({"tool": s.get("tool", ""), "args": s.get("args")})
+    return {
+        "harness_case": True,
+        "final_answer": doc.get("answer", ""),
+        "trajectory": trajectory,
+        "raw": doc.get("raw", ""),
+        "harness_error": doc.get("error"),
+    }
 
 
 @app.get("/api/submissions")
@@ -459,6 +510,34 @@ def submissions(board: str | None = None, model: str | None = None, limit: int =
     return {"submissions": rows}
 
 
+@app.get("/api/harness_runs")
+def harness_runs(model: str, harness: str, board: str = "text"):
+    """Resolve the harness-board cell (model × harness) to its underlying RUN(s) so the matrix can
+    drill into per-case transparency. A cell aggregates every succeeded harness run for that model
+    on that harness — returns them newest first, each with its run_id + mean score + case count."""
+    rows = db.all_results_with_runs(board=board)
+    per_run = {}
+    for r in rows:
+        if r.get("harness") != harness:
+            continue
+        if (r.get("canonical_id") or r.get("model")) != model and r.get("model") != model:
+            continue
+        d = per_run.setdefault(r["run"], {
+            "run_id": r["run"], "model": r.get("model"),
+            "harness": harness, "harness_version": r.get("harness_version"),
+            "started_at": r.get("started_at"), "scores": []})
+        if r.get("score") is not None:
+            d["scores"].append(r["score"])
+    out = []
+    for d in per_run.values():
+        sc = d.pop("scores")
+        d["n_cases"] = len(sc)
+        d["mean_score"] = round(100 * sum(sc) / len(sc), 1) if sc else None
+        out.append(d)
+    out.sort(key=lambda d: d.get("started_at") or 0, reverse=True)
+    return {"runs": out}
+
+
 @app.get("/api/submissions/{run_id}")
 def submission_detail(run_id: str):
     """Full transparency for one run: per case — what was ASKED, how it was ANSWERED,
@@ -467,23 +546,38 @@ def submission_detail(run_id: str):
     if not r:
         return JSONResponse({"error": "not found"}, status_code=404)
     board = r.get("board", "text")
+    is_harness = bool(r.get("harness"))
     pm = _prompt_map(board)
     cases = []
     for x in r.get("results", []):
-        ev = x.get("evidence") or {}
-        if x["tier"] == 0:
+        ev = x.get("evidence")
+        if ev is None:
+            ev = {}
+        # Agentic-v2 (harness) cases carry LIST evidence [{criterion, ok, detail}] and their
+        # deterministic verdict is produced by the program checker.
+        harness_case = is_harness or isinstance(ev, list)
+        if harness_case:
             judged_by = "program (deterministic)"
-        elif ev.get("judged_by") == "agent":
+        elif x["tier"] == 0:
+            judged_by = "program (deterministic)"
+        elif isinstance(ev, dict) and ev.get("judged_by") == "agent":
             judged_by = "agent (launcher)"
         else:
             judged_by = r.get("judge_model") or "self-judge"
-        cases.append({
+        raw_out = db.result_output(x)
+        case = {
             "case_id": x["case_id"], "category": x["category"], "tier": x["tier"],
             "status": x["status"], "score": x["score"], "creativity": x.get("creativity"),
-            "prompt": pm.get(x["case_id"], ""), "answer": db.result_output(x),
+            "prompt": pm.get(x["case_id"], ""), "answer": raw_out,
             "judged_by": judged_by, "evidence": ev, "speed": x.get("speed"),
             "disputed": bool(x.get("disputed")), "disputed_reason": x.get("disputed_reason"),
-        })
+        }
+        if harness_case:
+            # raw_output is the compact transcript JSON {answer, steps:[{tool,args}], raw}.
+            # Surface a STRUCTURED trajectory: the agent's final answer, its tool-call steps, and
+            # a slice of the raw harness output — so viewers see exactly how the harness handled it.
+            case.update(_harness_transparency(raw_out))
+        cases.append(case)
     return {
         "run": {k: r.get(k) for k in (
             "id", "model", "board", "status", "judge_model", "judge_is_self", "suite_id",
@@ -582,10 +676,20 @@ def well_known():
     }
 
 
+_NONCE_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
 @app.get("/api/attestation")
 def get_attestation(nonce: str | None = None):
     """Signed (build_hash, public_key, ts, nonce). A verifier pins our public key,
     sends a fresh nonce, and confirms the live deployment runs the expected code."""
+    # Bound the caller-controlled nonce before it reaches the signer: cap length and restrict
+    # charset to [A-Za-z0-9._-] so an attacker can't have us sign an arbitrarily large / arbitrary
+    # payload (attestation-nonce unbounded finding).
+    if nonce is not None:
+        nonce = nonce[:128]
+        if any(ch not in _NONCE_OK for ch in nonce):
+            return JSONResponse({"error": "nonce must be <=128 chars of [A-Za-z0-9._-]"}, status_code=400)
     return attest.attestation(nonce=nonce)
 
 
@@ -637,19 +741,39 @@ class OpenRunBody(BaseModel):
     board: str = "text"
 
 
+# Per-IP sliding-window throttle for the signed ingest POSTs: no auth precedes signature/HF
+# verification, and under AEON_ATTESTED_ONLY every /results submit forces a blocking HF verify —
+# so an unthrottled client can spin the verifier. Generous enough for a real pod (tens/min).
+import time as _time
+
+_V1_RATE_LIMIT = 40      # events per IP
+_V1_RATE_WINDOW = 60     # seconds
+
+
+def _v1_rate_ok(request: Request, bucket: str):
+    """True if this IP is under the ingest limit (records the hit). client_ip is the trusted
+    proxy IP (AEON_TRUST_PROXY=1)."""
+    return db.rate_hit(f"v1:{bucket}:{accounts.client_ip(request)}",
+                       _V1_RATE_LIMIT, _V1_RATE_WINDOW, _time.time())
+
+
 @app.get("/api/v1/enroll/challenge")
 def v1_enroll_challenge():
     return {"challenge": ingest.issue_challenge(), "ttl": ingest._CHALLENGE_TTL}
 
 
 @app.post("/api/v1/enroll")
-def v1_enroll(body: EnrollBody):
+def v1_enroll(body: EnrollBody, request: Request):
+    if not _v1_rate_ok(request, "enroll"):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.enroll(body.public_key, body.challenge, body.signature)
     return r if code == 200 else JSONResponse(r, status_code=code)
 
 
 @app.post("/api/v1/runs")
-def v1_open_run(body: OpenRunBody):
+def v1_open_run(body: OpenRunBody, request: Request):
+    if not _v1_rate_ok(request, "runs"):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.open_run(body.public_key, body.signature, model=body.model,
                               suite_id=body.suite_id, board=body.board)
     return r if code == 200 else JSONResponse(r, status_code=code)
@@ -657,6 +781,8 @@ def v1_open_run(body: OpenRunBody):
 
 @app.post("/api/v1/runs/{run_id}/results")
 async def v1_submit_results(run_id: str, request: Request):
+    if not _v1_rate_ok(request, "results"):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
     token = request.headers.get("x-aeon-run-token") or ""
     raw = await request.body()
     r, code = ingest.submit_results(run_id, token, raw)
@@ -698,6 +824,8 @@ class PodEndpointRunBody(BaseModel):
     base_url: str = "http://127.0.0.1:8000/v1"
     model: str
     difficulty: str | None = None       # None = full suite; "hard" / "hard,expert" = named tiers
+    category: str | None = None         # None = all categories; comma-list scopes the text suite
+    preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
     api_key_name: str | None = None     # name of a saved pod secret to send as the endpoint's api key
     engine: str | None = None
 
@@ -705,6 +833,8 @@ class PodEndpointRunBody(BaseModel):
 class PodVerifiedRunBody(BaseModel):
     hf_link: str
     difficulty: str | None = None
+    category: str | None = None         # None = all categories; comma-list scopes the text suite
+    preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
     hf_token_name: str | None = None    # saved secret name for a gated/private repo token
     engine: str | None = None
     port: int | None = None
@@ -728,9 +858,12 @@ def pod_run_endpoint(body: PodEndpointRunBody, request: Request):
         return g
     if not (body.model or "").strip() or not (body.base_url or "").strip():
         return JSONResponse({"error": "model and base_url are required"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
+        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
     from pod import jobs
     jid = jobs.submit_endpoint(body.base_url.strip(), body.model.strip(),
-        difficulty=(body.difficulty or None), api_key_name=(body.api_key_name or None),
+        difficulty=(body.difficulty or None), category=(body.category or None),
+        preset=(body.preset or None), api_key_name=(body.api_key_name or None),
         engine=(body.engine or None))
     return {"job_id": jid}
 
@@ -743,8 +876,11 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         return g
     if not (body.hf_link or "").strip():
         return JSONResponse({"error": "hf_link is required"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
+        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
     from pod import jobs
     jid = jobs.submit_verified(body.hf_link.strip(), difficulty=(body.difficulty or None),
+        category=(body.category or None), preset=(body.preset or None),
         hf_token_name=(body.hf_token_name or None), engine=(body.engine or None), port=(body.port or None))
     return {"job_id": jid}
 

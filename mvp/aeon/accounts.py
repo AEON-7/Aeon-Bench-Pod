@@ -113,16 +113,24 @@ def signup(username, password, ip):
         return {"error": "username must be 3–24 chars (letters, digits, . _ -)"}
     if len(password) < MIN_PASSWORD:
         return {"error": f"password must be at least {MIN_PASSWORD} characters"}
+    # Generic message reused for collisions/caps/reserved names so signup can't be used to
+    # enumerate existing (or admin) usernames — same wording login uses.
+    generic = {"error": "couldn't create the account right now — please try again later"}
+    # Admin-name front-running fix: reject signup of a configured admin handle (case-insensitive,
+    # via is_admin) so an attacker can't pre-register a future admin's name. Vague on purpose.
+    if is_admin({"username": username}):
+        return generic
     # Transactional check-then-create at the DB level, so the per-IP cap + username
     # uniqueness hold across replicas — replaces the single-process _signup_lock TOCTOU guard.
     uid = secrets.token_hex(8)
     outcome = db.create_user_if_capped(uid, username=username, pw_hash=_hash(password),
                                        pw_salt="", signup_ip=ip, cap=IP_CAP)
     if outcome == "taken":
-        return {"error": "username already taken"}
+        # Enumeration fix: do not reveal the name exists — same generic message as the cap branch.
+        return generic
     if outcome == "capped":
         # Deliberately vague: do not disclose the per-network account cap publicly.
-        return {"error": "couldn't create the account right now — please try again later"}
+        return generic
     return {"token": _start_session(uid), "user": public_state(uid)}
 
 
@@ -130,11 +138,19 @@ def login(username, password, ip="unknown"):
     username = (username or "").strip()
     if not _rate_ok("login:" + ip, limit=12, window=60):
         return {"error": "too many attempts — try again shortly"}
-    if _too_many_fails("u:" + username.lower(), limit=10, window=600) or _too_many_fails("ip:" + ip, limit=40, window=600):
+    # Targeted-lockout DoS fix: gate the hard lock on a per-(username|IP) bucket AND the
+    # global per-username counter, so a stranger flooding fails from other IPs can't lock a
+    # legitimate owner out from a clean IP with the right password. The pure per-username
+    # counter is kept only as a higher bound (alerting / distributed-attack signal).
+    uip = username.lower() + "|" + ip
+    if (_too_many_fails("uip:" + uip, limit=10, window=600)
+            and _too_many_fails("u:" + username.lower(), limit=50, window=600)) \
+            or _too_many_fails("ip:" + ip, limit=40, window=600):
         return {"error": "too many failed attempts — wait a minute and try again"}
     u = db.get_user_by_username(username)   # case-insensitive lookup
     if not _verify_password(password or "", u):   # constant-time-ish even when u is None
-        _record_fail("u:" + username.lower(), "ip:" + ip)
+        # record per-(username|IP) too so the targeted-lockout gate above accumulates
+        _record_fail("u:" + username.lower(), "ip:" + ip, "uip:" + uip)
         return {"error": "invalid username or password"}
     # Migrate-on-login: transparently upgrade a legacy pbkdf2 account to argon2id.
     if not (u.get("pw_hash") or "").startswith("$argon2"):

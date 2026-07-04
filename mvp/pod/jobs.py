@@ -60,7 +60,7 @@ _STAGES = [
 ]
 
 _PUBLIC = ("id", "kind", "status", "stage", "model", "hf_link", "base_url",
-           "difficulty", "run_id", "created_at", "updated_at", "error", "returncode")
+           "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "returncode")
 
 
 def _now():
@@ -108,10 +108,11 @@ def _set(j, **kw):
         j["updated_at"] = _now()
 
 
-def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None):
+def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None, preset=None):
     jid = uuid.uuid4().hex[:12]
     j = {"id": jid, "kind": kind, "status": "queued", "stage": "queued",
          "model": model, "hf_link": hf_link, "base_url": base_url, "difficulty": difficulty,
+         "preset": preset,
          "run_id": None, "created_at": _now(), "updated_at": _now(), "error": None,
          "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
          "_proc": None}
@@ -202,13 +203,18 @@ def _base_env(extra=None):
     return env
 
 
-def submit_endpoint(base_url, model, *, difficulty=None, api_key_name=None, engine=None):
+def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=None,
+                    api_key_name=None, engine=None):
     """Flow A — benchmark an already-running OpenAI-compatible endpoint (self-reported)."""
     from aeon import db
     argv = [sys.executable, "-m", "pod.aeon_pod", "--target", base_url, "--model", model,
             "--mothership", MOTHERSHIP]
+    if preset:                                  # resolved to the underlying knobs in aeon_pod.main()
+        argv += ["--preset", preset]
     if difficulty:
         argv += ["--difficulty", difficulty]
+    if category:
+        argv += ["--category", category]
     if engine:
         argv += ["--engine", engine]
     if HARDWARE:
@@ -217,13 +223,18 @@ def submit_endpoint(base_url, model, *, difficulty=None, api_key_name=None, engi
     if api_key_name:
         extra["AEON_API_KEY"] = db.get_secret(api_key_name)   # aeon_pod's --api-key defaults to this env
     return _mk_job("endpoint", argv=argv, env=_base_env(extra),
-                   model=model, base_url=base_url, difficulty=difficulty)
+                   model=model, base_url=base_url, difficulty=difficulty, preset=preset)
 
 
-def submit_verified(hf_link, *, difficulty=None, hf_token_name=None, engine=None, port=None):
+def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
+                    hf_token_name=None, engine=None, port=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
-    else the builtin single-process controlled flow (needs a serve engine on PATH)."""
+    else the builtin single-process controlled flow (needs a serve engine on PATH).
+
+    `preset` ('comprehensive' | 'hard-bench') is a one-shot bundle resolved to the underlying
+    knobs inside aeon_pod.main(): comprehensive turns everything on (all harnesses + vision +
+    audio + arena + perf); hard-bench runs the hard,expert tiers through every harness only."""
     from aeon import db
     extra = {}
     if hf_token_name:                           # gated/private repos: token authenticates ref+download
@@ -231,13 +242,18 @@ def submit_verified(hf_link, *, difficulty=None, hf_token_name=None, engine=None
         extra["HF_TOKEN"] = tok
         extra["HUGGING_FACE_HUB_TOKEN"] = tok
     if VERIFIED_CMD:                            # host launcher owns serving (recipe = pod config, not argv)
-        argv = list(VERIFIED_CMD)
+        argv = list(VERIFIED_CMD)               # the launcher reads these from env (not browser argv)
         extra.update({"AEON_HF_LINK": hf_link, "AEON_DIFFICULTY": difficulty or "",
+                      "AEON_CATEGORY": category or "", "AEON_PRESET": preset or "",
                       "AEON_MOTHERSHIP": MOTHERSHIP})
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
+        if preset:                              # resolved to the underlying knobs in aeon_pod.main()
+            argv += ["--preset", preset]
         if difficulty:
             argv += ["--difficulty", difficulty]
+        if category:
+            argv += ["--category", category]
         if engine:
             argv += ["--engine", engine]
         if HARDWARE:
@@ -245,4 +261,4 @@ def submit_verified(hf_link, *, difficulty=None, hf_token_name=None, engine=None
         if port:
             argv += ["--port", str(port)]
     return _mk_job("verified", argv=argv, env=_base_env(extra),
-                   model=hf_link, hf_link=hf_link, difficulty=difficulty)
+                   model=hf_link, hf_link=hf_link, difficulty=difficulty, preset=preset)

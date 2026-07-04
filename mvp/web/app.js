@@ -569,6 +569,31 @@ function closeAuth() {
   const b = $("#evSignin"); if (b) b.focus();       // return focus to the opener
 }
 
+// ---- Tip jar ----
+let _tipOpener = null;
+function openTip(ev) {
+  _tipOpener = (ev && ev.currentTarget) || null;
+  $("#tipModal").hidden = false;
+  const c = $("#tipClose"); if (c) setTimeout(() => c.focus(), 30);
+}
+function closeTip() {
+  $("#tipModal").hidden = true;
+  if (_tipOpener && _tipOpener.focus) _tipOpener.focus();   // return focus to the opener
+}
+async function _copyAddr(btn) {
+  const el = btn.parentElement.querySelector(".tip-addr");
+  const addr = (el.textContent || "").trim();
+  try { await navigator.clipboard.writeText(addr); }
+  catch {                                             // clipboard API unavailable/denied → select+execCommand
+    const r = document.createRange(); r.selectNodeContents(el);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    try { document.execCommand("copy"); } catch (_) {}
+    s.removeAllRanges();
+  }
+  const prev = btn.textContent; btn.textContent = "copied ✓"; btn.classList.add("copied");
+  setTimeout(() => { btn.textContent = prev; btn.classList.remove("copied"); }, 1400);
+}
+
 async function authSubmit() {
   const username = $("#authUser").value.trim(), password = $("#authPass").value;
   $("#authErr").textContent = ""; $("#authSubmit").disabled = true;
@@ -993,10 +1018,29 @@ async function openSubmission(runId) {
 
 function _rationale(c) {
   const e = c.evidence || {};
+  // agentic-v2 (harness) evidence is a LIST of {criterion, ok, detail} — one row per checked criterion.
+  if (Array.isArray(e)) {
+    if (!e.length) return `<span class="note">no criteria recorded</span>`;
+    return e.map((k) => `${k.ok ? "✓" : "✗"} <span class="crit">${escH(k.criterion || "")}</span>`
+      + (k.detail ? ` <span class="crit-detail">${escH(k.detail)}</span>` : "")).join("<br>");
+  }
   if (e.checkers) return e.checkers.map((k) => `${k.satisfied ? "✓" : "✗"} <span class="mono">${escH(k.type)}</span> ${escH(k.evidence || "")}`).join("<br>");
   if (e.criteria) return e.criteria.map((k) => `${k.satisfied ? "✓" : "✗"} <b>${escH(k.id)}</b> <span class="subs-by">[${escH(k.decided_by)}]</span> ${escH(k.evidence || "")}`).join("<br>");
   if (e.pending) return `<span class="note">awaiting judgement</span>`;
   return escH(JSON.stringify(e).slice(0, 200));
+}
+
+// Render a harness case's tool-call trajectory: one row per step (TOOL + its args as JSON).
+function _trajectory(c) {
+  const t = c.trajectory || [];
+  if (c.harness_error) return `<div class="traj-err">harness error: ${escH(c.harness_error)}</div>`;
+  if (!t.length) return `<div class="traj-empty">no tool calls recorded</div>`;
+  return `<ol class="traj">` + t.map((s) => {
+    let args = "";
+    if (s.args != null) { try { args = typeof s.args === "string" ? s.args : JSON.stringify(s.args); } catch (e) { args = String(s.args); } }
+    return `<li class="traj-step"><span class="traj-tool">${escH(s.tool || "?")}</span>`
+      + (args ? ` <span class="traj-args">${escH(args)}</span>` : "") + `</li>`;
+  }).join("") + `</ol>`;
 }
 
 function renderSubmissionDetail(d) {
@@ -1016,9 +1060,20 @@ function renderSubmissionDetail(d) {
     const sc = c.score == null ? (c.status === "tier1_pending" ? "pending" : "—") : (c.score * 100).toFixed(0);
     const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
     const cr = (c.creativity != null && c.creativity > 0) ? ` <span class="ev-badge ok">+${c.creativity} creativity</span>` : "";
+    const head = `<div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>
+        <span class="sub-score ${cls}">${sc}</span>${cr}${c.disputed ? ` <span class="ev-badge disputed" title="${escA(c.disputed_reason || "")}">⚠ agent-judge: likely checker false-negative</span>` : ""}<span class="subs-by">judged by: ${escH(c.judged_by)}</span></div>`;
+    if (c.harness_case) {
+      // harness transparency: what the agent was ASKED, the TOOL-CALL trajectory it ran, what it
+      // finally ANSWERED, and the deterministic per-criterion JUDGEMENT.
+      return `<div class="sub-case harness-case">
+      ${head}
+      <div class="sub-q"><b>asked:</b> ${escH(c.prompt)}</div>
+      <div class="sub-traj"><b class="micro">tool calls</b>${_trajectory(c)}</div>
+      <div class="sub-a"><b>answered:</b><pre>${escH(c.final_answer != null ? c.final_answer : c.answer)}</pre></div>
+      <div class="sub-r"><b>judgement:</b> ${_rationale(c)}</div></div>`;
+    }
     return `<div class="sub-case">
-      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>
-        <span class="sub-score ${cls}">${sc}</span>${cr}${c.disputed ? ` <span class="ev-badge disputed" title="${escA(c.disputed_reason || "")}">⚠ agent-judge: likely checker false-negative</span>` : ""}<span class="subs-by">judged by: ${escH(c.judged_by)}</span></div>
+      ${head}
       <div class="sub-q"><b>asked:</b> ${escH(c.prompt)}</div>
       <div class="sub-a"><b>answered:</b><pre>${escH(c.answer)}</pre></div>
       <div class="sub-r"><b>judgement:</b> ${_rationale(c)}</div></div>`;
@@ -1084,15 +1139,41 @@ function renderHarnessMatrix() {
       const c = row[h];
       if (!c || c.score == null) return `<td class="num hcell na">—</td>`;
       const hb = best >= 0 && c.score === best ? " hbest" : "";
-      return `<td class="num hcell${hb}" style="--s:${(c.score / 100).toFixed(3)}" title="${escA(c.harness_name || h)} ${escA(c.harness_version || "")} · ${c.n_cases} cases">`
+      // clickable → drill into the per-case transparency for this model × harness run
+      return `<td class="num hcell hclick${hb}" style="--s:${(c.score / 100).toFixed(3)}"`
+        + ` data-model="${escA(c.model || mdl)}" data-harness="${escA(h)}" tabindex="0" role="button"`
+        + ` title="${escA(c.harness_name || h)} ${escA(c.harness_version || "")} · ${c.n_cases} cases — click to inspect">`
         + `<span class="hscore">${c.score.toFixed(1)}</span> <span class="hver">${escH(fmtHver(c.harness_version))}</span></td>`;
     }).join("") + `</tr>`;
   }).join("");
   wrap.innerHTML = `<table class="harness-tbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  wrap.querySelectorAll("td.hclick").forEach((td) => {
+    const open = () => openHarnessCell(td.dataset.model, td.dataset.harness);
+    td.onclick = open;
+    td.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
+  });
   [...new Set(d.models)].forEach((model) => {                 // hydrate creator avatars
     const cached = META.get(model);
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
+}
+
+// Drill from a harness-matrix cell into the per-case transparency of its underlying run. A cell
+// can aggregate several runs (same model × harness); open the most recent one.
+async function openHarnessCell(model, harness) {
+  let d;
+  try { d = await api(`/api/harness_runs?model=${encodeURIComponent(model)}&harness=${encodeURIComponent(harness)}`); }
+  catch (e) { return; }
+  const runs = (d && d.runs) || [];
+  if (!runs.length) return;
+  // switch to the submissions panel (reusing its detail pane) and open the newest run
+  active = "subs";
+  $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
+  ["#boardPanel", "#audioPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  SUBS.model = runs[0].model || model; loadSubs();
+  openSubmission(runs[0].run_id);
 }
 
 // ---- Compare by seed: a TRUE A/B — every model on the IDENTICAL fast-bench questions ----
@@ -1341,6 +1422,16 @@ async function runHfVerified() {
     { hf_link, difficulty: $("#hfDiff").value || null, hf_token_name: $("#hfKey").value || null }, "#hfLaunch");
 }
 
+// One-shot preset launches — 'comprehensive' turns everything on; 'hard-bench' runs the
+// hard,expert tiers through every harness only. The pod resolves the preset to the underlying
+// knobs, so the Scope select is intentionally ignored here (the preset sets its own tiers).
+async function runHfPreset(preset, btnSel) {
+  const hf_link = $("#hfLink").value.trim();
+  if (!hf_link) { runStatus("HF link is required", "err"); return; }
+  await launchRun("/api/pod/run/verified",
+    { hf_link, preset, hf_token_name: $("#hfKey").value || null }, btnSel);
+}
+
 async function launchRun(path, body, btnSel) {
   const btn = $(btnSel); if (btn) btn.disabled = true;
   let r;
@@ -1380,6 +1471,7 @@ function renderJobs(jobs) {
       <span class="job-mk ${cls}"></span>
       <span class="mono job-model">${escH((j.model || "").split("/").pop() || j.model || "?")}</span>
       ${kindB}<span class="job-stage">${escH(stg)}</span>
+      ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
       ${j.difficulty ? `<span class="tag">${escH(j.difficulty)}</span>` : ""}
       ${live}${stop}${err}</div>`;
   }).join("");
@@ -1417,6 +1509,8 @@ async function init() {
   bind("#audioProbe", probeAudio);
   bind("#reLaunch", runEndpointBench);
   bind("#hfLaunch", runHfVerified);
+  bind("#hfComprehensive", () => runHfPreset("comprehensive", "#hfComprehensive"));
+  bind("#hfHardBench", () => runHfPreset("hard-bench", "#hfHardBench"));
   bind("#keyAdd", addKey);
   bind("#podTokenSave", () => {
     try { localStorage.setItem("aeon_pod_token", $("#podToken").value.trim()); } catch (e) {}
@@ -1450,8 +1544,15 @@ async function init() {
   };
   $("#authPass").onkeydown = (e) => { if (e.key === "Enter") authSubmit(); };
   $("#authModal").onclick = (e) => { if (e.target.id === "authModal") closeAuth(); };
+  // tip jar: header + footer triggers, close on X / backdrop, copy each wallet
+  { const tb = $("#tipBtn"); if (tb) tb.onclick = openTip; }
+  { const tf = $("#tipBtnFoot"); if (tf) tf.onclick = openTip; }
+  { const tc = $("#tipClose"); if (tc) tc.onclick = closeTip; }
+  { const tm = $("#tipModal"); if (tm) tm.onclick = (e) => { if (e.target.id === "tipModal") closeTip(); }; }
+  $$(".tip-copy").forEach((b) => b.onclick = () => _copyAddr(b));
   // arena hotkeys: A / B / T vote (ignored while typing, only when the arena is up + votable)
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("#tipModal").hidden) { closeTip(); return; }      // Esc closes the tip modal
     if (e.key === "Escape" && !$("#authModal").hidden) { closeAuth(); return; }   // Esc always closes the dialog
     const ap = $("#arenaPanel");
     if (!ap || ap.hidden || e.ctrlKey || e.metaKey || e.altKey) return;

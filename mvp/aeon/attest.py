@@ -112,8 +112,11 @@ def _load_key() -> Ed25519PrivateKey:
         return serialization.load_pem_private_key(data, password=pw)
     except TypeError:
         # The key's encryption state disagrees with whether a passphrase was supplied.
-        if pw is not None:                       # unencrypted key, but a pass was set → load plain
-            return serialization.load_pem_private_key(data, password=None)
+        if pw is not None:                       # FIX(LOW): AEON_KEY_PASS set but key is plaintext.
+            raise RuntimeError(                  # HARD-FAIL — silently loading it defeats the
+                f"AEON_KEY_PASS is set but the signing key at {KEY_PATH} is UNENCRYPTED. "
+                f"At-rest encryption was requested but is not in effect. Re-mint the key with "
+                f"AEON_KEY_PASS set (`python -m aeon.attest keygen --force`), or unset AEON_KEY_PASS.")
         raise RuntimeError(                      # encrypted key, but no pass → tell the operator
             f"AEON signing key at {KEY_PATH} is encrypted — set AEON_KEY_PASS to load it.")
 
@@ -223,11 +226,24 @@ def model_attestation(model: str, target_url: str, *, hf_repo: str | None = None
     return att
 
 
+# FIX(PLAUSIBLE-MED): verify_model_ref is called on every attested ingest (8s timeout,
+# outbound HF call), so a repeated repo@rev lookup can stall a worker each time. Bound it
+# with a small monotonic-TTL cache (hits AND misses) so identical lookups are near-free.
+_MODEL_REF_TTL = 300.0            # seconds
+_MODEL_REF_CAP = 512             # size cap so an attacker can't grow the dict unbounded
+_model_ref_cache: dict[tuple, tuple[dict, float]] = {}
+
+
 def verify_model_ref(hf_repo: str, hf_revision: str = "main", timeout: int = 8) -> dict:
     """Fetch HF's advertised reference for a repo@revision (commit sha + safetensors
     index hashes) so a deployment's model_attestation can be checked against the
-    canonical upstream. Network, best-effort."""
+    canonical upstream. Network, best-effort. Result cached for _MODEL_REF_TTL."""
     import urllib.request
+    key = (hf_repo, hf_revision)
+    now = time.time()
+    hit = _model_ref_cache.get(key)              # cache both hits and misses (short TTL)
+    if hit and hit[1] > now:
+        return hit[0]
     # ?blobs=true is REQUIRED — without it siblings carry only rfilename (no lfs.sha256),
     # so independent re-verification silently degrades to "claim". Publicly readable, no token.
     url = f"https://huggingface.co/api/models/{hf_repo}/revision/{hf_revision}?blobs=true"
@@ -237,9 +253,13 @@ def verify_model_ref(hf_repo: str, hf_revision: str = "main", timeout: int = 8) 
             obj = json.loads(r.read().decode("utf-8", "replace"))
         sibs = {s.get("rfilename"): s.get("lfs", {}).get("sha256")
                 for s in obj.get("siblings", []) if s.get("rfilename")}
-        return {"hf_repo": hf_repo, "sha": obj.get("sha"), "files": sibs, "ok": True}
+        out = {"hf_repo": hf_repo, "sha": obj.get("sha"), "files": sibs, "ok": True}
     except Exception as e:
-        return {"hf_repo": hf_repo, "ok": False, "error": str(e)[:200]}
+        out = {"hf_repo": hf_repo, "ok": False, "error": str(e)[:200]}
+    if len(_model_ref_cache) >= _MODEL_REF_CAP:  # crude cap: clear when full (rarely hit)
+        _model_ref_cache.clear()
+    _model_ref_cache[key] = (out, now + _MODEL_REF_TTL)
+    return out
 
 
 if __name__ == "__main__":

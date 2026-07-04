@@ -37,6 +37,7 @@ _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
 if _MVP not in sys.path:
     sys.path.insert(0, _MVP)
 
+from aeon import agentic                       # noqa: E402  (tool-call trajectory scorer)
 from aeon import agentic_v2                    # noqa: E402
 from pod import adapters                       # noqa: E402
 
@@ -103,6 +104,38 @@ def _truncated_transcript(result: dict) -> str:
     return json.dumps(doc, default=str)[:_RAW_LIMIT]
 
 
+def _score_trajectory(case: dict, result: dict):
+    """OPTIONALLY score the tool-call trajectory with `aeon.agentic.score_agentic`.
+
+    Returns `None` unless the case declares a `tools` spec AND the adapter returned a non-empty
+    `steps` list — so v2 environment-execution cases (no `tools`) and step-less adapters (e.g.
+    openclaw, which never emits a trace) are skipped cleanly. When it does apply, returns
+    `{"score": float, "evidence": {criterion, ok, detail}}` — a SINGLE extra evidence row so the
+    v2 evidence shape (list of {criterion, ok, detail}) is preserved. Fully defensive: any
+    failure returns None rather than disturbing the outcome scoring."""
+    try:
+        if not case.get("tools"):
+            return None
+        steps = result.get("steps") or []
+        if not steps:
+            return None
+        transcript = {"steps": steps, "answer": result.get("answer", "")}
+        composite, parts = agentic.score_agentic(case, transcript)
+        detail = (f"tool_success={parts.get('task_success')} "
+                  f"n_steps={parts.get('n_steps')} "
+                  f"tool_accuracy={parts.get('tool_accuracy')} "
+                  f"no_forbidden={parts.get('no_forbidden')}")
+        return {"score": composite,
+                "evidence": {"criterion": "tool-call trajectory (aeon-agentic-v1)",
+                             "ok": bool(parts.get("task_success")),
+                             "detail": f"composite={composite}; {detail}"}}
+    except Exception as e:
+        return {"score": 0.0,
+                "evidence": {"criterion": "tool-call trajectory (aeon-agentic-v1)",
+                             "ok": False,
+                             "detail": f"trajectory scoring error: {type(e).__name__}: {e}"[:200]}}
+
+
 def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
              scratch_root: str, default_timeout: int) -> dict:
     cid = case.get("id")
@@ -118,6 +151,14 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
                                   timeout=timeout)
         score, evidence = agentic_v2.score_agentic_v2(case, workdir,
                                                       result.get("answer", ""))
+        # OPTIONAL tool-call TRAJECTORY score: only for cases that declare `tools` (v1-style
+        # spec) AND when the adapter actually returned steps (openclaw always returns []).
+        # Purely additive — it never changes the outcome `score` or the row's other keys, so
+        # ingest's schema is untouched; consumers that don't know `traj_score` just ignore it.
+        traj = _score_trajectory(case, result)
+        if traj is not None:
+            row["traj_score"] = traj["score"]
+            evidence.append(traj["evidence"])
         row.update(status="scored", score=score,
                    raw_output=_truncated_transcript(result),
                    evidence=evidence,

@@ -40,7 +40,7 @@ from __future__ import annotations
 import os
 import re
 
-SUITE_ID = "aeon-agentic-v2"
+SUITE_ID = "aeon-agentic-v2.1"   # bumped when the codegen (app/game/animation) tasks were added
 
 _WS = re.compile(r"\s+")
 
@@ -129,6 +129,202 @@ for _ in range(8):
     out.append(str(a))
     a, b = b, a + b
 print(",".join(out))
+"""
+
+# --------------------------------------------------------------------------------------------
+# Front-end code-generation oracles.  These `_expected` HTML files are the perfect-run reference
+# the mock adapter / self-test writes; they must satisfy every structural `contains` check of the
+# matching case below.  A real agent's file is scored the SAME WAY — by structural substrings — so
+# any single self-contained HTML that includes the required ids / API calls / handlers passes.
+# --------------------------------------------------------------------------------------------
+
+_APP_COUNTER_HTML = """\
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Counter App</title>
+<style>body{font-family:sans-serif;text-align:center}#count{font-size:48px}</style></head>
+<body>
+<h1>Counter</h1>
+<div id="count">0</div>
+<button id="inc">+1</button>
+<button id="dec">-1</button>
+<button id="reset">Reset</button>
+<script>
+let value = 0;
+const out = document.getElementById("count");
+function render(){ out.textContent = String(value); }
+document.getElementById("inc").addEventListener("click", function(){ value += 1; render(); });
+document.getElementById("dec").addEventListener("click", function(){ value -= 1; render(); });
+document.getElementById("reset").addEventListener("click", function(){ value = 0; render(); });
+render();
+</script>
+</body>
+</html>
+"""
+
+_APP_TODO_HTML = """\
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Todo App</title></head>
+<body>
+<h1>Todo List</h1>
+<input id="todo-input" type="text" placeholder="new task">
+<button id="add-btn">Add</button>
+<ul id="todo-list"></ul>
+<script>
+const input = document.getElementById("todo-input");
+const list = document.getElementById("todo-list");
+function addTodo(text){
+  if(!text) return;
+  const li = document.createElement("li");
+  li.textContent = text;
+  li.addEventListener("click", function(){ li.remove(); });
+  list.appendChild(li);
+}
+document.getElementById("add-btn").addEventListener("click", function(){
+  addTodo(input.value);
+  input.value = "";
+});
+input.addEventListener("keydown", function(e){ if(e.key === "Enter"){ addTodo(input.value); input.value = ""; } });
+</script>
+</body>
+</html>
+"""
+
+_GAME_PONG_HTML = """\
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Pong Game</title></head>
+<body>
+<canvas id="game" width="640" height="480"></canvas>
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+let paddleY = 200, ballX = 320, ballY = 240, vx = 3, vy = 2, score = 0;
+document.addEventListener("keydown", function(e){
+  if(e.key === "ArrowUp") paddleY -= 20;
+  if(e.key === "ArrowDown") paddleY += 20;
+});
+function update(){
+  ballX += vx; ballY += vy;
+  if(ballY < 0 || ballY > canvas.height) vy = -vy;
+  if(ballX < 0 || ballX > canvas.width){ vx = -vx; score += 1; }
+}
+function draw(){
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(10, paddleY, 10, 80);
+  ctx.beginPath(); ctx.arc(ballX, ballY, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillText("Score: " + score, 20, 20);
+}
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
+"""
+
+_GAME_SNAKE_HTML = """\
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Snake Game</title></head>
+<body>
+<canvas id="board" width="400" height="400"></canvas>
+<div id="score">0</div>
+<script>
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+let snake = [{x:5,y:5}], dir = {x:1,y:0}, food = {x:10,y:10}, score = 0;
+document.addEventListener("keydown", function(e){
+  if(e.key === "ArrowUp") dir = {x:0,y:-1};
+  else if(e.key === "ArrowDown") dir = {x:0,y:1};
+  else if(e.key === "ArrowLeft") dir = {x:-1,y:0};
+  else if(e.key === "ArrowRight") dir = {x:1,y:0};
+});
+function step(){
+  const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+  snake.unshift(head);
+  if(head.x === food.x && head.y === food.y){
+    score += 1;
+    document.getElementById("score").textContent = String(score);
+    food = {x: Math.floor(Math.random()*20), y: Math.floor(Math.random()*20)};
+  } else {
+    snake.pop();
+  }
+}
+function draw(){
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for(const s of snake){ ctx.fillRect(s.x*20, s.y*20, 18, 18); }
+  ctx.fillRect(food.x*20, food.y*20, 18, 18);
+}
+function loop(){ step(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
+"""
+
+_ANIM_BOUNCE_HTML = """\
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bouncing Balls</title></head>
+<body>
+<canvas id="scene" width="600" height="400"></canvas>
+<script>
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const balls = [];
+for(let i = 0; i < 12; i++){
+  balls.push({x: Math.random()*600, y: Math.random()*400,
+              vx: (Math.random()-0.5)*4, vy: (Math.random()-0.5)*4, r: 8});
+}
+function frame(){
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for(const b of balls){
+    b.x += b.vx; b.y += b.vy;
+    if(b.x < b.r || b.x > canvas.width - b.r) b.vx = -b.vx;
+    if(b.y < b.r || b.y > canvas.height - b.r) b.vy = -b.vy;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
+"""
+
+_ANIM_STARFIELD_HTML = """\
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Starfield</title></head>
+<body>
+<canvas id="stars" width="800" height="600"></canvas>
+<script>
+const canvas = document.getElementById("stars");
+const ctx = canvas.getContext("2d");
+const stars = [];
+for(let i = 0; i < 200; i++){
+  stars.push({x: Math.random()*800 - 400, y: Math.random()*600 - 300, z: Math.random()*800});
+}
+let last = 0;
+function tick(now){
+  const dt = (now - last) || 16; last = now;
+  ctx.fillStyle = "black"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "white";
+  for(const s of stars){
+    s.z -= dt * 0.2;
+    if(s.z <= 1){ s.z = 800; s.x = Math.random()*800 - 400; s.y = Math.random()*600 - 300; }
+    const sx = 400 + (s.x / s.z) * 400;
+    const sy = 300 + (s.y / s.z) * 400;
+    const size = (1 - s.z / 800) * 3;
+    ctx.fillRect(sx, sy, size, size);
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
 """
 
 CASES = [
@@ -276,6 +472,123 @@ CASES = [
         "success": {"files": {}, "answer_contains": ["105"]},
         "timeout_s": 120,
         "_expected": {"files": {}, "answer": "The journey takes 105 minutes."},
+    },
+
+    # ----------------------------------------------------------------------------------------
+    # CODE-GENERATION tasks (difficulty="hard"): write a self-contained single HTML file into
+    # the workdir.  Scored the SAME way as every v2 task — deterministic structural substrings
+    # (required ids, DOM/canvas API calls, event handlers, a <script>) on the written file, so
+    # any correct self-contained implementation passes.  Sub-kind in "kind" for future selection.
+    # ----------------------------------------------------------------------------------------
+    {
+        "id": "av2-11-app-counter",
+        "category": "Agentic", "tier": 0, "kind": "app", "difficulty": "hard",
+        "prompt": _PREAMBLE +
+        "Write a self-contained single HTML file named counter.html in the current directory "
+        "(all CSS and JS inline, no external resources). It must implement an interactive "
+        "counter app: an element with id \"count\" that displays the current value starting at "
+        "0, and three buttons with ids \"inc\", \"dec\" and \"reset\". Wire click handlers with "
+        "addEventListener so \"inc\" increases the value by 1, \"dec\" decreases it by 1, and "
+        "\"reset\" sets it back to 0, updating the #count element each time. Reply DONE when "
+        "counter.html is written.",
+        "setup_files": {},
+        "success": {"files": {"counter.html": {"contains": [
+            "<script", 'id="count"', 'id="inc"', 'id="dec"', 'id="reset"',
+            "addEventListener", "getElementById"]}},
+                    "answer_contains": ["done"]},
+        "timeout_s": 300,
+        "_expected": {"files": {"counter.html": _APP_COUNTER_HTML}, "answer": "DONE"},
+    },
+    {
+        "id": "av2-12-app-todo",
+        "category": "Agentic", "tier": 0, "kind": "app", "difficulty": "hard",
+        "prompt": _PREAMBLE +
+        "Write a self-contained single HTML file named todo.html in the current directory (all "
+        "CSS and JS inline, no external resources). It must implement an interactive to-do "
+        "list: a text input with id \"todo-input\", an \"Add\" button with id \"add-btn\", and "
+        "an empty list with id \"todo-list\". Clicking Add (wired via addEventListener) must "
+        "read the input, and if non-empty append a new <li> for it to #todo-list using "
+        "createElement/appendChild, then clear the input. Reply DONE when todo.html is written.",
+        "setup_files": {},
+        "success": {"files": {"todo.html": {"contains": [
+            "<script", 'id="todo-input"', 'id="add-btn"', 'id="todo-list"',
+            "addEventListener", "createElement", "appendChild"]}},
+                    "answer_contains": ["done"]},
+        "timeout_s": 300,
+        "_expected": {"files": {"todo.html": _APP_TODO_HTML}, "answer": "DONE"},
+    },
+    {
+        "id": "av2-13-game-pong",
+        "category": "Agentic", "tier": 0, "kind": "game", "difficulty": "hard",
+        "prompt": _PREAMBLE +
+        "Write a self-contained single HTML file named pong.html in the current directory (all "
+        "CSS and JS inline, no external resources, canvas only). It must implement a simple "
+        "Pong-style game on a <canvas> element with id \"game\": use getContext(\"2d\") to draw, "
+        "move a paddle up/down when the ArrowUp/ArrowDown keys are pressed (handled via "
+        "addEventListener on keydown), bounce a ball off the walls, and animate the game loop "
+        "with requestAnimationFrame. Reply DONE when pong.html is written.",
+        "setup_files": {},
+        "success": {"files": {"pong.html": {"contains": [
+            "<script", "<canvas", 'id="game"', "getcontext", "requestAnimationFrame",
+            "addEventListener", "keydown"]}},
+                    "answer_contains": ["done"]},
+        "timeout_s": 300,
+        "_expected": {"files": {"pong.html": _GAME_PONG_HTML}, "answer": "DONE"},
+    },
+    {
+        "id": "av2-14-game-snake",
+        "category": "Agentic", "tier": 0, "kind": "game", "difficulty": "hard",
+        "prompt": _PREAMBLE +
+        "Write a self-contained single HTML file named snake.html in the current directory (all "
+        "CSS and JS inline, no external resources, canvas only). It must implement a Snake game "
+        "on a <canvas> element with id \"board\": use getContext(\"2d\") to draw the snake and "
+        "food, steer the snake with the arrow keys (handled via addEventListener on keydown), "
+        "grow the snake and update a score element with id \"score\" when it eats food, and "
+        "drive the game loop with requestAnimationFrame. Reply DONE when snake.html is written.",
+        "setup_files": {},
+        "success": {"files": {"snake.html": {"contains": [
+            "<script", "<canvas", 'id="board"', 'id="score"', "getcontext",
+            "requestAnimationFrame", "addEventListener", "keydown"]}},
+                    "answer_contains": ["done"]},
+        "timeout_s": 300,
+        "_expected": {"files": {"snake.html": _GAME_SNAKE_HTML}, "answer": "DONE"},
+    },
+    {
+        "id": "av2-15-anim-bounce",
+        "category": "Agentic", "tier": 0, "kind": "animation", "difficulty": "hard",
+        "prompt": _PREAMBLE +
+        "Write a self-contained single HTML file named bounce.html in the current directory "
+        "(all CSS and JS inline, no external resources, canvas only). It must animate several "
+        "balls bouncing around inside a <canvas> element with id \"scene\": use "
+        "getContext(\"2d\"), give each ball a position and velocity, update positions and "
+        "reverse velocity at the walls every frame, redraw with arc/fill, and run the loop "
+        "continuously with requestAnimationFrame. Reply DONE when bounce.html is written.",
+        "setup_files": {},
+        "success": {"files": {"bounce.html": {"contains": [
+            "<script", "<canvas", 'id="scene"', "getcontext", "requestAnimationFrame",
+            "arc", "clearrect"]}},
+                    "answer_contains": ["done"]},
+        "timeout_s": 300,
+        "_expected": {"files": {"bounce.html": _ANIM_BOUNCE_HTML}, "answer": "DONE"},
+    },
+    {
+        "id": "av2-16-anim-starfield",
+        "category": "Agentic", "tier": 0, "kind": "animation", "difficulty": "hard",
+        "prompt": _PREAMBLE +
+        "Write a self-contained single HTML file named starfield.html in the current directory "
+        "(all CSS and JS inline, no external resources, canvas only). It must animate a "
+        "perspective starfield flying toward the viewer on a <canvas> element with id "
+        "\"stars\": use getContext(\"2d\"), maintain an array of stars with a depth (z) value, "
+        "advance them toward the camera each frame (recycling stars that pass the viewer), "
+        "project them to screen coordinates, and drive the loop with requestAnimationFrame. "
+        "Reply DONE when starfield.html is written.",
+        "setup_files": {},
+        "success": {"files": {"starfield.html": {"contains": [
+            "<script", "<canvas", 'id="stars"', "getcontext", "requestAnimationFrame",
+            "fillrect"]}},
+                    "answer_contains": ["done"]},
+        "timeout_s": 300,
+        "_expected": {"files": {"starfield.html": _ANIM_STARFIELD_HTML}, "answer": "DONE"},
     },
 ]
 

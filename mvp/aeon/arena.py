@@ -16,6 +16,7 @@ import json
 import os
 import random
 import re
+import secrets
 import uuid
 
 from . import db
@@ -29,6 +30,12 @@ KIND_LABEL = {"app": "Generated Apps", "game": "Generated Games", "animation": "
 # the occasional misclick. A failed honeypot is NOT a permanent ban — accuracy recovers
 # as the user keeps answering honeypots correctly (redemption).
 TRUST_ACCURACY = 0.95
+
+# Minimum number of DISTINCT eligible voters that must weigh in on a (prompt, model-pair)
+# before that matchup's votes are allowed to move Elo. Blocks single-account steering:
+# a lone account can vote each distinct pairing once, but one voter never clears the
+# quorum, so its votes stay inert until independent evaluators corroborate the matchup.
+QUORUM_VOTERS = 2
 
 SYS = (
     "You are an expert front-end engineer. Respond with ONE complete, self-contained "
@@ -207,6 +214,18 @@ def ranking(kind=None):
         if not a or not b or a == b:
             continue
         latest[(v.get("user_id"), v.get("prompt_id"), frozenset((a, b)))] = v
+    # Per-user influence cap (single-account Elo steering): the dedup above already limits
+    # a user to ONE vote per (prompt, pairing), but one account could still cast a biased
+    # vote on every DISTINCT pairing at full K. Require a QUORUM of distinct eligible
+    # voters on a (prompt, pairing) before ANY of its votes move Elo — so no lone account
+    # can steer a matchup, while genuine multi-voter consensus counts normally. The
+    # honeypot-accuracy eligibility gate above still applies (only eligible voters count
+    # toward the quorum).
+    voters_per_key = {}
+    for (uid, pid, pair) in latest:
+        voters_per_key.setdefault((pid, pair), set()).add(uid)
+    latest = {k: v for k, v in latest.items()
+              if len(voters_per_key[(k[1], k[2])]) >= QUORUM_VOTERS}
     votes = sorted(latest.values(), key=lambda v: v.get("ts") or 0)
     elo, rec = {}, {}
 
@@ -341,7 +360,9 @@ _BOGUS_HTML = [
 
 
 def seed_bogus():
-    """Seed the honeypot decoy pool once (one set per kind). Idempotent."""
+    """Seed the honeypot decoy pool once (one set per kind). These rows are the BASE
+    templates only — the decoy actually served in a match is a fresh, per-match
+    mutation of one of them (see _mutate_decoy / _build_test_match). Idempotent."""
     if db.artifact_exists(bogus=True):
         return
     for kind in KINDS:
@@ -349,6 +370,41 @@ def seed_bogus():
             db.save_artifact(uuid.uuid4().hex[:10], kind=kind, prompt_id="_bogus",
                              model=_BOGUS_MODELS[i % len(_BOGUS_MODELS)], html=html,
                              ok=True, bogus=True)
+
+
+def _mutate_decoy(html, seed=None):
+    """FIX (honeypot decoys are fingerprintable): the 5 _BOGUS_HTML strings are
+    source-visible constants, so a byte-identical /api/arena/render response lets an
+    attacker match against the known set and auto-pass every honeypot. Return a decoy
+    that is byte-UNIQUE per match by randomizing only NON-SEMANTIC bytes — it still
+    looks like the same weak/broken page (that is intended), it just isn't a static
+    constant anymore. Uses python's own randomness (seeded per match) so no two served
+    decoys collide. Deterministic given the seed."""
+    rng = random.Random(seed if seed is not None else secrets.token_hex(16))
+    tok = lambda n=8: "".join(rng.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(n))
+
+    # 1) jitter every literal hex colour by a couple of steps (visually ~identical)
+    def _jit_hex(m):
+        v = int(m.group(1), 16)
+        parts = [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+        parts = [max(0, min(255, c + rng.randint(-3, 3))) for c in parts]
+        return "#%02x%02x%02x" % tuple(parts)
+    html = re.sub(r"#([0-9a-fA-F]{6})\b", _jit_hex, html)
+
+    # 2) jitter bare placeholder numbers in style values (px/%/scale/opacity offsets)
+    def _jit_num(m):
+        n = int(m.group(1))
+        return str(max(0, n + rng.randint(-2, 2))) + m.group(2)
+    html = re.sub(r"\b(\d{1,3})(px|%|em)\b", _jit_num, html)
+
+    # 3) sprinkle unique element ids onto the body so the DOM differs per match
+    html = html.replace("<body", '<body data-r="%s"' % tok(10), 1)
+
+    # 4) randomize indentation/whitespace after some tag boundaries (non-semantic)
+    html = re.sub(r"><", lambda _m: ">" + " " * rng.randint(0, 2) + "<", html, count=rng.randint(1, 4))
+
+    # 5) inject a random-nonce HTML comment (kills any remaining exact-string match)
+    return html.replace("</body>", "<!-- r:%s:%s --></body>" % (tok(16), rng.randint(0, 1 << 30)), 1)
 
 
 def _real_by_prompt(kind):
@@ -432,11 +488,27 @@ def _build_normal_match(user, kind, prompt_id=None):
 
 def _build_test_match(user, kind):
     reals = [a for a in db.list_artifacts(kind=kind) if a.get("ok")]   # real side must work
-    boguses = db.list_bogus(kind)
+    # BASE templates only (prompt_id "_bogus"); exclude the per-match "_bogus_live" decoys
+    # minted below, so bases never drift into mutations-of-mutations and the selection pool
+    # stays the fixed seeded set rather than growing with every honeypot served.
+    boguses = [b for b in db.list_bogus(kind) if b.get("prompt_id") == "_bogus"]
     if not reals or not boguses:
         return None
     real = random.choice(reals)
-    bog = random.choice(boguses)
+    base = random.choice(boguses)
+    # FIX (fingerprintable decoys): don't reuse the static pre-seeded bogus row (its html
+    # is one of 5 source-visible constants an attacker can match byte-for-byte). Mint a
+    # FRESH per-match decoy artifact whose html is a unique mutation of the base template,
+    # so /api/arena/render never returns a static, known constant. Keeps the base's
+    # plausible weak model name (camouflage) and bogus=True (never touches real ranking).
+    base_art = db.get_artifact(base["id"])
+    bog_id = uuid.uuid4().hex[:10]
+    # prompt_id "_bogus_live" marks a per-match mutated decoy (distinct from the "_bogus"
+    # base templates) so it's excluded from base selection above and from real ranking.
+    db.save_artifact(bog_id, kind=kind, prompt_id="_bogus_live", model=base["model"],
+                     html=_mutate_decoy((base_art or {}).get("html", ""), seed=bog_id),
+                     ok=True, bogus=True)
+    bog = {"id": bog_id}
     if random.random() < 0.5:
         a, b, bogus_side = real, bog, "b"
     else:

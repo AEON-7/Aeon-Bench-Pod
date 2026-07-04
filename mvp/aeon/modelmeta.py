@@ -32,6 +32,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from collections import OrderedDict
 
 HF = "https://huggingface.co"
 GENERIC_AVATAR = "/static/generic-avatar.svg"
@@ -111,11 +112,19 @@ _ORG_BY_SLUG["cohereforai"] = _ORGS["cohere"]
 _ORG_BY_SLUG["c4ai"] = _ORGS["cohere"]
 
 # ---- in-process cache (name -> (meta, expiry_ts)) ------------------------------
-_CACHE: dict[str, tuple[dict, float]] = {}
+# FIX(LOW): `model` is attacker-supplied and reachable unauth (GET /api/model/meta?model=),
+# so an unbounded dict was a memory-DoS + HF-amplification vector. Bounded LRU (OrderedDict:
+# move_to_end on read, popitem(last=False) on overflow) under _LOCK, preserving TTL semantics.
+_CACHE: "OrderedDict[str, tuple[dict, float]]" = OrderedDict()
+_CACHE_CAP = 4096                                             # hard entry cap (LRU eviction)
 _LOCK = threading.Lock()
 _TTL = float(os.environ.get("AEON_MODELMETA_TTL", "86400"))   # 24h
 _NEG_TTL = 600.0                                               # cache misses for 10m
 _HTTP_TIMEOUT = 1.5                                            # never block the response long
+_MAX_NAME_LEN = 128                                            # reject implausibly long names pre-fetch
+_MAX_HTTP_BYTES = 1 << 20                                      # cap outbound HF read (1 MiB) — DoS guard
+# a sane leaderboard model name: repo-id-ish chars only (org/model, quant/tag suffixes)
+_NAME_OK_RE = re.compile(r"^[A-Za-z0-9 ._:@/+-]+$")
 
 # suffixes/markers to strip when normalising a raw name
 _QUANT_RE = re.compile(
@@ -169,7 +178,7 @@ def _hf_avatar(name: str) -> str | None:
             url = f"{HF}/api/{kind}/{urllib.parse.quote(name)}/overview"
             req = urllib.request.Request(url, headers={"User-Agent": "aeon-bench/0.4"})
             with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as r:
-                data = json.loads(r.read().decode("utf-8", "replace"))
+                data = json.loads(r.read(_MAX_HTTP_BYTES).decode("utf-8", "replace"))  # FIX(LOW): bound read
             if data.get("avatarUrl"):
                 return data["avatarUrl"]
         except Exception:
@@ -183,7 +192,7 @@ def _hf_author(repo: str) -> str | None:
         url = f"{HF}/api/models/{repo}"
         req = urllib.request.Request(url, headers={"User-Agent": "aeon-bench/0.4"})
         with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as r:
-            data = json.loads(r.read().decode("utf-8", "replace"))
+            data = json.loads(r.read(_MAX_HTTP_BYTES).decode("utf-8", "replace"))  # FIX(LOW): bound read
         return data.get("author") or None
     except Exception:
         return None
@@ -301,8 +310,12 @@ def resolve(model_name: str) -> dict:
     error returns a generic-avatar fallback dict.
     """
     name = (model_name or "").strip()
-    if not name:
-        return {"name": "", "repo": None, "org": None, "creator": "unknown",
+    # FIX(LOW): short-circuit implausibly-shaped names BEFORE allocating a cache entry or
+    # doing any HF fetch — bounds both the (attacker-controlled) cache key and the outbound
+    # amplification. Empty / over-long / out-of-charset names get the generic fallback and
+    # are NOT cached, so they can never grow _CACHE or trigger a network call.
+    if not name or len(name) > _MAX_NAME_LEN or not _NAME_OK_RE.match(name):
+        return {"name": name, "repo": None, "org": None, "creator": "unknown",
                 "creator_url": None, "card_url": None, "avatar_url": GENERIC_AVATAR,
                 "is_own": False}
 
@@ -310,6 +323,7 @@ def resolve(model_name: str) -> dict:
     with _LOCK:
         hit = _CACHE.get(name)
         if hit and hit[1] > now:
+            _CACHE.move_to_end(name)             # LRU: mark most-recently-used
             return hit[0]
 
     try:
@@ -323,4 +337,7 @@ def resolve(model_name: str) -> dict:
     ttl = _NEG_TTL if meta.get("avatar_url") == GENERIC_AVATAR else _TTL
     with _LOCK:
         _CACHE[name] = (meta, now + ttl)
+        _CACHE.move_to_end(name)                 # LRU: newest write is most-recently-used
+        while len(_CACHE) > _CACHE_CAP:          # evict oldest until back under the cap
+            _CACHE.popitem(last=False)
     return meta

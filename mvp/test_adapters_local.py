@@ -135,7 +135,7 @@ def test_openclaw_parser():
 def test_v2_perfect_and_sabotage():
     agentic_v2.self_check()                         # perfect==1.0 AND sabotage<1.0, every task
     assert len(agentic_v2.CASES) >= 10
-    assert agentic_v2.SUITE_ID == "aeon-agentic-v2"
+    assert agentic_v2.SUITE_ID == "aeon-agentic-v2.1"
     ids = agentic_v2.CASE_IDS
     assert len(set(ids)) == len(ids)
 
@@ -187,7 +187,7 @@ def test_run_agentic_v2_mock():
         assert r["status"] == "scored", r
         assert r["score"] == 1.0, (r["case_id"], r["evidence"])
         assert r["category"] == "Agentic" and r["tier"] == 0
-        assert r["suite_id"] == "aeon-agentic-v2"
+        assert r["suite_id"] == "aeon-agentic-v2.1"
         assert r["harness"] == "mock" and r["harness_version"] == "mock-0"
         assert isinstance(r["speed"]["e2e_s"], float)
         assert isinstance(r["evidence"], list) and r["evidence"]

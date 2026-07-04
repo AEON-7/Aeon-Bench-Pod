@@ -59,7 +59,7 @@ def _hardware_profile(label=None):
 
 def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=None,
             board="text", suite_id=None, key_path=None, hf_repo=None, limit=None, difficulty=None,
-            max_tokens=2048, temperature=0.0, judge=None, judge_url=None, judge_key=None):
+            category=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None, judge_key=None):
     # Pod state is LOCAL SQLite (its own job dashboard) — never the mothership DB.
     os.environ.pop("AEON_DB_URL", None)
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
@@ -74,6 +74,9 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
         suite_mod.CASES = [c for c in suite_mod.CASES if c.get("difficulty") in want]
         if not suite_id:                       # group tier runs separately from the comprehensive suite
             suite_id = suite_mod.SUITE_ID + "-" + "-".join(sorted(want))
+    if category:                               # optionally scope to a comma-list of categories (e.g. 'codegen')
+        cats = {c.strip() for c in category.split(",") if c.strip()}
+        suite_mod.CASES = [c for c in suite_mod.CASES if c.get("category") in cats]
     if limit:                                  # quick subset for a fast smoke
         suite_mod.CASES = suite_mod.CASES[:limit]
 
@@ -324,7 +327,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    suite_id=None, key_path=None, weights_dir=None, keep_weights=False,
                    port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
-                   per_cell=1, difficulty=None, vision=True):
+                   per_cell=1, difficulty=None, category=None, vision=True):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -349,6 +352,9 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     elif difficulty:                            # rapid bench: only the named tiers (e.g. "hard,expert")
         want = {d.strip() for d in difficulty.split(",") if d.strip()}
         suite_mod.CASES = [c for c in suite_mod.CASES if c.get("difficulty") in want]
+    if category:                                # optionally scope to a comma-list of categories (e.g. 'codegen')
+        cats = {c.strip() for c in category.split(",") if c.strip()}
+        suite_mod.CASES = [c for c in suite_mod.CASES if c.get("category") in cats]
     if limit:
         suite_mod.CASES = suite_mod.CASES[:limit]
 
@@ -448,8 +454,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
 def run_attested(target, modelref_path, mothership, *, hardware=None, board="text", suite_id=None,
                  key_path=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
-                 judge_key=None, harness_ids=None, limit=None, difficulty=None, fast=False, seed=None,
-                 per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
+                 judge_key=None, harness_ids=None, limit=None, difficulty=None, category=None,
+                 fast=False, seed=None, per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
                  arena_per_kind=2, audio=True, perf=False, harness_only=False):
     """Split-pod path: a `pull` sidecar already PULLED + HASH-VERIFIED the weights (writing
     .aeon-modelref.json) and an engine already SERVES them at --target. Benchmark that endpoint
@@ -478,6 +484,9 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
         # own suite id (e.g. aeon-suite-v2-hard) so boards group hard runs vs comprehensive runs.
         if not suite_id:
             suite_id = suite_mod.SUITE_ID + "-" + "-".join(sorted(want))
+    if category:                                # optionally scope to a comma-list of categories (e.g. 'codegen')
+        cats = {c.strip() for c in category.split(",") if c.strip()}
+        suite_mod.CASES = [c for c in suite_mod.CASES if c.get("category") in cats]
     if limit:
         suite_mod.CASES = suite_mod.CASES[:limit]
 
@@ -531,6 +540,17 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
     # AGENTIC through each REAL harness (fresh container state per model-run; env-execution tasks
     # scored on observable outcomes). Measures the harness AND the model together.
     hstatuses = []
+    # If a difficulty filter is in effect (e.g. hard-bench = hard,expert) AND the agentic tasks now
+    # carry a `difficulty` field, scope the harness pass to those tiers too; tasks without a
+    # difficulty field are always kept (a task that never opted into tiering still runs).
+    if harness_ids and difficulty:
+        from aeon import agentic_v2
+        want_d = {d.strip() for d in difficulty.split(",") if d.strip()}
+        if any(c.get("difficulty") for c in agentic_v2.CASES):
+            agentic_v2.CASES = [c for c in agentic_v2.CASES
+                                if not c.get("difficulty") or c.get("difficulty") in want_d]
+            print(f"[pod] agentic harness pass scoped to difficulty {sorted(want_d)}: "
+                  f"{len(agentic_v2.CASES)} tasks")
     for h in (harness_ids or []):
         try:
             from aeon import agentic_v2
@@ -610,6 +630,11 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="benchmark only the first N cases (quick smoke)")
     ap.add_argument("--difficulty", default=None, help="only cases whose difficulty is in this comma-list "
         "(e.g. 'hard,expert' for the rapid bench); applies to the graded suite-v2 cases")
+    ap.add_argument("--category", default=None, help="only cases whose category is in this comma-list "
+        "(e.g. 'codegen') — applied ALONGSIDE --difficulty on the text suite; default: all categories")
+    ap.add_argument("--preset", default=None, choices=("comprehensive", "hard-bench"),
+        help="one-shot bundle: 'comprehensive' = everything on (all harnesses + vision + audio + arena "
+        "+ perf); 'hard-bench' = the hard,expert tiers through all harnesses only (no vision/audio/arena/perf)")
     ap.add_argument("--fast", action="store_true", help="FAST bench: one random case per "
         "(category x difficulty) = 20 cases spanning the whole radar at every tier")
     ap.add_argument("--seed", default=None, help="fast-bench seed — same seed + same suite gives EVERY "
@@ -637,6 +662,23 @@ def main():
     ap.add_argument("--judge-key", default=None, help="judge API key")
     a = ap.parse_args()
 
+    # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
+    # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.
+    if a.preset == "comprehensive":               # everything on: all harnesses + vision + audio + arena + perf
+        a.harness = a.harness or "all"
+        a.perf = True
+        a.no_vision = False
+        a.no_audio = False
+        if a.arena == 0:                          # keep an explicit --arena N override; default stays 2
+            a.arena = 2
+    elif a.preset == "hard-bench":                # the hard,expert tiers through every harness, nothing else
+        a.difficulty = a.difficulty or "hard,expert"
+        a.harness = a.harness or "all"
+        a.no_vision = True
+        a.no_audio = True
+        a.arena = 0
+        a.perf = False
+
     hids = None
     if a.harness:
         from pod import adapters
@@ -647,7 +689,7 @@ def main():
         st, _ = run_attested(a.target, a.modelref, a.mothership, hardware=a.hardware, board=a.board,
             suite_id=a.suite_id, key_path=a.key, max_tokens=a.max_tokens, temperature=a.temperature,
             judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key, harness_ids=hids, limit=a.limit,
-            difficulty=a.difficulty, fast=a.fast, seed=a.seed, per_cell=a.per_cell,
+            difficulty=a.difficulty, category=a.category, fast=a.fast, seed=a.seed, per_cell=a.per_cell,
             retry_max_tokens=a.retry_max_tokens, concurrency=a.concurrency, vision=not a.no_vision,
             arena_per_kind=a.arena, audio=not a.no_audio, perf=a.perf, harness_only=a.harness_only)
     elif a.hf_link:                                   # single-process controlled flow
@@ -656,11 +698,12 @@ def main():
             keep_weights=a.keep_weights, port=a.port, max_tokens=a.max_tokens,
             temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key,
             harness_ids=hids, limit=a.limit, serve=not a.no_serve, fast=a.fast, seed=a.seed,
-            per_cell=a.per_cell, difficulty=a.difficulty, vision=not a.no_vision)
+            per_cell=a.per_cell, difficulty=a.difficulty, category=a.category, vision=not a.no_vision)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,
-                        hf_repo=a.hf_repo, limit=a.limit, difficulty=a.difficulty, max_tokens=a.max_tokens,
+                        hf_repo=a.hf_repo, limit=a.limit, difficulty=a.difficulty, category=a.category,
+                        max_tokens=a.max_tokens,
                         temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key)
     else:
         ap.error("provide --modelref + --target (split pod), --hf-link (single-process controlled), "

@@ -3,13 +3,18 @@
 # This brings up the whole local stack a user spins up to benchmark a model on their own
 # hardware and submit results to a mothership. The flow (see AGENTS.md for detail):
 #
-#   model-under-test  pull → hash-verify HF weights → serve on a fixed alias (vLLM /
-#                     aeon-vllm-ultimate on a DGX Spark)            [the "B" — the served model]
-#   aeon-pod          benchmark the served alias through each harness, then submit the
-#                     ed25519-signed results bundle to the mothership   [the "A" — control plane]
-#   hermes/openclaw/  the 3 vanilla agent harnesses the agentic suite is driven THROUGH, each
-#   opencode          pointed at `model-under-test`; their exact release versions are disclosed
-#                     in the report (harnesses.py)
+#   model-under-test   pull → hash-verify HF weights → serve on a fixed alias (vLLM /
+#                      aeon-vllm-ultimate on a DGX Spark)          [the "B" — the served model]
+#   aeon-pod           benchmark the served alias through each harness, then submit the
+#                      ed25519-signed results bundle to the mothership  [the "A" — control plane]
+#   harness images     the 3 vanilla agent harnesses (Hermes/OpenClaw/OpenCode) the agentic
+#                      suite is driven THROUGH — these are NOT long-running services. The pod is
+#                      the control plane: for each agentic task it spawns a FRESH one-shot
+#                      `docker run --rm` harness container (via the mounted Docker socket), copies
+#                      the outputs back, and tears it down — so agent state can never leak between
+#                      tasks. This compose only *builds* the three images (harness-build) with the
+#                      EXACT names the adapters run (`aeon-harness-{hermes,openclaw,opencode}` —
+#                      see mvp/pod/adapters/*.py); the pod launches them itself.
 #
 # Quickstart:  cp .env.example .env  &&  edit .env  &&  docker compose up --build
 # See docs/run-a-benchmark.md and docs/pod-quickstart.md.
@@ -23,9 +28,14 @@ services:
 
   # ── The served model under test ("B") ──────────────────────────────────────────────────────
   # vLLM serves the local weights on the FIXED alias `model-under-test` (modelhost.DEFAULT_ALIAS)
-  # — every harness + the pod talk to this alias, never to a raw model name. On a DGX Spark the
+  # — the pod + every harness talk to this alias, never to a raw model name. On a DGX Spark the
   # pod's recipe defaults the ENGINE to `aeon-vllm-ultimate`; this compose ships vanilla vLLM as
   # the portable default and documents the swap below.
+  #
+  # network_mode: host so the port is on 127.0.0.1:8000 of the HOST — that is the single address
+  # the pod AND the per-task harness containers (which the pod launches with `--network host`, see
+  # the adapters) all reach the model on. (With a bridge network the host-net harness containers
+  # could not resolve a compose service name, so everything that talks to the model uses host net.)
   #
   # The weights are pulled+verified by the `pull` step (below) into the shared volume; vLLM then
   # serves them from disk. AEON_HF_LINK selects the model.
@@ -38,6 +48,7 @@ services:
     depends_on:
       pull:
         condition: service_completed_successfully
+    network_mode: host                   # serve on 127.0.0.1:${AEON_TARGET_PORT:-8000}
     command:
       - "--model"
       - "/weights"                       # the verified local snapshot (see `pull`)
@@ -46,17 +57,17 @@ services:
       - "--host"
       - "0.0.0.0"
       - "--port"
-      - "8000"
+      - "${AEON_TARGET_PORT:-8000}"
       # --max-model-len / --quantization are model-dependent; the pod's derive_recipe() computes
       # them from config.json. Set AEON_MAX_MODEL_LEN / AEON_QUANT in .env to override here.
-      # TODO verify any model-specific serve flags (tensor-parallel, dtype, trust-remote-code).
+      # NOTE: the agentic suite needs a served context >=64K (the Hermes harness refuses smaller);
+      # serve with --max-model-len 65536 or higher. TODO verify model-specific serve flags
+      # (tensor-parallel, dtype, trust-remote-code).
     environment:
       HF_HOME: /hf-cache
     volumes:
       - weights:/weights:ro              # verified weights (read-only to the engine)
       - hf-cache:/hf-cache
-    ports:
-      - "${AEON_TARGET_PORT:-8000}:8000" # OpenAI-compatible API: http://localhost:8000/v1
     # GPU access via the NVIDIA Container Toolkit.
     deploy:
       resources:
@@ -66,7 +77,7 @@ services:
               count: all
               capabilities: ["gpu"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/v1/models || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${AEON_TARGET_PORT:-8000}/v1/models || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -80,7 +91,7 @@ services:
   #   model-under-test:
   #     image: ${AEON_ULTIMATE_IMAGE:-ghcr.io/aeon-bench/aeon-vllm-ultimate:latest}  # TODO verify tag/digest
   #     command: ["serve", "/weights", "--served-model-name", "model-under-test",
-  #               "--host", "0.0.0.0", "--port", "8000", "--max-model-len", "${AEON_MAX_MODEL_LEN:-8192}"]
+  #               "--host", "0.0.0.0", "--port", "8000", "--max-model-len", "${AEON_MAX_MODEL_LEN:-65536}"]
   #   (cosign-verify the digest first — see trust-architecture §2.2 first-party exception.)
 
   # ── Weight pull + hash-verify (modelhost) ───────────────────────────────────────────────────
@@ -91,6 +102,7 @@ services:
     build:
       context: ../..                     # repo root (Dockerfile COPYs mvp/)
       dockerfile: deploy/pod/Dockerfile
+    image: aeon-pod:latest               # built once, reused by pull / aeon-pod / pod-dashboard
     entrypoint: ["python", "-c"]
     command:
       - |
@@ -120,62 +132,52 @@ services:
       - weights:/weights
       - hf-cache:/hf-cache
 
-  # ── Harness: Hermes Agent (official docker image) ───────────────────────────────────────────
-  # NousResearch/hermes-agent — deployed as docker (harnesses.py: deploy="docker"). Pointed at the
-  # served alias; its release version is captured via `hermes --version` and disclosed in the report.
-  hermes:
-    # TODO verify the official image + tag. harnesses.py only gives the repo
-    #   (github.com/NousResearch/hermes-agent); pin the published image:tag or digest here.
-    image: ${AEON_HERMES_IMAGE:-ghcr.io/nousresearch/hermes-agent:latest}   # TODO verify image + pin tag
-    depends_on:
-      model-under-test:
-        condition: service_healthy
-    environment:
-      # Hermes is OpenAI-compatible (harnesses.py: endpoint_env="OPENAI_BASE_URL").
-      OPENAI_BASE_URL: "http://model-under-test:8000/v1"
-      OPENAI_API_KEY: "${AEON_TARGET_API_KEY:-sk-local}"
-      AEON_HARNESS_MODEL: "model-under-test"
+  # ── Harness images (built once; the pod launches them per-task) ─────────────────────────────
+  # The pod is the CONTROL PLANE for the agentic suite: for each task it does a fresh, one-shot
+  # `docker run --rm` of the relevant harness image (mvp/pod/adapters/{hermes,openclaw,opencode}.py
+  # → run_harness2.py), `docker cp`s the outputs back, and tears the container down. So there are
+  # NO persistent harness services — but the images must exist locally under the EXACT names the
+  # adapters run. The three `harness-build-*` services below build those images (via `image:` +
+  # `build:`) then exit immediately (`command: ["true"]`); `aeon-pod` depends on their completion.
+  # To rebuild only the harnesses:  docker compose build harness-build-hermes harness-build-openclaw harness-build-opencode
+  harness-build-hermes:
+    image: aeon-harness-hermes           # == HermesAdapter.IMAGE (AEON_HERMES_IMAGE default)
+    build:
+      context: .
+      dockerfile: harness-hermes.Dockerfile
+      args:
+        HERMES_REF: ${AEON_HERMES_REF:-main}     # git ref of NousResearch/hermes-agent to pin
+    entrypoint: ["true"]                 # build-only: never actually runs as a service
     restart: "no"
-    # The pod orchestrates the agentic pass through this harness; this service is the harness
-    # runtime the pod talks to. (Orchestration wiring is harness-specific — see AGENTS.md.)
 
-  # ── Harness: OpenClaw (npm wrapper image) ───────────────────────────────────────────────────
-  openclaw:
+  harness-build-openclaw:
+    image: aeon-harness-openclaw         # == OpenClawAdapter.IMAGE (AEON_OPENCLAW_IMAGE default)
     build:
       context: .
       dockerfile: harness-openclaw.Dockerfile
       args:
         OPENCLAW_VERSION: ${AEON_OPENCLAW_VERSION:-0.17.0}   # TODO verify pinned version exists
-    depends_on:
-      model-under-test:
-        condition: service_healthy
-    environment:
-      OPENAI_BASE_URL: "http://model-under-test:8000/v1"
-      OPENAI_API_KEY: "${AEON_TARGET_API_KEY:-sk-local}"
-      OPENCLAW_MODEL: "model-under-test"
+    entrypoint: ["true"]
     restart: "no"
 
-  # ── Harness: OpenCode (npm wrapper image) ───────────────────────────────────────────────────
-  opencode:
+  harness-build-opencode:
+    image: aeon-harness-opencode         # == OpenCodeAdapter.IMAGE (AEON_OPENCODE_IMAGE default)
     build:
       context: .
       dockerfile: harness-opencode.Dockerfile
       args:
         OPENCODE_VERSION: ${AEON_OPENCODE_VERSION:-0.3.0}    # TODO verify pinned version exists
-    depends_on:
-      model-under-test:
-        condition: service_healthy
-    environment:
-      OPENAI_BASE_URL: "http://model-under-test:8000/v1"
-      OPENAI_API_KEY: "${AEON_TARGET_API_KEY:-sk-local}"
-      OPENCODE_MODEL: "model-under-test"
+    entrypoint: ["true"]
     restart: "no"
 
   # ── The pod control plane ("A") ─────────────────────────────────────────────────────────────
-  # Benchmarks the served alias and submits the signed bundle. Runs once and exits. The flags map
-  # 1:1 to aeon_pod.py:  --target --model --mothership --engine --hardware --hf-repo --judge
-  #   --max-tokens. The device key + local pod.db persist in the `pod-state` volume (~/.aeon).
+  # Benchmarks the served alias and submits the signed bundle. Runs once and exits. It drives the
+  # agentic suite by launching the harness images above as one-shot containers through the mounted
+  # Docker socket — so it needs the docker CLI + /var/run/docker.sock, and it runs on the HOST
+  # network so it (and the host-net harness containers it spawns) reach the model on 127.0.0.1.
+  # The flags map 1:1 to aeon_pod.py. The device key + local pod.db persist in `pod-state` (~/.aeon).
   aeon-pod:
+    image: aeon-pod:latest
     build:
       context: ../..
       dockerfile: deploy/pod/Dockerfile
@@ -184,18 +186,19 @@ services:
         condition: service_completed_successfully
       model-under-test:
         condition: service_healthy
-      # harnesses are needed for the agentic passes; they start once the model is healthy.
-      hermes: {condition: service_started}
-      openclaw: {condition: service_started}
-      opencode: {condition: service_started}
+      # the harness IMAGES must be built before the pod launches per-task containers from them
+      harness-build-hermes: {condition: service_completed_successfully}
+      harness-build-openclaw: {condition: service_completed_successfully}
+      harness-build-opencode: {condition: service_completed_successfully}
+    network_mode: host                   # reach the model + spawn host-net harness containers on 127.0.0.1
     entrypoint: ["/bin/sh", "-c"]
     command:
-      # --modelref makes this an ATTESTED (globally-rankable) run: it carries the pull sidecar's
-      # weights_hash + per-file hashes + recipe so the mothership re-verifies against HF before
-      # ranking. (Swap to --target/--model alone for a self_reported LOCAL run.)
+      # --modelref makes this an ATTESTED-eligible run: it carries the pull sidecar's weights_hash
+      # + per-file hashes + recipe so the mothership re-verifies against HF before ranking. (Swap
+      # to --target/--model alone for a self_reported LOCAL run.)
       - |
         exec python -m pod.aeon_pod \
-          --target   "http://model-under-test:8000/v1" \
+          --target   "http://127.0.0.1:$${AEON_TARGET_PORT:-8000}/v1" \
           --modelref "/weights/.aeon-modelref.json" \
           --mothership "$${AEON_MOTHERSHIP}" \
           --harness  all \
@@ -208,6 +211,7 @@ services:
     environment:
       AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:?set AEON_MOTHERSHIP in .env (mothership base URL)}
       AEON_HF_LINK:    ${AEON_HF_LINK:?set AEON_HF_LINK in .env}
+      AEON_TARGET_PORT: ${AEON_TARGET_PORT:-8000}
       AEON_ENGINE:     ${AEON_ENGINE:-}          # vllm | aeon-vllm-ultimate (DGX default) | llama.cpp
       AEON_HARDWARE:   ${AEON_HARDWARE:-}        # label, e.g. "NVIDIA DGX Spark GB10 128GB"
       AEON_SYSTEM:     ${AEON_SYSTEM:-}          # dgx-spark to force the ultimate recipe
@@ -218,9 +222,14 @@ services:
       AEON_LIMIT:      ${AEON_LIMIT:-}           # first N cases only (quick smoke); empty = full suite
       AEON_KEEP_WEIGHTS: ${AEON_KEEP_WEIGHTS:-1} # keep verified weights after the run (volume persists regardless)
       AEON_TARGET_API_KEY: ${AEON_TARGET_API_KEY:-sk-local}
+      # Harness image names the adapters `docker run` — kept in sync with the images built above.
+      AEON_HERMES_IMAGE:   aeon-harness-hermes
+      AEON_OPENCLAW_IMAGE: aeon-harness-openclaw
+      AEON_OPENCODE_IMAGE: aeon-harness-opencode
     volumes:
       - pod-state:/root/.aeon            # ed25519 device key (enrolled once) + local pod.db
       - weights:/weights                 # read the pull sidecar's .aeon-modelref.json (verification)
+      - /var/run/docker.sock:/var/run/docker.sock   # spawn per-task harness containers
       # Optional: mount a generated suite corpus so it overrides the built-ins:
       #   - ./suites:/app/mvp/suites:ro
     restart: "no"
@@ -231,6 +240,7 @@ services:
   # pod benchmarks. Local only — nothing here is public. The mothership shows a run only once you
   # submit a verified one and it's accepted. Open http://localhost:8080.
   pod-dashboard:
+    image: aeon-pod:latest
     build:
       context: ../..
       dockerfile: deploy/pod/Dockerfile

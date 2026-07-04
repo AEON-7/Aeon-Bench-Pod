@@ -16,9 +16,12 @@ FROM node:22-slim
 ARG OPENCODE_VERSION=0.3.0
 RUN npm install -g "opencode-ai@${OPENCODE_VERSION}"
 
-# TODO verify the exact env/flag OpenCode uses to point at an OpenAI-compatible endpoint + model
-#   + key. The compose wires the common OPENAI_* envs as a default; adjust once confirmed.
-ENV OPENAI_BASE_URL="" OPENAI_API_KEY="" OPENCODE_MODEL="model-under-test"
+# OpenCode reads its OpenAI-compatible provider + model from `opencode.json` in its cwd — NOT from
+# env vars. The pod does NOT run this image as a service: per task it drops a freshly-generated
+# opencode.json into the workdir and invokes:
+#   docker run --rm --network host -v <workdir>:/work -w /work aeon-harness-opencode \
+#     run --format json --auto -m dgx/<alias> "<prompt>"
+# (see mvp/pod/adapters/opencode.py:build_config + run_task). So there are no OPENAI_* envs here.
 
 RUN opencode --version || true
 

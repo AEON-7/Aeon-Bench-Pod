@@ -20,8 +20,8 @@ the AEON suite through the three agent harnesses, and submits the signed result.
 ### 1.1 Get the repo
 
 ```bash
-git clone https://github.com/<org>/aeon-bench.git
-cd aeon-bench/deploy/pod
+git clone https://github.com/AEON-7/Aeon-Bench-Pod.git
+cd Aeon-Bench-Pod/deploy/pod
 ```
 
 (Or download the repo zip from the GitHub page and `cd` into `deploy/pod`.)
@@ -110,7 +110,7 @@ on HF), the **serving recipe**, and **authorship** — and the mothership re-ver
 bundle with the wrong hashes is rejected. What it does **not** yet prove on its own is that your
 hardware actually produced the reported numbers (an operator runs the bench): closing *that*
 execution-integrity gap is a future hardware-TEE sub-level. Full detail:
-[`docs/trust-architecture.md`](trust-architecture.md).
+[`docs/attestation.md`](attestation.md).
 
 ---
 
@@ -155,4 +155,4 @@ hardware-TEE sub-level.
 - [`docs/pod-quickstart.md`](pod-quickstart.md) — the 3-command version.
 - [`deploy/pod/AGENTS.md`](../deploy/pod/AGENTS.md) — the harnesses + the A→B flow in detail.
 - [`deploy/pod/.env.example`](../deploy/pod/.env.example) — every configuration variable.
-- [`docs/trust-architecture.md`](trust-architecture.md) — the full trust-chain spec.
+- [`docs/attestation.md`](attestation.md) — the full trust-chain spec.

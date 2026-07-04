@@ -16,40 +16,50 @@ bench-through-each-harness → submit).
 
 ## The three harnesses
 
-Defined in the registry at `mvp/pod/harnesses.py`. All three are OpenAI-compatible and are pointed
-at the pod's served alias **`model-under-test`** (`modelhost.DEFAULT_ALIAS`) — never at a raw model
-name, so the harness cannot tell which model it is driving.
+Defined in the registry at `mvp/pod/harnesses.py`; each has an adapter under `mvp/pod/adapters/`.
+All three are pointed at the pod's served alias **`model-under-test`** (`modelhost.DEFAULT_ALIAS`)
+— never at a raw model name, so the harness cannot tell which model it is driving.
 
-| Key | Name | Repo | Deploy | Package / image | Version command |
+> **Harnesses are ephemeral, NOT services.** The pod is the control plane: for each agentic task it
+> launches ONE fresh `docker run --rm` (or `--name … + docker cp`) harness container via the Docker
+> socket, then tears it down — so agent state can never leak between tasks (see `run_harness2.py`).
+> The compose therefore does **not** define hermes/openclaw/opencode as long-running services; it
+> only **builds** the three images under the exact names the adapters run
+> (`aeon-harness-{hermes,openclaw,opencode}`) and mounts `/var/run/docker.sock` into `aeon-pod` so
+> the pod can spawn them. The pod runs on the **host network** and reaches the model (and the
+> host-net harness containers it spawns) on `127.0.0.1:${AEON_TARGET_PORT:-8000}`.
+
+| Key | Name | Repo | Deploy | Image (local build) | Version command |
 |---|---|---|---|---|---|
-| `hermes` | Hermes Agent | github.com/NousResearch/hermes-agent | docker (official image) | `<image>:<tag>` | `hermes --version` |
-| `openclaw` | OpenClaw | github.com/openclaw/openclaw | npm | `openclaw@<pin>` | `openclaw --version` |
-| `opencode` | OpenCode | github.com/anomalyco/opencode | npm | `opencode-ai@<pin>` (CLI `opencode`) | `opencode --version` |
+| `hermes` | Hermes Agent | github.com/NousResearch/hermes-agent | docker | `aeon-harness-hermes` (harness-hermes.Dockerfile) | `hermes --version` |
+| `openclaw` | OpenClaw | github.com/openclaw/openclaw | npm | `aeon-harness-openclaw` (harness-openclaw.Dockerfile) | `openclaw --version` |
+| `opencode` | OpenCode | github.com/anomalyco/opencode | npm | `aeon-harness-opencode` (harness-opencode.Dockerfile) | `opencode --version` |
 
 ### hermes — Hermes Agent
-- **What it is:** NousResearch's agent harness, run from its **official docker image**
-  (`harnesses.py`: `deploy="docker"`).
-- **Driven by the pod:** the compose service `hermes` runs the image with
-  `OPENAI_BASE_URL=http://model-under-test:8000/v1` (`harnesses.py`: `endpoint_env="OPENAI_BASE_URL"`,
-  `supports_openai=True`). The pod issues each agentic task through it and records the transcript.
-- **Version pin:** pin the image tag/digest via `AEON_HERMES_IMAGE` in `.env`.
-  - `# TODO verify` the published image name + a concrete tag/digest (the registry only declares
-    the GitHub repo).
+- **What it is:** NousResearch's agent harness, built from source into `aeon-harness-hermes`
+  (`harness-hermes.Dockerfile`, `ENTRYPOINT python /app/run_agent.py`, `TERMINAL_ENV=local` baked
+  in so its terminal/file tools run INSIDE the per-task container's `/work`).
+- **Driven by the pod:** `mvp/pod/adapters/hermes.py` runs one named container per task
+  (`--query=<prompt> --base_url=<url> --api_key=sk-local --model=<alias> --max_turns=8
+  --save_sample`), mounting a `context_length:65536` config at `/root/.hermes/config.yaml` (Hermes
+  refuses any served window <64K), then `docker cp`s `/work` back out and parses the ShareGPT sample.
+- **Version pin:** `AEON_HERMES_REF` (git ref, build arg `HERMES_REF`).
+  - `# TODO verify` a concrete release tag + that the source entry point is `run_agent.py`.
 
 ### openclaw — OpenClaw
 - **What it is:** an npm-distributed agent CLI (`harnesses.py`: `deploy="npm"`,
-  `package="openclaw"`), wrapped here in a tiny image (`harness-openclaw.Dockerfile`) that does
-  `npm i -g openclaw@<pin>`.
-- **Driven by the pod:** pointed at the served alias via the OpenAI-compatible envs; config lives
-  at `~/.openclaw/openclaw.json` (`harnesses.py`: `config_file`).
-  - `# TODO verify` the exact flag/env OpenClaw uses to set the OpenAI base URL + model + key.
+  `package="openclaw"`), wrapped in `harness-openclaw.Dockerfile` (`npm i -g openclaw@<pin>`).
+- **Driven by the pod:** `mvp/pod/adapters/openclaw.py` runs `docker run --rm --network host
+  -v <home>:/root/.openclaw aeon-harness-openclaw agent --local --json --agent main -m "<prompt>"
+  --model dgx/<alias>`, with the endpoint set in a generated `~/.openclaw/openclaw.json` (not env).
 - **Version pin:** `AEON_OPENCLAW_VERSION` (build arg `OPENCLAW_VERSION`).
 
 ### opencode — OpenCode
 - **What it is:** an npm-distributed agent CLI (`harnesses.py`: `deploy="npm"`,
   `package="opencode-ai"`, CLI binary `opencode`), wrapped in `harness-opencode.Dockerfile`.
-- **Driven by the pod:** pointed at the served alias via the OpenAI-compatible envs.
-  - `# TODO verify` OpenCode's exact endpoint flag/env.
+- **Driven by the pod:** `mvp/pod/adapters/opencode.py` runs `docker run --rm --network host
+  -v <workdir>:/work -w /work aeon-harness-opencode run --format json --auto -m dgx/<alias>
+  "<prompt>"`, with the provider set in an `opencode.json` dropped into the workdir (not env).
 - **Version pin:** `AEON_OPENCODE_VERSION` (build arg `OPENCODE_VERSION`).
 
 ---
@@ -66,7 +76,7 @@ name, so the harness cannot tell which model it is driving.
   record that travels **with** the benchmark.
 
 Because version capture prefers an explicit pin, the values you set in `.env`
-(`AEON_HERMES_IMAGE` tag/digest, `AEON_OPENCLAW_VERSION`, `AEON_OPENCODE_VERSION`) are exactly what
+(`AEON_HERMES_REF` git ref, `AEON_OPENCLAW_VERSION`, `AEON_OPENCODE_VERSION`) are exactly what
 gets disclosed — pin them deliberately and they reproduce.
 
 ---
@@ -112,4 +122,4 @@ A pod runs entirely on hardware its operator owns, so a software-only submission
 bundle authorship, integrity-in-transit, and replay resistance (single-use nonce + run-scoped
 token). It is **never co-ranked** with mothership-verified records. Stronger tiers
 (`orchestrated` = the mothership re-generates the work; `attested` = a hardware TEE quote) are the
-mothership's job, not the pod's. See `docs/trust-architecture.md` and `docs/run-a-benchmark.md`.
+mothership's job, not the pod's. See `docs/attestation.md` and `docs/run-a-benchmark.md`.

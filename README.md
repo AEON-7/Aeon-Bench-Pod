@@ -1,6 +1,6 @@
 # AEON Bench Pod
 
-The **open benchmark pod** for [AEON Bench](https://github.com/AEON-7/aeon-bench-mothership): run the
+The **open benchmark pod** for [AEON Bench](https://aeon-bench.com): run the
 full AEON suite against a model **on your own hardware**, with a controlled, verifiable pipeline —
 
 ```
@@ -15,8 +15,9 @@ leaderboard. Direct-endpoint runs are stored as *self-reported* — useful local
 ## Quickstart
 
 ```bash
+cd deploy/pod
 cp .env.example .env          # set AEON_HF_LINK + AEON_MOTHERSHIP
-docker compose up             # pull → verify → serve → bench → submit
+docker compose up --build     # pull → verify → serve → bench → submit
 ```
 
 Or run the pod dashboard for a GUI (launch runs, saved keys, live progress):
@@ -35,7 +36,7 @@ Docs: [`docs/pod-quickstart.md`](docs/pod-quickstart.md) ·
 | Dimension | Suite | How |
 |---|---|---|
 | Text (5 categories × 4 difficulty tiers) | `aeon-suite-v2` | deterministic Tier-0 + binary-rubric Tier-1 |
-| Agentic | `aeon-agentic-v2` | 10 environment-execution tasks through **three real harnesses** (Hermes / OpenClaw / OpenCode) in fresh containers, scored on observable file outcomes |
+| Agentic | `aeon-agentic-v2` | 16 environment-execution tasks (file ops + app/game/animation codegen) through **three real harnesses** (Hermes / OpenClaw / OpenCode) in fresh containers, scored on observable file outcomes |
 | Vision | `aeon-mvp-vision` | probe-gated image suite |
 | Audio | `aeon-audio-v1` | probe-gated, deterministic synthetic stimuli |
 | Generative arena | apps / games / animations | seeded prompts, artifacts ship with the signed bundle |

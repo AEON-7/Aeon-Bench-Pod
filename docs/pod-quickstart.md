@@ -8,7 +8,7 @@ and (for gated HF repos) an `HF_TOKEN`.
 
 ```bash
 # 1. Get the pod
-git clone https://github.com/<org>/aeon-bench.git && cd aeon-bench/deploy/pod
+git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod/deploy/pod
 
 # 2. Configure: set AEON_HF_LINK (the model) and AEON_MOTHERSHIP (where to submit)
 cp .env.example .env && ${EDITOR:-nano} .env

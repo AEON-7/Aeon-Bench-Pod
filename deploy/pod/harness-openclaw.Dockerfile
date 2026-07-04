@@ -16,12 +16,12 @@ FROM node:22-slim
 ARG OPENCLAW_VERSION=0.17.0
 RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 
-# OpenClaw reads an OpenAI-compatible endpoint from its config. harnesses.py records
-# config_file="~/.openclaw/openclaw.json"; the pod/compose points base_url at the served alias.
-# TODO verify the exact env/flag OpenClaw uses to set the OpenAI base URL + model + api key
-#   (e.g. OPENAI_BASE_URL / OPENAI_API_KEY, or a `--config` / `--base-url` flag). Until verified,
-#   the compose wires the common OPENAI_* envs and mounts a config file.
-ENV OPENAI_BASE_URL="" OPENAI_API_KEY="" OPENCLAW_MODEL="model-under-test"
+# OpenClaw reads its OpenAI-compatible endpoint + model from ~/.openclaw/openclaw.json — NOT from
+# env vars. The pod does NOT run this image as a service: per task it mounts a freshly-generated
+# openclaw.json (baseUrl → the served alias) at /root/.openclaw and invokes:
+#   docker run --rm --network host -v <home>:/root/.openclaw aeon-harness-openclaw \
+#     agent --local --json --agent main -m "<prompt>" --model dgx/<alias>
+# (see mvp/pod/adapters/openclaw.py:build_config + run_task). So there are no OPENAI_* envs here.
 
 # Sanity: surface the resolved version at build/run time (this is the string the pod discloses).
 RUN openclaw --version || true

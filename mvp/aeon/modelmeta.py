@@ -36,7 +36,7 @@ from collections import OrderedDict
 
 HF = "https://huggingface.co"
 GENERIC_AVATAR = "/static/generic-avatar.svg"
-AEON_AVATAR = "/static/aeon-avatar.svg"
+AEON_AVATAR = "/static/aeon-avatar.png"
 AEON_PROFILE = "https://aeon-bench.com"
 
 # ---- own-model orgs (AEON_OWN_ORGS, comma list; "aeon" always included) ----

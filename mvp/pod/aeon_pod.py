@@ -137,7 +137,8 @@ def _collect_results(rid):
 
 def _bench_and_results(model, target, *, api_key=None, max_tokens=2048, temperature=0.0,
                        judge=None, judge_url=None, judge_key=None, checkpoint=None, checkpoint_every=8,
-                       retry_max_tokens=None, concurrency=1):
+                       retry_max_tokens=None, concurrency=1,
+                       hf_repo=None, trust_tier="self_reported", model_verified=None):
     """Benchmark `model` at `target` into the pod-local DB; return (rid, results, mean). If a
     `checkpoint(results)` callback is given, it's called every `checkpoint_every` cases with the
     CUMULATIVE results-so-far — for incremental submission so a mid-run kill loses nothing."""
@@ -161,7 +162,8 @@ def _bench_and_results(model, target, *, api_key=None, max_tokens=2048, temperat
     params = {"temperature": temperature, "max_tokens": max_tokens,
               "retry_max_tokens": retry_max_tokens, "retries": 1, "concurrency": concurrency}
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
-                         judge_model=judge, judge_url=judge_url, judge_key=judge_key)
+                         judge_model=judge, judge_url=judge_url, judge_key=judge_key,
+                         hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified)
     results = _collect_results(rid)
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
     mean = sum(scored) / len(scored) if scored else 0.0
@@ -407,7 +409,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
         # 1) the standard suite through the verified-served model -> the ATTESTED text submission
         _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
-            temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key)
+            temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
+            hf_repo=repo, trust_tier="attested", model_verified="verified")
         print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
         st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
             suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
@@ -522,7 +525,8 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
         # in pod.db + are visible in the pod's dashboard for the user to re-run or submit.)
         _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
             temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
-            retry_max_tokens=retry_max_tokens, concurrency=concurrency)
+            retry_max_tokens=retry_max_tokens, concurrency=concurrency,
+            hf_repo=repo, trust_tier="attested", model_verified="verified")
         print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
 
         # ARENA generation (games/apps/animations) is part of EVERY benchmark: generate from the

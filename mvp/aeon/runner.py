@@ -23,7 +23,11 @@ def build_target(model, target_url, api_key=None):
 
 
 def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
-                  progress_cb=None, api_key=None, judge_url=None, judge_key=None):
+                  progress_cb=None, api_key=None, judge_url=None, judge_key=None,
+                  hf_repo=None, trust_tier="self_reported", model_verified=None):
+    # `model` is the served alias used for the actual /v1 requests (e.g. "model-under-test").
+    # `hf_repo`/`trust_tier` carry the REAL verified identity so the pod-local run — and thus the
+    # live view — shows the true model + badge while inference still targets the served alias.
     from . import judge_policy
     params = params or {"temperature": 0.0, "max_tokens": 512}
     target = build_target(model, target_url, api_key)
@@ -46,6 +50,7 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
         judge_model=eff_judge, judge_is_self=False,
         suite_id=suite_mod.SUITE_ID, suite_hash=suite_mod.suite_hash(),
         n_cases=len(suite_mod.CASES), params=params, env=env,
+        hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
     )
     base_tok = params.get("max_tokens", 512)
     retry_tok = params.get("retry_max_tokens")                # higher ceiling for a cut-off re-run

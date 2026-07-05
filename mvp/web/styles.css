@@ -302,6 +302,9 @@ input[type=range]::-moz-range-thumb { width: 10px; height: 16px; border: 0; back
 }
 .elig-badge.verified { color: var(--good); border-color: rgba(61, 220, 133, .55); background: rgba(61, 220, 133, .1); }
 .elig-badge.local { color: var(--faint); border-color: var(--line); background: transparent; }
+.elig-badge.run { color: var(--live); border-color: rgba(255, 46, 151, .55); background: rgba(255, 46, 151, .12); animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .elig-badge.run { animation: none; } }
 
 .ev-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border: 1px solid; border-radius: var(--r-pill); }
 .ev-badge.ok { color: var(--good); border-color: rgba(61, 220, 133, .5); background: rgba(61, 220, 133, .1); }

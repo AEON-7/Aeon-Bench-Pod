@@ -1338,8 +1338,13 @@ function renderLive(d) {
         <div class="live-q"><b>Q</b> ${escH(cut(x.prompt || "", 320))}</div>
         <div class="live-a"><b>A</b> <pre>${escH(cut(x.answer || "(no answer yet)", 1200))}</pre></div></div>`;
     }).join("");
+    const _mp = (r.model || "").split("/");
+    const mName = _mp[_mp.length - 1] || "model";               // the model being tested (real repo, not the served alias)
+    const mOrg = _mp.length > 1 ? _mp.slice(0, -1).join("/") + "/" : "";
     return `<div class="live-run">
-      <div class="live-run-h"><b>${escH((r.model || "").split("/").pop())}</b>
+      <div class="live-run-h"><b>${escH(mName)}</b>
+        <span class="elig-badge run" title="a benchmark is running against this model right now">● Benchmarking Live</span>
+        ${mOrg ? `<span class="note mono">${escH(mOrg)}</span>` : ""}
         <span class="mono">${r.done}/${r.n_cases} · ${pct}%</span>${r.mean != null ? ` · mean <b>${r.mean.toFixed(1)}</b>` : ""}
         ${r.trust_tier === "attested" ? ' <span class="elig-badge verified">✓ attested</span>' : ""}</div>
       <div class="live-bar big"><div class="live-bar-fill" style="width:${pct}%"></div></div>

@@ -26,6 +26,7 @@ import urllib.request
 HF = "https://huggingface.co"
 WEIGHT_EXT = (".safetensors", ".bin", ".gguf", ".pt", ".pth", ".npz")
 DEFAULT_ALIAS = "model-under-test"   # the served alias Hermes / OpenClaw / OpenCode connect to
+BENCH_MAX_CTX = 65536                 # standard bench context: >=64K (Hermes harness floor) + KV-sane
 
 
 def resolve(hf_link: str):
@@ -158,7 +159,11 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
             cfg = json.load(open(cfgp, encoding="utf-8"))
         except Exception:
             cfg = {}
-    ctx = cfg.get("max_position_embeddings") or cfg.get("n_positions") or 8192
+    native_ctx = cfg.get("max_position_embeddings") or cfg.get("n_positions") or 8192
+    # Serve at a consistent bench context: the agentic harnesses (Hermes) REQUIRE >=64K, and 64K is
+    # ample for every suite prompt while a model's full window (e.g. 256K) needlessly bloats the KV
+    # cache. Cap at the model's native max (never exceed it); AEON_MAX_MODEL_LEN overrides explicitly.
+    ctx = int(os.environ.get("AEON_MAX_MODEL_LEN") or min(native_ctx, BENCH_MAX_CTX))
     quant = (cfg.get("quantization_config") or {}).get("quant_method")
     arch = (cfg.get("architectures") or [None])[0]
     local_files = [f for _, _, fs in os.walk(local_dir) for f in fs]

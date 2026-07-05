@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=30" />
+  <link rel="stylesheet" href="/static/styles.css?v=31" />
 </head>
 <body>
   <header>
@@ -68,7 +68,7 @@
       <div class="lbhead"><h2>Performance</h2></div>
       <p class="lede">TTFT · TPOT · tok/s across the concurrency ladder, per prompt category — same 64k serve as the quality boards.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note">Every comprehensive benchmark also runs a <b>performance grid</b>: the served model answers fixed prompts from each category (Math, Coding, Reasoning, Instruction, Prose — short and long-prefill) at concurrency <b>1 / 4 / 8 / 16 / 32</b>, measuring <b>TTFT</b> (time to first token), <b>TPOT</b> (inter-token latency once decoding), per-stream and <b>aggregate tok/s</b>. The same tasks are also timed <b>through each agentic harness</b> so harness overhead is directly comparable. Pick a model, pick a metric — the curves show how it scales; the heatmap shows where it's strong (brighter = better).</p>
+        <p class="note">Every comprehensive benchmark also runs a <b>performance grid</b>: the served model answers fixed prompts from each category (Math, Coding, Reasoning, Instruction, Prose — short and long-prefill) at concurrency <b>1 / 4 / 8 / 16 / 32</b> — each category swept <b>in isolation</b> (c4 = four concurrent streams of that prompt type only, replicas cache-busted so prefill is real; never a mixed-category pool) — measuring <b>TTFT</b> (time to first token), <b>TPOT</b> (inter-token latency once decoding), per-stream and <b>aggregate tok/s</b>. The same tasks are also timed <b>through each agentic harness</b> so harness overhead is directly comparable. Pick a model, pick a metric — the curves show how it scales; the heatmap shows where it's strong (brighter = better).</p>
       </details>
       <div id="perfBody"></div>
     </section>
@@ -398,6 +398,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=30"></script>
+  <script src="/static/app.js?v=31"></script>
 </body>
 </html>

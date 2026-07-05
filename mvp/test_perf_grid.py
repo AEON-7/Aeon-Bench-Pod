@@ -94,27 +94,32 @@ def test_direct_grid_shape_and_math():
                            target_factory=FakeTarget,
                            progress_cb=lambda c, done, total: calls.append((c, done, total)))
     assert grid["kind"] == "direct" and grid["suite_id"] == SUITE_ID
+    assert grid["isolation"] == "per_category"
     assert sorted(grid["levels"]) == [1, 4, 8, 16, 32]          # 5 levels
+    # per-category ISOLATION: each cell runs max(4, conc) tasks of ITS category only
     for conc, lv in grid["levels"].items():
+        n_cell = max(4, conc)
         assert sorted(lv["categories"]) == sorted(CATEGORIES)   # 5 cats
-        assert lv["overall"]["n"] == 20 and lv["errors"] == []
+        assert lv["overall"]["n"] == 5 * n_cell and lv["errors"] == []
         assert lv["wall_clock_s"] > 0
         for cat in CATEGORIES:
-            assert lv["categories"][cat]["n"] == 4
-    assert len(calls) == 5 * 20                                 # progress per request
-    # hand-verifiable cell: Math @ c=1 against the deterministic fake
+            assert lv["categories"][cat]["n"] == n_cell
+            assert lv["categories"][cat]["cell_wall_s"] >= 0   # fake target can round to 0.000
+    assert len(calls) == sum(5 * max(4, c) for c in (1, 4, 8, 16, 32))
+    # hand-verifiable cell: Math @ c=1 against the deterministic fake (prompts are BUSTED)
+    busted = [perf_grid._bust(p, i) for i, p in enumerate(PROMPTS["Math"])]
     cell = grid["levels"][1]["categories"]["Math"]
-    exp_ttfts = sorted(50.0 + (len(p) % 100) for p in PROMPTS["Math"])
+    exp_ttfts = [50.0 + (len(p) % 100) for p in busted]
     assert cell["ttft_ms_mean"] == round(sum(exp_ttfts) / 4, 2)
     assert cell["decode_tps_mean"] == 40.0
     assert cell["output_tokens_total"] == 4 * 64
     exp_prefill = [round((len(p) // 4) / ((50.0 + (len(p) % 100)) / 1000.0), 2)
-                   for p in PROMPTS["Math"]]
+                   for p in busted]
     assert cell["prefill_tps_mean"] == round(sum(exp_prefill) / 4, 2)
-    assert cell["input_tokens_total"] == sum(len(p) // 4 for p in PROMPTS["Math"])
+    assert cell["input_tokens_total"] == sum(len(p) // 4 for p in busted)
     # aggregate decode tok/s uses the level wall clock (grid stores wall rounded
     # to 3 decimals; the fake finishes in ~ms, so compare with tolerance)
-    wall = grid["levels"][1]["wall_clock_s"]
+    wall = grid["levels"][1]["wall_clock_s"]      # = sum of the 5 sequential cell walls
     agg = grid["levels"][1]["overall"]["agg_decode_tps"]
     expect = 20 * 64 / wall
     assert agg > 0 and abs(agg - expect) / expect < 0.5, (agg, expect)
@@ -164,10 +169,14 @@ def test_harness_timing():
         assert 0.04 <= lv["mean_task_s"] <= 0.5
         assert lv["p95_task_s"] >= lv["mean_task_s"] * 0.9
         assert lv["tasks_per_min"] > 0
-        # every category got at least one timed task
-        assert set(lv["categories"]) == set(perf_grid.CATEGORIES)
-        for cell in lv["categories"].values():
-            assert cell["n"] >= 1 and cell["mean_task_s"] > 0
+        if conc == 1:
+            # clean sequential pass: every category gets a timed cell
+            assert set(lv["categories"]) == set(perf_grid.CATEGORIES)
+            for cell in lv["categories"].values():
+                assert cell["n"] >= 1 and cell["mean_task_s"] > 0
+        else:
+            # mixed pool at conc>1: per-category cells would be contaminated — none emitted
+            assert lv["categories"] == {}
     # c=2 should finish the sleeps roughly twice as fast as c=1
     assert timing["levels"][2]["wall_clock_s"] < timing["levels"][1]["wall_clock_s"]
     assert timing["levels"][2]["tasks_per_min"] > timing["levels"][1]["tasks_per_min"]
@@ -183,11 +192,11 @@ def test_harness_timing():
 
     rows = to_results(timing)
     ids = [r["case_id"] for r in rows]
-    # overall row per level + one row per category per level
+    # overall row per level + per-category rows from the clean c1 pass only
     assert "perf.harness.opencode.c1" in ids and "perf.harness.opencode.c2" in ids
     assert "perf.harness.opencode.math.c1" in ids
-    assert "perf.harness.opencode.instruction.c2" in ids
-    assert len(ids) == 2 * (1 + n_cats)
+    assert "perf.harness.opencode.instruction.c2" not in ids
+    assert len(ids) == 2 + n_cats
     assert all(r["status"] == "perf" and r["category"] == "Performance" for r in rows)
     overall = next(r for r in rows if r["case_id"] == "perf.harness.opencode.c1")
     assert "tasks_per_min" in overall["evidence"]

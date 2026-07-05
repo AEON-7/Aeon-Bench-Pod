@@ -171,6 +171,14 @@ def live(board: str = "text"):
         return {"running": [], "role": ROLE}   # LIVE is a POD view; the mothership shows only accepted runs
     running = [r for r in db.list_runs(200)
                if r.get("status") == "running" and (r.get("board") or "text") == board]
+    # A running row from a SUPERSEDED suite (e.g. the old aeon-suite-v2, 290 cases) — or a
+    # different sub-suite that also files under board="text" (agentic-v2.1, 16 cases) — must not
+    # hijack the card: its n_cases drives the headline total ("37/290") while the per-category
+    # denominators come from the CURRENT suite via _suite_cat_counts() (/30), producing a
+    # nonsensical mismatch. The text live view only describes the current text suite, so scope
+    # it to SUITE_ID; other boards each have a single suite, so board-scoping already suffices.
+    if board == "text":
+        running = [r for r in running if r.get("suite_id") == suite_mod.SUITE_ID]
     # list_runs is newest-first; keep only the most-recent running run per model — older "running"
     # rows are stale partials a killed/relaunched run left behind.
     seen, dedup = set(), []

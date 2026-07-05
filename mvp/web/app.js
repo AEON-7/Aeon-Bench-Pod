@@ -902,7 +902,7 @@ function renderGallery(d) {
       const stats = a.unrated
         ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
         : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
-      return `<div class="gal-card${i === 0 && !a.unrated ? " first" : ""}">
+      return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
         <div class="gal-card-h">
           <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
           <a class="model-creator gal-ava" data-meta="${escA(a.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
@@ -911,8 +911,8 @@ function renderGallery(d) {
         </div>
         <div class="gal-stats">${stats}</div>
         <div class="gal-acts">
-          <button class="ghost gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">▶ preview</button>
-          <a class="ghost gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">⬇ code</a>
+          <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
+          <a class="act-btn act-dl gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">Code</a>
         </div>
       </div>`;
     }).join("") + `</div></div>`).join("");
@@ -924,6 +924,30 @@ function renderGallery(d) {
   });
 }
 
+// Fit-by-design-viewport: the sandbox has NO allow-same-origin (security invariant),
+// so the artifact's content size can never be read from outside. Instead the frame
+// renders at a fixed 1280x800 desktop design viewport and is scaled to fit the
+// modal's content box ENTIRELY — wrapper sized to 1280*s x 800*s, transform-origin
+// 0 0, so the whole rendered object is visible with no inner scrollbars or clipping.
+const GAL_VW = 1280, GAL_VH = 800;
+function fitGalPreview() {
+  const modal = $("#galModal");
+  if (!modal || modal.hidden) return;
+  const stage = $("#galStage"), scaler = $("#galScaler"), frame = $("#galFrame");
+  if (!stage || !scaler || !frame) return;
+  const card = modal.querySelector(".gal-view");
+  // chrome = title bar + card padding (card height minus stage height) — stable
+  // across refits because the stage always hugs the scaler.
+  const chrome = card.getBoundingClientRect().height - stage.getBoundingClientRect().height;
+  const availW = stage.clientWidth;
+  const availH = Math.max(160, window.innerHeight * 0.92 - chrome);
+  const s = Math.min(1, availW / GAL_VW, availH / GAL_VH);   // never upscale past 1:1
+  scaler.style.width = (GAL_VW * s).toFixed(2) + "px";
+  scaler.style.height = (GAL_VH * s).toFixed(2) + "px";
+  frame.style.transform = "scale(" + s + ")";
+}
+window.addEventListener("resize", fitGalPreview);            // no-ops while the modal is hidden
+
 // Preview overlay: the artifact runs in a SANDBOXED iframe (same sandbox attrs as the
 // match view — allow-scripts, NO allow-same-origin) and is lazy-fetched only on click.
 async function openGalPreview(aid, title, model) {
@@ -931,6 +955,7 @@ async function openGalPreview(aid, title, model) {
   $("#galViewDl").href = "/api/arena/download/" + encodeURIComponent(aid);
   $("#galFrame").srcdoc = loadingFrame("compiling artifact…");
   $("#galModal").hidden = false;
+  requestAnimationFrame(fitGalPreview);            // fit once layout has settled
   try {
     const r = await fetch("/api/arena/render?artifact_id=" + encodeURIComponent(aid));
     const a = r.ok ? await r.json() : null;
@@ -1410,7 +1435,7 @@ function renderPerfList() {
   $("#perfBody").innerHTML = `<div class="perf-list">` + ms.map((x, i) => {
     const c1 = ((x.direct || {})[1] || {}).overall || {};
     const concs = (x.conc_levels || []).filter((c) => x.direct[c]);
-    return `<div class="pcard${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
+    return `<div class="pcard chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
       <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
       <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
         <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=28" />
+  <link rel="stylesheet" href="/static/styles.css?v=29" />
 </head>
 <body>
   <header>
@@ -341,8 +341,12 @@ docker compose up             # pull → verify → serve → bench → submit</
     <div id="galModal" class="modal" hidden>
       <div class="modal-card gal-view">
         <button class="modal-x" id="galClose" title="close">×</button>
-        <div class="gal-view-h"><span id="galViewTitle"></span><a class="ghost" id="galViewDl" href="#">⬇ code (zip)</a></div>
-        <iframe class="gal-frame" id="galFrame" sandbox="allow-scripts allow-pointer-lock" title="artifact preview"></iframe>
+        <div class="gal-view-h"><span id="galViewTitle"></span><a class="act-btn act-dl" id="galViewDl" href="#" title="download the full single-file source (zip)">Code · zip</a></div>
+        <div class="gal-stage" id="galStage">
+          <div class="gal-scaler" id="galScaler">
+            <iframe class="gal-frame" id="galFrame" sandbox="allow-scripts allow-pointer-lock" title="artifact preview"></iframe>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -394,6 +398,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=28"></script>
+  <script src="/static/app.js?v=29"></script>
 </body>
 </html>

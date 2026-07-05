@@ -119,6 +119,36 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     return st, r
 
 
+def _auto_concurrency():
+    """Capacity-aware default for --concurrency (cases run through the served model at once).
+    Over-subscribing a vLLM serve is SAFE — it just queues beyond its own max-num-seqs — so we bias
+    HIGH whenever real accelerator memory is present and only fall back to single-stream when NO
+    GPU/accelerator is detected. An explicit --concurrency N (>0) always wins."""
+    import subprocess
+    gb = None
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=6)
+        vals = [int(x) for x in r.stdout.split() if x.strip().isdigit()]
+        if vals:
+            gb = max(vals) / 1024.0                          # largest GPU, MiB -> GiB
+    except Exception:
+        pass
+    if gb is None:                                           # GB10/unified reports N/A to nvidia-smi
+        try:
+            from pod import modelhost
+            if modelhost.is_dgx_spark():
+                gb = 128.0                                   # DGX Spark unified memory
+        except Exception:
+            pass
+    if gb is None:
+        return 1                                             # no accelerator found -> single stream
+    for thr, c in ((80, 24), (40, 16), (20, 12), (12, 8), (6, 4)):
+        if gb >= thr:
+            return c
+    return 2
+
+
 # ---- controlled HF-pull flow (the ONLY path that earns an attested / globally-ranked run) ----
 
 def _collect_results(rid):
@@ -649,8 +679,9 @@ def main():
     ap.add_argument("--retry-max-tokens", type=int, default=None, help="if a case is CUT OFF mid-reasoning "
         "(finish_reason=length) and has no/incorrect answer, RE-RUN it once at this higher ceiling (e.g. "
         "50000) so the model can finish — a no-answer is usually truncation, not a real miss")
-    ap.add_argument("--concurrency", type=int, default=1, help="cases to run CONCURRENTLY through the served "
-        "model (vLLM batches them). 16 is a strong default on the Spark with DFlash spec-decode")
+    ap.add_argument("--concurrency", type=int, default=0, help="cases to run CONCURRENTLY through the served "
+        "model (vLLM batches them). 0 = AUTO (default): capacity-aware — high (up to 24) when a capable "
+        "GPU is detected, single-stream when none is. Pass an explicit N (e.g. 16 on a Spark) to pin it.")
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--no-vision", action="store_true", help="skip the VISION suite (default: run it; a "
         "capability probe auto-skips text-only models so this is only needed to force-disable)")
@@ -665,6 +696,10 @@ def main():
     ap.add_argument("--judge-url", default=None, help="judge endpoint (defaults to --target)")
     ap.add_argument("--judge-key", default=None, help="judge API key")
     a = ap.parse_args()
+
+    if a.concurrency <= 0:                            # 0 = AUTO: bias high when the box can handle it
+        a.concurrency = _auto_concurrency()
+        print(f"[pod] concurrency=auto -> {a.concurrency} (detected capacity; pin with --concurrency N)")
 
     # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
     # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.

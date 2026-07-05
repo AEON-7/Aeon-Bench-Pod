@@ -164,6 +164,13 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     # ample for every suite prompt while a model's full window (e.g. 256K) needlessly bloats the KV
     # cache. Cap at the model's native max (never exceed it); AEON_MAX_MODEL_LEN overrides explicitly.
     ctx = int(os.environ.get("AEON_MAX_MODEL_LEN") or min(native_ctx, BENCH_MAX_CTX))
+    # HARD floor: Hermes refuses to run below 64K, so a short-context verified serve would burn a
+    # full bench on a doomed harness pass. Refuse up front; AEON_ALLOW_SHORT_CTX=1 serves at native
+    # anyway (the pod then SKIPS the hermes harness for that run — see aeon_pod).
+    if ctx < BENCH_MAX_CTX and os.environ.get("AEON_ALLOW_SHORT_CTX") != "1":
+        raise SystemExit(f"[pod] bench requires --max-model-len >= {BENCH_MAX_CTX} (Hermes harness "
+                         f"floor); model native ctx = {native_ctx}. Set AEON_ALLOW_SHORT_CTX=1 to "
+                         "serve at native context anyway (hermes will be skipped).")
     quant = (cfg.get("quantization_config") or {}).get("quant_method")
     arch = (cfg.get("architectures") or [None])[0]
     local_files = [f for _, _, fs in os.walk(local_dir) for f in fs]
@@ -188,6 +195,60 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
               "architecture": arch, "context_len": ctx, "quant": quant, "command": cmd}
     if use_ultimate and engine is None:
         recipe["reason"] = "DGX Spark default: aeon-vllm-ultimate"
+    return recipe
+
+
+# ---- z-lab DFlash drafter auto-discovery (speculative decode: LOSSLESS — speed only) ----------
+
+DFLASH_ORG = "z-lab"
+# draft depth (num_speculative_tokens) per model family — concurrent-optimal values
+_DFLASH_NST = {"gemma4": 11, "qwen3": 6}
+_DFLASH_NST_DEFAULT = 6
+
+
+def dflash_repo_for(repo: str):
+    """Candidate z-lab drafter repo for org/Name -> 'z-lab/<Name>-DFlash'."""
+    name = (repo or "").rstrip("/").split("/")[-1]
+    return f"{DFLASH_ORG}/{name}-DFlash" if name else None
+
+
+def dflash_nst(repo: str, arch: str | None = None) -> int:
+    """num_speculative_tokens for the model family (gemma4 drafts deeper than qwen3)."""
+    s = re.sub(r"[-_.]", "", f"{repo or ''} {arch or ''}".lower())
+    for fam, n in _DFLASH_NST.items():
+        if fam in s:
+            return n
+    return _DFLASH_NST_DEFAULT
+
+
+def discover_dflash(repo: str, timeout: int = 3, token: str | None = None):
+    """Best-effort probe for a z-lab DFlash drafter (HEAD the HF model API, 3s). Returns the
+    drafter repo id when it exists, else None. AEON_NO_DFLASH=1 disables. Never raises —
+    a failed probe just means plain decode."""
+    if os.environ.get("AEON_NO_DFLASH") == "1":
+        return None
+    cand = dflash_repo_for(repo)
+    if not cand:
+        return None
+    try:
+        headers = {"User-Agent": "aeon-pod/0.4"}
+        tok = _hf_token(token)
+        if tok:
+            headers["Authorization"] = "Bearer " + tok
+        req = urllib.request.Request(f"{HF}/api/models/{cand}", method="HEAD", headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return cand if 200 <= getattr(r, "status", 200) < 300 else None
+    except Exception:
+        return None
+
+
+def apply_dflash(recipe: dict, drafter_dir: str, drafter_repo: str, nst: int) -> dict:
+    """Attach a DFlash drafter to a derived serve recipe. Spec decode is LOSSLESS — the target
+    model verifies every draft token, so answers are bit-identical; only speed changes."""
+    spec = {"method": "dflash", "model": drafter_dir, "num_speculative_tokens": nst}
+    recipe.setdefault("command", []).extend(["--speculative-config", json.dumps(spec)])
+    recipe.update({"drafter": drafter_dir, "drafter_repo": drafter_repo, "spec_decode": "dflash",
+                   "spec_decode_note": "lossless — draft tokens verified by the target model; speed only"})
     return recipe
 
 

@@ -1082,6 +1082,7 @@ class PodEndpointRunBody(BaseModel):
     api_key_name: str | None = None     # name of a saved pod secret to send as the endpoint's api key
     engine: str | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
+    concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
 
 
 class PodVerifiedRunBody(BaseModel):
@@ -1093,10 +1094,12 @@ class PodVerifiedRunBody(BaseModel):
     engine: str | None = None
     port: int | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
+    concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
 
 
-def _clamp_perf_conc(v):
-    """Server-side guard for the browser-supplied perf ladder cap: int, clamped 1..64."""
+def _clamp_conc(v):
+    """Server-side guard for browser-supplied concurrency knobs (perf ladder cap /
+    run concurrency): int, clamped 1..64; anything else -> None (pod default)."""
     try:
         return max(1, min(64, int(v))) if v is not None else None
     except (TypeError, ValueError):
@@ -1127,7 +1130,8 @@ def pod_run_endpoint(body: PodEndpointRunBody, request: Request):
     jid = jobs.submit_endpoint(body.base_url.strip(), body.model.strip(),
         difficulty=(body.difficulty or None), category=(body.category or None),
         preset=(body.preset or None), api_key_name=(body.api_key_name or None),
-        engine=(body.engine or None), perf_max_conc=_clamp_perf_conc(body.perf_max_conc))
+        engine=(body.engine or None), perf_max_conc=_clamp_conc(body.perf_max_conc),
+        concurrency=_clamp_conc(body.concurrency))
     return {"job_id": jid}
 
 
@@ -1145,7 +1149,7 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
     jid = jobs.submit_verified(body.hf_link.strip(), difficulty=(body.difficulty or None),
         category=(body.category or None), preset=(body.preset or None),
         hf_token_name=(body.hf_token_name or None), engine=(body.engine or None), port=(body.port or None),
-        perf_max_conc=_clamp_perf_conc(body.perf_max_conc))
+        perf_max_conc=_clamp_conc(body.perf_max_conc), concurrency=_clamp_conc(body.concurrency))
     return {"job_id": jid}
 
 

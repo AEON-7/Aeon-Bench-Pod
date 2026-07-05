@@ -101,12 +101,27 @@ def _audio_stats(messages):
     return n, nbytes
 
 
+# Per-request HTTP timeout. Under concurrency each stream INDIVIDUALLY slows (the server
+# time-slices decode across N streams) even though total wall time drops, so a fixed timeout
+# that is fine at c=1 spuriously kills healthy long generations at c=24. The pod scales it
+# once via AEON_HTTP_TIMEOUT (aeon_pod._scale_http_timeout: base 180s * ceil(conc/4), cap
+# 1800s) and every target built afterwards inherits it; an explicit timeout= arg still wins.
+_BASE_TIMEOUT = 180
+
+
+def _http_timeout():
+    try:
+        return min(1800, max(1, int(os.environ.get("AEON_HTTP_TIMEOUT", ""))))
+    except (TypeError, ValueError):
+        return _BASE_TIMEOUT
+
+
 class OpenAITarget:
-    def __init__(self, base_url, model, api_key=None, timeout=180):
+    def __init__(self, base_url, model, api_key=None, timeout=None):
         self.base_url = _ipv4(base_url.rstrip("/"))
         self.model = model
         self.api_key = api_key
-        self.timeout = timeout
+        self.timeout = timeout or _http_timeout()   # None -> env-scaled default (see above)
 
     def _headers(self):
         h = {"Content-Type": "application/json"}

@@ -204,7 +204,7 @@ def _base_env(extra=None):
 
 
 def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=None,
-                    api_key_name=None, engine=None, perf_max_conc=None):
+                    api_key_name=None, engine=None, perf_max_conc=None, concurrency=None):
     """Flow A — benchmark an already-running OpenAI-compatible endpoint (self-reported)."""
     from aeon import db
     argv = [sys.executable, "-m", "pod.aeon_pod", "--target", base_url, "--model", model,
@@ -219,6 +219,8 @@ def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=N
         argv += ["--engine", engine]
     if perf_max_conc:
         argv += ["--perf-max-conc", str(perf_max_conc)]
+    if concurrency:                             # unset = aeon_pod's default (--concurrency 0 = auto)
+        argv += ["--concurrency", str(concurrency)]
     if HARDWARE:
         argv += ["--hardware", HARDWARE]
     extra = {}
@@ -229,7 +231,7 @@ def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=N
 
 
 def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
-                    hf_token_name=None, engine=None, port=None, perf_max_conc=None):
+                    hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -250,6 +252,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                       "AEON_MOTHERSHIP": MOTHERSHIP})
         if perf_max_conc:                       # aeon_pod honors this env as its --perf-max-conc default
             extra["AEON_PERF_MAX_CONC"] = str(perf_max_conc)
+        if concurrency:                         # unset = auto; aeon_pod honors AEON_CONCURRENCY
+            extra["AEON_CONCURRENCY"] = str(concurrency)
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
         if preset:                              # resolved to the underlying knobs in aeon_pod.main()
@@ -262,6 +266,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--engine", engine]
         if perf_max_conc:
             argv += ["--perf-max-conc", str(perf_max_conc)]
+        if concurrency:                         # unset = aeon_pod's default (--concurrency 0 = auto)
+            argv += ["--concurrency", str(concurrency)]
         if HARDWARE:
             argv += ["--hardware", HARDWARE]
         if port:

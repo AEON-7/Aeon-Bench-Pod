@@ -1802,8 +1802,8 @@ async function deleteKey(name) {
   loadSavedKeys();
 }
 
-// Max-concurrency cap for the perf-grid ladder (numeric input on both run cards; 1..64,
-// null when left at anything unparsable — the pod's own default of 32 then applies).
+// Concurrency knobs on both run cards (1..64; null when blank/unparsable = the pod decides:
+// perf ladder cap defaults to 32, run concurrency defaults to auto/capacity-detected).
 function maxConcVal(sel) {
   const el = $(sel); if (!el) return null;
   const v = parseInt(el.value, 10);
@@ -1815,7 +1815,7 @@ async function runEndpointBench() {
   if (!model) { runStatus("model name is required", "err"); return; }
   await launchRun("/api/pod/run/endpoint",
     { base_url, model, difficulty: $("#reDiff").value || null, api_key_name: $("#reKey").value || null,
-      perf_max_conc: maxConcVal("#reMaxConc") }, "#reLaunch");
+      perf_max_conc: maxConcVal("#reMaxConc"), concurrency: maxConcVal("#reConc") }, "#reLaunch");
 }
 
 async function runHfVerified() {
@@ -1823,7 +1823,7 @@ async function runHfVerified() {
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
   await launchRun("/api/pod/run/verified",
     { hf_link, difficulty: $("#hfDiff").value || null, hf_token_name: $("#hfKey").value || null,
-      perf_max_conc: maxConcVal("#hfMaxConc") }, "#hfLaunch");
+      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc") }, "#hfLaunch");
 }
 
 // One-shot preset launches — 'comprehensive' turns everything on; 'hard-bench' runs the
@@ -1834,7 +1834,7 @@ async function runHfPreset(preset, btnSel) {
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
   await launchRun("/api/pod/run/verified",
     { hf_link, preset, hf_token_name: $("#hfKey").value || null,
-      perf_max_conc: maxConcVal("#hfMaxConc") }, btnSel);
+      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc") }, btnSel);
 }
 
 async function launchRun(path, body, btnSel) {

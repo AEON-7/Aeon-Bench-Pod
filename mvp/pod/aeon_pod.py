@@ -104,7 +104,8 @@ def _hardware_profile(label=None):
 
 def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=None,
             board="text", suite_id=None, key_path=None, hf_repo=None, limit=None, difficulty=None,
-            category=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None, judge_key=None):
+            category=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None, judge_key=None,
+            concurrency=1):
     # Pod state is LOCAL SQLite (its own job dashboard) — never the mothership DB.
     os.environ.pop("AEON_DB_URL", None)
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
@@ -136,7 +137,8 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
         s = f"{score:.2f}" if isinstance(score, float) else str(score)
         print(f"  {done['i']:3d}/{n}  {cid:24s} {status:13s} {s}")
 
-    params = {"temperature": temperature, "max_tokens": max_tokens}   # headroom for reasoning models
+    params = {"temperature": temperature, "max_tokens": max_tokens,   # headroom for reasoning models
+              "concurrency": concurrency}
     # Judge policy: a frontier model OR deterministic-only (never self-judge). With no --judge,
     # subjective Tier-1 cases are left unscored; deterministic cases always score.
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
@@ -196,10 +198,40 @@ def _auto_concurrency():
             pass
     if gb is None:
         return 1                                             # no accelerator found -> single stream
-    for thr, c in ((80, 24), (40, 16), (20, 12), (12, 8), (6, 4)):
+    # tier table: unified/DGX 128GB + VRAM>=96 -> 24, >=48 -> 16, >=24 -> 12, >=16 -> 8, else 4
+    for thr, c in ((96, 24), (48, 16), (24, 12), (16, 8)):
         if gb >= thr:
             return c
-    return 2
+    return 4
+
+
+def _scale_http_timeout(concurrency):
+    """Scale the per-request HTTP timeout with concurrency: N concurrent streams time-slice the
+    server's decode, so each INDIVIDUAL request takes longer even though total wall time drops —
+    at the old fixed timeout a c=24 run would spuriously kill healthy long generations.
+    effective = base(180s) * ceil(conc/4), capped at 1800s, exported via AEON_HTTP_TIMEOUT
+    (honored by aeon.targets.OpenAITarget) so every target this run builds inherits it without
+    threading a knob through each constructor. An operator's explicit AEON_HTTP_TIMEOUT wins."""
+    if os.environ.get("AEON_HTTP_TIMEOUT"):
+        return int(os.environ["AEON_HTTP_TIMEOUT"] or 180)
+    eff = min(1800, 180 * max(1, (int(concurrency) + 3) // 4))
+    os.environ["AEON_HTTP_TIMEOUT"] = str(eff)
+    return eff
+
+
+def _skip_short_ctx_harnesses(harness_ids, recipe):
+    """Hermes REQUIRES a >=64K serve. When a short-context serve was explicitly allowed
+    (AEON_ALLOW_SHORT_CTX=1 in modelhost.derive_recipe), drop hermes from the harness pass
+    rather than burn a doomed run; the other harnesses still measure."""
+    from pod import modelhost
+    ctx = (recipe or {}).get("context_len")
+    if not harness_ids or not ctx or int(ctx) >= modelhost.BENCH_MAX_CTX:
+        return harness_ids
+    kept = [h for h in harness_ids if h != "hermes"]
+    if len(kept) != len(harness_ids):
+        print(f"[pod] hermes harness SKIPPED: serve context {ctx} < {modelhost.BENCH_MAX_CTX} "
+              "(Hermes floor; short-context serve allowed via AEON_ALLOW_SHORT_CTX)")
+    return kept
 
 
 # ---- controlled HF-pull flow (the ONLY path that earns an attested / globally-ranked run) ----
@@ -430,7 +462,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    suite_id=None, key_path=None, weights_dir=None, keep_weights=False,
                    port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
-                   per_cell=1, difficulty=None, category=None, vision=True):
+                   per_cell=1, difficulty=None, category=None, vision=True, concurrency=1):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -483,6 +515,22 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     alias = recipe["served_alias"]
     print(f"[pod] recipe: {recipe['engine']} (ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
           + (f"  [{recipe['reason']}]" if recipe.get("reason") else ""))
+    harness_ids = _skip_short_ctx_harnesses(harness_ids, recipe)
+
+    # z-lab DFlash drafter auto-discovery (spec decode is LOSSLESS — speed only). Best-effort:
+    # any probe/pull failure here falls back to plain decode, never blocking the serve.
+    if recipe.get("engine") in ("vllm", "aeon-vllm-ultimate"):
+        try:
+            drepo = modelhost.discover_dflash(repo)
+            if drepo:
+                ddir = os.path.expanduser(f"~/.aeon/models/{drepo.replace('/', '__')}")
+                print(f"[pod] DFlash drafter found: {drepo} — pulling for speculative decode")
+                modelhost.pull(drepo, "main", ddir)
+                nst = modelhost.dflash_nst(repo, recipe.get("architecture"))
+                modelhost.apply_dflash(recipe, ddir, drepo, nst)
+                print(f"[pod] spec-decode enabled: dflash nst={nst} (lossless; speed only)")
+        except Exception as e:
+            print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")
 
     server = _serve(recipe) if serve else None
     target = f"http://127.0.0.1:{port}/v1"
@@ -511,6 +559,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         # 1) the standard suite through the verified-served model -> the ATTESTED text submission
         _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
             temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
+            concurrency=concurrency,
             hf_repo=repo, trust_tier="attested", model_verified="verified")
         print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
         st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
@@ -604,6 +653,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
         raise SystemExit("[pod] modelref reports weights NOT verified — refusing to submit attested.")
     print(f"[pod] attested submit for {repo}@{(rev or '')[:12]} "
           f"(weights_hash {(ver.get('weights_hash') or '')[:16]}…) serving '{alias}' @ {target}")
+    harness_ids = _skip_short_ctx_harnesses(harness_ids, recipe)
 
     deployment_manifest = {
         "build_hash": attest.build_hash(), "recipe": recipe,
@@ -750,9 +800,11 @@ def main():
     ap.add_argument("--retry-max-tokens", type=int, default=None, help="if a case is CUT OFF mid-reasoning "
         "(finish_reason=length) and has no/incorrect answer, RE-RUN it once at this higher ceiling (e.g. "
         "50000) so the model can finish — a no-answer is usually truncation, not a real miss")
-    ap.add_argument("--concurrency", type=int, default=0, help="cases to run CONCURRENTLY through the served "
+    ap.add_argument("--concurrency", type=int, default=_env_int("AEON_CONCURRENCY", 0),
+        help="cases to run CONCURRENTLY through the served "
         "model (vLLM batches them). 0 = AUTO (default): capacity-aware — high (up to 24) when a capable "
-        "GPU is detected, single-stream when none is. Pass an explicit N (e.g. 16 on a Spark) to pin it.")
+        "GPU is detected, single-stream when none is. Pass an explicit N (e.g. 16 on a Spark) to pin it; "
+        "env AEON_CONCURRENCY sets the default (the GUI launcher passes it)")
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--no-vision", action="store_true", help="skip the VISION suite (default: run it; a "
         "capability probe auto-skips text-only models so this is only needed to force-disable)")
@@ -774,6 +826,10 @@ def main():
     if a.concurrency <= 0:                            # 0 = AUTO: bias high when the box can handle it
         a.concurrency = _auto_concurrency()
         print(f"[pod] concurrency=auto -> {a.concurrency} (detected capacity; pin with --concurrency N)")
+    # Concurrent streams individually slow down while total wall time drops — grow the per-request
+    # HTTP timeout to match before any target is built (see _scale_http_timeout).
+    eff = _scale_http_timeout(a.concurrency)
+    print(f"[pod] per-request HTTP timeout: {eff}s (scaled for concurrency {a.concurrency})")
 
     # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
     # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.
@@ -812,13 +868,15 @@ def main():
             keep_weights=a.keep_weights, port=a.port, max_tokens=a.max_tokens,
             temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key,
             harness_ids=hids, limit=a.limit, serve=not a.no_serve, fast=a.fast, seed=a.seed,
-            per_cell=a.per_cell, difficulty=a.difficulty, category=a.category, vision=not a.no_vision)
+            per_cell=a.per_cell, difficulty=a.difficulty, category=a.category, vision=not a.no_vision,
+            concurrency=a.concurrency)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,
                         hf_repo=a.hf_repo, limit=a.limit, difficulty=a.difficulty, category=a.category,
                         max_tokens=a.max_tokens,
-                        temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key)
+                        temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key,
+                        concurrency=a.concurrency)
     else:
         ap.error("provide --modelref + --target (split pod), --hf-link (single-process controlled), "
                  "OR --target + --model (local run)")

@@ -609,6 +609,9 @@ def list_artifacts(kind=None, prompt_id=None, with_html=False, include_bogus=Fal
 
 
 def list_bogus(kind=None):
+    """Every bogus row for a kind — BOTH the seeded base templates (prompt_id="_bogus")
+    and the per-match mutated decoys (prompt_id="_bogus_live"). Callers that want only the
+    fixed base pool (e.g. arena._build_test_match) must filter on prompt_id themselves."""
     q = "SELECT id, kind, prompt_id, model FROM arena_artifacts WHERE bogus=1"
     args = []
     if kind:
@@ -632,6 +635,49 @@ def artifact_exists(model=None, bogus=None):
     q += " LIMIT 1"
     with connect() as c:
         return bool(c.execute(q, args).fetchone())
+
+
+# Per-match honeypot decoys are stored as arena_artifacts rows (prompt_id="_bogus_live",
+# bogus=1) — one is minted per honeypot served (arena._build_test_match) so the served HTML
+# is byte-unique. Left alone they grow one small row per integrity check forever on a busy
+# public arena. These two helpers bound that: count to trigger a prune, prune to reclaim the
+# decoys that are safe to drop. The seeded BASE templates (prompt_id="_bogus") — the fixed
+# pool the live decoys are mutated from — are NEVER touched, so list_bogus base selection is
+# unaffected.
+
+def count_live_decoys(kind=None):
+    """How many per-match decoys ("_bogus_live") are currently stored (base templates
+    excluded). A cheap trigger for opportunistic pruning."""
+    q = "SELECT COUNT(*) FROM arena_artifacts WHERE bogus=1 AND prompt_id='_bogus_live'"
+    args = []
+    if kind:
+        q += " AND kind=?"; args.append(kind)
+    with connect() as c:
+        return c.execute(q, args).fetchone()[0]
+
+
+def prune_live_decoys(kind=None, ttl=None, now=None):
+    """Delete per-match honeypot decoys ("_bogus_live") that are safe to reclaim: their
+    match has RESOLVED (voted=1, whether it was voted on or retired by a skip), or — when a
+    `ttl` in seconds is given — the decoy has aged past it (a backstop that also reclaims
+    orphans whose match row was cancelled/deleted). NEVER deletes a decoy still referenced
+    by a PENDING (unvoted) match — that match can still be rendered and voted — and NEVER
+    touches the seeded base templates (prompt_id="_bogus"). Returns the rows deleted."""
+    now = time.time() if now is None else now
+    conds = ["id IN (SELECT a_id FROM arena_matches WHERE voted=1 "
+             "       UNION SELECT b_id FROM arena_matches WHERE voted=1)"]
+    args = []
+    if ttl is not None:
+        conds.append("created_at < ?"); args.append(now - ttl)
+    q = ("DELETE FROM arena_artifacts "
+         "WHERE bogus=1 AND prompt_id='_bogus_live' "
+         "  AND id NOT IN (SELECT a_id FROM arena_matches WHERE voted=0 "
+         "                 UNION SELECT b_id FROM arena_matches WHERE voted=0) "
+         "  AND (" + " OR ".join(conds) + ")")
+    if kind:
+        q += " AND kind=?"; args.append(kind)
+    with connect() as c:
+        return c.execute(q, args).rowcount
 
 
 # ---- arena votes ----

@@ -342,6 +342,16 @@ def seed_demo():
 # decoy is indistinguishable from "a weak model did poorly" — the honeypot stays
 # secret. Decoys live only in is_test matches and never touch the real ranking.
 
+# Each honeypot served mints ONE per-match decoy artifact (prompt_id "_bogus_live") so its
+# served HTML is byte-unique (see _mutate_decoy). Those rows accumulate — one per integrity
+# check — so once a kind's live-decoy pool passes this cap we opportunistically reclaim the
+# ones whose match has resolved (or aged out), keeping arena_artifacts bounded on a busy arena.
+_LIVE_DECOY_CAP = 200
+# A decoy is safe to delete the moment its match resolves; this TTL is a backstop that also
+# reclaims orphans (match row cancelled/deleted). Generous enough to never race a
+# just-served-but-still-unvoted honeypot.
+_LIVE_DECOY_TTL = 6 * 3600
+
 _BOGUS_MODELS = ["tinydraft-0.5b", "scratch-1b", "rough-1b", "nano-stub-0.3b", "sketch-700m"]
 
 _BOGUS_HTML = [
@@ -494,6 +504,16 @@ def _build_test_match(user, kind):
     boguses = [b for b in db.list_bogus(kind) if b.get("prompt_id") == "_bogus"]
     if not reals or not boguses:
         return None
+    # Opportunistic cleanup: the decoy minted below adds one arena_artifacts row per honeypot
+    # served. Once this kind's live-decoy pool exceeds the cap, reclaim the decoys whose match
+    # has resolved (voted or skip-retired) or aged out — so the table stays bounded. Best
+    # effort: a cleanup failure must NEVER block serving the honeypot. Base templates
+    # ("_bogus") are untouched, so the base selection above is unaffected.
+    try:
+        if db.count_live_decoys(kind) >= _LIVE_DECOY_CAP:
+            db.prune_live_decoys(kind=kind, ttl=_LIVE_DECOY_TTL)
+    except Exception:
+        pass
     real = random.choice(reals)
     base = random.choice(boguses)
     # FIX (fingerprintable decoys): don't reuse the static pre-seeded bogus row (its html

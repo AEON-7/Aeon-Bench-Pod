@@ -1232,7 +1232,10 @@ function renderSubmissionDetail(d) {
   const cmdText = rp.docker_run || rp.docker_run_assembled;
   const repro = !cmdText ? "" : `<div class="sub-repro">
     <div class="repro-h"><span class="repro-t">⚙ replicate this serve</span>
-      <button class="ghost repro-copy" id="reproCopy">copy command</button></div>
+      <span style="display:flex;gap:6px;align-items:center">
+        <a class="act-btn act-dl" href="/api/runs/${encodeURIComponent(r.id)}/replicate?format=script" title="download a ready-to-run serve script (hf download + docker run)">serve.sh</a>
+        <a class="act-btn act-dl" href="/api/runs/${encodeURIComponent(r.id)}/replicate?format=compose" title="download a docker-compose.yml with the exact serve flags">compose.yml</a>
+        <button class="ghost repro-copy" id="reproCopy">copy command</button></span></div>
     <div class="note" style="text-align:left">${rp.hardware_detected ? `benched on <b>${escH(rp.hardware_detected)}</b> · ` : ""}engine <b>${escH(rp.engine || "—")}</b>${rp.engine_version ? ` <span class="mono">${escH(rp.engine_version)}</span>` : ""}${rp.spec_decode ? ` · spec-decode <b>${escH(rp.spec_decode)}</b> <span class="micro">(lossless — speed only)</span>` : ""}${rp.weights_hash ? ` · weights <span class="mono">${escH(String(rp.weights_hash).slice(0, 16))}…</span>` : ""}<br>
       Same model, same settings, minus the bench. Adjust <span class="mono">$DRAFTER_DIR</span> and <span class="mono">--gpu-memory-utilization</span> for your hardware.</div>
     <pre class="repro-cmd" id="reproCmd">${escH(cmdText)}</pre></div>`;
@@ -1439,7 +1442,7 @@ function renderPerfList() {
       <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
       <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
         <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
-      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span></div>
+      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span>${x.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(x.hardware)}</span>` : ""}</div>
       <div class="pcard-stats">
         <div class="spdchip pcard-hero"><span class="catk">peak agg tok/s</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
         <div class="spdchip"><span class="catk">ttft@c1</span><span class="catv">${fmtDur(c1.ttft_ms)}</span></div>
@@ -1473,6 +1476,7 @@ function renderPerfDetail(m) {
          <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="34" height="34"></a>
        <span class="perf-head-name">${fmtModel(m.model)}</span>
        ${_perfTrust(m.trust_tier)}
+       ${m.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(m.hardware)}</span>` : ""}
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
      </div>
      <div class="perf-mets">${mets}<span class="perf-better">${better === "lower" ? "▼ lower is better" : "▲ higher is better"}</span></div>
@@ -1798,18 +1802,28 @@ async function deleteKey(name) {
   loadSavedKeys();
 }
 
+// Max-concurrency cap for the perf-grid ladder (numeric input on both run cards; 1..64,
+// null when left at anything unparsable — the pod's own default of 32 then applies).
+function maxConcVal(sel) {
+  const el = $(sel); if (!el) return null;
+  const v = parseInt(el.value, 10);
+  return Number.isFinite(v) ? Math.min(64, Math.max(1, v)) : null;
+}
+
 async function runEndpointBench() {
   const base_url = $("#reBase").value.trim(), model = $("#reModel").value.trim();
   if (!model) { runStatus("model name is required", "err"); return; }
   await launchRun("/api/pod/run/endpoint",
-    { base_url, model, difficulty: $("#reDiff").value || null, api_key_name: $("#reKey").value || null }, "#reLaunch");
+    { base_url, model, difficulty: $("#reDiff").value || null, api_key_name: $("#reKey").value || null,
+      perf_max_conc: maxConcVal("#reMaxConc") }, "#reLaunch");
 }
 
 async function runHfVerified() {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
   await launchRun("/api/pod/run/verified",
-    { hf_link, difficulty: $("#hfDiff").value || null, hf_token_name: $("#hfKey").value || null }, "#hfLaunch");
+    { hf_link, difficulty: $("#hfDiff").value || null, hf_token_name: $("#hfKey").value || null,
+      perf_max_conc: maxConcVal("#hfMaxConc") }, "#hfLaunch");
 }
 
 // One-shot preset launches — 'comprehensive' turns everything on; 'hard-bench' runs the
@@ -1819,7 +1833,8 @@ async function runHfPreset(preset, btnSel) {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
   await launchRun("/api/pod/run/verified",
-    { hf_link, preset, hf_token_name: $("#hfKey").value || null }, btnSel);
+    { hf_link, preset, hf_token_name: $("#hfKey").value || null,
+      perf_max_conc: maxConcVal("#hfMaxConc") }, btnSel);
 }
 
 async function launchRun(path, body, btnSel) {

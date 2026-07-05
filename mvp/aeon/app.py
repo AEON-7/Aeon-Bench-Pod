@@ -698,19 +698,28 @@ def _sh_quote(tok):
     return "'" + tok.replace("'", "'\\''") + "'"
 
 
-def _docker_cmd(recipe, hf_repo, hf_revision):
-    """Assemble the copy-pasteable replication command for a run's stored serve recipe.
-    Flags are VERBATIM — identical serve settings, minus the bench itself. Only
-    host-specific paths are made portable: weights mount at ./weights, an optional
-    speculative-decode drafter at $DRAFTER_DIR. Docker flag/startup choices move real
-    performance per model, so this is the exact config behind the numbers on the board."""
+def _recipe_serve(recipe):
+    """Resolved (image, port, flags, drafter) for a run's stored serve recipe, or None when
+    the run carries no serve flags (e.g. external-endpoint self-reported runs)."""
     flags = (recipe or {}).get("flags")
     if not flags:
         return None
     image = (recipe.get("image")
              or _ENGINE_IMAGES.get(recipe.get("engine") or "")
              or recipe.get("engine") or "vllm/vllm-openai:latest")
-    port = recipe.get("port") or 8000
+    return image, recipe.get("port") or 8000, [str(f) for f in flags], recipe.get("drafter")
+
+
+def _docker_cmd(recipe, hf_repo, hf_revision):
+    """Assemble the copy-pasteable replication command for a run's stored serve recipe.
+    Flags are VERBATIM — identical serve settings, minus the bench itself. Only
+    host-specific paths are made portable: weights mount at ./weights, an optional
+    speculative-decode drafter at $DRAFTER_DIR. Docker flag/startup choices move real
+    performance per model, so this is the exact config behind the numbers on the board."""
+    serve = _recipe_serve(recipe)
+    if not serve:
+        return None
+    image, port, flags, drafter = serve
     lines = []
     if hf_repo:
         rev = f" --revision {hf_revision}" if hf_revision else ""
@@ -719,15 +728,15 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     lines.append("# 2) serve with the exact flags from this run")
     lines.append("docker run --rm --gpus all --name replica \\")
     lines.append("  -v ./weights:/model \\")
-    if recipe.get("drafter"):
+    if drafter:
         lines.append("  -v $DRAFTER_DIR:/drafter \\  # spec-decode drafter weights (lossless; speed only)")
     lines.append(f"  -p {port}:{port} \\")
     lines.append(f"  --entrypoint vllm {image} \\")
     lines.append("  serve /model \\")
     i, rows = 0, []
     while i < len(flags):                      # group "--flag value" pairs, one per line
-        f = str(flags[i])
-        if f.startswith("--") and i + 1 < len(flags) and not str(flags[i + 1]).startswith("--"):
+        f = flags[i]
+        if f.startswith("--") and i + 1 < len(flags) and not flags[i + 1].startswith("--"):
             rows.append("  " + f + " " + _sh_quote(flags[i + 1])); i += 2
         else:
             rows.append("  " + _sh_quote(f)); i += 1
@@ -759,6 +768,107 @@ def _reproduction(r):
         # the run carries no serve flags, e.g. external-endpoint self-reported runs)
         "docker_run_assembled": _docker_cmd(recipe, r.get("hf_repo"), r.get("hf_revision")),
     }
+
+
+# ---- downloadable replication files (serve.sh / docker-compose.yml) --------------------------
+
+def _replicate_header(r):
+    """Shared provenance comment block for the downloadable replication files."""
+    env = json.loads(r.get("env_json") or "{}")
+    hw = (env.get("hardware") or {}) if isinstance(env, dict) else {}
+    hf = (r.get("hf_repo") or "?") + (f"@{r['hf_revision']}" if r.get("hf_revision") else "")
+    lines = ["AEON Bench — replicate this attested serve",
+             f"model:      {r.get('model')}",
+             f"hf:         {hf}",
+             f"weights:    sha256 {r.get('weights_hash') or 'n/a'}",
+             f"benched on: {hw.get('detected_label') or hw.get('label') or 'unknown'}",
+             f"run:        {r.get('id')}",
+             f"provenance: https://aeon-bench.com/api/runs/{r.get('id')}/manifest (signed)"]
+    return "\n".join("# " + l for l in lines)
+
+
+def _replicate_script(r, recipe):
+    """serve.sh: header + the same hf-download pre-step and docker run as the repro card."""
+    cmd = _docker_cmd(recipe, r.get("hf_repo"), r.get("hf_revision"))
+    if not cmd:
+        return None
+    return "#!/usr/bin/env bash\n" + _replicate_header(r) + "\n\n" + cmd + "\n"
+
+
+# words YAML would parse as booleans/null if left bare in the compose command list
+_YAML_BARE_BAD = frozenset(("true", "false", "yes", "no", "on", "off", "null", "none", "~"))
+
+
+def _yaml_quote(tok):
+    """Single-quote a YAML sequence scalar unless it's plainly safe: JSON-y flag values,
+    numbers, and boolean-ish words are quoted so compose sees the VERBATIM string."""
+    tok = str(tok)
+    bare = (tok and any(c.isalpha() for c in tok)
+            and all(c.isalnum() or c in "._/-=" for c in tok)
+            and tok.lower() not in _YAML_BARE_BAD)
+    return tok if bare else "'" + tok.replace("'", "''") + "'"
+
+
+def _compose_yaml(r, recipe):
+    """docker-compose.yml equivalent of the serve script (string-built — no yaml dep)."""
+    serve = _recipe_serve(recipe)
+    if not serve:
+        return None
+    image, port, flags, drafter = serve
+    cmd = "\n".join("      - " + _yaml_quote(t) for t in ["serve", "/model"] + flags)
+    vols = "      - ./weights:/model"
+    if drafter:
+        vols += "\n      - ${DRAFTER_DIR}:/drafter   # spec-decode drafter weights (lossless; speed only)"
+    usage = ""
+    if r.get("hf_repo"):
+        rev = f" --revision {r['hf_revision']}" if r.get("hf_revision") else ""
+        usage = ("#\n# 1) pull the exact weights this run benchmarked (sha256-verified upstream):\n"
+                 f"#      hf download {r['hf_repo']}{rev} --local-dir ./weights\n"
+                 "# 2) docker compose up\n")
+    return _replicate_header(r) + "\n" + usage + f"""services:
+  model:
+    image: {image}
+    entrypoint: vllm
+    command:
+{cmd}
+    volumes:
+{vols}
+    ports:
+      - "{port}:{port}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+"""
+
+
+@app.get("/api/runs/{run_id}/replicate")
+def run_replicate(run_id: str, format: str = "script"):
+    """Downloadable replication file built from the run's stored serve recipe (the SAME
+    recipe behind the repro card): format=script (default) -> aeon-serve-<runid>.sh,
+    format=compose -> aeon-serve-<runid>-compose.yml. Anything else is a 400; a missing
+    run or one with no serve recipe is a 404."""
+    # run_id feeds the Content-Disposition filename — same charset gate as the nonce
+    if len(run_id) > 64 or any(ch not in _NONCE_OK for ch in run_id):
+        return JSONResponse({"error": "run id must be <=64 chars of [A-Za-z0-9._-]"}, status_code=400)
+    if format not in ("script", "compose"):
+        return JSONResponse({"error": "format must be 'script' or 'compose'"}, status_code=400)
+    r = db.get_run(run_id)
+    if not r:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    recipe = json.loads(r.get("recipe") or "null")
+    if format == "compose":
+        body, fname, media = _compose_yaml(r, recipe), f"aeon-serve-{run_id}-compose.yml", "text/yaml"
+    else:
+        body, fname, media = _replicate_script(r, recipe), f"aeon-serve-{run_id}.sh", "text/x-shellscript"
+    if not body:
+        return JSONResponse({"error": "run has no serve recipe to replicate"}, status_code=404)
+    return Response(body, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.post("/api/admin/run/flag")
@@ -971,6 +1081,7 @@ class PodEndpointRunBody(BaseModel):
     preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
     api_key_name: str | None = None     # name of a saved pod secret to send as the endpoint's api key
     engine: str | None = None
+    perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
 
 
 class PodVerifiedRunBody(BaseModel):
@@ -981,6 +1092,15 @@ class PodVerifiedRunBody(BaseModel):
     hf_token_name: str | None = None    # saved secret name for a gated/private repo token
     engine: str | None = None
     port: int | None = None
+    perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
+
+
+def _clamp_perf_conc(v):
+    """Server-side guard for the browser-supplied perf ladder cap: int, clamped 1..64."""
+    try:
+        return max(1, min(64, int(v))) if v is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 class PodSecretBody(BaseModel):
@@ -1007,7 +1127,7 @@ def pod_run_endpoint(body: PodEndpointRunBody, request: Request):
     jid = jobs.submit_endpoint(body.base_url.strip(), body.model.strip(),
         difficulty=(body.difficulty or None), category=(body.category or None),
         preset=(body.preset or None), api_key_name=(body.api_key_name or None),
-        engine=(body.engine or None))
+        engine=(body.engine or None), perf_max_conc=_clamp_perf_conc(body.perf_max_conc))
     return {"job_id": jid}
 
 
@@ -1024,7 +1144,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
     from pod import jobs
     jid = jobs.submit_verified(body.hf_link.strip(), difficulty=(body.difficulty or None),
         category=(body.category or None), preset=(body.preset or None),
-        hf_token_name=(body.hf_token_name or None), engine=(body.engine or None), port=(body.port or None))
+        hf_token_name=(body.hf_token_name or None), engine=(body.engine or None), port=(body.port or None),
+        perf_max_conc=_clamp_perf_conc(body.perf_max_conc))
     return {"job_id": jid}
 
 

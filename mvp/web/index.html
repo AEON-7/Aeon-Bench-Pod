@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=31" />
+  <link rel="stylesheet" href="/static/styles.css?v=33" />
 </head>
 <body>
   <header>
@@ -123,6 +123,7 @@
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
             </select></label>
+            <label>Max concurrency<input id="reMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <button id="reLaunch" class="primary">▶ Launch</button>
           </div>
         </div>
@@ -140,6 +141,7 @@
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
             </select></label>
+            <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <button id="hfLaunch" class="primary">▶ Pull, verify &amp; benchmark</button>
           </div>
           <div class="row preset-row">
@@ -398,6 +400,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=31"></script>
+  <script src="/static/app.js?v=33"></script>
 </body>
 </html>

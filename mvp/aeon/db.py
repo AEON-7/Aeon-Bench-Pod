@@ -585,7 +585,7 @@ def perf_results():
     with connect() as c:
         rows = c.execute(
             """SELECT r.run_id, r.case_id, r.status, r.evidence_json,
-                      ru.model, ru.id AS run, ru.started_at,
+                      ru.model, ru.id AS run, ru.started_at, ru.env_json,
                       ru.hf_repo, ru.model_verified,
                       COALESCE(ru.trust_tier, 'self_reported') AS trust_tier, ru.suite_id,
                       COALESCE(ru.canonical_id, ru.model) AS canonical_id
@@ -599,6 +599,10 @@ def perf_results():
                 d["evidence"] = json.loads(d.pop("evidence_json") or "{}")
             except Exception:
                 d["evidence"] = {}
+            try:
+                d["env"] = json.loads(d.pop("env_json") or "{}")
+            except Exception:
+                d["env"] = {}
             out.append(d)
         return out
 

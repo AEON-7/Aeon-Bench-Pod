@@ -29,6 +29,59 @@ if _MVP not in sys.path:
     sys.path.insert(0, _MVP)
 
 
+def _gpu_desc(gpu_line):
+    """One nvidia-smi csv line -> a human GPU label:
+    'NVIDIA GeForce RTX 5090, 32607 MiB, 575.x' -> 'RTX 5090 32GB' (GB10 keeps the Spark name)."""
+    parts = [p.strip() for p in gpu_line.split(",")]
+    name = parts[0]
+    if "GB10" in name.upper():
+        return "DGX Spark (GB10)"              # unified memory: nvidia-smi reports [N/A] anyway
+    short = name.replace("NVIDIA ", "").replace("GeForce ", "")
+    mib = "".join(ch for ch in (parts[1] if len(parts) > 1 else "") if ch.isdigit())
+    return f"{short} {round(int(mib) / 1024)}GB" if mib else short
+
+
+def _apple_label():
+    """Apple Silicon label via ONE fast sysctl (never system_profiler — too slow for startup):
+    'MacBook Pro M4 48GB' when hw.model resolves a marketing family, else 'Apple M4 48GB'."""
+    try:
+        r = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string", "hw.memsize", "hw.model"],
+                           capture_output=True, text=True, timeout=2)
+        chip, mem, model = ([l.strip() for l in r.stdout.splitlines()] + ["", "", ""])[:3]
+    except Exception:
+        return None
+    gb = f" {round(int(mem) / (1024 ** 3))}GB" if mem.isdigit() else ""
+    fams = {"MacBookPro": "MacBook Pro", "MacBookAir": "MacBook Air", "Macmini": "Mac mini",
+            "MacStudio": "Mac Studio", "MacPro": "Mac Pro", "iMac": "iMac"}
+    fam = next((v for k, v in fams.items() if model.startswith(k)), None)
+    if fam and chip.startswith("Apple "):
+        return f"{fam} {chip[len('Apple '):]}{gb}"        # 'MacBook Pro M4 48GB'
+    return f"{chip}{gb}".strip() or None                  # 'Apple M4 48GB' fallback
+
+
+def _detect_label(prof):
+    """Canonical human hardware label from the DETECTED profile (never the operator's claim)."""
+    gpus = prof.get("gpus") or []
+    if gpus:
+        descs = [_gpu_desc(g) for g in gpus]
+        n = len(descs)
+        if len(set(descs)) > 1:
+            return ", ".join(descs)                       # mixed GPUs -> comma list
+        d = descs[0]
+        if "DGX Spark" in d:                              # keep the established Spark naming
+            mult = {1: "single", 2: "dual", 3: "triple", 4: "quad"}.get(n, f"{n}x")
+            return f"{mult} {d}"
+        return d if n == 1 else f"{n}× {d}"               # identical GPUs -> '2× RTX 5090 32GB'
+    if "aarch64" in (prof.get("machine") or "") and os.path.exists("/etc/nv_tegra_release"):
+        return "single DGX Spark (GB10)"
+    if platform.system() == "Darwin" and (prof.get("machine") or "").startswith("arm"):
+        lbl = _apple_label()
+        if lbl:
+            return lbl
+    m = prof.get("machine") or "unknown"
+    return f"{m} (CPU)"                                   # no accelerator found
+
+
 def _hardware_profile(label=None):
     prof = {"label": label, "platform": platform.platform(), "machine": platform.machine(),
             "cpu_count": os.cpu_count()}
@@ -41,18 +94,10 @@ def _hardware_profile(label=None):
     except Exception:
         pass
     # DETECTED canonical hardware label — pulled from the machine the bench actually ran on (not
-    # the operator's claim), so viewers see "single DGX Spark" / "dual DGX Spark" / "RTX 5090" etc.
-    gpus = prof.get("gpus") or []
-    if gpus:
-        name = gpus[0].split(",")[0].strip()
-        friendly = ("DGX Spark (GB10)" if "GB10" in name.upper() else
-                    name.replace("NVIDIA ", "").replace("GeForce ", ""))
-        n = len(gpus)
-        mult = {1: "single", 2: "dual", 3: "triple", 4: "quad"}.get(n, f"{n}x")
-        prof["detected_label"] = f"{mult} {friendly}"
-    elif "aarch64" in (prof.get("machine") or "") and os.path.exists("/etc/nv_tegra_release"):
-        prof["detected_label"] = "single DGX Spark (GB10)"
-    else:
+    # the operator's claim), so viewers see "single DGX Spark" / "RTX 5090 32GB" / "Apple M4 48GB".
+    try:                                       # detection must NEVER crash a bench
+        prof["detected_label"] = _detect_label(prof)
+    except Exception:
         prof["detected_label"] = None          # unknown — the claimed label stands, marked unverified
     return prof
 
@@ -117,6 +162,14 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
                                judge_model=judge)   # frontier judge or None — NEVER the model itself
     print(f"[pod] submit -> {mothership}: HTTP {st}  {json.dumps(r)[:400]}")
     return st, r
+
+
+def _env_int(name, default):
+    """Integer env override (>=1) or `default` — the DGX launcher passes knobs via env."""
+    try:
+        return max(1, int(os.environ.get(name, "")))
+    except (TypeError, ValueError):
+        return default
 
 
 def _auto_concurrency():
@@ -266,12 +319,27 @@ def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2
     return st, r
 
 
+def _cap_conc(base, max_conc, extend=False):
+    """Cap a concurrency ladder at --perf-max-conc: rungs above the cap drop; with `extend`, a
+    cap that isn't itself a standard rung becomes the new top rung (e.g. 24 -> 1/4/8/16/24).
+    max_conc None/invalid leaves the ladder as-is; the cap is guarded to >= 1."""
+    try:
+        mx = max(1, int(max_conc))
+    except (TypeError, ValueError):
+        return tuple(base)
+    levels = [c for c in base if c <= mx]
+    if extend and mx not in levels:
+        levels.append(mx)
+    return tuple(sorted(levels)) or (1,)
+
+
 def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=None,
-                     conc_levels=(1, 4, 8, 16, 32), max_tokens=256):
+                     conc_levels=(1, 4, 8, 16, 32), max_tokens=256, max_conc=None):
     """PERFORMANCE grid: direct-to-model across the concurrency ladder x categories (tok/s decode,
     TTFT, PP prefill tok/s), plus per-harness single/concurrent task timing. Submitted as its own
     run (suite aeon-perf-v1, board='perf' so quality boards are untouched)."""
     from pod import perf_grid
+    conc_levels = _cap_conc(conc_levels, max_conc, extend=True)
     print(f"[pod] PERF grid: direct conc {conc_levels} x {len(perf_grid.CATEGORIES)} categories", flush=True)
     grid = perf_grid.run_direct_grid(target, alias, conc_levels=conc_levels, max_tokens=max_tokens,
         progress_cb=lambda c, d, tot: print(f"  [perf] c={c}  {d}/{tot}", flush=True) if d in (1, tot) else None)
@@ -294,7 +362,8 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=N
 
             # full ladder so harness-vs-harness performance is comparable at every level;
             # n_tasks floors at len(CATEGORIES) per level so each prompt TYPE is timed
-            ht = perf_grid.run_harness_timing(h, target, alias, conc_levels=(1, 4, 8, 16), n_tasks=5, runner=_runner)
+            ht = perf_grid.run_harness_timing(h, target, alias,
+                conc_levels=_cap_conc((1, 4, 8, 16), max_conc), n_tasks=5, runner=_runner)
             rows += perf_grid.to_results(ht)
             ad.cleanup_run()
             print(f"  [perf] harness {h}: " + json.dumps(ht.get("levels", {}))[:160], flush=True)
@@ -491,7 +560,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
                  key_path=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                  judge_key=None, harness_ids=None, limit=None, difficulty=None, category=None,
                  fast=False, seed=None, per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
-                 arena_per_kind=2, audio=True, perf=False, harness_only=False):
+                 arena_per_kind=2, audio=True, perf=False, perf_max_conc=None, harness_only=False):
     """Split-pod path: a `pull` sidecar already PULLED + HASH-VERIFIED the weights (writing
     .aeon-modelref.json) and an engine already SERVES them at --target. Benchmark that endpoint
     and submit ATTESTED, carrying the sidecar's verification (weights_hash + per-file hashes +
@@ -633,7 +702,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
     # PERFORMANCE grid (direct concurrency ladder + per-harness timing).
     if perf and not harness_only:
         _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                         harness_ids=harness_ids)
+                         harness_ids=harness_ids, max_conc=perf_max_conc)
     return st, r
 
 
@@ -692,6 +761,9 @@ def main():
         "generated by the served model and shipped in the signed bundle; 0 disables")
     ap.add_argument("--perf", action="store_true", help="run the PERFORMANCE grid (direct c=1/4/8/16/32 x "
         "categories: tok/s, TTFT, prefill tok/s; + per-harness task timing) and submit as aeon-perf-v1")
+    ap.add_argument("--perf-max-conc", type=int, default=_env_int("AEON_PERF_MAX_CONC", 32),
+        help="cap the perf-grid concurrency ladder: rungs above N drop; a non-rung cap becomes the "
+        "top rung (24 -> 1/4/8/16/24). Default 32 (or env AEON_PERF_MAX_CONC)")
     ap.add_argument("--harness-only", action="store_true", help="run ONLY the agentic harness pass "
         "(skip text/arena/vision/audio/perf) — targeted harness re-run at a given served context")
     ap.add_argument("--judge", default=None, help="FRONTIER judge model id (else deterministic-only; never self)")
@@ -732,7 +804,8 @@ def main():
             judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key, harness_ids=hids, limit=a.limit,
             difficulty=a.difficulty, category=a.category, fast=a.fast, seed=a.seed, per_cell=a.per_cell,
             retry_max_tokens=a.retry_max_tokens, concurrency=a.concurrency, vision=not a.no_vision,
-            arena_per_kind=a.arena, audio=not a.no_audio, perf=a.perf, harness_only=a.harness_only)
+            arena_per_kind=a.arena, audio=not a.no_audio, perf=a.perf, perf_max_conc=a.perf_max_conc,
+            harness_only=a.harness_only)
     elif a.hf_link:                                   # single-process controlled flow
         st, _ = run_controlled(a.hf_link, a.mothership, engine=a.engine, hardware=a.hardware,
             board=a.board, suite_id=a.suite_id, key_path=a.key, weights_dir=a.weights_dir,

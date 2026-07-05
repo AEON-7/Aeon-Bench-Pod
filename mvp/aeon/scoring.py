@@ -218,6 +218,7 @@ def perf_board():
             "canonical": r.get("canonical_id") or r["model"],
             "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
             "trust_tier": r.get("trust_tier") or "self_reported",
+            "env": r.get("env") or {},
             "started_at": r["started_at"], "results": []})["results"].append(r)
     latest = {}
     for info in by_run.values():                     # newest perf run per canonical model
@@ -259,11 +260,14 @@ def perf_board():
         # peak aggregate throughput across the ladder = the row's headline + sort key
         aggs = [(v.get("overall") or {}).get("agg_decode_tps") for v in direct.values()]
         aggs = [a for a in aggs if isinstance(a, (int, float))]
+        hw = (info.get("env") or {}).get("hardware") or {}
         models.append({
             "model": info["hf_repo"] or info["model"], "canonical": c,
             "hf_repo": info["hf_repo"], "verified": info["verified"],
             "trust_tier": info["trust_tier"], "run": info["run"],
             "started_at": info["started_at"],
+            # hardware AS DETECTED on the bench machine; the operator's claim is the fallback
+            "hardware": hw.get("detected_label") or hw.get("label"),
             "conc_levels": sorted(concs),
             "peak_agg_tps": max(aggs) if aggs else None,
             "direct": direct, "harness": harness,

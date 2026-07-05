@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://aeon-bench.com"><img src="docs/images/hero.svg" alt="AEON Bench — open, attested benchmarks for local LLMs" width="880"></a>
+</p>
+
 # AEON Bench Pod
 
 The **open benchmark pod** for [AEON Bench](https://aeon-bench.com): run the

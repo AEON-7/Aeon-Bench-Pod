@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 440" width="1280" height="440" role="img" aria-label="AEON Bench — open, attested benchmarks for local LLMs">
+  <defs>
+    <linearGradient id="ae" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/><stop offset=".55" stop-color="#4f7cff"/><stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="bar1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#00f0ff"/>
+    </linearGradient>
+    <linearGradient id="bar2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="wm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#bfe9ff"/>
+    </linearGradient>
+    <radialGradient id="glowc" cx="18%" cy="12%" r="55%">
+      <stop offset="0" stop-color="#00f0ff" stop-opacity=".22"/><stop offset="1" stop-color="#00f0ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowm" cx="92%" cy="96%" r="55%">
+      <stop offset="0" stop-color="#ff2e97" stop-opacity=".20"/><stop offset="1" stop-color="#ff2e97" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="9"/></filter>
+    <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse">
+      <path d="M34 0H0V34" fill="none" stroke="#1a2135" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="1280" height="440" fill="#0a0b12"/>
+  <rect width="1280" height="440" fill="url(#grid)" opacity=".5"/>
+  <rect width="1280" height="440" fill="url(#glowc)"/>
+  <rect width="1280" height="440" fill="url(#glowm)"/>
+  <rect x="0" y="0" width="1280" height="440" fill="none" stroke="#1e2334" stroke-width="2"/>
+
+  <!-- brand mark -->
+  <g transform="translate(96,132)">
+    <circle cx="60" cy="60" r="66" fill="url(#ae)" opacity=".35" filter="url(#soft)"/>
+    <circle cx="60" cy="60" r="58" fill="url(#ae)"/>
+    <circle cx="60" cy="60" r="56.5" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-width="2"/>
+    <text x="60" y="61" text-anchor="middle" dominant-baseline="central" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="62" fill="#ffffff" letter-spacing="-2">Æ</text>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <g transform="translate(238,110)" font-family="'Helvetica Neue',Arial,sans-serif">
+    <text x="0" y="46" font-size="64" font-weight="800" letter-spacing="1" fill="url(#wm)">AEON<tspan fill="#00f0ff"> BENCH</tspan></text>
+    <text x="2" y="84" font-size="20" font-weight="600" letter-spacing=".3" fill="#cfe0f5">Open · attested · reproducible.</text>
+    <text x="2" y="110" font-size="18" font-weight="500" letter-spacing=".2" fill="#94a0ba">Benchmark any local LLM on your own hardware.</text>
+
+    <!-- suite chips -->
+    <g transform="translate(2,140)" font-family="'SF Mono','Consolas','Roboto Mono',monospace" font-size="12.5" font-weight="600">
+      <!-- chips: text · agentic x3 · vision · audio · arena · perf -->
+      <g>
+        <rect x="0"   y="0" width="52"  height="26" rx="13" fill="#101627" stroke="#2a3350"/>
+        <text x="26"  y="17" text-anchor="middle" fill="#cfe8ff">text</text>
+        <rect x="62"  y="0" width="120" height="26" rx="13" fill="#101627" stroke="#2a3350"/>
+        <text x="122" y="17" text-anchor="middle" fill="#cfe8ff">agentic ×3</text>
+        <rect x="192" y="0" width="64"  height="26" rx="13" fill="#101627" stroke="#2a3350"/>
+        <text x="224" y="17" text-anchor="middle" fill="#cfe8ff">vision</text>
+        <rect x="266" y="0" width="62"  height="26" rx="13" fill="#101627" stroke="#2a3350"/>
+        <text x="297" y="17" text-anchor="middle" fill="#cfe8ff">audio</text>
+        <rect x="338" y="0" width="62"  height="26" rx="13" fill="#101627" stroke="#2a3350"/>
+        <text x="369" y="17" text-anchor="middle" fill="#cfe8ff">arena</text>
+        <rect x="410" y="0" width="54"  height="26" rx="13" fill="#101627" stroke="#2a3350"/>
+        <text x="437" y="17" text-anchor="middle" fill="#cfe8ff">perf</text>
+      </g>
+    </g>
+
+    <!-- pipeline strip -->
+    <g transform="translate(2,192)" font-family="'SF Mono','Consolas','Roboto Mono',monospace" font-size="12" fill="#7f8aa3">
+      <text x="0" y="12" fill="#5f6b85">pull</text>
+      <text x="42" y="12" fill="#3ddc85">→ verify</text>
+      <text x="120" y="12" fill="#5f6b85">→ serve → bench →</text>
+      <text x="272" y="12" fill="#3ddc85">sign</text>
+      <text x="312" y="12" fill="#5f6b85">→ submit</text>
+    </g>
+  </g>
+
+  <!-- leaderboard card -->
+  <g transform="translate(812,60)">
+    <rect x="0" y="0" width="404" height="322" rx="16" fill="#0f1320" stroke="#232a40" stroke-width="1.5"/>
+    <!-- header -->
+    <text x="22" y="38" font-family="'SF Mono','Consolas',monospace" font-size="12.5" font-weight="700" letter-spacing="2.5" fill="#00f0ff">AI  LEADERBOARD</text>
+    <g transform="translate(300,22)">
+      <rect x="0" y="0" width="82" height="24" rx="12" fill="rgba(61,220,133,.10)" stroke="rgba(61,220,133,.55)"/>
+      <text x="41" y="16" text-anchor="middle" font-family="'SF Mono',monospace" font-size="11" font-weight="700" fill="#3ddc85">✓ ATTESTED</text>
+    </g>
+    <line x1="22" y1="54" x2="382" y2="54" stroke="#1c2338"/>
+
+    <!-- rows -->
+    <g font-family="'Helvetica Neue',Arial,sans-serif">
+      <!-- row 1 -->
+      <g transform="translate(22,72)">
+        <text x="0" y="16" font-family="monospace" font-size="13" fill="#6f7a95">1</text>
+        <text x="22" y="16" font-size="14.5" font-weight="700" fill="#eef2fb">Ornith-1.0-35B</text>
+        <rect x="0" y="26" width="300" height="8" rx="4" fill="#171d2e"/>
+        <rect x="0" y="26" width="270" height="8" rx="4" fill="url(#bar1)"/>
+        <text x="360" y="18" text-anchor="end" font-size="16" font-weight="800" fill="#00f0ff">86.4</text>
+      </g>
+      <!-- row 2 -->
+      <g transform="translate(22,128)">
+        <text x="0" y="16" font-family="monospace" font-size="13" fill="#6f7a95">2</text>
+        <text x="22" y="16" font-size="14.5" font-weight="700" fill="#eef2fb">Qwen3.6-27B <tspan fill="#8b95ad" font-weight="500">· MTP</tspan></text>
+        <rect x="0" y="26" width="300" height="8" rx="4" fill="#171d2e"/>
+        <rect x="0" y="26" width="256" height="8" rx="4" fill="url(#bar2)"/>
+        <text x="360" y="18" text-anchor="end" font-size="16" font-weight="800" fill="#cfe8ff">82.1</text>
+      </g>
+      <!-- row 3 -->
+      <g transform="translate(22,184)">
+        <text x="0" y="16" font-family="monospace" font-size="13" fill="#6f7a95">3</text>
+        <text x="22" y="16" font-size="14.5" font-weight="700" fill="#eef2fb">Qwen3.6-27B <tspan fill="#8b95ad" font-weight="500">· MTP-XS</tspan></text>
+        <rect x="0" y="26" width="300" height="8" rx="4" fill="#171d2e"/>
+        <rect x="0" y="26" width="236" height="8" rx="4" fill="url(#bar2)"/>
+        <text x="360" y="18" text-anchor="end" font-size="16" font-weight="800" fill="#cfe8ff">78.3</text>
+      </g>
+    </g>
+
+    <line x1="22" y1="248" x2="382" y2="248" stroke="#1c2338"/>
+    <!-- live row -->
+    <g transform="translate(22,266)">
+      <circle cx="6" cy="14" r="6" fill="#ff2e97"/>
+      <circle cx="6" cy="14" r="10" fill="#ff2e97" opacity=".25"/>
+      <text x="22" y="19" font-family="'Helvetica Neue',Arial,sans-serif" font-size="13.5" font-weight="600" fill="#ff69b0">Benchmarking live</text>
+      <text x="360" y="19" text-anchor="end" font-family="monospace" font-size="12.5" fill="#8b95ad">36 / 290 · text</text>
+    </g>
+  </g>
+</svg>

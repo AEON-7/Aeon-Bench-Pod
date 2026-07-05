@@ -76,6 +76,7 @@ body {
 /* ---------------------------------------------------------------- header */
 header {
   display: flex; align-items: center; justify-content: space-between;
+  gap: 20px;                       /* auth cluster and Tip the Dev were nearly touching on prod */
   padding: 12px 20px;
   border-bottom: 1px solid rgba(0, 240, 255, .25);
   background:
@@ -120,19 +121,24 @@ footer {
 /* ---- Tip jar ------------------------------------------------------------ */
 /* Header + footer "Tip the Dev" trigger. Cyan = interactive (system law);
    the ♥ carries the warmth in magenta so the button stays on-brand. */
+/* Tip the Dev: same chamfer grammar as .act-btn but keeps its own voice — cyan label,
+   magenta ♥, and the glow pop moved INSIDE the plate (the corner notch clips outer shadows). */
 .tip-btn {
   background: transparent; color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600;
-  letter-spacing: .2px; cursor: pointer; white-space: nowrap;
+  border-radius: 0;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  padding: 6px 14px; font-size: 12px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; cursor: pointer; white-space: nowrap;
   transition: background var(--t, .15s) var(--ease-out, ease), border-color .15s, box-shadow .15s, transform .1s;
 }
 .tip-hi { color: var(--live); font-weight: 700; }   /* the ♥ glyph — magenta, text stays cyan */
 .tip-btn:hover {
-  border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 16px color-mix(in srgb, var(--accent) 28%, transparent);
 }
-.tip-btn:active { transform: translateY(1px); }
+.tip-btn:active { transform: translateY(1px) scale(.98); }
+.tip-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 .tip-btn-lg { font-size: 13px; padding: 8px 18px; }
 
 .tipjar {

@@ -904,7 +904,7 @@ function renderGallery(d) {
         : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
       return `<div class="gal-card${i === 0 && !a.unrated ? " first" : ""}">
         <div class="gal-card-h">
-          <span class="gal-rank mono">#${i + 1}</span>
+          <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
           <a class="model-creator gal-ava" data-meta="${escA(a.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
             <img class="model-avatar" data-meta-avatar="${escA(a.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
           <span class="gal-model" title="${escA(a.model)}">${fmtModel(a.model)}</span>
@@ -1206,7 +1206,7 @@ function renderSubmissionDetail(d) {
   const rp = d.reproduction || {};
   const cmdText = rp.docker_run || rp.docker_run_assembled;
   const repro = !cmdText ? "" : `<div class="sub-repro">
-    <div class="repro-h"><b>⚙ Replicate this serve</b>
+    <div class="repro-h"><span class="repro-t">⚙ replicate this serve</span>
       <button class="ghost repro-copy" id="reproCopy">copy command</button></div>
     <div class="note" style="text-align:left">${rp.hardware_detected ? `benched on <b>${escH(rp.hardware_detected)}</b> · ` : ""}engine <b>${escH(rp.engine || "—")}</b>${rp.engine_version ? ` <span class="mono">${escH(rp.engine_version)}</span>` : ""}${rp.spec_decode ? ` · spec-decode <b>${escH(rp.spec_decode)}</b> <span class="micro">(lossless — speed only)</span>` : ""}${rp.weights_hash ? ` · weights <span class="mono">${escH(String(rp.weights_hash).slice(0, 16))}…</span>` : ""}<br>
       Same model, same settings, minus the bench. Adjust <span class="mono">$DRAFTER_DIR</span> and <span class="mono">--gpu-memory-utilization</span> for your hardware.</div>
@@ -1264,8 +1264,10 @@ function setBoard(name) {
   loadBoard();
 }
 
-// ---- Performance board: concurrency sweep (TTFT / TPOT / tok-s × prompt category) ----
+// ---- Performance board: ranked throughput list → per-model drill-down ----
 let PERF = null;
+// model=null → the ranked list; a set model → its drill-down. The METRIC survives
+// drill/back/drill so the operator's chosen lens is never reset under them.
 let PERF_SEL = { model: null, metric: "agg_decode_tps" };
 const PERF_METRICS = [
   ["agg_decode_tps", "tok/s aggregate", "higher", "total generated tokens per second across all concurrent streams"],
@@ -1289,7 +1291,7 @@ async function setPerf() {
     $("#perfBody").innerHTML = `<p class="note" style="text-align:left">No performance runs yet — the pod submits an <span class="mono">aeon-perf-v1</span> grid with every comprehensive benchmark.</p>`;
     return;
   }
-  if (!PERF_SEL.model || !PERF.models.find((m) => m.canonical === PERF_SEL.model)) PERF_SEL.model = PERF.models[0].canonical;
+  PERF_SEL.model = null;               // the tab always opens on the ranked list (metric lens survives)
   renderPerf();
 }
 
@@ -1315,10 +1317,11 @@ function _perfCurves(m, metric) {
   }) }));
   if (!(vmax > 0)) return `<p class="note" style="text-align:left">this metric wasn't captured by the pod build that ran this grid — it populates on the next benchmark</p>`;
   const ys = (v) => PT + (H - PT - PB) * (1 - v / vmax);
+  // grid + ticks take their colors from the CSS palette (classes, not hex) — the chart is part of the instrument
   const gy = [0, .25, .5, .75, 1].map((f) => { const v = vmax * f, y = ys(v);
-    return `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}" stroke="#262640" stroke-width="1"/>` +
-      `<text x="${PL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#9494b8" font-size="10">${_pfv(v)}</text>`; }).join("");
-  const gx = concs.map((c, i) => `<text x="${xs(i).toFixed(1)}" y="${H - PB + 18}" text-anchor="middle" fill="#9494b8" font-size="11">c${c}</text>`).join("");
+    return `<line class="pgrid" x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}"/>` +
+      `<text class="ptick" x="${PL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end">${_pfv(v)}</text>`; }).join("");
+  const gx = concs.map((c, i) => `<text class="ptick" x="${xs(i).toFixed(1)}" y="${H - PB + 18}" text-anchor="middle">c${c}</text>`).join("");
   const lines = series.map(({ cat, pts }) => {
     const col = PERF_COLORS[cat] || "#8888aa";
     const path = pts.map((v, i) => v == null ? null : `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).filter(Boolean).join(" ");
@@ -1371,26 +1374,93 @@ function _perfHarness(m) {
     `<table class="perf-heat perf-harnesst"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
 }
 
+// trust chip — same badge grammar as the leaderboard (attested = the verified green)
+const _perfTrust = (tier) => tier === "attested"
+  ? `<span class="elig-badge verified" title="attested — verified HF-pull, signed submission">✓ attested</span>`
+  : `<span class="elig-badge local" title="trust tier: ${escA(tier || "self_reported")}">${escH(tier === "self_reported" || !tier ? "local" : tier)}</span>`;
+
+// inline sparkline: aggregate tok/s across the concurrency ladder, peak dotted
+function _perfSpark(m) {
+  const concs = (m.conc_levels || []).filter((c) => m.direct[c]);
+  const pts = concs.map((c, i) => ({ i, v: (((m.direct[c] || {}).overall) || {}).agg_decode_tps }))
+    .filter((p) => p.v != null);
+  if (pts.length < 2) return "";
+  const W = 140, H = 34, P = 3;
+  const vmax = Math.max(...pts.map((p) => p.v)) || 1;
+  const xs = (i) => P + (W - 2 * P) * (concs.length === 1 ? 0.5 : i / (concs.length - 1));
+  const ys = (v) => H - P - (H - 2 * P) * (v / vmax);
+  const line = pts.map((p) => `${xs(p.i).toFixed(1)},${ys(p.v).toFixed(1)}`).join(" ");
+  const peak = pts.reduce((a, b) => (b.v > a.v ? b : a));
+  return `<svg viewBox="0 0 ${W} ${H}" class="spark" role="img" aria-label="aggregate tok/s across the concurrency ladder">` +
+    `<line class="spark-axis" x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}"/>` +
+    `<polyline class="spark-line" points="${line}"/>` +
+    `<circle class="spark-dot" cx="${xs(peak.i).toFixed(1)}" cy="${ys(peak.v).toFixed(1)}" r="2.6"/></svg>`;
+}
+
 function renderPerf() {
-  const m = PERF.models.find((x) => x.canonical === PERF_SEL.model) || PERF.models[0];
+  const m = PERF_SEL.model ? PERF.models.find((x) => x.canonical === PERF_SEL.model) : null;
+  if (m) renderPerfDetail(m); else renderPerfList();
+}
+
+// (a) default view: one compact ranked card per model, leaderboard-style. Everything is
+// drawn from the single /api/perf/board payload — no per-card fetches — so the list
+// scales to hundreds of submissions; avatars hydrate through the shared META cache.
+function renderPerfList() {
+  const ms = [...PERF.models].sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
+  $("#perfBody").innerHTML = `<div class="perf-list">` + ms.map((x, i) => {
+    const c1 = ((x.direct || {})[1] || {}).overall || {};
+    const concs = (x.conc_levels || []).filter((c) => x.direct[c]);
+    return `<div class="pcard${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
+      <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
+      <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+        <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
+      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span></div>
+      <div class="pcard-stats">
+        <div class="spdchip pcard-hero"><span class="catk">peak agg tok/s</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
+        <div class="spdchip"><span class="catk">ttft@c1</span><span class="catv">${fmtDur(c1.ttft_ms)}</span></div>
+        <div class="spdchip"><span class="catk">tpot@c1</span><span class="catv">${fmtDur(c1.tpot_ms)}</span></div>
+        <div class="spdchip"><span class="catk">tok/s@c1</span><span class="catv">${fmtTps(c1.decode_tps)}</span></div>
+      </div>
+      <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] : ""}</span></div>
+    </div>`;
+  }).join("") + `</div>`;
+  $$("#perfBody .pcard").forEach((el) => {
+    const open = () => { PERF_SEL.model = el.dataset.pm; renderPerf(); };
+    el.onclick = (ev) => { if (ev.target.closest(".model-creator")) return; open(); };   // avatar = creator link
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
+  });
+  [...new Set(ms.map((x) => x.model))].forEach((model) => {   // hydrate avatars (same mechanism as the board)
+    const cached = META.get(model);
+    if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
+  });
+}
+
+// (b) drill-down: back → model header → metric lens → curves + heatmap + harness table
+function renderPerfDetail(m) {
   const met = PERF_METRICS.find((x) => x[0] === PERF_SEL.metric) || PERF_METRICS[0];
   const [key, label, better] = met;
-  const chips = PERF.models.map((x) =>
-    `<button class="perf-chip${x.canonical === m.canonical ? " on" : ""}" data-pm="${escA(x.canonical)}">${fmtModel(x.model)}` +
-    `${x.peak_agg_tps != null ? ` <span class="micro">${Math.round(x.peak_agg_tps)} tok/s</span>` : ""}</button>`).join("");
   const mets = PERF_METRICS.map(([k, lbl, , tip]) =>
-    `<button class="perf-chip met${k === key ? " on" : ""}" data-pk="${k}" title="${escA(tip)}">${lbl}</button>`).join("");
+    `<button class="chip met${k === key ? " on" : ""}" data-pk="${k}" title="${escA(tip)}">${lbl}</button>`).join("");
   $("#perfBody").innerHTML =
-    `<div class="perf-models">${chips}</div>
-     <div class="perf-mets">${mets}<span class="micro">${better === "lower" ? "lower is better" : "higher is better"}</span></div>
+    `<div class="perf-head">
+       <button class="ghost perf-back" id="perfBack" title="back to the ranked list">◂ all models</button>
+       <a class="model-creator" data-meta="${escA(m.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+         <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="34" height="34"></a>
+       <span class="perf-head-name">${fmtModel(m.model)}</span>
+       ${_perfTrust(m.trust_tier)}
+       <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
+     </div>
+     <div class="perf-mets">${mets}<span class="perf-better">${better === "lower" ? "▼ lower is better" : "▲ higher is better"}</span></div>
      <div class="perf-grid2">
        <div class="perf-card"><h3 class="perf-h3">${escH(label)} vs concurrency <span class="micro">by prompt category</span></h3>${_perfCurves(m, key)}</div>
        <div class="perf-card"><h3 class="perf-h3">category × concurrency <span class="micro">brighter = better</span></h3>${_perfHeat(m, key, better)}</div>
      </div>
      ${_perfHarness(m)}
-     <p class="note" style="text-align:left">run <span class="mono">${escH(m.run)}</span> · ${escH(m.trust_tier)} · ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")}</p>`;
-  $$("#perfBody .perf-chip[data-pm]").forEach((b) => b.onclick = () => { PERF_SEL.model = b.dataset.pm; renderPerf(); });
-  $$("#perfBody .perf-chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
+     <p class="note" style="text-align:left">ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")} · benched ${fmtDate(m.started_at)}</p>`;
+  $("#perfBack").onclick = () => { PERF_SEL.model = null; renderPerf(); };
+  $$("#perfBody .chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
+  const cached = META.get(m.model);
+  if (cached && cached !== "pending") applyMeta(m.model, cached); else fetchMeta(m.model);
 }
 
 // ---- AI Harness evaluation: model × {Hermes, OpenClaw, OpenCode} matrix ----

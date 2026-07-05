@@ -612,30 +612,112 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .sub-meta h3 { margin: 0 0 4px; }
 .sub-actions { margin: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .sub-cases { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-/* Performance board: concurrency curves + category heatmap + harness comparison */
-.perf-models, .perf-mets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
-.perf-chip { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 5px 12px; font-size: 12px; cursor: pointer; }
-.perf-chip:hover { border-color: var(--border-strong); }
-.perf-chip.on { border-color: #5ee0ff; color: #5ee0ff; background: rgba(94, 224, 255, .07); }
+/* Performance board: ranked throughput cards → per-model drill-down.
+   Same card grammar as the leaderboard — machined chamfer plates, rank metals,
+   reticle acquire on hover — so the perf list reads as the same instrument. */
+.perf-list { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.pcard {
+  --facet: var(--border-strong);
+  display: grid;
+  grid-template-columns: 34px 40px minmax(200px, 1fr) auto auto;
+  grid-template-areas: "rank ava id stats spark";
+  align-items: center; column-gap: 16px;
+  background:
+    linear-gradient(135deg, transparent 6.5px, var(--facet) 6.5px 8px, transparent 8px),
+    linear-gradient(315deg, transparent 6.5px, var(--facet) 6.5px 8px, transparent 8px),
+    var(--panel2);
+  border: 1px solid var(--line); border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  padding: 12px 18px; position: relative; isolation: isolate; cursor: pointer;
+  transition: transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.pcard:hover { transform: translateY(-1px); border-color: var(--border-strong); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07); }
+/* reticle acquire — identical grammar to .mcard::after */
+.pcard::after {
+  content: ""; position: absolute; inset: 4px; pointer-events: none; z-index: 1;
+  --bk: rgba(0, 240, 255, .55);
+  background:
+    linear-gradient(var(--bk), var(--bk)) top left     / 9px 1px,
+    linear-gradient(var(--bk), var(--bk)) top left     / 1px 9px,
+    linear-gradient(var(--bk), var(--bk)) top right    / 9px 1px,
+    linear-gradient(var(--bk), var(--bk)) top right    / 1px 9px,
+    linear-gradient(var(--bk), var(--bk)) bottom left  / 9px 1px,
+    linear-gradient(var(--bk), var(--bk)) bottom left  / 1px 9px,
+    linear-gradient(var(--bk), var(--bk)) bottom right / 9px 1px,
+    linear-gradient(var(--bk), var(--bk)) bottom right / 1px 9px;
+  background-repeat: no-repeat;
+  opacity: 0; transition: opacity var(--t-fast);
+}
+.pcard:hover::after, .pcard:focus-visible::after { opacity: 1; }
+.pcard-rank { grid-area: rank; text-align: right; font-size: 14px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.pcard.p1 .pcard-rank { color: var(--r1); font-size: 19px; font-weight: 700; }
+.pcard.p2 .pcard-rank { color: var(--r2); font-size: 19px; font-weight: 700; }
+.pcard.p3 .pcard-rank { color: var(--r3); font-size: 19px; font-weight: 700; }
+/* #1: the gold reserved for the top rank (same spend as gallery-first / arena-top) */
+.pcard.top { border-color: rgba(232, 194, 104, .5); box-shadow: inset 3px 0 0 var(--r1), inset 0 0 34px rgba(232, 194, 104, .05); }
+.pcard.top:hover { box-shadow: inset 3px 0 0 var(--r1), inset 0 0 34px rgba(232, 194, 104, .05), inset 0 1px 0 rgba(255, 255, 255, .07); }
+/* clip-path eats outlines — keyboard focus is re-provisioned as an inset ring (kept last: beats .top) */
+.pcard:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.pcard-ava { grid-area: ava; line-height: 0; }
+.pcard-ava .model-avatar { width: 40px; height: 40px; flex: 0 0 40px; border-width: 2px; }
+.pcard:hover .model-avatar { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.pcard-id { grid-area: id; min-width: 0; }
+.pcard-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.pcard-stats { grid-area: stats; display: flex; gap: 20px; align-items: flex-end; justify-self: end; }
+.pcard-stats .spdchip { align-items: flex-end; text-align: right; }
+.pcard-hero .catv { font-size: 22px; }
+.pcard-spark { grid-area: spark; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; justify-self: end; }
+.spark { width: 140px; height: 34px; display: block; }
+.spark-axis { stroke: var(--line); stroke-width: 1; }
+.spark-line { fill: none; stroke: #5ee0ff; stroke-width: 1.6; opacity: .9; }
+.spark-dot { fill: #5ee0ff; }
+@media (max-width: 860px) {
+  .pcard { grid-template-columns: 26px 40px minmax(0, 1fr);
+    grid-template-areas: "rank ava id" "stats stats stats" "spark spark spark"; row-gap: 10px; }
+  .pcard-stats { justify-self: start; flex-wrap: wrap; gap: 12px 18px; }
+  .pcard-stats .spdchip { align-items: flex-start; text-align: left; }
+  .pcard-spark { align-items: flex-start; justify-self: start; }
+}
+
+/* drill-down chrome */
+.perf-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 2px 0 12px; }
+.perf-head .model-avatar { width: 34px; height: 34px; }
+.perf-head-name { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.perf-head-run { color: var(--faint); font-size: 11px; }
+.perf-mets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0 12px; }
+.perf-better { font-family: var(--sans); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; font-size: 10px; color: var(--faint); }
 .perf-grid2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; margin-top: 10px; }
 @media (max-width: 980px) { .perf-grid2 { grid-template-columns: 1fr; } }
-.perf-card { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--well); padding: 12px 14px; min-width: 0; }
+.perf-card { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--well);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4); padding: 12px 14px; min-width: 0; }
 .perf-h3 { margin: 10px 0 6px; font-size: 14px; }
-.perf-h3 .micro { color: var(--faint); font-weight: 400; }
+.perf-h3 .micro { color: var(--faint); font-weight: 400; font-size: 11px; }
 .perf-svg { width: 100%; height: auto; display: block; }
-.perf-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 2px 0 6px; font-size: 11px; color: var(--muted); }
+.perf-svg .pgrid { stroke: var(--line); stroke-width: 1; }
+.perf-svg .ptick { fill: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* legend in the engraved micro-label voice; sharp swatches (no pill radius on data) */
+.perf-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 2px 0 8px;
+  font-family: var(--sans); font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--faint); }
 .perf-lg { display: inline-flex; align-items: center; gap: 5px; }
-.perf-lg i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.perf-lg i { width: 10px; height: 3px; display: inline-block; }
 .perf-heat { border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 12px; width: 100%; }
-.perf-heat th { color: var(--muted); font-weight: 600; padding: 5px 8px; text-align: left; font-family: inherit; }
-.perf-heat td { padding: 6px 8px; border: 1px solid var(--bg); color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+.perf-heat th { color: var(--faint); padding: 5px 8px; text-align: left; }   /* micro voice via the global th rule */
+.perf-heat td { padding: 6px 8px; border: 1px solid var(--bg); border-radius: 0; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
 .perf-heat td.ph-na { color: var(--faint); text-align: center; }
 .perf-harnesst { margin-top: 4px; max-width: 640px; }
 
-/* Replicate-this-serve card: the attested docker startup flags, copy-pasteable */
-.sub-repro { border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--panel2); padding: 10px 12px; margin-top: 10px; }
+/* Replicate-this-serve card: the attested docker startup flags as a TERMINAL ARTIFACT —
+   engraved micro header, scanlined recessed well ($ prompt), system copy/copied states */
+.sub-repro { border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--panel2); padding: 12px 14px; margin-top: 10px; }
 .repro-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
-.repro-cmd { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.55; background: var(--well); border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; white-space: pre; }
+.repro-t { font-family: var(--sans); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; font-size: 10px; color: var(--faint); }
+.repro-cmd { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.55;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0, 0, 0, .05) 3px 4px), var(--well);
+  border: 1px solid var(--line); border-radius: var(--r-s);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4);
+  padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; white-space: pre; }
+.repro-cmd::before { content: "$ "; color: var(--accent); }   /* generated content — never copied */
 .repro-copy.copied { color: var(--good); border-color: var(--good); }
 .sub-case { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--well); padding: 10px 12px; }
 .sub-case-h { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-bottom: 6px; }
@@ -804,18 +886,29 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 .gal-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
 .gal-sec { margin-top: 20px; }
 .gal-sec:first-child { margin-top: 8px; }
-.gal-title { margin: 0 0 8px; font-size: 15px; text-align: left; }
+.gal-title { margin: 0 0 8px; font-size: 15px; text-align: left;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gal-title .note { font-weight: 400; font-size: 12px; }
+/* circuit-trace hairline — same annotation as the evidence-panel headings */
+.gal-title::after {
+  content: ""; flex: 1 1 40px; max-width: 240px; height: 7px; opacity: .8;
+  background:
+    radial-gradient(circle 2px at center, var(--border-strong) 98%, transparent) left center / 7px 7px no-repeat,
+    radial-gradient(circle 2px at center, var(--border-strong) 98%, transparent) right center / 7px 7px no-repeat,
+    linear-gradient(var(--line), var(--line)) 7px 50% / calc(100% - 14px) 1px no-repeat;
+}
 .gal-row { display: grid; grid-auto-flow: column; grid-auto-columns: 210px; gap: 12px;
-  overflow-x: auto; padding-bottom: 8px; }
-.gal-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-m);
-  padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
-.gal-card:hover { border-color: var(--border-strong); }
+  overflow-x: auto; padding-bottom: 10px; }
+.gal-card { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-m);
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  transition: transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast); }
+.gal-card:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, .4); }
 /* rank #1 — the subtle gold of the rank metals, spent on the top card only */
 .gal-card.first { border-color: rgba(232, 194, 104, .5); box-shadow: 0 0 14px rgba(232, 194, 104, .08); }
+.gal-card.first:hover { border-color: rgba(232, 194, 104, .7); box-shadow: 0 0 14px rgba(232, 194, 104, .12), 0 8px 20px rgba(0, 0, 0, .4); }
 .gal-card.first .gal-rank { color: var(--r1); }
 .gal-card-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.gal-rank { font-weight: 800; font-size: 12px; color: var(--faint); flex: none; }
+.gal-rank { font-weight: 700; font-size: 13px; color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .gal-ava .model-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
 .gal-model { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
 .gal-stats { display: flex; align-items: baseline; gap: 8px; min-height: 19px; font-size: 12px; }
@@ -829,7 +922,7 @@ a.gal-dl:hover { border-color: var(--accent); color: var(--accent); }
 /* preview overlay: wider than the standard modal card — it hosts a live artifact */
 .gal-view { width: min(920px, 94vw); }
 .gal-view-h { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding-right: 26px;
-  font-size: 13px; min-width: 0; }
+  padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 13px; min-width: 0; }
 .gal-view-h .mono { color: var(--muted); overflow-wrap: anywhere; }
 .gal-view-h .ghost { margin-left: auto; flex: none; font-size: 12px; text-decoration: none; }
 .gal-frame { width: 100%; height: min(62vh, 560px); border: 1px solid var(--line);

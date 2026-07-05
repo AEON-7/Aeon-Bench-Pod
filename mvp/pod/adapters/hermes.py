@@ -33,7 +33,7 @@ import shutil
 import tempfile
 import uuid
 
-from .base import Adapter, AdapterError, run_argv, safe_name
+from .base import Adapter, AdapterError, run_argv, safe_name, strip_reasoning
 
 IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes")
 _API_KEY = "sk-local"
@@ -86,11 +86,13 @@ def parse_output(raw: str) -> dict:
             if name:
                 steps.append({"tool": str(name), "args": args})
         if blocks:
-            stripped = _TOOL_CALL_RE.sub("", value).strip()
+            stripped = strip_reasoning(_TOOL_CALL_RE.sub("", value))
             if stripped:
                 fallback = stripped
-        elif value.strip():
-            answer = value.strip()
+        else:
+            cleaned = strip_reasoning(value)   # drop leaked <think>…</think> (see base.strip_reasoning)
+            if cleaned:
+                answer = cleaned
     return {"answer": answer or fallback, "steps": steps}
 
 

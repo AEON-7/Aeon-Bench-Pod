@@ -104,6 +104,24 @@ def test_hermes_parser():
     out2 = hermes.parse_output(only_tools)
     assert out2["answer"] == "Working on it." and out2["steps"] == [{"tool": "x", "args": {}}]
     assert hermes.parse_output("not json") == {"answer": "", "steps": []}
+    # reasoning models leak <think> into the Hermes transcript (empty gemma block observed on
+    # v3: '<think>\n</think>\nThe journey takes 105 minutes.') — it must NOT reach the answer
+    leak = json.dumps({"conversations": [
+        {"from": "gpt", "value": "<think>\n</think>\nThe journey takes 105 minutes."}]})
+    assert hermes.parse_output(leak)["answer"] == "The journey takes 105 minutes."
+    nonempty = json.dumps({"conversations": [
+        {"from": "gpt", "value": "<think>\nlet me reason step by step...\n</think>\n\nFinal: 42"}]})
+    assert hermes.parse_output(nonempty)["answer"] == "Final: 42"
+
+
+def test_strip_reasoning():
+    from pod.adapters.base import strip_reasoning
+    assert strip_reasoning("<think>\n</think>\nHello") == "Hello"
+    assert strip_reasoning("a <think>x</think> b") == "a  b"           # mid-string block
+    assert strip_reasoning("<THINK>caps</THINK>\nyes") == "yes"        # case-insensitive
+    assert strip_reasoning("<think>trace cut off with no close") == "" # leading dangling trace
+    assert strip_reasoning("plain answer") == "plain answer"           # no-op
+    assert strip_reasoning("") == "" and strip_reasoning(None) is None
 
 
 _OPENCLAW_STDOUT = json.dumps({
@@ -245,6 +263,7 @@ def main():
     check("opencode.parse_output (NDJSON, tools+streamed text)", test_opencode_parser)
     check("hermes.parse_output (ShareGPT, <tool_call> blocks)", test_hermes_parser)
     check("openclaw.parse_output (result.payloads[].text)", test_openclaw_parser)
+    check("strip_reasoning drops leaked <think> from harness answers", test_strip_reasoning)
 
     print("== (b) aeon-agentic-v2 scoring ==")
     check("perfect execution == 1.0 / sabotage < 1.0 (all tasks)", test_v2_perfect_and_sabotage)

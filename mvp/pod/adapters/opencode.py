@@ -32,7 +32,7 @@ import os
 import shutil
 import tempfile
 
-from .base import Adapter, AdapterError, run_argv, safe_name
+from .base import Adapter, AdapterError, run_argv, safe_name, strip_reasoning
 
 IMAGE = os.environ.get("AEON_OPENCODE_IMAGE", "aeon-harness-opencode")
 _PROVIDER_ID = "dgx"
@@ -125,7 +125,7 @@ def parse_output(raw_stdout: str) -> dict:
         if prev is None or len(json.dumps(args)) >= len(json.dumps(prev["args"])):
             steps_by_id[pid] = {"tool": name, "args": args}
 
-    answer = "\n".join(t.strip() for t in texts if t.strip()).strip()
+    answer = strip_reasoning("\n".join(t.strip() for t in texts if t.strip()))
     return {"answer": answer, "steps": list(steps_by_id.values())}
 
 

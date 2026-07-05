@@ -31,7 +31,7 @@ import os
 import shutil
 import tempfile
 
-from .base import Adapter, AdapterError, run_argv, safe_name
+from .base import Adapter, AdapterError, run_argv, safe_name, strip_reasoning
 
 IMAGE = os.environ.get("AEON_OPENCLAW_IMAGE", "aeon-harness-openclaw")
 _PROVIDER_ID = "dgx"
@@ -133,7 +133,7 @@ def parse_output(raw_stdout: str) -> dict:
         if not texts and isinstance(obj.get("payloads"), list):
             texts = _texts_from_payloads(obj.get("payloads"))
         if texts:
-            return {"answer": "\n".join(texts).strip(), "steps": []}
+            return {"answer": strip_reasoning("\n".join(texts)), "steps": []}
     return {"answer": "", "steps": []}
 
 

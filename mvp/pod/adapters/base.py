@@ -52,6 +52,26 @@ def safe_name(s: str) -> str:
     return _SAFE_RE.sub("_", str(s)).strip("_") or "model"
 
 
+# Reasoning-trace scrubber. Agentic harnesses run the model inside their OWN third-party
+# container and surface its RAW assistant text in their transcript — so a reasoning model's
+# <think>...</think> block (even an EMPTY one: gemma emits "<think>\n</think>\n" before the
+# answer) leaks into the final answer. The serve-side --reasoning-parser only cleans the
+# direct chat path (message.content), never a harness container's transcript. <think> content
+# is NEVER part of an answer, so strip it at every adapter's parse boundary.
+_THINK_RE = re.compile(r"<think(?:ing)?\b[^>]*>.*?</think(?:ing)?\s*>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"^\s*<think(?:ing)?\b[^>]*>.*\Z", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> str:
+    """Drop <think>...</think> reasoning blocks (incl. empty) and a LEADING unclosed/truncated
+    <think> trace from a harness answer. Idempotent; a no-op on plain text."""
+    if not text:
+        return text
+    text = _THINK_RE.sub("", text)
+    text = _THINK_OPEN_RE.sub("", text)   # a reasoning trace that opened but got cut off
+    return text.strip()
+
+
 def run_argv(argv: list[str], timeout: float, cwd: str | None = None):
     """Run one subprocess (typically `docker run --rm ...`) and capture everything.
 

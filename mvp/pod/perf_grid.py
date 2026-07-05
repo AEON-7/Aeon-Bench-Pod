@@ -153,6 +153,7 @@ def _agg(reqs, wall_clock_s, n_errors=0):
     dtps = [r["decode_tps"] for r in reqs if r.get("decode_tps") is not None]
     ptps = [r["prefill_tps"] for r in reqs if r.get("prefill_tps") is not None]
     e2es = [r["e2e_ms"] for r in reqs if r.get("e2e_ms") is not None]
+    tpots = [r["tpot_ms"] for r in reqs if r.get("tpot_ms") is not None]
     out_sum = sum(r.get("output_tokens") or 0 for r in reqs)
     in_sum = sum(r.get("input_tokens") or 0 for r in reqs)
     return {
@@ -164,6 +165,11 @@ def _agg(reqs, wall_clock_s, n_errors=0):
         "decode_tps_mean": _r(_mean(dtps)),          # mean per-stream decode tok/s
         "prefill_tps_mean": _r(_mean(ptps)),         # mean prompt_tokens/ttft_sec
         "e2e_ms_mean": _r(_mean(e2es)),
+        # TPOT: mean inter-token latency during decode (ms/token) — the steady-state
+        # "feel" of a stream once it starts; complements TTFT (how long until it starts)
+        "tpot_ms_mean": _r(_mean(tpots), 3),
+        "tpot_ms_p50": _r(_pct(tpots, 50), 3),
+        "tpot_ms_p95": _r(_pct(tpots, 95), 3),
         "output_tokens_total": out_sum,
         "input_tokens_total": in_sum,
         # AGGREGATE decode tok/s: total generated tokens over the level's wall clock
@@ -183,12 +189,23 @@ def _one_request(target, category, prompt, temperature, max_tokens):
     if in_tok is None:                                   # target without usage capture
         in_tok, in_est = max(1, len(prompt) // 4), True
     prefill = _r(in_tok / (ttft / 1000.0)) if (ttft and ttft > 0) else None
+    # TPOT (time per output token): decode-phase inter-token latency. Prefer the direct
+    # measurement (e2e minus ttft over the decode tokens); fall back to 1000/decode_tps.
+    out_tok = resp.get("output_tokens") or 0
+    e2e = resp.get("e2e_ms")
+    if e2e is not None and ttft is not None and out_tok > 1 and e2e > ttft:
+        tpot = _r((e2e - ttft) / (out_tok - 1), 3)
+    elif resp.get("decode_tps"):
+        tpot = _r(1000.0 / resp["decode_tps"], 3)
+    else:
+        tpot = None
     return {
         "category": category,
         "ttft_ms": ttft,
         "decode_tps": resp.get("decode_tps"),
         "prefill_tps": prefill,
         "e2e_ms": resp.get("e2e_ms"),
+        "tpot_ms": tpot,
         "output_tokens": resp.get("output_tokens") or 0,
         "input_tokens": in_tok,
         "input_tokens_estimated": in_est,
@@ -268,25 +285,37 @@ def run_harness_timing(harness_id, model_base_url, alias, *, conc_levels=(1, 4),
            "alias": alias, "model_base_url": model_base_url,
            "conc_levels": list(conc_levels), "n_tasks": n_tasks, "levels": {}}
     for conc in conc_levels:
-        prompts = [HARNESS_PROMPTS[i % len(HARNESS_PROMPTS)] for i in range(int(n_tasks))]
-        durations, failures = [], 0
+        # Saturate each level AND cover every category: at least n_tasks, at least conc
+        # tasks, cycling categories so per-category timing exists at every level.
+        n = max(int(n_tasks), int(conc), len(CATEGORIES))
+        pool = [(CATEGORIES[i % len(CATEGORIES)], HARNESS_PROMPTS[i % len(HARNESS_PROMPTS)])
+                for i in range(n)]
+        results, failures = [], 0                        # (category, seconds)
         t0 = time.perf_counter()
         with ThreadPoolExecutor(max_workers=int(conc)) as ex:
-            futs = [ex.submit(_timed_call, runner, p) for p in prompts]
-            for fut in futs:
+            futs = [(cat, ex.submit(_timed_call, runner, p)) for cat, p in pool]
+            for cat, fut in futs:
                 try:
-                    durations.append(fut.result(timeout=timeout))
+                    results.append((cat, fut.result(timeout=timeout)))
                 except Exception:
                     failures += 1
         wall = time.perf_counter() - t0
+        durations = [s for _, s in results]
+        cats = {}
+        for cat in CATEGORIES:
+            cd = [s for c, s in results if c == cat]
+            if cd:
+                cats[cat] = {"n": len(cd), "mean_task_s": _r(_mean(cd), 4),
+                             "p95_task_s": _r(_pct(cd, 95), 4)}
         out["levels"][int(conc)] = {
             "conc": int(conc),
-            "n_tasks": int(n_tasks),
+            "n_tasks": n,
             "mean_task_s": _r(_mean(durations), 4),
             "p95_task_s": _r(_pct(durations, 95), 4),
             "tasks_per_min": _r(len(durations) / (wall / 60.0)) if wall > 0 else None,
             "failures": failures,
             "wall_clock_s": round(wall, 3),
+            "categories": cats,                          # per-prompt-category task timing
         }
     return out
 
@@ -300,6 +329,7 @@ def _row(case_id, evidence, speed):
 
 def _cell_speed(cell):
     return {"ttft_ms": cell.get("ttft_ms_mean"), "decode_tps": cell.get("decode_tps_mean"),
+            "tpot_ms": cell.get("tpot_ms_mean"),
             "e2e_ms": cell.get("e2e_ms_mean"), "output_tokens": cell.get("output_tokens_total"),
             "streamed": True}
 
@@ -312,6 +342,12 @@ def to_results(grid):
         hid = grid.get("harness_id", "unknown")
         for conc, lv in grid["levels"].items():
             rows.append(_row(f"perf.harness.{hid}.c{conc}", dict(lv), speed={}))
+            # one row per prompt category too, so the board can compare harness speed
+            # per prompt TYPE (reasoning vs coding vs prose ...) at each concurrency
+            for cat, cell in (lv.get("categories") or {}).items():
+                ev = dict(cell)
+                ev.update({"conc": conc, "scope": cat, "harness": hid})
+                rows.append(_row(f"perf.harness.{hid}.{cat.lower()}.c{conc}", ev, speed={}))
         return rows
     for conc, lv in grid["levels"].items():
         for cat in CATEGORIES:

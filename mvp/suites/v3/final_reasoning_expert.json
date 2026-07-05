@@ -1,0 +1,154 @@
+[
+ {
+  "id": "v3.reasoning.expert.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "On an island, every inhabitant is either a knight (always tells the truth) or a knave (always lies). Seven islanders — Marek, Odile, Petra, Quinn, Rasul, Sylvie, and Timo — each make one statement. 'Or' is always inclusive, and 'if P then Q' is the material conditional (false only when P is true and Q is false).\n\n- Marek: \"Odile and Petra are of the same type.\"\n- Odile: \"Exactly two of Marek, Rasul, and Timo are knights.\"\n- Petra: \"Quinn is a knave.\"\n- Quinn: \"Sylvie is a knight, or Marek is a knave, or both.\"\n- Rasul: \"An odd number of the seven of us are knights.\"\n- Sylvie: \"Petra and I are of different types.\"\n- Timo: \"Rasul is a knight if and only if Odile is a knave.\"\n\nExactly one assignment of types is consistent with all seven statements. How many of the seven islanders are knights? Put the final number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Eight guests — Ansel, Brix, Coral, Dagny, Elior, Fenna, Gaspar, and Hesta — sit around a circular table with seats numbered 1 through 8 in clockwise order. Seat 8 is adjacent to seat 1. Definitions: two people are ADJACENT if and only if their seat numbers differ by 1 or are the pair {1, 8}; 'immediately clockwise of X' means the next seat clockwise after X's seat (seat number one greater, wrapping from 8 to 1); 'exactly two seats clockwise of X' means moving two positions in the clockwise direction from X's seat; 'directly opposite' means four seats away in either direction.\n\nClues:\n1. Ansel sits in seat 3.\n2. Coral sits immediately clockwise of Dagny.\n3. Brix sits directly opposite Gaspar.\n4. Elior sits adjacent to Fenna.\n5. Fenna does not sit adjacent to Ansel.\n6. Hesta sits in seat 7.\n7. Brix sits exactly two seats clockwise of Coral.\n8. Elior sits adjacent to Ansel.\n\nExactly one seating satisfies all clues. Who sits directly opposite Dagny? End your response with the answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name}, and use \\boxed{} only once.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Fenna\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(Ansel|Brix|Coral|Dagny|Elior|Gaspar|Hesta)[^{}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.03",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Six researchers — Ilka, Joren, Kaveh, Lissa, Marun, and Nedra — each give exactly one seminar during one week, one per day from Monday through Saturday (six days, six speakers, a perfect one-to-one assignment). 'Earlier' always means an earlier day of that week.\n\nClues:\n1. Nedra presents on Monday.\n2. Nedra presents earlier than Kaveh, and Kaveh presents earlier than Lissa.\n3. Exactly two of the six seminar days fall strictly between Nedra's day and Joren's day.\n4. Ilka presents neither on Monday nor on Saturday.\n5. Marun presents on the day immediately after Ilka's day.\n6. Lissa does not present on Friday.\n7. Kaveh presents earlier than Ilka.\n\nExactly one schedule satisfies all clues. Who presents on Thursday? End your response with the answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name}, and use \\boxed{} only once.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Joren\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(Ilka|Kaveh|Lissa|Marun|Nedra)[^{}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.04",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A pumping station is described by four atomic propositions: A = \"the array is powered\", V = \"the vent is open\", C = \"the coolant is flowing\", D = \"the drain is sealed\". All conditionals are material conditionals and 'or' is inclusive. The following four premises all hold:\n\nP1. If the array is powered, then the vent is open or the coolant is flowing (or both).\nP2. It is not the case that the vent is open and the drain is sealed.\nP3. If the coolant is flowing, then the drain is sealed.\nP4. The array is powered.\n\nA statement is ENTAILED by the premises if it is true in every truth assignment to A, V, C, D that makes all four premises true. Consider these five statements:\n\n(1) The vent is open or the drain is sealed (or both).\n(2) It is not the case that: the array is powered and the vent is not open and the coolant is not flowing.\n(3) If the coolant is flowing, then the vent is not open.\n(4) The vent is open.\n(5) If the drain is sealed, then the array is powered.\n\nExactly how many of the five statements (1)-(5) are entailed by the premises? Put the final count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.05",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Consider strings of length 13 over the alphabet {0, 1, 2}. Call a string ADMISSIBLE if it satisfies BOTH conditions:\n(a) every pair of adjacent characters differs by at most 1 in numeric value (so 0 may be followed by 0 or 1; 1 by 0, 1, or 2; 2 by 1 or 2), and\n(b) the string does NOT contain \"012\" as a contiguous substring.\n\nHow many admissible strings of length 13 are there? Give the exact integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "64400"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.06",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Five cottages stand in a row, numbered 1 (leftmost) to 5 (rightmost). Each cottage has exactly one resident (Vasco, Wren, Xael, Yotam, Zora), exactly one pet (crow, ferret, gecko, hound, iguana), and exactly one favourite drink (cider, espresso, matcha, oolong, punch); each resident, pet, and drink is used exactly once. 'Directly next to' means the cottage numbers differ by exactly 1.\n\nClues:\n1. Vasco lives in the leftmost cottage.\n2. Wren lives directly next to Yotam.\n3. Zora lives in the middle cottage.\n4. Wren keeps the hound.\n5. The crow is kept in a cottage directly next to Vasco's cottage.\n6. The ferret is not kept in cottage 1 and not kept in cottage 5.\n7. The iguana is kept in the leftmost cottage.\n8. Zora drinks matcha.\n9. The resident who keeps the gecko drinks cider.\n10. Espresso is drunk in the rightmost cottage.\n11. Punch is drunk in a cottage directly next to the cottage with the iguana.\n12. Yotam does not drink oolong.\n\nExactly one full arrangement satisfies all clues. Who keeps the gecko? End your response with the answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name}, and use \\boxed{} only once.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Yotam\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(Vasco|Wren|Xael|Zora)[^{}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.07",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "On an island, every inhabitant is either a knight (always tells the truth) or a knave (always lies). Six islanders — Beryl, Casta, Doran, Ewart, Fife, and Gunda — each make one statement. 'Or' is always inclusive, and 'if P then Q' is the material conditional (false only when P is true and Q is false).\n\n- Beryl: \"Exactly one of the six of us is a knave.\"\n- Casta: \"Beryl and Ewart are both knights.\"\n- Doran: \"If Fife is a knight, then Gunda is a knight.\"\n- Ewart: \"Doran is a knight.\"\n- Fife: \"Gunda and Beryl are not both knights.\"\n- Gunda: \"Beryl is a knight, or Ewart is a knave, or both.\"\n\nExactly one assignment of types is consistent with all six statements, and in that assignment exactly one islander is a knave. Name that knave. End your response with the answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name}, and use \\boxed{} only once.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Fife\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(Beryl|Casta|Doran|Ewart|Gunda)[^{}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.expert.08",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Seven panelists — Pia, Quon, Rho, Sef, Tovi, Ume, and Vail — are to be seated in a single row of 7 chairs numbered 1 through 7, one panelist per chair. A seating must satisfy ALL of the following constraints:\n(a) Pia and Quon do not sit in adjacent chairs (chair numbers differing by 1);\n(b) Rho sits in a lower-numbered chair than Sef;\n(c) Tovi sits in neither chair 1 nor chair 7;\n(d) Ume and Vail sit in adjacent chairs.\n\nHow many distinct seatings satisfy all four constraints? Give the exact integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "336"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

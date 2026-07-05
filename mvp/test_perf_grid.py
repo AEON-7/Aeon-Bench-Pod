@@ -146,7 +146,8 @@ def test_to_results_direct(grid):
         assert r["category"] == "Performance" and r["tier"] == 0
         assert r["status"] == "perf" and r["score"] is None and r["raw_output"] == ""
         assert "agg_decode_tps" in r["evidence"] and "wall_clock_s" in r["evidence"]
-        assert "ttft_ms" in r["speed"] and "decode_tps" in r["speed"]
+        assert "tpot_ms_mean" in r["evidence"]             # TPOT captured per cell
+        assert "ttft_ms" in r["speed"] and "decode_tps" in r["speed"] and "tpot_ms" in r["speed"]
         json.dumps(r)                                      # JSON-serializable
 
 
@@ -154,13 +155,20 @@ def test_harness_timing():
     timing = run_harness_timing("opencode", "http://fake:8000/v1", "fake-model",
                                 conc_levels=(1, 2), n_tasks=4, timeout=30,
                                 runner=lambda prompt: time.sleep(0.05))
+    n_cats = len(perf_grid.CATEGORIES)
     for conc in (1, 2):
         lv = timing["levels"][conc]
-        assert lv["failures"] == 0 and lv["n_tasks"] == 4
+        # n_tasks floors at max(requested, conc, n_categories) so every prompt TYPE
+        # is timed at every level (per-category harness perf cells)
+        assert lv["failures"] == 0 and lv["n_tasks"] == max(4, conc, n_cats)
         assert 0.04 <= lv["mean_task_s"] <= 0.5
         assert lv["p95_task_s"] >= lv["mean_task_s"] * 0.9
         assert lv["tasks_per_min"] > 0
-    # c=2 should finish the 4 sleeps roughly twice as fast as c=1
+        # every category got at least one timed task
+        assert set(lv["categories"]) == set(perf_grid.CATEGORIES)
+        for cell in lv["categories"].values():
+            assert cell["n"] >= 1 and cell["mean_task_s"] > 0
+    # c=2 should finish the sleeps roughly twice as fast as c=1
     assert timing["levels"][2]["wall_clock_s"] < timing["levels"][1]["wall_clock_s"]
     assert timing["levels"][2]["tasks_per_min"] > timing["levels"][1]["tasks_per_min"]
 
@@ -174,10 +182,17 @@ def test_harness_timing():
     assert t2["levels"][1]["failures"] == 1
 
     rows = to_results(timing)
-    assert [r["case_id"] for r in rows] == ["perf.harness.opencode.c1",
-                                            "perf.harness.opencode.c2"]
+    ids = [r["case_id"] for r in rows]
+    # overall row per level + one row per category per level
+    assert "perf.harness.opencode.c1" in ids and "perf.harness.opencode.c2" in ids
+    assert "perf.harness.opencode.math.c1" in ids
+    assert "perf.harness.opencode.instruction.c2" in ids
+    assert len(ids) == 2 * (1 + n_cats)
     assert all(r["status"] == "perf" and r["category"] == "Performance" for r in rows)
-    assert "tasks_per_min" in rows[0]["evidence"]
+    overall = next(r for r in rows if r["case_id"] == "perf.harness.opencode.c1")
+    assert "tasks_per_min" in overall["evidence"]
+    catrow = next(r for r in rows if r["case_id"] == "perf.harness.opencode.math.c1")
+    assert catrow["evidence"]["scope"] == "Math" and catrow["evidence"]["harness"] == "opencode"
 
     try:
         run_harness_timing("x", "u", "a")                  # no runner -> ValueError

@@ -1,0 +1,672 @@
+[
+ {
+  "id": "v3.prose.expert.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a sestina about a lighthouse keeper completing her final inventory before leaving the light for good. It must have exactly 39 lines arranged as 7 stanzas separated by blank lines: six sestets (6 lines each) followed by a 3-line envoi. Every line must END with one of these six words (punctuation after the end word is allowed, but the end word itself must be the line's final word exactly — 'copper', not 'coppers'): copper, fog, ledger, gull, brine, wick. The end words of the six sestets, in line order, must be exactly — Stanza 1: copper, fog, ledger, gull, brine, wick; Stanza 2: wick, copper, brine, fog, gull, ledger; Stanza 3: ledger, wick, gull, copper, fog, brine; Stanza 4: brine, ledger, fog, wick, copper, gull; Stanza 5: gull, brine, copper, ledger, wick, fog; Stanza 6: fog, gull, wick, brine, ledger, copper. Envoi (stanza 7, 3 lines): line 1 must contain the word 'fog' and end with 'copper'; line 2 must contain the word 'gull' and end with 'ledger'; line 3 must contain the word 'brine' and end with 'wick'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_39",
+     "question": "Does the poem have exactly 39 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 39.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 39
+     }
+    },
+    {
+     "id": "stanzas_7",
+     "question": "Does the poem have exactly 7 blank-line-separated stanzas?",
+     "decision_rule": "Count blank-line-separated blocks; true iff exactly 7.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 7
+     }
+    },
+    {
+     "id": "endwords_s1",
+     "question": "Do six consecutive lines end with copper, fog, ledger, gull, brine, wick in that order?",
+     "decision_rule": "True iff six consecutive lines end with exactly those words in order (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bcopper[^\\w\\n]*\\n\\s*[^\\n]*\\bfog[^\\w\\n]*\\n\\s*[^\\n]*\\bledger[^\\w\\n]*\\n\\s*[^\\n]*\\bgull[^\\w\\n]*\\n\\s*[^\\n]*\\bbrine[^\\w\\n]*\\n\\s*[^\\n]*\\bwick[^\\w\\n]*(?=\\n|$)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "endwords_s2",
+     "question": "Do six consecutive lines end with wick, copper, brine, fog, gull, ledger in that order?",
+     "decision_rule": "True iff six consecutive lines end with exactly those words in order (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bwick[^\\w\\n]*\\n\\s*[^\\n]*\\bcopper[^\\w\\n]*\\n\\s*[^\\n]*\\bbrine[^\\w\\n]*\\n\\s*[^\\n]*\\bfog[^\\w\\n]*\\n\\s*[^\\n]*\\bgull[^\\w\\n]*\\n\\s*[^\\n]*\\bledger[^\\w\\n]*(?=\\n|$)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "endwords_s3",
+     "question": "Do six consecutive lines end with ledger, wick, gull, copper, fog, brine in that order?",
+     "decision_rule": "True iff six consecutive lines end with exactly those words in order (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bledger[^\\w\\n]*\\n\\s*[^\\n]*\\bwick[^\\w\\n]*\\n\\s*[^\\n]*\\bgull[^\\w\\n]*\\n\\s*[^\\n]*\\bcopper[^\\w\\n]*\\n\\s*[^\\n]*\\bfog[^\\w\\n]*\\n\\s*[^\\n]*\\bbrine[^\\w\\n]*(?=\\n|$)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "endwords_s4",
+     "question": "Do six consecutive lines end with brine, ledger, fog, wick, copper, gull in that order?",
+     "decision_rule": "True iff six consecutive lines end with exactly those words in order (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bbrine[^\\w\\n]*\\n\\s*[^\\n]*\\bledger[^\\w\\n]*\\n\\s*[^\\n]*\\bfog[^\\w\\n]*\\n\\s*[^\\n]*\\bwick[^\\w\\n]*\\n\\s*[^\\n]*\\bcopper[^\\w\\n]*\\n\\s*[^\\n]*\\bgull[^\\w\\n]*(?=\\n|$)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "endwords_s5",
+     "question": "Do six consecutive lines end with gull, brine, copper, ledger, wick, fog in that order?",
+     "decision_rule": "True iff six consecutive lines end with exactly those words in order (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bgull[^\\w\\n]*\\n\\s*[^\\n]*\\bbrine[^\\w\\n]*\\n\\s*[^\\n]*\\bcopper[^\\w\\n]*\\n\\s*[^\\n]*\\bledger[^\\w\\n]*\\n\\s*[^\\n]*\\bwick[^\\w\\n]*\\n\\s*[^\\n]*\\bfog[^\\w\\n]*(?=\\n|$)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "endwords_s6",
+     "question": "Do six consecutive lines end with fog, gull, wick, brine, ledger, copper in that order?",
+     "decision_rule": "True iff six consecutive lines end with exactly those words in order (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bfog[^\\w\\n]*\\n\\s*[^\\n]*\\bgull[^\\w\\n]*\\n\\s*[^\\n]*\\bwick[^\\w\\n]*\\n\\s*[^\\n]*\\bbrine[^\\w\\n]*\\n\\s*[^\\n]*\\bledger[^\\w\\n]*\\n\\s*[^\\n]*\\bcopper[^\\w\\n]*(?=\\n|$)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "envoi",
+     "question": "Do the last three lines contain fog/gull/brine and end with copper/ledger/wick respectively?",
+     "decision_rule": "True iff final 3 lines: line 1 contains 'fog' and ends 'copper'; line 2 contains 'gull' and ends 'ledger'; line 3 contains 'brine' and ends 'wick'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bfog\\b[^\\n]*\\bcopper[^\\w\\n]*\\n\\s*[^\\n]*\\bgull\\b[^\\n]*\\bledger[^\\w\\n]*\\n\\s*[^\\n]*\\bbrine\\b[^\\n]*\\bwick[^\\w\\n]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_verse_quality",
+     "question": "Do the stanzas read as coherent English verse about a lighthouse keeper, rather than word salad assembled only to satisfy the end-word pattern?",
+     "decision_rule": "True iff the lines are grammatical, connected sentences on the lighthouse-keeper theme.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.02",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a 10-line poem about a moth drawn to a lit window at night. Constraints: exactly 10 lines with no blank lines between them; the first letters of the lines, read top to bottom, must spell VELVETMOTH (line 1 starts with V, line 2 with E, line 3 with L, line 4 with V, line 5 with E, line 6 with T, line 7 with M, line 8 with O, line 9 with T, line 10 with H); every line must contain exactly 7 words, where a word is any run of characters separated by spaces (hyphenated compounds count as one word); and the poem must contain the word 'moth'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_10",
+     "question": "Does the poem have exactly 10 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 10.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 10
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "acrostic",
+     "question": "Do the first letters of the 10 lines spell VELVETMOTH?",
+     "decision_rule": "True iff line initials are V,E,L,V,E,T,M,O,T,H (case-insensitive).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*V[^\\n]*\\n\\s*E[^\\n]*\\n\\s*L[^\\n]*\\n\\s*V[^\\n]*\\n\\s*E[^\\n]*\\n\\s*T[^\\n]*\\n\\s*M[^\\n]*\\n\\s*O[^\\n]*\\n\\s*T[^\\n]*\\n\\s*H[^\\n]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "seven_words_each",
+     "question": "Does every one of the 10 lines contain exactly 7 whitespace-separated words?",
+     "decision_rule": "True iff each line has exactly 7 space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:[ \\t]*\\S+(?:[ \\t]+\\S+){6}[ \\t]*\\n){9}[ \\t]*\\S+(?:[ \\t]+\\S+){6}[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_moth",
+     "question": "Does the poem contain the word 'moth'?",
+     "decision_rule": "True iff /moth/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "moth",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_imagery",
+     "question": "Does the poem use concrete moth-and-window imagery in grammatical English, rather than filler chosen only to hit the letter and word counts?",
+     "decision_rule": "True iff the poem is coherent and on-theme.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.03",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a single paragraph of narrative prose (one block, no blank lines) about a violinist playing at night by a harbor, under ALL of these constraints: the letter 'e' (uppercase or lowercase) must not appear anywhere in your output; the paragraph must contain at least 100 words; it must consist of exactly 8 sentences, each ending with a period, exclamation mark, or question mark (use no abbreviations, no digits with decimal points, and no ellipses, so that every '.' ends a sentence); and it must include the words 'moonlight', 'harbor', and 'violin'. Output only the paragraph: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "no_letter_e",
+     "question": "Is the text completely free of the letter 'e' (either case)?",
+     "decision_rule": "True iff /e/i does not match anywhere.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "e",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the text a single paragraph with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences_8",
+     "question": "Does the paragraph have exactly 8 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff exactly 8 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "min_100_words",
+     "question": "Does the paragraph contain at least 100 words?",
+     "decision_rule": "True iff there are 100 or more whitespace-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?:\\S+\\s+){99}\\S+",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_moonlight",
+     "question": "Does the text contain the word 'moonlight'?",
+     "decision_rule": "True iff /moonlight/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "moonlight",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_harbor",
+     "question": "Does the text contain the word 'harbor'?",
+     "decision_rule": "True iff /harbor/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "harbor",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_violin",
+     "question": "Does the text contain the word 'violin'?",
+     "decision_rule": "True iff /violin/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "violin",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_fluency",
+     "question": "Does the paragraph read as fluent, grammatical English narrative rather than strained fragments?",
+     "decision_rule": "True iff the prose is grammatical and tells a connected scene.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.04",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a 12-line poem about the hour before a city wakes. Constraints: exactly 12 lines with no blank lines; every line must begin with the exact phrase 'Before the ' (capital B, lowercase 'the', single spaces); the final word of every line must end with the letters 'ing' (punctuation after that word is allowed); and the poem must contain the words 'lamplighter' and 'estuary'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_12",
+     "question": "Does the poem have exactly 12 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 12.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 12
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "anaphora_and_ing",
+     "question": "Does every line begin with 'Before the ' and have a final word ending in 'ing'?",
+     "decision_rule": "Case-sensitive: each of the 12 lines starts with 'Before the ' and its last word ends in 'ing' (trailing punctuation allowed).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^Before the [^\\n]*ing[^\\w\\n]*(?:\\n[ \\t]*Before the [^\\n]*ing[^\\w\\n]*){11}$",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "has_lamplighter",
+     "question": "Does the poem contain the word 'lamplighter'?",
+     "decision_rule": "True iff /lamplighter/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "lamplighter",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_estuary",
+     "question": "Does the poem contain the word 'estuary'?",
+     "decision_rule": "True iff /estuary/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "estuary",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_distinct_endings",
+     "question": "Are the 12 line-final '-ing' words all different from one another?",
+     "decision_rule": "True iff no line-final word is repeated across the 12 lines.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.05",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a 'diamond' poem describing a thunderstorm arriving over, and then leaving, a wheat field. It must have exactly 15 lines with no blank lines. Line 1 has exactly 1 word, line 2 exactly 2 words, and so on, adding one word per line up to line 8 with exactly 8 words; the count then descends one word per line: line 9 has 7 words, line 10 has 6, line 11 has 5, line 12 has 4, line 13 has 3, line 14 has 2, and line 15 has 1. A word is any run of non-space characters (hyphenated compounds count as one word). The poem must contain the word 'thunderhead'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_15",
+     "question": "Does the poem have exactly 15 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 15.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 15
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "diamond_counts",
+     "question": "Do the 15 lines have exactly 1,2,3,4,5,6,7,8,7,6,5,4,3,2,1 words respectively?",
+     "decision_rule": "True iff each line's whitespace-separated token count matches the 1..8..1 diamond exactly.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^[ \\t]*\\S+[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){1}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){2}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){5}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){6}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){6}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){5}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){2}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){1}[ \\t]*\\n[ \\t]*\\S+[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_thunderhead",
+     "question": "Does the poem contain the word 'thunderhead'?",
+     "decision_rule": "True iff /thunderhead/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "thunderhead",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_arc",
+     "question": "Does the poem trace a coherent arc from stillness through storm back to stillness over the wheat field?",
+     "decision_rule": "True iff the imagery follows arrival, peak, and departure of the storm.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.06",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a formal letter of complaint with EXACTLY this structure — eight blocks separated by blank lines, in this order: (1) the date line, exactly: 14 March 2031 — (2) the reference line, exactly: Ref: KLM-7734/C — (3) the salutation, exactly: Dear Dr. Ashgrove-Pell, — (4) a first body paragraph beginning with the exact words: I am writing to — (5) a second body paragraph beginning with the exact word: Furthermore, — (6) a third body paragraph beginning with the exact words: I would be grateful if — (7) the closing, exactly: Yours sincerely, — (8) the signature, exactly: Marisol Quenby-Achterberg. The letter is addressed to the Meridian Canal Trust and complains that the writer's narrowboat, the Nightjar, was damaged on 27 February 2031 when contractors lowered the water level of a holding basin without notice during lock maintenance. Somewhere in the body you must state the exact repair cost £1,742.50, mention the exact date 27 February 2031, and name the vessel Nightjar. The whole letter must be at least 120 words. Match capitalisation exactly as given. Output only the letter itself: no subject line, no postal addresses, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "blocks_8",
+     "question": "Does the letter consist of exactly 8 blank-line-separated blocks?",
+     "decision_rule": "Count blank-line-separated blocks; true iff exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "structure_order",
+     "question": "Do the date, reference, salutation, three paragraph openers, closing, and signature appear verbatim, in order, with the letter starting at the date and ending at the signature?",
+     "decision_rule": "Case-sensitive: text starts '14 March 2031', then 'Ref: KLM-7734/C', then 'Dear Dr. Ashgrove-Pell,', then paragraphs opening 'I am writing to', 'Furthermore,', 'I would be grateful if', then 'Yours sincerely,', ending 'Marisol Quenby-Achterberg'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^14 March 2031\\s*\\n\\s*Ref: KLM-7734/C\\s*\\n\\s*Dear Dr\\. Ashgrove-Pell,\\s*\\n\\s*I am writing to[\\s\\S]*\\n[ \\t]*Furthermore,[\\s\\S]*\\n[ \\t]*I would be grateful if[\\s\\S]*\\n\\s*Yours sincerely,\\s*\\n\\s*Marisol Quenby-Achterberg$",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "has_amount",
+     "question": "Does the letter state the exact amount £1,742.50?",
+     "decision_rule": "True iff the literal string £1,742.50 appears.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "£1,742\\.50",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_incident_date",
+     "question": "Does the letter mention the exact date 27 February 2031?",
+     "decision_rule": "True iff '27 February 2031' appears.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\b27 February 2031\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_vessel",
+     "question": "Does the letter name the vessel Nightjar?",
+     "decision_rule": "True iff /\\bNightjar\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bNightjar\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_120_words",
+     "question": "Is the letter at least 120 words long?",
+     "decision_rule": "True iff there are 120 or more whitespace-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?:\\S+\\s+){119}\\S+",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_register",
+     "question": "Is the letter written throughout in a formal register, free of contractions and colloquialisms?",
+     "decision_rule": "True iff no contractions (don't, can't, I'm, ...) or informal phrasing appear.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.07",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a single-paragraph story (one block, no blank lines) of exactly 11 sentences about a medieval apprentice scribe copying a manuscript through a winter night. The first letters of the 11 sentences, in order, must spell SILVERQUILL (sentence 1 starts with S, 2 with I, 3 with L, 4 with V, 5 with E, 6 with R, 7 with Q, 8 with U, 9 with I, 10 with L, 11 with L). Every sentence must end with a period, exclamation mark, or question mark, and the characters '.', '!' and '?' must not appear anywhere else (no abbreviations, no decimal numbers, no ellipses). The story must contain the words 'inkwell' and 'parchment' and be at least 90 words long. Output only the story: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_block",
+     "question": "Is the story a single paragraph with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences_11",
+     "question": "Does the story have exactly 11 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff exactly 11 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 11
+     }
+    },
+    {
+     "id": "sentence_acrostic",
+     "question": "Do the first letters of the 11 sentences spell SILVERQUILL?",
+     "decision_rule": "True iff sentence initials are S,I,L,V,E,R,Q,U,I,L,L in order (case-insensitive), with '.', '!', '?' used only as sentence terminators.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^S[^.!?]*[.!?]\\s+I[^.!?]*[.!?]\\s+L[^.!?]*[.!?]\\s+V[^.!?]*[.!?]\\s+E[^.!?]*[.!?]\\s+R[^.!?]*[.!?]\\s+Q[^.!?]*[.!?]\\s+U[^.!?]*[.!?]\\s+I[^.!?]*[.!?]\\s+L[^.!?]*[.!?]\\s+L[^.!?]*[.!?]$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_inkwell",
+     "question": "Does the story contain the word 'inkwell'?",
+     "decision_rule": "True iff /inkwell/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "inkwell",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_parchment",
+     "question": "Does the story contain the word 'parchment'?",
+     "decision_rule": "True iff /parchment/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "parchment",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_90_words",
+     "question": "Is the story at least 90 words long?",
+     "decision_rule": "True iff there are 90 or more whitespace-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?:\\S+\\s+){89}\\S+",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_narrative",
+     "question": "Does the story read as a connected narrative about the scribe's night of copying, with each sentence following naturally from the last?",
+     "decision_rule": "True iff the sentences form one coherent story rather than disconnected statements.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.expert.08",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a story of exactly 15 sentences about a night train crossing a frozen plain, in which EVERY sentence contains exactly 10 words. Counting rules: a word is any run of characters containing no spaces and no sentence-ending punctuation; each sentence must end with a period, exclamation mark, or question mark, and those three characters must not appear anywhere except at the ends of sentences (so no abbreviations, no ellipses, and no numbers with decimal points); commas, hyphens, and apostrophes inside words are fine and do not split words. The story must mention the town name 'Verakhta' and contain the word 'samovar'. Write it as one paragraph with no blank lines. Output only the story: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_block",
+     "question": "Is the story a single paragraph with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences_15",
+     "question": "Does the story have exactly 15 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff exactly 15 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 15
+     }
+    },
+    {
+     "id": "ten_words_each",
+     "question": "Does every sentence contain exactly 10 words?",
+     "decision_rule": "True iff the text is exactly 15 sentences of exactly 10 words each, with '.', '!', '?' only at sentence ends.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:(?:[^\\s.!?]+\\s+){9}[^\\s.!?]+[.!?](?:\\s+|$)){15}$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_verakhta",
+     "question": "Does the story mention Verakhta?",
+     "decision_rule": "True iff /Verakhta/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bVerakhta\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_samovar",
+     "question": "Does the story contain the word 'samovar'?",
+     "decision_rule": "True iff /samovar/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "samovar",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_coherence",
+     "question": "Does the story read as one continuous, coherent scene aboard the night train rather than 15 unrelated sentences?",
+     "decision_rule": "True iff the sentences connect into a single narrative.",
+     "required": false
+    }
+   ]
+  }
+ }
+]

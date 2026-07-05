@@ -1,0 +1,272 @@
+[
+ {
+  "id": "v3.instruction.expert.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a poem about an old lighthouse. ALL of the following constraints must hold simultaneously: (1) exactly 6 lines, no blank lines; (2) every line contains exactly 5 words separated by single spaces; (3) every line ends with a period; (4) the letter 'e' (uppercase or lowercase) must not appear anywhere in your output; (5) the word 'salt' must appear at least once. Output ONLY the 6 poem lines — no title, no preamble, no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 6
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:\\S+ \\S+ \\S+ \\S+ \\S+\\.\\r?\\n){5}\\S+ \\S+ \\S+ \\S+ \\S+\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bsalt\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.02",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a 7-line nature poem satisfying ALL of these constraints simultaneously: (1) exactly 7 lines, no blank lines; (2) the first letter of line 1 is an uppercase 'G', of line 2 an uppercase 'H', of line 3 an uppercase 'I', of line 4 an uppercase 'J', of line 5 an uppercase 'K', of line 6 an uppercase 'L', and of line 7 an uppercase 'M'; (3) every line contains exactly 4 words separated by single spaces; (4) line 4 ends with a colon ':' and every other line ends with a period; (5) the comma character must not appear anywhere. Output ONLY the 7 lines — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 7
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AG\\S* \\S+ \\S+ \\S+\\.\\r?\\nH\\S* \\S+ \\S+ \\S+\\.\\r?\\nI\\S* \\S+ \\S+ \\S+\\.\\r?\\nJ\\S* \\S+ \\S+ \\S+:\\r?\\nK\\S* \\S+ \\S+ \\S+\\.\\r?\\nL\\S* \\S+ \\S+ \\S+\\.\\r?\\nM\\S* \\S+ \\S+ \\S+\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": ",",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.03",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write exactly 5 lines about desert night skies. ALL constraints must hold simultaneously: (1) exactly 5 lines, no blank lines; (2) each line contains exactly 6 words separated by single spaces; (3) the third word of every line is exactly 'amber' (all lowercase); (4) every line begins with a capital letter and ends with an exclamation mark '!'; (5) the word 'the' must not appear anywhere, in any casing. Output ONLY the 5 lines — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:[A-Z]\\S* \\S+ amber \\S+ \\S+ \\S+!\\r?\\n){4}[A-Z]\\S* \\S+ amber \\S+ \\S+ \\S+!\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bthe\\b",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.04",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Apply the following operations, in this exact order, to the word QUANTIFIER: (1) delete every vowel (A, E, I, O, U); (2) reverse the order of the remaining letters; (3) replace each letter with the letter that comes immediately after it in the English alphabet (Z wraps around to A); (4) convert everything to lowercase; (5) append, as a decimal digit, the number of vowels you deleted in step 1. Reply with ONLY the resulting string — no quotes, no spaces, no explanation, no punctuation.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "sguor5",
+     "normalize": true,
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.05",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a single paragraph of exactly 4 sentences about a fictional deep-sea probe named Veylark exploring an ocean trench. ALL constraints must hold simultaneously: (1) exactly 4 sentences, each ending with a period — exclamation marks and question marks are forbidden anywhere; (2) the name 'Veylark' appears at least once; (3) the word 'brine' appears at least 4 times; (4) no digit characters anywhere; (5) the word 'water' must not appear; (6) periods are used ONLY to end the 4 sentences — no abbreviations, no decimal points, no ellipses. Output ONLY the paragraph — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 4
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bveylark\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bbrine\\b.*\\bbrine\\b.*\\bbrine\\b.*\\bbrine\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\d",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[!?]",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bwater\\b",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.06",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a poem satisfying ALL of these constraints simultaneously: (1) exactly 3 stanzas separated by single blank lines, each stanza exactly 3 lines (9 lines of text in total); (2) every line begins with the word 'Under' (capital U, the rest lowercase) followed by a single space; (3) every line ends with a semicolon ';' EXCEPT the very last line of the poem, which ends with a period; (4) the letter 'a' (uppercase or lowercase) must not appear anywhere in the poem. Output ONLY the poem — no title, no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 9
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:Under [^\\r?\\n]*;\\r?\\n){3}\\r?\\n(?:Under [^\\r?\\n]*;\\r?\\n){3}\\r?\\n(?:Under [^\\r?\\n]*;\\r?\\n){2}Under [^\\r?\\n]*\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "a",
+     "mode": "must_not_match",
+     "ignore_case": true
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.07",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write exactly 3 lines describing a market morning. ALL constraints must hold simultaneously: (1) exactly 3 lines, no blank lines; (2) each line contains exactly 8 words separated by single spaces; (3) within each line the words strictly alternate between FULLY UPPERCASE and fully lowercase, starting with an uppercase word (so word positions 1, 3, 5, 7 are entirely uppercase letters and positions 2, 4, 6, 8 are entirely lowercase letters); (4) the 8th (last) word of every line is exactly 'dawn'; (5) your output contains only letters and spaces — no digits and no punctuation of any kind; (6) the uppercase word 'ORCHARD' must appear somewhere. Output ONLY the 3 lines — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:[A-Z]+ [a-z]+ [A-Z]+ [a-z]+ [A-Z]+ [a-z]+ [A-Z]+ dawn\\r?\\n){2}[A-Z]+ [a-z]+ [A-Z]+ [a-z]+ [A-Z]+ [a-z]+ [A-Z]+ dawn\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z \\n\\r]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bORCHARD\\b",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.expert.08",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a 5-line storm poem. ALL constraints must hold simultaneously: (1) exactly 5 lines, no blank lines; (2) line 1 has exactly 8 words, line 2 exactly 7 words, line 3 exactly 6 words, line 4 exactly 5 words, line 5 exactly 4 words — words separated by single spaces; (3) the first letters of the 5 lines, in order, spell STORM (uppercase 'S', 'T', 'O', 'R', 'M'); (4) the last word of every line is exactly 'gray' (all lowercase); (5) the letter 'e' (uppercase or lowercase) must not appear anywhere; (6) your output contains only letters and spaces — no punctuation and no digits. Output ONLY the 5 lines — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AS\\S*(?: \\S+){6} gray\\r?\\nT\\S*(?: \\S+){5} gray\\r?\\nO\\S*(?: \\S+){4} gray\\r?\\nR\\S*(?: \\S+){3} gray\\r?\\nM\\S*(?: \\S+){2} gray\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z \\n\\r]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -1,0 +1,194 @@
+[
+ {
+  "id": "v3.math.frontier.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A starship makes an interstellar journey in two legs, each flown at constant speed (ignore acceleration phases). Leg 1: 6.20 light-years at v = 0.945c. Leg 2: 3.70 light-years at v = 0.985c. Distances are measured in the rest frame of the departure and arrival stars (all mutually at rest). Working in units of years and light-years (1 light-year is the distance light travels in 1 year, so a leg's coordinate travel time in years is distance/beta), compute the TOTAL proper time elapsed on the ship's clock for the whole journey, in years. Round to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words, no powers of ten.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2.794"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Three successive collinear relativistic boosts are composed. Starting from rest, apply boost 1 of u1 = 0.740c, then boost 2 of u2 = 0.610c (in the same direction, composed with the running result via the relativistic velocity-addition formula w = (v + u)/(1 + v*u/c^2)), then boost 3 of u3 = 0.535c the same way. Compute the final speed as a fraction of c (i.e. the final beta). Carry full precision through every step, then round the final beta to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no units, no 'c', no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.978308"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.03",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A probe orbits the (fictional) planet Kethra, mass M = 6.163 x 10^24 kg, in a circular orbit of radius r1 = 7300 km measured from the planet's center. It performs a Hohmann transfer to a higher circular orbit of radius r2 = 19800 km (also from the center). Using G = 6.674 x 10^-11 m^3 kg^-1 s^-2, compute the time of flight of the transfer (half the period of the transfer ellipse whose semi-major axis is (r1+r2)/2), in HOURS. Round to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words, no powers of ten.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2.146"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.04",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "The (fictional) rocky planet Veyrun has mass M = 5.32 x 10^24 kg and radius R = 6210 km, and may be modeled as a uniform-density sphere. Its gravitational binding energy (the energy required to disperse all its mass to infinity) has magnitude U = 3GM^2/(5R). Using G = 6.674 x 10^-11 m^3 kg^-1 s^-2, compute U and express its magnitude in units of 10^32 J: that is, report the dimensionless coefficient k where U = k x 10^32 J. Round k to exactly 4 decimal places. Put ONLY the number k inside \\boxed{} - no units, no 'x 10^32', no LaTeX commands.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1.8250"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.05",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A close binary consists of two stars of masses m1 = 1.42 solar masses and m2 = 0.89 solar masses in circular orbits about their common center of mass, with a constant separation (distance between the two stars) of a = 0.093 AU. Use G = 6.674 x 10^-11 m^3 kg^-1 s^-2, 1 solar mass = 1.989 x 10^30 kg, 1 AU = 1.496 x 10^11 m, and 1 day = 86400 s. Using Kepler's third law for a two-body system, P = 2*pi*sqrt(a^3 / (G*(m1+m2))), compute the orbital period in DAYS. Round to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6.815"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.06",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A laboratory plasma has electron number density n_e = 3.4 x 10^18 m^-3. Compute the electron plasma frequency f_pe (the ordinary frequency, NOT the angular frequency): f_pe = (1/(2*pi)) * sqrt(n_e * e^2 / (epsilon_0 * m_e)). Use exactly these constants: e = 1.602 x 10^-19 C, epsilon_0 = 8.854 x 10^-12 F/m, m_e = 9.109 x 10^-31 kg. Express the answer in GHz (1 GHz = 10^9 Hz) and round to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words, no powers of ten.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "16.5545"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.07",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A diffuse plasma has electron number density n_e = 8.5 x 10^16 m^-3 and electron temperature T_e = 1.8 x 10^5 K. Compute the electron Debye length lambda_D = sqrt(epsilon_0 * k_B * T_e / (n_e * e^2)). Use exactly these constants: epsilon_0 = 8.854 x 10^-12 F/m, k_B = 1.381 x 10^-23 J/K, e = 1.602 x 10^-19 C. Express the answer in MICROMETERS (1 micrometer = 10^-6 m) and round to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words, no powers of ten.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "100.446"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.08",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "An electron with relativistic kinetic energy K = 2.75 MeV moves perpendicular to a uniform magnetic field B = 0.68 T. Its gyroradius is r = p/(e*B), where p is the relativistic momentum. First obtain the momentum from the relativistic energy-momentum relation: (pc)^2 = K^2 + 2*K*(m_e c^2), using the electron rest energy m_e c^2 = 0.5110 MeV exactly. Then convert: 1 MeV = 1.602 x 10^-13 J, e = 1.602 x 10^-19 C, c = 299792458 m/s (so p in SI units is pc_in_joules / c). Compute the gyroradius r, express it in MILLIMETERS, and round to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words, no powers of ten.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "15.7987"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.09",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Evaluate the improper integral I = INTEGRAL from 0 to infinity of [ (e^(-3x) - e^(-8x)) * cos(5x) / x ] dx. The integral converges; derive its exact closed form (a Frullani-type / differentiation-under-the-integral-sign argument works), then evaluate that closed form numerically. Round the final value to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no symbols, no words, no fractions.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.481138"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.10",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Solve the initial value problem y'' + 6y' + 25y = 0 with y(0) = 3 and y'(0) = -2, where primes denote derivatives with respect to t. Find the exact solution, then numerically evaluate y at t = 0.35. Carry enough precision in the exponential and trigonometric evaluations to round correctly, and round the final value to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no symbols, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.7819"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.11",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "On the surface of a sphere, a spherical triangle has vertex angles and sides measured as arcs of great circles. Two of its sides are b = 74.3 degrees and c = 51.8 degrees, and the angle included between them (at vertex A) is A = 63.4 degrees. Using the spherical law of cosines for sides, cos(a) = cos(b)cos(c) + sin(b)sin(c)cos(A), compute the third side a in DEGREES. Carry full precision through the trigonometric evaluations and round the final value to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no degree symbol, no units, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "59.596"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.frontier.12",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A tetrahedron has vertices K, L, M, N with these exact edge lengths: KL = 9, KM = 10, KN = 8, LM = 11, LN = 7, MN = 12 (all in the same length unit; the tetrahedron is non-degenerate). Compute its volume - for example via the Cayley-Menger determinant, 288 V^2 = det [[0,1,1,1,1],[1,0,d(KL)^2,d(KM)^2,d(KN)^2],[1,d(KL)^2,0,d(LM)^2,d(LN)^2],[1,d(KM)^2,d(LM)^2,0,d(MN)^2],[1,d(KN)^2,d(LN)^2,d(MN)^2,0]], or by placing coordinates. Round the volume to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no units, no words, no radicals.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "83.5165"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

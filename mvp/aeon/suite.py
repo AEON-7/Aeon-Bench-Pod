@@ -70,40 +70,48 @@ _BUILTIN = [
      ]}},
 ]
 
-# The large, diverse corpus (generated + adversarially verified) lives in
-# suites/cases.json. We fold it in on top of the built-ins (which keep the mock
-# pipeline meaningful). A missing/malformed file degrades gracefully to built-ins.
+# The corpus (generated + adversarially verified; every gold answer independently
+# re-derived and executed through the real evaluators before admission) lives in
+# suites/cases.json — built by suites/build_all_cases.py from suites/v3/*.json.
+# v3 design: 150 cases, 5 categories x 5 difficulty tiers with an exponential hard
+# skew (easy 2 / medium 3 / hard 5 / expert 8 / frontier 12 per category). easy+medium
+# are CANARIES (is the model configured right / can a weak model score at all); the
+# ranking signal lives in hard->frontier, which is 83% of the suite by count.
+# When the corpus is healthy it IS the whole suite (exactly 150). The tiny _BUILTIN
+# set is a FALLBACK only — a missing/malformed corpus degrades to built-ins so the
+# mock pipeline still works, never a half-merged hybrid.
 _CASES_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "suites", "cases.json")
 _REQUIRED = ("id", "category", "tier", "prompt", "eval")
 
 
 def _load_cases():
-    cases = list(_BUILTIN)
-    seen = {c["id"] for c in cases}
     try:
         if os.path.exists(_CASES_FILE):
             with open(_CASES_FILE, "r", encoding="utf-8") as f:
-                extra = json.load(f)
-            for c in extra:
+                corpus = json.load(f)
+            cases, seen = [], set()
+            for c in corpus:
                 if not isinstance(c, dict) or not all(k in c for k in _REQUIRED):
                     continue
                 if c["id"] in seen:
                     continue
                 seen.add(c["id"])
                 cases.append(c)
+            if cases:
+                return cases
     except Exception:
         pass  # never let a bad corpus file break the server — fall back to built-ins
-    return cases
+    return list(_BUILTIN)
 
 
 CASES = _load_cases()
 
 # fixed order drives the radar axes; every generated category maps to one of these
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
-SUITE_ID = "aeon-suite-v2" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
+SUITE_ID = "aeon-suite-v3" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
 
 
-DIFFICULTIES = ["easy", "medium", "hard", "expert"]
+DIFFICULTIES = ["easy", "medium", "hard", "expert", "frontier"]
 
 
 def _grid():

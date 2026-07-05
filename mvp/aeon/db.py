@@ -579,6 +579,30 @@ def all_results_with_runs(board="text"):
         return out
 
 
+def perf_results():
+    """Flat join for the PERFORMANCE board. Perf cells keep their metrics in evidence_json
+    (TTFT/TPOT/tok-s per scope × concurrency), so this variant selects it too."""
+    with connect() as c:
+        rows = c.execute(
+            """SELECT r.run_id, r.case_id, r.status, r.evidence_json,
+                      ru.model, ru.id AS run, ru.started_at,
+                      ru.hf_repo, ru.model_verified,
+                      COALESCE(ru.trust_tier, 'self_reported') AS trust_tier, ru.suite_id,
+                      COALESCE(ru.canonical_id, ru.model) AS canonical_id
+                 FROM results r JOIN runs ru ON ru.id = r.run_id
+                WHERE ru.status = 'succeeded' AND COALESCE(ru.flagged,0) = 0 AND r.board = 'perf'"""
+        ).fetchall()
+        out = []
+        for x in rows:
+            d = dict(x)
+            try:
+                d["evidence"] = json.loads(d.pop("evidence_json") or "{}")
+            except Exception:
+                d["evidence"] = {}
+            out.append(d)
+        return out
+
+
 # ---- arena artifacts ----
 
 def save_artifact(aid, *, kind, prompt_id, model, html, ok=True, gen_ms=None, bogus=False):
@@ -926,6 +950,16 @@ def user_for_token(token):
 def delete_session(token):
     with connect() as c:
         c.execute("DELETE FROM arena_sessions WHERE token=?", (token,))
+
+
+def delete_user_sessions(user_id, except_token=None):
+    """Invalidate all of a user's bearer sessions (e.g. on a password change, so other devices are
+    logged out). If except_token is given, that one session survives so the caller stays signed in."""
+    with connect() as c:
+        if except_token:
+            c.execute("DELETE FROM arena_sessions WHERE user_id=? AND token<>?", (user_id, except_token))
+        else:
+            c.execute("DELETE FROM arena_sessions WHERE user_id=?", (user_id,))
 
 
 def user_stats(uid):

@@ -612,6 +612,31 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .sub-meta h3 { margin: 0 0 4px; }
 .sub-actions { margin: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .sub-cases { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+/* Performance board: concurrency curves + category heatmap + harness comparison */
+.perf-models, .perf-mets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.perf-chip { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.perf-chip:hover { border-color: var(--border-strong); }
+.perf-chip.on { border-color: #5ee0ff; color: #5ee0ff; background: rgba(94, 224, 255, .07); }
+.perf-grid2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; margin-top: 10px; }
+@media (max-width: 980px) { .perf-grid2 { grid-template-columns: 1fr; } }
+.perf-card { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--well); padding: 12px 14px; min-width: 0; }
+.perf-h3 { margin: 10px 0 6px; font-size: 14px; }
+.perf-h3 .micro { color: var(--faint); font-weight: 400; }
+.perf-svg { width: 100%; height: auto; display: block; }
+.perf-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 2px 0 6px; font-size: 11px; color: var(--muted); }
+.perf-lg { display: inline-flex; align-items: center; gap: 5px; }
+.perf-lg i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.perf-heat { border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 12px; width: 100%; }
+.perf-heat th { color: var(--muted); font-weight: 600; padding: 5px 8px; text-align: left; font-family: inherit; }
+.perf-heat td { padding: 6px 8px; border: 1px solid var(--bg); color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+.perf-heat td.ph-na { color: var(--faint); text-align: center; }
+.perf-harnesst { margin-top: 4px; max-width: 640px; }
+
+/* Replicate-this-serve card: the attested docker startup flags, copy-pasteable */
+.sub-repro { border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--panel2); padding: 10px 12px; margin-top: 10px; }
+.repro-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.repro-cmd { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.55; background: var(--well); border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; white-space: pre; }
+.repro-copy.copied { color: var(--good); border-color: var(--good); }
 .sub-case { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--well); padding: 10px 12px; }
 .sub-case-h { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-bottom: 6px; }
 .sub-score { font-weight: 700; font-family: ui-monospace, monospace; }
@@ -774,6 +799,41 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 #arenaRank td.rank { color: var(--faint); width: 36px; }
 #arenaRank tr.top td, #arenaRank tr.top td b { color: var(--text); }
 #arenaRank tr.top td:first-child { color: var(--r1); font-weight: 700; }
+
+/* ---------------------------------------------------------------- code gallery */
+.gal-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+.gal-sec { margin-top: 20px; }
+.gal-sec:first-child { margin-top: 8px; }
+.gal-title { margin: 0 0 8px; font-size: 15px; text-align: left; }
+.gal-title .note { font-weight: 400; font-size: 12px; }
+.gal-row { display: grid; grid-auto-flow: column; grid-auto-columns: 210px; gap: 12px;
+  overflow-x: auto; padding-bottom: 8px; }
+.gal-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-m);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+.gal-card:hover { border-color: var(--border-strong); }
+/* rank #1 — the subtle gold of the rank metals, spent on the top card only */
+.gal-card.first { border-color: rgba(232, 194, 104, .5); box-shadow: 0 0 14px rgba(232, 194, 104, .08); }
+.gal-card.first .gal-rank { color: var(--r1); }
+.gal-card-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gal-rank { font-weight: 800; font-size: 12px; color: var(--faint); flex: none; }
+.gal-ava .model-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
+.gal-model { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.gal-stats { display: flex; align-items: baseline; gap: 8px; min-height: 19px; font-size: 12px; }
+.gal-elo { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
+.gal-wlt { color: var(--muted); font-size: 11px; }
+.gal-unrated { color: var(--faint); font-size: 11px; border: 1px solid var(--line);
+  border-radius: var(--r-pill); padding: 1px 8px; }
+.gal-acts { margin-top: auto; display: flex; gap: 6px; }
+.gal-acts .ghost { font-size: 11px; padding: 4px 9px; text-decoration: none; }
+a.gal-dl:hover { border-color: var(--accent); color: var(--accent); }
+/* preview overlay: wider than the standard modal card — it hosts a live artifact */
+.gal-view { width: min(920px, 94vw); }
+.gal-view-h { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding-right: 26px;
+  font-size: 13px; min-width: 0; }
+.gal-view-h .mono { color: var(--muted); overflow-wrap: anywhere; }
+.gal-view-h .ghost { margin-left: auto; flex: none; font-size: 12px; text-decoration: none; }
+.gal-frame { width: 100%; height: min(62vh, 560px); border: 1px solid var(--line);
+  border-radius: var(--r-s); background: #0b0b14; display: block; }
 
 /* ---------------------------------------------------------------- admin */
 #evalTable { width: 100%; border-collapse: collapse; }

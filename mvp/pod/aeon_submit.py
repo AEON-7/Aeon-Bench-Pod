@@ -21,6 +21,7 @@ import argparse
 import base64
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -28,6 +29,13 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 DEFAULT_KEY = os.path.expanduser("~/.aeon/device_key.pem")
+
+# Transient statuses to retry (edge/Cloudflare/WAF/mothership blips) — a one-off failure must NOT
+# discard an entire completed benchmark run. 403 is retried too: the observed failure was a transient
+# CF 403 on the enroll GET; a genuine app-403 (e.g. NOT_ATTESTED) just costs a few short retries then
+# surfaces to the caller with its body intact.
+_RETRY_CODES = {403, 408, 425, 429, 500, 502, 503, 504}
+_UA = "aeon-pod/1.0 (+https://aeon-bench.com)"
 
 
 def _canon(obj) -> bytes:
@@ -63,19 +71,39 @@ class Pod:
     def _sign(self, data: bytes) -> str:
         return base64.b64encode(self.sk.sign(data)).decode()
 
+    def _open(self, req, timeout, retries=5):
+        """urlopen with backoff retry on transient statuses + network errors, so a passing edge/WAF
+        blip never discards a completed run. Re-raises the final error if all attempts fail — a
+        genuine 4xx still surfaces, a persistent outage still errors."""
+        last = None
+        for attempt in range(retries):
+            try:
+                return urllib.request.urlopen(req, timeout=timeout)
+            except urllib.error.HTTPError as e:
+                last = e
+                if e.code not in _RETRY_CODES or attempt == retries - 1:
+                    raise
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = e
+                if attempt == retries - 1:
+                    raise
+            time.sleep(min(2 ** attempt, 20))            # 1, 2, 4, 8, 16 s
+        raise last
+
     def _get(self, path):
-        with urllib.request.urlopen(self.base + path, timeout=15) as r:
+        req = urllib.request.Request(self.base + path, headers={"User-Agent": _UA})
+        with self._open(req, 20) as r:
             return json.loads(r.read())
 
     def _post(self, path, obj, headers=None):
         req = urllib.request.Request(
             self.base + path, data=json.dumps(obj).encode(),
-            headers={"Content-Type": "application/json", **(headers or {})}, method="POST")
+            headers={"Content-Type": "application/json", "User-Agent": _UA, **(headers or {})}, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with self._open(req, 120) as r:               # 120s: large signed bundles over the tunnel
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read())
+            return e.code, json.loads(e.read())           # genuine app error after retries -> code+body
 
     def enroll(self):
         ch = self._get("/api/v1/enroll/challenge")["challenge"]

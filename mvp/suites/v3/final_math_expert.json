@@ -1,0 +1,130 @@
+[
+ {
+  "id": "v3.math.expert.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A starship departs Earth and travels in a straight line to a beacon 11.83 light-years away (distance measured in Earth's rest frame) at a constant speed of 0.9642c. It turns around instantaneously and returns to Earth along the same path at a constant speed of 0.7716c. Ignore all acceleration phases and any time spent at the beacon. Compute the total elapsed time for the round trip as measured (a) by Earth clocks and (b) by the ship's own clock, and report the DIFFERENCE (Earth time minus ship proper time) in years. You do not need a numeric value of c: work in years and light-years, where speeds are given as fractions of c. Round the final difference to exactly 3 decimal places and put ONLY that rounded number inside \\boxed{} (no units, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "14.595"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A newly surveyed rocky exoplanet, Vel-Karrin b, is modeled as a uniform-density sphere with density rho = 4870 kg/m^3 and radius R = 3.41e6 m. Its gravitational self-binding energy (the energy required to disperse all its mass to infinity) is U = 3*G*M^2/(5*R), where M is the planet's total mass. Use exactly G = 6.674e-11 m^3 kg^-1 s^-2 and pi as given by your best available precision. First compute M from the density and radius, then compute U. Express U as U = x * 10^30 J and report the coefficient x. Round x to exactly 3 decimal places and put ONLY that rounded number inside \\boxed{} (no units, no power of ten, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "7.683"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.03",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A probe orbits the star Ondrel-4 (mass M = 3.2e30 kg) in a circular orbit of radius r1 = 7.8e10 m and must be sent to a coplanar circular orbit of radius r2 = 2.1e11 m via a Hohmann transfer (an elliptical transfer orbit tangent to both circles, so its semi-major axis is a = (r1 + r2)/2). Use exactly G = 6.674e-11 m^3 kg^-1 s^-2. Compute the transfer time, i.e. HALF the period of the transfer ellipse from Kepler's third law T = 2*pi*sqrt(a^3/(G*M)), and convert it to days using exactly 1 day = 86400 s. Round the transfer time in days to exactly 2 decimal places and put ONLY that rounded number inside \\boxed{} (no units, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "135.96"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.04",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "In the edge region of the experimental Torvane-C discharge, the electron temperature is T_e = 3.1e5 K and the electron number density is n_e = 5.7e16 m^-3. Compute the electron Debye length lambda_D = sqrt(epsilon_0 * k_B * T_e / (n_e * e^2)). Use exactly these constants: epsilon_0 = 8.854e-12 F/m, k_B = 1.381e-23 J/K, e = 1.602e-19 C. Convert the result to micrometers (1 m = 1e6 micrometers). Round the Debye length in micrometers to exactly 3 decimal places and put ONLY that rounded number inside \\boxed{} (no units, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "160.971"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.05",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "In a magnetized laboratory plasma the electron number density is n_e = 5.3e17 m^-3 and the magnetic field strength is B = 0.37 T. Compute (a) the electron plasma frequency f_pe = (1/(2*pi)) * sqrt(n_e * e^2 / (epsilon_0 * m_e)) in Hz, (b) the electron cyclotron frequency f_ce = e*B/(2*pi*m_e) in Hz, and then (c) the dimensionless ratio f_pe / f_ce. Use exactly these constants: e = 1.602e-19 C, epsilon_0 = 8.854e-12 F/m, m_e = 9.109e-31 kg. Round the ratio f_pe/f_ce to exactly 3 decimal places and put ONLY that rounded number inside \\boxed{} (no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.631"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.06",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Evaluate the improper definite integral I = \\int_0^\\infty x * e^(-3x) * cos(5x) dx exactly (it has a closed form as a rational number), then convert it to a decimal. Round the decimal value to exactly 5 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no fractions, no other digits). Note the answer is negative; include the minus sign inside the box.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-0.01384"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.07",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Solve the initial value problem y'' - 6y' + 25y = 0 with y(0) = 3 and y'(0) = -2, where primes denote derivatives with respect to x. Find the exact solution, then evaluate y at x = 0.4 (all trigonometric arguments in radians). Round y(0.4) to exactly 3 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation; the answer is negative, include the minus sign inside the box; no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-9.417"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.expert.08",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A spherical triangle on the surface of a sphere has sides (great-circle arcs) of angular length a = 47.3 degrees, b = 62.8 degrees, and c = 71.9 degrees. Using the spherical law of cosines, cos(a) = cos(b)cos(c) + sin(b)sin(c)cos(A) (and its cyclic permutations), solve for all three interior angles A, B, C in degrees, then compute the spherical excess E = A + B + C - 180 degrees. Carry at least 8 significant figures through the intermediate angle computations. Round E (in degrees) to exactly 3 decimal places and put ONLY that rounded number inside \\boxed{} (no units, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "29.924"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

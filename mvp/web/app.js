@@ -541,6 +541,7 @@ function renderAuth() {
       : `<span class="ev-badge pending" title="cast a few honest votes to verify your account">verifying…</span>`;
     html = `<span class="ev-who">▣ <b>${escH(u.username)}</b></span> ${badge} ` +
       `<span class="ev-credit">${u.counted} counted · ${u.votes} cast</span> ` +
+      `<button class="ghost ev-pw" id="evPw">change password</button> ` +
       `<button class="ghost ev-out" id="evLogout">log out</button>`;
   } else {
     html = `<button class="primary ev-in" id="evSignin">sign in / sign up</button>`;
@@ -549,6 +550,7 @@ function renderAuth() {
   if (hdr) hdr.innerHTML = html;
   const ab = $("#arenaAuth"); if (ab) ab.innerHTML = "";   // auth lives in the header now
   const lo = $("#evLogout"); if (lo) lo.onclick = logout;
+  const cp = $("#evPw"); if (cp) cp.onclick = openPwModal;
   const si = $("#evSignin"); if (si) si.onclick = () => openAuth("login");
 }
 
@@ -638,6 +640,37 @@ async function authSubmit() {
     return;
   } catch (e) { $("#authErr").textContent = "network error"; }
   finally { $("#authSubmit").disabled = false; }
+}
+
+function openPwModal() {
+  if (!AUTH.user) return;
+  $("#pwWho").textContent = AUTH.user.username;
+  $("#pwCurrent").value = ""; $("#pwNew").value = "";
+  $("#pwErr").textContent = "";
+  const n = $("#pwNew"); if (n) n.type = "password";
+  const sh = $("#pwShow"); if (sh) sh.textContent = "show";
+  $("#pwModal").hidden = false;
+  setTimeout(() => $("#pwCurrent").focus(), 30);
+}
+function closePwModal() {
+  $("#pwModal").hidden = true;
+  const b = $("#evPw"); if (b) b.focus();
+}
+async function pwSubmit() {
+  const current_password = $("#pwCurrent").value, new_password = $("#pwNew").value;
+  $("#pwErr").textContent = ""; $("#pwSubmit").disabled = true;
+  try {
+    const r = await fetch("/api/auth/password", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { $("#pwErr").textContent = data.error || "failed"; return; }
+    $("#pwErr").innerHTML = `<span class="ok">✓ password updated</span>`;
+    setTimeout(closePwModal, 900);
+  } catch (e) { $("#pwErr").textContent = "network error"; }
+  finally { $("#pwSubmit").disabled = false; }
 }
 
 async function logout() {
@@ -814,6 +847,101 @@ function renderRanking(rows) {
   $("#arenaRankNote").textContent = games ? `· ${games / 2 | 0} matchups counted` : "";
 }
 async function loadRanking() { try { const r = await api("/api/arena/ranking?kind=" + ARENA.kind); renderRanking(r.ranking); } catch (e) {} }
+
+// ---- Code Gallery (public: top-rated artifacts per prompt + full-source download) ----
+const GAL = { kind: "game" };
+const GAL_KINDS = [["game", "Games"], ["app", "Apps"], ["animation", "Animations"]];
+
+function setGallery() {
+  active = "gallery";
+  $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.gallery));
+  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  const gp = $("#galleryPanel"); if (gp) gp.hidden = false;
+  { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  renderGalKinds();
+  loadGallery(GAL.kind);
+}
+
+function renderGalKinds() {
+  $("#galKinds").innerHTML = GAL_KINDS.map(([k, label]) =>
+    `<button class="chip gal-kind${GAL.kind === k ? " on" : ""}" data-kind="${k}">${label}</button>`).join("");
+  $$("#galKinds .gal-kind").forEach((b) => b.onclick = () => {
+    GAL.kind = b.dataset.kind; renderGalKinds(); loadGallery(GAL.kind);
+  });
+}
+
+async function loadGallery(kind) {
+  $("#galleryBody").innerHTML = skel(6, 40);
+  let d;
+  try { d = await api("/api/arena/gallery?kind=" + encodeURIComponent(kind)); }
+  catch (e) {
+    $("#galleryBody").innerHTML = `<p class="board-empty"><b class="err">✗ link down</b> — could not load the gallery. ` +
+      `<button class="ghost" id="galRetry">↻ retry</button></p>`;
+    const rb = $("#galRetry"); if (rb) rb.onclick = () => loadGallery(GAL.kind);
+    return;
+  }
+  if (GAL.kind !== kind) return;                   // sub-tab changed while loading — abandon
+  renderGallery(d);
+}
+
+function renderGallery(d) {
+  const prompts = d.prompts || [];
+  if (!prompts.length) {
+    $("#galleryBody").innerHTML = `<p class="board-empty">Nothing in <b>${escH(d.label || d.kind)}</b> yet — ` +
+      `artifacts appear here as pods submit generations and evaluators vote in the arena.</p>`;
+    return;
+  }
+  // one section per prompt; a horizontal strip of top-10 cards. Previews are NEVER
+  // rendered inline (30 live iframes would be a resource bomb) — only on click, in the
+  // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
+  $("#galleryBody").innerHTML = prompts.map((p) =>
+    `<div class="gal-sec">
+      <h3 class="gal-title">${escH(p.title)} <span class="note">${escH(p.brief)}</span></h3>
+      <div class="gal-row">` + (p.artifacts || []).map((a, i) => {
+      const stats = a.unrated
+        ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
+        : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+      return `<div class="gal-card${i === 0 && !a.unrated ? " first" : ""}">
+        <div class="gal-card-h">
+          <span class="gal-rank mono">#${i + 1}</span>
+          <a class="model-creator gal-ava" data-meta="${escA(a.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+            <img class="model-avatar" data-meta-avatar="${escA(a.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
+          <span class="gal-model" title="${escA(a.model)}">${fmtModel(a.model)}</span>
+        </div>
+        <div class="gal-stats">${stats}</div>
+        <div class="gal-acts">
+          <button class="ghost gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">▶ preview</button>
+          <a class="ghost gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">⬇ code</a>
+        </div>
+      </div>`;
+    }).join("") + `</div></div>`).join("");
+  $$("#galleryBody .gal-prev").forEach((b) =>
+    b.onclick = () => openGalPreview(b.dataset.id, b.dataset.title, b.dataset.model));
+  [...new Set(prompts.flatMap((p) => (p.artifacts || []).map((a) => a.model)))].forEach((model) => {
+    const cached = META.get(model);                // hydrate creator avatars (same as the board)
+    if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
+  });
+}
+
+// Preview overlay: the artifact runs in a SANDBOXED iframe (same sandbox attrs as the
+// match view — allow-scripts, NO allow-same-origin) and is lazy-fetched only on click.
+async function openGalPreview(aid, title, model) {
+  $("#galViewTitle").innerHTML = `<b>${escH(title)}</b> — <span class="mono">${escH(model)}</span>`;
+  $("#galViewDl").href = "/api/arena/download/" + encodeURIComponent(aid);
+  $("#galFrame").srcdoc = loadingFrame("compiling artifact…");
+  $("#galModal").hidden = false;
+  try {
+    const r = await fetch("/api/arena/render?artifact_id=" + encodeURIComponent(aid));
+    const a = r.ok ? await r.json() : null;
+    if ($("#galModal").hidden) return;             // closed while loading — don't resurrect it
+    $("#galFrame").srcdoc = (a && a.html) || blankFrame("failed to load");
+  } catch (e) { if (!$("#galModal").hidden) $("#galFrame").srcdoc = blankFrame("failed to load"); }
+}
+function closeGalPreview() {
+  $("#galModal").hidden = true;
+  $("#galFrame").srcdoc = blankFrame("");          // unload the artifact — stop its scripts
+}
 
 // ---- admin (integrity + moderation; tab visible only to AEON_ADMIN_USERS) ----
 async function setAdmin() {
@@ -1073,6 +1201,16 @@ function renderSubmissionDetail(d) {
       <a class="mlink" href="${escA(d.manifest_url)}" target="_blank">signed manifest ↗</a></div>
     <div class="sub-actions">${flagBtn} ${rejudge}</div>
     ${r.flag_reason ? `<div class="note err" style="text-align:left">flag reason: ${escH(r.flag_reason)}</div>` : ""}</div>`;
+  // Replicate-this-serve card: the exact docker startup flags behind this result, copy-pasteable.
+  // Startup/flag optimization moves real performance per model — this is the attested config.
+  const rp = d.reproduction || {};
+  const cmdText = rp.docker_run || rp.docker_run_assembled;
+  const repro = !cmdText ? "" : `<div class="sub-repro">
+    <div class="repro-h"><b>⚙ Replicate this serve</b>
+      <button class="ghost repro-copy" id="reproCopy">copy command</button></div>
+    <div class="note" style="text-align:left">${rp.hardware_detected ? `benched on <b>${escH(rp.hardware_detected)}</b> · ` : ""}engine <b>${escH(rp.engine || "—")}</b>${rp.engine_version ? ` <span class="mono">${escH(rp.engine_version)}</span>` : ""}${rp.spec_decode ? ` · spec-decode <b>${escH(rp.spec_decode)}</b> <span class="micro">(lossless — speed only)</span>` : ""}${rp.weights_hash ? ` · weights <span class="mono">${escH(String(rp.weights_hash).slice(0, 16))}…</span>` : ""}<br>
+      Same model, same settings, minus the bench. Adjust <span class="mono">$DRAFTER_DIR</span> and <span class="mono">--gpu-memory-utilization</span> for your hardware.</div>
+    <pre class="repro-cmd" id="reproCmd">${escH(cmdText)}</pre></div>`;
   const cases = (d.cases || []).map((c) => {
     const sc = c.score == null ? (c.status === "tier1_pending" ? "pending" : "—") : (c.score * 100).toFixed(0);
     const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
@@ -1095,7 +1233,13 @@ function renderSubmissionDetail(d) {
       <div class="sub-a"><b>answered:</b><pre>${escH(c.answer)}</pre></div>
       <div class="sub-r"><b>judgement:</b> ${_rationale(c)}</div></div>`;
   }).join("");
-  $("#subsDetail").innerHTML = meta + `<div class="sub-cases">${cases}</div>`;
+  $("#subsDetail").innerHTML = meta + repro + `<div class="sub-cases">${cases}</div>`;
+  const rc = $("#reproCopy");
+  if (rc) rc.onclick = async () => {
+    try { await navigator.clipboard.writeText(cmdText); } catch (e) { return; }
+    rc.textContent = "✓ copied"; rc.classList.add("copied");
+    setTimeout(() => { rc.textContent = "copy command"; rc.classList.remove("copied"); }, 1400);
+  };
   const fb = $("#subFlag"); if (fb) fb.onclick = () => _flagRun(r.id, true);
   const ub = $("#subUnflag"); if (ub) ub.onclick = () => _flagRun(r.id, false);
   const rj = $("#subRejudge"); if (rj) rj.onclick = () => _rejudgeRun(r.id);
@@ -1118,6 +1262,135 @@ function setBoard(name) {
   active = name;
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.board === name));
   loadBoard();
+}
+
+// ---- Performance board: concurrency sweep (TTFT / TPOT / tok-s × prompt category) ----
+let PERF = null;
+let PERF_SEL = { model: null, metric: "agg_decode_tps" };
+const PERF_METRICS = [
+  ["agg_decode_tps", "tok/s aggregate", "higher", "total generated tokens per second across all concurrent streams"],
+  ["decode_tps", "tok/s per stream", "higher", "mean single-stream decode speed"],
+  ["ttft_ms", "TTFT ms", "lower", "time to first token"],
+  ["tpot_ms", "TPOT ms", "lower", "inter-token latency once decoding (ms per output token)"],
+];
+const PERF_COLORS = { overall: "#e3e3ee", Math: "#5ee0ff", Coding: "#7dff9a", Reasoning: "#ffd166", Instruction: "#ff8fa3", Prose: "#c39bff" };
+
+async function setPerf() {
+  active = "perf";
+  $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.perf));
+  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
+   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  const pp = $("#perfPanel"); if (pp) pp.hidden = false;
+  { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  $("#perfBody").innerHTML = skel(6, 18);
+  try { PERF = await api("/api/perf/board"); } catch (e) { PERF = null; }
+  if (!PERF || !(PERF.models || []).length) {
+    $("#perfBody").innerHTML = `<p class="note" style="text-align:left">No performance runs yet — the pod submits an <span class="mono">aeon-perf-v1</span> grid with every comprehensive benchmark.</p>`;
+    return;
+  }
+  if (!PERF_SEL.model || !PERF.models.find((m) => m.canonical === PERF_SEL.model)) PERF_SEL.model = PERF.models[0].canonical;
+  renderPerf();
+}
+
+function _pfv(v) {           // compact numeric formatting for chart labels / heat cells
+  if (v == null) return "—";
+  return v >= 100 ? Math.round(v).toString() : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+}
+function _pcell(m, conc, cat) {
+  return (m.direct[conc] || {})[cat === "overall" ? "overall" : cat.toLowerCase()] || null;
+}
+
+function _perfCurves(m, metric) {
+  const concs = (m.conc_levels || []).filter((c) => m.direct[c]);
+  if (!concs.length) return `<p class="note" style="text-align:left">no direct grid in this run</p>`;
+  const cats = ["overall", ...PERF.categories];
+  const W = 560, H = 300, PL = 56, PB = 34, PT = 14, PR = 14;
+  const xs = (i) => PL + (W - PL - PR) * (concs.length === 1 ? 0.5 : i / (concs.length - 1));
+  let vmax = 0;
+  const series = cats.map((cat) => ({ cat, pts: concs.map((c) => {
+    const cell = _pcell(m, c, cat); const v = cell ? cell[metric] : null;
+    if (v != null && v > vmax) vmax = v;
+    return v;
+  }) }));
+  if (!(vmax > 0)) return `<p class="note" style="text-align:left">this metric wasn't captured by the pod build that ran this grid — it populates on the next benchmark</p>`;
+  const ys = (v) => PT + (H - PT - PB) * (1 - v / vmax);
+  const gy = [0, .25, .5, .75, 1].map((f) => { const v = vmax * f, y = ys(v);
+    return `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}" stroke="#262640" stroke-width="1"/>` +
+      `<text x="${PL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#9494b8" font-size="10">${_pfv(v)}</text>`; }).join("");
+  const gx = concs.map((c, i) => `<text x="${xs(i).toFixed(1)}" y="${H - PB + 18}" text-anchor="middle" fill="#9494b8" font-size="11">c${c}</text>`).join("");
+  const lines = series.map(({ cat, pts }) => {
+    const col = PERF_COLORS[cat] || "#8888aa";
+    const path = pts.map((v, i) => v == null ? null : `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).filter(Boolean).join(" ");
+    if (!path) return "";
+    const dots = pts.map((v, i) => v == null ? "" :
+      `<circle cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="${cat === "overall" ? 3.4 : 2.4}" fill="${col}"><title>${escH(cat)} c${concs[i]}: ${_pfv(v)}</title></circle>`).join("");
+    return `<polyline points="${path}" fill="none" stroke="${col}" stroke-width="${cat === "overall" ? 3 : 1.6}" opacity="${cat === "overall" ? 1 : .85}"/>` + dots;
+  }).join("");
+  const legend = cats.map((cat) => `<span class="perf-lg"><i style="background:${PERF_COLORS[cat] || "#8888aa"}"></i>${escH(cat)}</span>`).join("");
+  return `<div class="perf-legend">${legend}</div>` +
+    `<svg viewBox="0 0 ${W} ${H}" class="perf-svg" role="img" aria-label="metric vs concurrency by category">${gy}${gx}${lines}</svg>`;
+}
+
+function _perfHeat(m, metric, better) {
+  const concs = (m.conc_levels || []).filter((c) => m.direct[c]);
+  const cats = [...PERF.categories, "overall"];
+  const vals = [];
+  cats.forEach((cat) => concs.forEach((c) => { const cell = _pcell(m, c, cat); if (cell && cell[metric] != null) vals.push(cell[metric]); }));
+  if (!vals.length) return "";
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const cell = (v) => {
+    if (v == null) return `<td class="ph-na">—</td>`;
+    let t = hi === lo ? 1 : (v - lo) / (hi - lo);
+    if (better === "lower") t = 1 - t;                        // brighter ALWAYS means better
+    return `<td style="background:rgba(94,224,255,${(0.08 + 0.5 * t).toFixed(3)})">${_pfv(v)}</td>`;
+  };
+  return `<table class="perf-heat"><thead><tr><th></th>${concs.map((c) => `<th>c${c}</th>`).join("")}</tr></thead><tbody>` +
+    cats.map((cat) => `<tr><th>${escH(cat)}</th>${concs.map((c) => { const x = _pcell(m, c, cat); return cell(x ? x[metric] : null); }).join("")}</tr>`).join("") +
+    `</tbody></table>`;
+}
+
+function _perfHarness(m) {
+  const hids = Object.keys(m.harness || {});
+  if (!hids.length) return "";
+  const concs = [...new Set(hids.flatMap((h) => Object.keys(m.harness[h]).map(Number)))].sort((a, b) => a - b);
+  const head = `<tr><th>harness</th>${concs.map((c) => `<th>c${c} tasks/min</th>`).join("")}<th>slowest prompt type</th></tr>`;
+  const rows = hids.map((h) => {
+    const cells = concs.map((c) => {
+      const ov = ((m.harness[h] || {})[c] || {}).overall;
+      return `<td>${ov && ov.tasks_per_min != null ? _pfv(ov.tasks_per_min) : "—"}</td>`;
+    }).join("");
+    const lv = m.harness[h][concs[0]] || {};
+    let worst = null;
+    Object.entries(lv).forEach(([scope, x]) => {
+      if (scope !== "overall" && x && x.mean_task_s != null && (!worst || x.mean_task_s > worst[1])) worst = [scope, x.mean_task_s];
+    });
+    return `<tr><th>${escH(h)}</th>${cells}<td>${worst ? `${escH(worst[0])} · ${_pfv(worst[1])}s` : "—"}</td></tr>`;
+  }).join("");
+  return `<h3 class="perf-h3">Through-harness throughput <span class="micro">same model, same 64k serve — harness overhead compared</span></h3>` +
+    `<table class="perf-heat perf-harnesst"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPerf() {
+  const m = PERF.models.find((x) => x.canonical === PERF_SEL.model) || PERF.models[0];
+  const met = PERF_METRICS.find((x) => x[0] === PERF_SEL.metric) || PERF_METRICS[0];
+  const [key, label, better] = met;
+  const chips = PERF.models.map((x) =>
+    `<button class="perf-chip${x.canonical === m.canonical ? " on" : ""}" data-pm="${escA(x.canonical)}">${fmtModel(x.model)}` +
+    `${x.peak_agg_tps != null ? ` <span class="micro">${Math.round(x.peak_agg_tps)} tok/s</span>` : ""}</button>`).join("");
+  const mets = PERF_METRICS.map(([k, lbl, , tip]) =>
+    `<button class="perf-chip met${k === key ? " on" : ""}" data-pk="${k}" title="${escA(tip)}">${lbl}</button>`).join("");
+  $("#perfBody").innerHTML =
+    `<div class="perf-models">${chips}</div>
+     <div class="perf-mets">${mets}<span class="micro">${better === "lower" ? "lower is better" : "higher is better"}</span></div>
+     <div class="perf-grid2">
+       <div class="perf-card"><h3 class="perf-h3">${escH(label)} vs concurrency <span class="micro">by prompt category</span></h3>${_perfCurves(m, key)}</div>
+       <div class="perf-card"><h3 class="perf-h3">category × concurrency <span class="micro">brighter = better</span></h3>${_perfHeat(m, key, better)}</div>
+     </div>
+     ${_perfHarness(m)}
+     <p class="note" style="text-align:left">run <span class="mono">${escH(m.run)}</span> · ${escH(m.trust_tier)} · ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")}</p>`;
+  $$("#perfBody .perf-chip[data-pm]").forEach((b) => b.onclick = () => { PERF_SEL.model = b.dataset.pm; renderPerf(); });
+  $$("#perfBody .perf-chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
 }
 
 // ---- AI Harness evaluation: model × {Hermes, OpenClaw, OpenCode} matrix ----
@@ -1540,12 +1813,14 @@ async function init() {
   });
   $$("#tabs .tab").forEach((t) => t.onclick = () => {
     // hide ALL aux panels first — each setter then reveals its own (fixes panel stacking)
-    ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+    ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#perfPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
     return t.dataset.admin ? setAdmin() : t.dataset.subs ? setSubs(null)
       : t.dataset.harness ? setHarness()
       : t.dataset.compare ? setCompare()
       : t.dataset.live ? setLive()
       : t.dataset.run ? setRun()
+      : t.dataset.gallery ? setGallery()
+      : t.dataset.perf ? setPerf()
       : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
   });
   { const cs = $("#cmpSeed"); if (cs) cs.onchange = () => loadCompare(cs.value); }
@@ -1566,6 +1841,18 @@ async function init() {
   };
   $("#authPass").onkeydown = (e) => { if (e.key === "Enter") authSubmit(); };
   $("#authModal").onclick = (e) => { if (e.target.id === "authModal") closeAuth(); };
+  // change-password modal
+  $("#pwSubmit").onclick = pwSubmit;
+  $("#pwClose").onclick = closePwModal;
+  $("#pwShow").onclick = () => {
+    const p = $("#pwNew"); p.type = p.type === "password" ? "text" : "password";
+    $("#pwShow").textContent = p.type === "password" ? "show" : "hide";
+  };
+  $("#pwNew").onkeydown = (e) => { if (e.key === "Enter") pwSubmit(); };
+  $("#pwModal").onclick = (e) => { if (e.target.id === "pwModal") closePwModal(); };
+  // gallery preview overlay: close on X / backdrop (Esc handled with the other modals below)
+  { const gc = $("#galClose"); if (gc) gc.onclick = closeGalPreview; }
+  { const gm = $("#galModal"); if (gm) gm.onclick = (e) => { if (e.target.id === "galModal") closeGalPreview(); }; }
   // tip jar: header + footer triggers, close on X / backdrop, copy each wallet
   { const tb = $("#tipBtn"); if (tb) tb.onclick = openTip; }
   { const tf = $("#tipBtnFoot"); if (tf) tf.onclick = openTip; }
@@ -1577,6 +1864,7 @@ async function init() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("#tipModal").hidden) { closeTip(); return; }      // Esc closes the tip modal
     if (e.key === "Escape" && !$("#authModal").hidden) { closeAuth(); return; }   // Esc always closes the dialog
+    if (e.key === "Escape" && !$("#galModal").hidden) { closeGalPreview(); return; }  // Esc closes the preview
     const ap = $("#arenaPanel");
     if (!ap || ap.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
     if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;

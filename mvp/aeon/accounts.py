@@ -158,6 +158,33 @@ def login(username, password, ip="unknown"):
     return {"token": _start_session(u["id"]), "user": public_state(u["id"])}
 
 
+def change_password(uid, current_password, new_password, ip="unknown", keep_token=None):
+    """Authenticated password change for the signed-in user `uid`. Verifies the current password
+    (constant-time via _verify_password; throttled per-user AND per-IP so a stolen bearer token
+    can't be used to brute the password for a full takeover), validates + argon2id-rehashes the new
+    one, then invalidates the user's OTHER sessions (keep_token stays valid so the caller isn't
+    logged out). Errors are specific here — the caller is already authenticated, so there is no
+    username to enumerate."""
+    if not _rate_ok("pwchange:" + ip, limit=10, window=60):
+        return {"error": "too many attempts — slow down and try again shortly"}
+    u = db.get_user(uid)
+    if not u:
+        return {"error": "not signed in"}
+    if _too_many_fails("pwc:" + uid, limit=8, window=600) or _too_many_fails("pwcip:" + ip, limit=30, window=600):
+        return {"error": "too many failed attempts — wait a minute and try again"}
+    if not _verify_password(current_password or "", u):
+        _record_fail("pwc:" + uid, "pwcip:" + ip)
+        return {"error": "current password is incorrect"}
+    new_password = new_password or ""
+    if len(new_password) < MIN_PASSWORD:
+        return {"error": f"new password must be at least {MIN_PASSWORD} characters"}
+    if new_password == (current_password or ""):
+        return {"error": "new password must be different from the current one"}
+    db.update_user_password(u["id"], pw_hash=_hash(new_password), pw_salt="")
+    db.delete_user_sessions(u["id"], except_token=keep_token)   # sign out other devices
+    return {"ok": True}
+
+
 def admin_usernames():
     """Admin allowlist from the environment (AEON_ADMIN_USERS=alice,bob). Grant is
     entirely operator-controlled config — no admin bit is stored in the DB."""

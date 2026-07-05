@@ -185,6 +185,75 @@ def leaderboard(suite=None):
     return {"categories": suite_mod.CATEGORIES, "models": board}
 
 
+def perf_board():
+    """PERFORMANCE board: one row per canonical model = its LATEST perf run (suite
+    aeon-perf-v1), unpacked into two grids the dashboard can chart directly:
+      direct[conc][scope]   = {ttft_ms, ttft_p95, tpot_ms, decode_tps, agg_decode_tps, prefill_tps}
+      harness[hid][conc][scope] = {mean_task_s, p95_task_s, tasks_per_min, failures}
+    scope = a prompt category (Math/Coding/...) or 'overall'. Older runs that predate a
+    metric (e.g. TPOT) simply carry null there — the frontend renders gaps honestly."""
+    rows = db.perf_results()
+    by_run = {}
+    for r in rows:
+        by_run.setdefault(r["run"], {
+            "run": r["run"], "model": r["model"],
+            "canonical": r.get("canonical_id") or r["model"],
+            "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
+            "trust_tier": r.get("trust_tier") or "self_reported",
+            "started_at": r["started_at"], "results": []})["results"].append(r)
+    latest = {}
+    for info in by_run.values():                     # newest perf run per canonical model
+        c = info["canonical"]
+        if c not in latest or (info["started_at"] or 0) > (latest[c]["started_at"] or 0):
+            latest[c] = info
+    models = []
+    for c, info in latest.items():
+        direct, harness, concs = {}, {}, set()
+        for x in info["results"]:
+            cid, ev = x.get("case_id") or "", x.get("evidence") or {}
+            parts = cid.split(".")
+            # perf.direct.<scope>.c<N>  |  perf.harness.<hid>[.<scope>].c<N>
+            if len(parts) < 4 or parts[0] != "perf" or not parts[-1].startswith("c"):
+                continue
+            try:
+                conc = int(parts[-1][1:])
+            except ValueError:
+                continue
+            concs.add(conc)
+            if parts[1] == "direct" and len(parts) == 4:
+                direct.setdefault(conc, {})[parts[2]] = {
+                    "ttft_ms": ev.get("ttft_ms_mean"), "ttft_p95": ev.get("ttft_ms_p95"),
+                    "tpot_ms": ev.get("tpot_ms_mean"),
+                    "decode_tps": ev.get("decode_tps_mean"),
+                    "agg_decode_tps": ev.get("agg_decode_tps"),
+                    "prefill_tps": ev.get("prefill_tps_mean"),
+                    "n_errors": ev.get("n_errors"),
+                }
+            elif parts[1] == "harness":
+                hid = parts[2]
+                scope = parts[3] if len(parts) == 5 else "overall"
+                harness.setdefault(hid, {}).setdefault(conc, {})[scope] = {
+                    "mean_task_s": ev.get("mean_task_s"), "p95_task_s": ev.get("p95_task_s"),
+                    "tasks_per_min": ev.get("tasks_per_min"), "failures": ev.get("failures"),
+                }
+        if not direct and not harness:
+            continue
+        # peak aggregate throughput across the ladder = the row's headline + sort key
+        aggs = [(v.get("overall") or {}).get("agg_decode_tps") for v in direct.values()]
+        aggs = [a for a in aggs if isinstance(a, (int, float))]
+        models.append({
+            "model": info["hf_repo"] or info["model"], "canonical": c,
+            "hf_repo": info["hf_repo"], "verified": info["verified"],
+            "trust_tier": info["trust_tier"], "run": info["run"],
+            "started_at": info["started_at"],
+            "conc_levels": sorted(concs),
+            "peak_agg_tps": max(aggs) if aggs else None,
+            "direct": direct, "harness": harness,
+        })
+    models.sort(key=lambda m: -(m["peak_agg_tps"] or 0))
+    return {"categories": suite_mod.CATEGORIES, "models": models}
+
+
 def seed_index(board="text"):
     """Fast-bench seeds seen on this board, each with the models that ran it — drives the
     compare-by-seed picker. A seed run by >=2 models (same suite_hash) is a ready A/B."""

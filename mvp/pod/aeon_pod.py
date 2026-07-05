@@ -292,7 +292,9 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=N
                 finally:
                     shutil.rmtree(wd, ignore_errors=True)
 
-            ht = perf_grid.run_harness_timing(h, target, alias, conc_levels=(1, 4), n_tasks=4, runner=_runner)
+            # full ladder so harness-vs-harness performance is comparable at every level;
+            # n_tasks floors at len(CATEGORIES) per level so each prompt TYPE is timed
+            ht = perf_grid.run_harness_timing(h, target, alias, conc_levels=(1, 4, 8, 16), n_tasks=5, runner=_runner)
             rows += perf_grid.to_results(ht)
             ad.cleanup_run()
             print(f"  [perf] harness {h}: " + json.dumps(ht.get("levels", {}))[:160], flush=True)

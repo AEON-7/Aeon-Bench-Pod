@@ -5,13 +5,17 @@ Runs are executed in a background thread (in-process probe) — faithful to the
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import threading
+import time
 import uuid
+import zipfile
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -124,6 +128,13 @@ def leaderboard(suite: str | None = None):
     """Default = the comprehensive suite. `?suite=aeon-suite-v2-hard` shows a tier board on its own
     (hard runs are a different test and must not average into the comprehensive standing)."""
     return scoring.leaderboard(suite=suite)
+
+
+@app.get("/api/perf/board")
+def perf_board():
+    """PERFORMANCE board: per model, the latest perf run's direct grid (TTFT/TPOT/tok-s per
+    prompt category × concurrency) + through-harness task timing — drives the perf charts."""
+    return scoring.perf_board()
 
 
 @app.get("/api/compare/seeds")
@@ -273,6 +284,11 @@ class AuthBody(BaseModel):
     password: str
 
 
+class PasswordChangeBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
 def _token_of(request: Request):
     auth = request.headers.get("authorization") or ""
     if auth.lower().startswith("bearer "):
@@ -315,6 +331,19 @@ def auth_logout(request: Request):
     return {"ok": True}
 
 
+@app.post("/api/auth/password")
+def auth_change_password(body: PasswordChangeBody, request: Request):
+    u = accounts.user_from_request(request)
+    if not u:
+        return JSONResponse({"error": "not signed in"}, status_code=401)
+    r = accounts.change_password(u["id"], body.current_password, body.new_password,
+                                 accounts.client_ip(request), keep_token=_token_of(request))
+    if "error" in r:
+        code = 429 if "too many" in r["error"] else (401 if "incorrect" in r["error"] else 400)
+        return JSONResponse(r, status_code=code)
+    return r
+
+
 @app.get("/api/arena/prompts")
 def arena_prompts():
     return {"kinds": arena.KINDS, "labels": arena.KIND_LABEL, "prompts": arena.all_prompts()}
@@ -326,11 +355,21 @@ def arena_artifacts(kind: str | None = None, prompt_id: str | None = None):
 
 
 @app.get("/api/arena/render")
-def arena_render(request: Request, match_id: str, side: str):
+def arena_render(request: Request, match_id: str | None = None, side: str | None = None,
+                 artifact_id: str | None = None):
     """Render one side of a match for ITS OWNER only, returning ONLY the html — never
     prompt_id/model/bogus metadata. This is the sole way the client gets artifact
     bodies, so a honeypot decoy cannot be identified before voting and the model
-    identity stays hidden until the vote response reveals it."""
+    identity stays hidden until the vote response reveals it.
+
+    Gallery mode (?artifact_id=): public read of ONE ok, non-bogus artifact body for
+    the Code Gallery's sandboxed preview. Missing, failed and bogus ids all 404
+    identically, so this branch can never be used to probe for honeypot decoys."""
+    if artifact_id:
+        a = db.get_artifact(artifact_id)
+        if not a or a.get("bogus") or not a.get("ok"):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return {"html": a["html"]}
     u = accounts.user_from_request(request)
     if not u:
         return JSONResponse({"error": "sign in"}, status_code=401)
@@ -346,6 +385,54 @@ def arena_render(request: Request, match_id: str, side: str):
 @app.get("/api/arena/ranking")
 def arena_ranking(kind: str | None = None):
     return {"ranking": arena.ranking(kind)}
+
+
+# ---- public Code Gallery (top-rated artifacts per prompt + full-source download) ----
+
+@app.get("/api/arena/gallery")
+def arena_gallery(kind: str):
+    """Per-prompt top artifacts with per-artifact Elo (replaying the same trust-filtered
+    votes as the model ranking). Metadata only — artifact bodies are fetched per click
+    via the sandboxed render route / the zip download below."""
+    if kind not in arena.KINDS:
+        return JSONResponse({"error": "kind must be one of " + "|".join(arena.KINDS)},
+                            status_code=400)
+    return {"kind": kind, "label": arena.KIND_LABEL.get(kind, kind),
+            "prompts": arena.gallery(kind)}
+
+
+@app.get("/api/arena/download/{aid}")
+def arena_download(aid: str):
+    """One gallery artifact as an in-memory ZIP: index.html (the artifact, verbatim) +
+    README.md (provenance). Missing, failed and bogus artifacts all 404 IDENTICALLY —
+    a distinct status for decoys would leak which ids are honeypots."""
+    a = db.get_artifact(aid)
+    if not a or a.get("bogus") or not a.get("ok"):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    p = arena.find_prompt(a["kind"], a["prompt_id"])
+    title = p["title"] if p else a["prompt_id"]
+    r = arena.artifact_ratings(a["kind"]).get(a["id"])
+    rating = (f"Elo {round(r['elo'])} · {r['w']}W-{r['l']}L-{r['t']}T over {r['votes']} counted vote(s)"
+              if r else "unrated (no counted votes yet)")
+    when = time.strftime("%Y-%m-%d", time.gmtime(a["created_at"])) if a.get("created_at") else "unknown"
+    readme = (
+        f"# {title} — AEON Bench arena artifact\n\n"
+        f"- model: {a['model']}\n"
+        f"- kind: {arena.KIND_LABEL.get(a['kind'], a['kind'])} ({a['kind']})\n"
+        f"- prompt: {title} ({a['prompt_id']})\n"
+        f"- rating: {rating}\n"
+        f"- generated: {when}\n\n"
+        f"This single-file artifact was generated by the model `{a['model']}` on the "
+        f"AEON Bench arena and ranked by blind human A/B votes.\n"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("index.html", a["html"] or "")
+        z.writestr("README.md", readme)
+    # ids/kinds/prompt ids are our own charset, but the header value must stay quote-safe
+    fname = re.sub(r"[^A-Za-z0-9._-]", "_", f"aeon-{a['kind']}-{a['prompt_id']}-{a['id']}.zip")
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # (arena artifact generation removed — the mothership does not produce content; arena
@@ -595,6 +682,59 @@ def submission_detail(run_id: str):
     }
 
 
+# engine name (as recorded in pod recipes) -> a public image viewers can actually pull.
+# Recipes that already carry an explicit "image" field win over this map.
+_ENGINE_IMAGES = {
+    "aeon-vllm-ultimate": "ghcr.io/aeon-7/aeon-vllm-ultimate:latest",
+    "vllm": "vllm/vllm-openai:latest",
+}
+
+
+def _sh_quote(tok):
+    """Minimal POSIX-shell quoting for a serve flag value (JSON configs, globs, spaces)."""
+    tok = str(tok)
+    if tok and not any(ch in tok for ch in " \t\"'{}[]$`\\"):
+        return tok
+    return "'" + tok.replace("'", "'\\''") + "'"
+
+
+def _docker_cmd(recipe, hf_repo, hf_revision):
+    """Assemble the copy-pasteable replication command for a run's stored serve recipe.
+    Flags are VERBATIM — identical serve settings, minus the bench itself. Only
+    host-specific paths are made portable: weights mount at ./weights, an optional
+    speculative-decode drafter at $DRAFTER_DIR. Docker flag/startup choices move real
+    performance per model, so this is the exact config behind the numbers on the board."""
+    flags = (recipe or {}).get("flags")
+    if not flags:
+        return None
+    image = (recipe.get("image")
+             or _ENGINE_IMAGES.get(recipe.get("engine") or "")
+             or recipe.get("engine") or "vllm/vllm-openai:latest")
+    port = recipe.get("port") or 8000
+    lines = []
+    if hf_repo:
+        rev = f" --revision {hf_revision}" if hf_revision else ""
+        lines += ["# 1) pull the exact weights this run benchmarked (sha256-verified upstream)",
+                  f"hf download {hf_repo}{rev} --local-dir ./weights", ""]
+    lines.append("# 2) serve with the exact flags from this run")
+    lines.append("docker run --rm --gpus all --name replica \\")
+    lines.append("  -v ./weights:/model \\")
+    if recipe.get("drafter"):
+        lines.append("  -v $DRAFTER_DIR:/drafter \\  # spec-decode drafter weights (lossless; speed only)")
+    lines.append(f"  -p {port}:{port} \\")
+    lines.append(f"  --entrypoint vllm {image} \\")
+    lines.append("  serve /model \\")
+    i, rows = 0, []
+    while i < len(flags):                      # group "--flag value" pairs, one per line
+        f = str(flags[i])
+        if f.startswith("--") and i + 1 < len(flags) and not str(flags[i + 1]).startswith("--"):
+            rows.append("  " + f + " " + _sh_quote(flags[i + 1])); i += 2
+        else:
+            rows.append("  " + _sh_quote(f)); i += 1
+    lines += [rw + (" \\" if n < len(rows) - 1 else "") for n, rw in enumerate(rows)]
+    return "\n".join(lines)
+
+
 def _reproduction(r):
     """Serve recipe + detected hardware for a run, for exact reproduction by viewers."""
     recipe = json.loads(r.get("recipe") or "null")
@@ -615,6 +755,9 @@ def _reproduction(r):
         "hardware_detected": hw.get("detected_label"),
         "hardware_claimed": hw.get("label"),
         "gpus": hw.get("gpus"), "platform": hw.get("platform"), "machine": hw.get("machine"),
+        # copy-pasteable replication command assembled from the stored recipe (None when
+        # the run carries no serve flags, e.g. external-endpoint self-reported runs)
+        "docker_run_assembled": _docker_cmd(recipe, r.get("hf_repo"), r.get("hf_revision")),
     }
 
 

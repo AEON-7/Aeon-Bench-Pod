@@ -1,0 +1,82 @@
+[
+ {
+  "id": "v3.math.hard.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "A starship departs Earth and travels in a straight line at a constant speed v = 0.94c to the star Kellan-4, which is 11.3 light-years away as measured in Earth's reference frame. Ignore acceleration phases. Using special relativity, compute the proper time that elapses aboard the ship during the trip, in years. (No physical constants are needed: with the distance in light-years and the speed as a fraction of c, the light speed cancels.) Round the result to 3 decimal places and put ONLY that final number inside \\boxed{} — no units and no other text inside the box.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4.101"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.hard.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "A survey probe is in a circular orbit of radius 8600 km (measured from the planet's center) around the rocky exoplanet Vorn, whose mass is M = 5.13e24 kg. Use the gravitational constant G = 6.674e-11 N m^2 kg^-2. Compute the orbital period of the probe in MINUTES. Round the result to 2 decimal places and put ONLY that final number inside \\boxed{} — no units and no other text inside the box.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "142.73"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.hard.03",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "A laboratory plasma has an electron number density n_e = 3.7e17 m^-3. Using exactly these constants: elementary charge e = 1.602e-19 C, electron mass m_e = 9.109e-31 kg, vacuum permittivity epsilon_0 = 8.854e-12 F/m, compute the electron plasma frequency f_pe = (1 / (2*pi)) * sqrt( n_e * e^2 / (epsilon_0 * m_e) ), i.e. the ordinary frequency in hertz, and express it in GHz. Round the result to 3 decimal places and put ONLY that final number inside \\boxed{} — no units and no other text inside the box.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5.461"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.hard.04",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Evaluate the definite integral I = ∫ from 0 to 1 of x^3 * e^(2x) dx exactly (repeated integration by parts gives a closed form involving e^2), then give its numeric value. Round the result to 4 decimal places and put ONLY that final number inside \\boxed{} — no units and no other text inside the box.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1.2986"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.hard.05",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "In a plane triangle, two sides have lengths a = 13.2 and b = 17.5, and the angle between them (the included angle C) is 41.3 degrees. First find the third side c using the law of cosines, then compute the radius R of the triangle's circumscribed circle using the law of sines (R = c / (2 sin C)). Give R, rounded to 3 decimal places, and put ONLY that final number inside \\boxed{} — no units and no other text inside the box.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "8.750"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -1,0 +1,194 @@
+[
+ {
+  "id": "v3.coding.frontier.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef count_avoiding(n: int, pattern: str, mod: int) -> int\n\nIt must return the number of binary strings of length exactly n (alphabet '0' and '1') that do NOT contain `pattern` as a contiguous substring, reduced modulo `mod`.\n\nConstraints: 0 <= n <= 10**18; 1 <= len(pattern) <= 12; pattern consists only of '0' and '1'; 2 <= mod <= 10**9 + 7 (mod is NOT guaranteed prime). For n = 0 the answer is 1 (the empty string). n goes up to 10**18, so any O(n)-time DP will time out; your solution must run in time polynomial in len(pattern) and logarithmic in n.\n\nExamples: count_avoiding(3, '11', 1000000007) == 5; count_avoiding(4, '0', 5) == 1. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_avoiding(0, \"01\", 1000) == 1\nassert count_avoiding(3, \"11\", 1000000007) == 5\nassert count_avoiding(4, \"0\", 5) == 1\nassert count_avoiding(10, \"0101\", 1000000007) == 667\nassert count_avoiding(173, \"10011\", 982451653) == 842407351\nassert count_avoiding(10**18, \"110101\", 1000000007) == 594504505\nassert count_avoiding(10**17 + 3, \"010010111011\", 998244353) == 595023172"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.02",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef max_dist_sq(points: list[tuple[int, int]]) -> int\n\nGiven a list of 2D points with integer coordinates, return the exact MAXIMUM squared Euclidean distance (dx*dx + dy*dy) over all pairs of points. If the list has fewer than 2 distinct points, return 0.\n\nConstraints: 1 <= len(points) <= 40000; |x|, |y| <= 10**8; duplicates, collinear sets, and fully degenerate inputs are possible and must be handled. One hidden test places 40000 points on a huge circle: the brute-force O(n^2) pair scan is ~8*10**8 distance evaluations and will NOT finish in time, and on that input the convex hull itself has tens of thousands of vertices, so an O(h^2) scan over hull vertices will not finish either. You need an O(n log n) approach (e.g. convex hull plus rotating calipers). All arithmetic must stay exact (integers). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nimport math\n_g = _rnd(424242)\nR = 10 ** 8\npts = []\nfor _ in range(40000):\n    x = next(_g) % (2 * R + 1) - R\n    y = math.isqrt(R * R - x * x)\n    if next(_g) & 1:\n        y = -y\n    pts.append((x, y))\nassert max_dist_sq([(0, 0)]) == 0\nassert max_dist_sq([(3, -1), (3, -1), (3, -1)]) == 0\nassert max_dist_sq([(0, 0), (3, 4)]) == 25\nassert max_dist_sq([(-5, 2), (1, 2), (9, 2), (4, 2)]) == 196\nassert max_dist_sq([(0, 0), (10, 0), (10, 10), (0, 10), (5, 5), (5, 0)]) == 200\nassert max_dist_sq(pts) == 39999999994562920"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.03",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef rex_match(pattern: str, s: str) -> bool\n\nIt decides whether the ENTIRE string s (full match, not search) matches the pattern in the following mini-regex language. A pattern is a sequence of atoms, each optionally followed by exactly one quantifier.\n\nAtoms:\n- a lowercase letter: matches exactly that character;\n- '.' : matches any single character;\n- '[abc]' : a class listing 1-5 distinct lowercase letters, matches any single listed character;\n- '[^abc]' : negated class, matches any single character that is NOT listed.\n\nQuantifiers: '?' (0 or 1 repetitions), '*' (0 or more), '+' (1 or more).\n\nGuarantees: the pattern is syntactically valid, has at most 30 atoms, and contains no other metacharacters (no groups, no alternation, no anchors); s consists of lowercase letters, 0 <= len(s) <= 5000. Return a boolean.\n\nWARNING: hidden tests include adversarial patterns such as 'a*a*a*a*a*a*a*a*a*a*b' matched against 'a'*5000 - a naive exponential backtracking matcher will time out. Use a polynomial-time approach (NFA state-set simulation or dynamic programming). You may NOT call the `re` module or any other regex library; implement the matcher yourself. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert rex_match(\"[ab]*c?d+\", \"abbad\")\nassert not rex_match(\"[ab]*c?d+\", \"abbadc\")\nassert rex_match(\"[^xy]+x?\", \"abcx\")\nassert not rex_match(\"[^xy]+x?\", \"xabc\")\nassert rex_match(\".?.?.?\", \"\")\nassert not rex_match(\"a+\", \"\")\nassert rex_match(\"a*a*a*a*a*a*a*a*a*a*a\", \"a\" * 5000)\nassert not rex_match(\"a*a*a*a*a*a*a*a*a*a*b\", \"a\" * 5000)"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.04",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef min_edges_to_strongly_connect(n: int, edges: list[tuple[int, int]]) -> int\n\nYou are given a directed graph with vertices 0..n-1 and a list of directed edges (u, v). The list may contain duplicate edges and self-loops, and vertices may be isolated. Return the MINIMUM number of directed edges that must be ADDED to make the graph strongly connected (every vertex can reach every other vertex). A graph with exactly one vertex is already strongly connected (answer 0).\n\nConstraints: 1 <= n <= 60000; 0 <= len(edges) <= 120000. Hidden tests include a graph with n = 60000 and 120000 edges, so recursive DFS will blow Python's recursion stack unless you raise the limit - an iterative implementation is strongly recommended. Target O(n + m) time.\n\nExamples: min_edges_to_strongly_connect(3, [(0,1),(1,2)]) == 1; min_edges_to_strongly_connect(4, [(0,1),(1,0)]) == 3 (two isolated vertices). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(24680)\nn_big = 60000\nedges_big = [(next(_g) % n_big, next(_g) % n_big) for _ in range(120000)]\nassert min_edges_to_strongly_connect(1, []) == 0\nassert min_edges_to_strongly_connect(3, [(0, 1), (1, 2), (2, 0)]) == 0\nassert min_edges_to_strongly_connect(3, [(0, 1), (1, 2)]) == 1\nassert min_edges_to_strongly_connect(4, [(0, 1), (1, 0)]) == 3\nassert min_edges_to_strongly_connect(6, [(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)]) == 2\nassert min_edges_to_strongly_connect(5, [(0, 1), (0, 2), (1, 3), (2, 3), (3, 4), (4, 4)]) == 1\nassert min_edges_to_strongly_connect(n_big, edges_big) == 8126"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.05",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef min_stab_points(intervals: list[tuple[int, int, int]]) -> int\n\nEach tuple (l, r, need) describes the closed integer interval [l, r] and a demand: at least `need` of the chosen points must lie inside [l, r] (endpoints included). You must choose a set of DISTINCT integer points (any integers, not restricted to interval endpoints) so that every interval's demand is met, and return the minimum possible number of chosen points.\n\nConstraints: 1 <= len(intervals) <= 3000; 0 <= l <= r <= 10**9; 1 <= need <= r - l + 1 (so a feasible choice always exists). Intervals overlap in adversarial ways: points must be shared between overlapping intervals whenever possible - a per-interval greedy that ignores sharing will overcount.\n\nExample: min_stab_points([(1, 3, 1), (2, 5, 1), (6, 8, 2)]) == 3 (e.g. choose {3, 7, 8}). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(13579)\nivs_big = []\nfor _ in range(3000):\n    l = next(_g) % 1000000\n    w = 2 + next(_g) % 2000\n    k = 1 + next(_g) % 3\n    ivs_big.append((l, l + w, k))\nassert min_stab_points([(5, 5, 1)]) == 1\nassert min_stab_points([(0, 2, 3)]) == 3\nassert min_stab_points([(1, 3, 1), (2, 5, 1), (6, 8, 2)]) == 3\nassert min_stab_points([(1, 4, 2), (3, 6, 2), (5, 8, 2)]) == 4\nassert min_stab_points([(0, 10, 2), (3, 6, 2), (8, 9, 1)]) == 3\nassert min_stab_points(ivs_big) == 2204"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.06",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef longest_repeated(s: str, k: int) -> int\n\nReturn the length of the longest substring of s that occurs at least k times in s. Occurrences are counted by starting position and MAY overlap each other. If no non-empty substring occurs k or more times, return 0. For k == 1 the answer is len(s).\n\nConstraints: 0 <= len(s) <= 20000, lowercase letters only; 1 <= k <= 20000. Hidden tests use strings of length 20000 over a 2-letter alphabet (huge numbers of repeats), so enumerating all O(n^2) substrings will not fit in time or memory - use a suffix automaton / suffix array, or binary search on the answer length combined with rolling hashes.\n\nExamples: longest_repeated('abcabcab', 2) == 5 ('abcab' occurs at positions 0 and 3); longest_repeated('aaaa', 3) == 2 ('aa' occurs at positions 0, 1, 2). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(86420)\ns_big = \"\".join(\"ab\"[next(_g) & 1] for _ in range(20000))\nassert longest_repeated(\"\", 2) == 0\nassert longest_repeated(\"abcd\", 2) == 0\nassert longest_repeated(\"xyz\", 1) == 3\nassert longest_repeated(\"abcabcab\", 2) == 5\nassert longest_repeated(\"aaaa\", 3) == 2\nassert longest_repeated(s_big, 5) == 16\nassert longest_repeated(s_big, 2) == 25"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.07",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef scs3_len(a: str, b: str, c: str) -> int\n\nReturn the length of a SHORTEST string that contains all three of a, b and c as (not necessarily contiguous) subsequences simultaneously.\n\nConstraints: 0 <= len(a), len(b), len(c) <= 55; lowercase letters only. Note that the classic two-string formula |a| + |b| - LCS(a, b) does NOT generalize to three strings, and pairwise/greedy merging is not optimal - you need dynamic programming over all three positions at once.\n\nExamples: scs3_len('ab', 'ba', 'aa') == 3 ('aba' works); scs3_len('abc', '', '') == 3; scs3_len('', '', '') == 0. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(11223)\nsa = \"\".join(\"abcd\"[next(_g) % 4] for _ in range(55))\nsb = \"\".join(\"abcd\"[next(_g) % 4] for _ in range(55))\nsc = \"\".join(\"abcd\"[next(_g) % 4] for _ in range(55))\nassert scs3_len(\"\", \"\", \"\") == 0\nassert scs3_len(\"abc\", \"\", \"\") == 3\nassert scs3_len(\"ab\", \"ba\", \"aa\") == 3\nassert scs3_len(\"abc\", \"bca\", \"cab\") == 5\nassert scs3_len(\"aaa\", \"aaa\", \"aaa\") == 3\nassert scs3_len(sa, sb, \"\") == 76\nassert scs3_len(sa, sb, sc) == 84"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.08",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef distinct_counts(a: list[int], queries: list[tuple[int, int]]) -> list[int]\n\nFor each query (l, r) with 0-based INCLUSIVE indices l <= r, compute the number of DISTINCT values in the slice a[l..r]. Return the answers as a list, in the same order as the queries.\n\nConstraints: 1 <= len(a) <= 100000; 1 <= len(queries) <= 100000; 0 <= values <= 10**9. Hidden tests use 100000 elements and 100000 queries with average range length ~25000, so answering each query independently with len(set(a[l:r+1])) is ~2.5*10**9 operations and will NOT finish - you need an offline technique (e.g. sort queries by right endpoint and maintain last-occurrence contributions in a Fenwick tree) or an equally efficient approach.\n\nExample: distinct_counts([3, 1, 3, 2, 1], [(0, 4), (1, 3), (2, 2)]) == [3, 3, 1]. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(44444)\nn_mid = 2000\na_mid = [next(_g) % 50 for _ in range(n_mid)]\nqs_mid = []\nfor _ in range(2000):\n    l = next(_g) % n_mid\n    qs_mid.append((l, l + next(_g) % (n_mid - l)))\n_g = _rnd(55555)\nn_big = 100000\na_big = [next(_g) % 1000 for _ in range(n_big)]\nqs_big = []\nfor _ in range(100000):\n    l = next(_g) % n_big\n    qs_big.append((l, l + next(_g) % (n_big - l)))\nM61 = 2**61 - 1\nassert distinct_counts([3, 1, 3, 2, 1], [(0, 4), (1, 3), (2, 2), (0, 2)]) == [3, 3, 1, 2]\nassert distinct_counts([7, 7, 7, 7, 7], [(0, 4), (2, 3)]) == [1, 1]\n_am = distinct_counts(a_mid, qs_mid)\nassert sum((i + 61) * v for i, v in enumerate(_am)) % M61 == 94511566\n_ab = distinct_counts(a_big, qs_big)\nassert len(_ab) == 100000\nassert sum((i + 61) * v for i, v in enumerate(_ab)) % M61 == 4749885055822"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.09",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef mod_floor_sum(n: int) -> int\n\nReturn the EXACT value of sum(n mod i for i in range(1, n + 1)) - the sum of the remainders of n divided by every integer from 1 to n.\n\nConstraints: 1 <= n <= 10**12. A direct loop over 10**12 terms is impossible; exploit the fact that floor(n / i) takes only O(sqrt(n)) distinct values and sum each block with an arithmetic-series formula. Watch the block boundaries - off-by-one errors in the block ranges are the classic failure mode. The result is an exact (large) integer, no modulus.\n\nExamples: mod_floor_sum(1) == 0; mod_floor_sum(6) == 3. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert mod_floor_sum(1) == 0\nassert mod_floor_sum(6) == 3\nassert mod_floor_sum(9999) == 17748198\nassert mod_floor_sum(10**7 + 19) == 17753365420837\nassert mod_floor_sum(10**12) == 177532966574642659861022"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.10",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef kth_subset_xor(nums: list[int], k: int) -> int\n\nLet S be the set of DISTINCT values obtainable by XOR-ing together the elements of some subset of nums (the empty subset gives 0, so 0 is always in S). Sort S ascending; return its k-th smallest element (1-indexed).\n\nConstraints: 0 <= len(nums) <= 50000; 0 <= nums[i] < 2**60; 1 <= k <= |S|. |S| is always a power of two and can be as large as 2**60, so enumerating S is impossible - build a linear basis of the numbers over GF(2), put it in reduced row-echelon form, and map the bits of k-1 onto the reduced basis vectors.\n\nExamples: kth_subset_xor([1, 2], 3) == 2 (S = {0, 1, 2, 3}); kth_subset_xor([5, 5, 5], 2) == 5 (S = {0, 5}); kth_subset_xor([], 1) == 0. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(31337)\n_gens = [((next(_g) << 29) ^ next(_g)) % (1 << 60) for _ in range(45)]\nnums_big = []\nfor _ in range(20000):\n    mask = ((next(_g) << 29) ^ next(_g)) % (1 << 45)\n    x = 0\n    for gi in range(45):\n        if (mask >> gi) & 1:\n            x ^= _gens[gi]\n    nums_big.append(x)\nassert kth_subset_xor([], 1) == 0\nassert kth_subset_xor([0, 0, 0], 1) == 0\nassert kth_subset_xor([1, 2], 3) == 2\nassert kth_subset_xor([5, 5, 5], 2) == 5\nassert kth_subset_xor([12, 7, 9, 4], 6) == 5\nassert kth_subset_xor([12, 7, 9, 4], 16) == 15\nassert kth_subset_xor(nums_big, 1) == 0\nassert kth_subset_xor(nums_big, 31415926535897) == 1029437080728241195"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.11",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef count_lis(a: list[int]) -> int\n\nLet L be the length of the longest STRICTLY increasing subsequence of a. Return the number of distinct index subsequences of length L that are strictly increasing, modulo 1000000007. For an empty list return 0.\n\nConstraints: 0 <= len(a) <= 100000; 0 <= values <= 10**9; duplicates allowed (equal values can NOT extend each other - strict increase required). Hidden tests use 100000 elements, so the O(n^2) DP will time out: you need O(n log n), e.g. a Fenwick tree over compressed values storing, per prefix, the best length together with the count of ways achieving it.\n\nExamples: count_lis([2, 2, 2]) == 3 (three subsequences of length 1); count_lis([1, 3, 2, 4]) == 2 ([1,3,4] and [1,2,4]); count_lis([5, 4, 3, 2, 1]) == 5. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(77777)\na_mid = [next(_g) % 100 for _ in range(2000)]\n_g = _rnd(88888)\na_big = [next(_g) % (10**9) for _ in range(100000)]\nassert count_lis([]) == 0\nassert count_lis([2, 2, 2]) == 3\nassert count_lis([1, 3, 2, 4]) == 2\nassert count_lis([5, 4, 3, 2, 1]) == 5\nassert count_lis(a_mid) == 413876172\nassert count_lis(a_big) == 819603544"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.frontier.12",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef tokenize(src: str) -> list[tuple[str, str]]\n\nImplement a lexer that scans src left to right with MAXIMAL MUNCH and returns a list of (kind, lexeme) tuples. Rules, in the order they must be tried at each position:\n\n1. Whitespace (space, tab, carriage return, newline) is skipped and produces no token.\n2. '#' starts a comment: skip everything up to (not including) the next newline.\n3. STR: a double-quoted string literal. Inside, the only legal escapes are \\\" \\\\ \\n \\t (backslash followed by a double quote, a backslash, the letter n, or the letter t). Any other character after a backslash must raise ValueError. A string with no closing quote must raise ValueError. The lexeme is the RAW source slice including both quotes (do not decode escapes).\n4. NUM: starts with an ASCII digit. Grammar: digits, optionally followed by '.'+digits, optionally followed by an exponent ('e' or 'E', optional '+' or '-', then digits). Each optional part is consumed ONLY if it is completely valid at that position; otherwise it is left for later tokens. So '1e+5' is one NUM '1e+5', but '1e+' lexes as NUM '1' then ID 'e' then OP '+', and '1.e3' lexes as NUM '1' then OP '.' then ID 'e3' (the '.' is not followed by a digit). Underscores are NOT part of numbers: '1_000' is NUM '1' then ID '_000'.\n5. ID: [A-Za-z_][A-Za-z0-9_]* (ASCII only).\n6. OP: the two-character operators ** == != <= >= -> are tried first, then the single characters + - * / % < > = ( ) , : . So 'x-->y' lexes as ID, OP '-', OP '->', ID.\n7. Any character that fits no rule raises ValueError.\n\nKinds are exactly the strings 'STR', 'NUM', 'ID', 'OP'. src is ASCII, len(src) <= 10000.\n\nExample: tokenize('x = 1') == [('ID', 'x'), ('OP', '='), ('NUM', '1')]. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _tl(x):\n    return [tuple(t) for t in tokenize(x)]\ndef _raises(fn):\n    try:\n        fn()\n        return False\n    except ValueError:\n        return True\nassert _tl(\"x = 1\") == [(\"ID\", \"x\"), (\"OP\", \"=\"), (\"NUM\", \"1\")]\nassert _tl(\"1e+5\") == [(\"NUM\", \"1e+5\")]\nassert _tl(\"1e+ 3.14.15\") == [(\"NUM\", \"1\"), (\"ID\", \"e\"), (\"OP\", \"+\"), (\"NUM\", \"3.14\"), (\"OP\", \".\"), (\"NUM\", \"15\")]\nassert _tl(\"1.e3 1e2e3\") == [(\"NUM\", \"1\"), (\"OP\", \".\"), (\"ID\", \"e3\"), (\"NUM\", \"1e2\"), (\"ID\", \"e3\")]\nassert _tl(\"x-->y # arrow\\nz**2\") == [(\"ID\", \"x\"), (\"OP\", \"-\"), (\"OP\", \"->\"), (\"ID\", \"y\"), (\"ID\", \"z\"), (\"OP\", \"**\"), (\"NUM\", \"2\")]\nassert _tl(\"a<==b 1_000\") == [(\"ID\", \"a\"), (\"OP\", \"<=\"), (\"OP\", \"=\"), (\"ID\", \"b\"), (\"NUM\", \"1\"), (\"ID\", \"_000\")]\nassert _tl('s = \"a\\\\\"b\\\\n\"') == [(\"ID\", \"s\"), (\"OP\", \"=\"), (\"STR\", '\"a\\\\\"b\\\\n\"')]\nassert _raises(lambda: tokenize('\"abc'))\nassert _raises(lambda: tokenize('\"a\\\\qb\"'))\nassert _raises(lambda: tokenize(\"a @ b\"))"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

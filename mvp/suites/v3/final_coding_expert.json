@@ -1,0 +1,138 @@
+[
+ {
+  "id": "v3.coding.expert.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function min_partition_cost(a: list[int], k: int) -> int. Partition the list a (1 <= len(a) <= 500; elements are integers that may be negative, |a[i]| <= 10**6) into one or more contiguous non-empty segments covering the whole list in order. The cost of a segment is (max(segment) - min(segment)) + k, where k (0 <= k <= 10**6) is a fixed per-segment fee added for every segment you create. Return the minimum possible total cost over all partitions. Example: for a=[1, 1000000, 1], k=2 the answer is 6: three single-element segments cost (0+2)+(0+2)+(0+2)=6, whereas one big segment costs (999999)+2. Use only the Python standard library; an O(n^2) dynamic program is fast enough. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert min_partition_cost([7], 10) == 10\nassert min_partition_cost([1, 1000000, 1], 2) == 6\nassert min_partition_cost([3, 1, 4, 1, 5, 9, 2, 6], 4) == 12\nassert min_partition_cost(list(range(100)), 1) == 100\nimport random\n_r = random.Random(777)\nassert min_partition_cost([_r.randrange(-1000, 1000) for _ in range(60)], 30) == 1733\n_r = random.Random(90417)\nassert min_partition_cost([_r.randrange(-10**6, 10**6) for _ in range(400)], 5000) == 1989541",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.02",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function union_area(rects: list[tuple[int, int, int, int]]) -> int that returns the exact area of the union of axis-aligned rectangles. Each rectangle is given as (x1, y1, x2, y2) with x1 < x2 and y1 < y2, covering the half-open region [x1, x2) x [y1, y2). Coordinates are integers with magnitude up to 10**9, so filling a unit grid is impossible — use coordinate compression with a sweep, or an equivalent exact method. Rectangles may overlap, be nested, be exact duplicates, or touch edge-to-edge (touching edges share zero area). Overlapping area counts once. An empty input list returns 0. There are at most 300 rectangles and your function must finish well within 10 seconds. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert union_area([]) == 0\nassert union_area([(0, 0, 10, 10), (2, 2, 5, 5)]) == 100\nassert union_area([(0, 0, 3, 3), (3, 0, 6, 3)]) == 18\nassert union_area([(0, 0, 4, 4), (0, 0, 4, 4)]) == 16\nassert union_area([(0, 0, 2, 8), (0, 0, 8, 2)]) == 28\nimport random\n_r = random.Random(424242)\n_m = []\nfor _ in range(40):\n    _x1 = _r.randrange(0, 10**6); _x2 = _x1 + _r.randrange(1, 10**5)\n    _y1 = _r.randrange(0, 10**6); _y2 = _y1 + _r.randrange(1, 10**5)\n    _m.append((_x1, _y1, _x2, _y2))\nassert union_area(_m) == 98454865279\n_r = random.Random(555321)\n_b = []\nfor _ in range(250):\n    _x1 = _r.randrange(-10**9, 10**9 - 10**6); _x2 = _x1 + _r.randrange(1, 10**8)\n    _y1 = _r.randrange(-10**9, 10**9 - 10**6); _y2 = _y1 + _r.randrange(1, 10**8)\n    _b.append((_x1, _y1, _x2, _y2))\nassert union_area(_b) == 561685826399033135",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.03",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function eval_expr(s: str) -> int that evaluates an arithmetic expression over arbitrary-precision integers. Tokens: non-negative decimal integer literals, the binary operators + - * @ ^, parentheses ( ), and optional spaces which may appear between any two tokens. There are NO unary operators; literals are never negative, though intermediate and final values may become negative through subtraction. Semantics and precedence: '+' and '-' are ordinary addition and subtraction, precedence 1, left-associative. '*' is ordinary multiplication, precedence 2, left-associative. '@' is a custom operator defined by a @ b = a*b + a + b, ALSO precedence 2 and left-associative, so chains mixing '*' and '@' group strictly left to right. '^' is integer exponentiation, precedence 3 (the highest), RIGHT-associative; every exponent is guaranteed to evaluate to a non-negative integer. Parentheses override all precedence. The input is always a syntactically valid expression. Examples: eval_expr('2@3') == 11 and eval_expr('2^3^2') == 512. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert eval_expr(\"2+3*4\") == 14\nassert eval_expr(\"2@3*4\") == 44\nassert eval_expr(\"2*3@4\") == 34\nassert eval_expr(\"2^3^2\") == 512\nassert eval_expr(\"(2+2)^2@1\") == 33\nassert eval_expr(\"10 - 2 - 3\") == 5\nassert eval_expr(\"5@5@2\") == 107\nassert eval_expr(\"2^(7-5)^3\") == 256\nassert eval_expr(\"1+2@3^2\") == 30\nassert eval_expr(\"7\") == 7",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.04",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function count_shortest_paths(n: int, edges: list[tuple[int, int, int]], s: int, t: int) -> tuple[int, int] for an UNDIRECTED graph with n nodes labelled 0..n-1. Each entry (u, v, w) is an edge of positive integer weight w. The list may contain parallel edges — each parallel edge is a distinct edge, so two parallel (u, v) edges give two distinct paths — and self-loops, which can never lie on a shortest path. Return (d, c) where d is the shortest-path distance from s to t and c is the number of distinct shortest paths modulo 998244353; a path is a sequence of edges, and two paths differ if their edge sequences differ. If t is unreachable from s return (-1, 0). If s == t return (0, 1). n can be up to 20000 with up to 120000 edges, so use Dijkstra with a binary heap and count paths during the relaxation. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_shortest_paths(3, [(0, 1, 2), (0, 1, 2), (1, 2, 3), (0, 2, 5)], 0, 2) == (5, 3)\nassert count_shortest_paths(4, [(0, 1, 1)], 0, 3) == (-1, 0)\nassert count_shortest_paths(3, [(0, 1, 1)], 1, 1) == (0, 1)\n_G = []\nfor _rr in range(12):\n    for _cc in range(12):\n        if _cc + 1 < 12: _G.append((_rr * 12 + _cc, _rr * 12 + _cc + 1, 7))\n        if _rr + 1 < 12: _G.append((_rr * 12 + _cc, (_rr + 1) * 12 + _cc, 7))\nassert count_shortest_paths(144, _G, 0, 143) == (154, 705432)\n_D = []\nfor _i in range(50):\n    _b = 3 * _i\n    _D += [(_b, _b + 1, 1), (_b, _b + 2, 1), (_b + 1, _b + 3, 1), (_b + 2, _b + 3, 1)]\nassert count_shortest_paths(151, _D, 0, 150) == (100, 65980984)\nimport random\n_r = random.Random(66601)\n_B = []\nfor _ in range(120000):\n    _u = _r.randrange(20000); _v = _r.randrange(20000)\n    _B.append((_u, _v, 3 if (_u + _v) % 2 else 6))\nassert count_shortest_paths(20000, _B, 0, 19999) == (15, 2)",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.05",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function max_schedule_value(jobs: list[tuple[int, int, int]], g: int) -> int. Each job (s, e, v) occupies the half-open time interval [s, e) with integer 0 <= s < e <= 10**9 and has integer value v > 0. You select a subset of jobs for a single machine that needs a cooldown of g >= 0 time units between consecutive jobs: whenever job A is immediately followed by job B in the selection (ordered by time), B's start must satisfy start_B >= end_A + g. With g == 0 this is ordinary non-overlap where touching endpoints (start_B == end_A) ARE allowed. Return the maximum achievable total value; the empty selection is feasible and has value 0. There can be up to 50000 jobs, so an O(n log n) solution (sort by end time + binary-search DP) is required — an O(n^2) DP will time out. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert max_schedule_value([], 5) == 0\nassert max_schedule_value([(0, 3, 10), (3, 6, 10), (6, 9, 10)], 0) == 30\nassert max_schedule_value([(0, 3, 10), (3, 6, 10), (6, 9, 10)], 1) == 20\nassert max_schedule_value([(1, 4, 5), (2, 6, 7), (5, 9, 4)], 0) == 9\nimport random\n_r = random.Random(9021)\n_m = []\nfor _ in range(200):\n    _s = _r.randrange(0, 5000); _e = _s + _r.randrange(1, 300)\n    _m.append((_s, _e, _r.randrange(1, 500)))\nassert max_schedule_value(_m, 3) == 15690\n_r = random.Random(50909)\n_bj = []\nfor _ in range(50000):\n    _s = _r.randrange(0, 10**8); _e = _s + _r.randrange(1, 10**5)\n    _bj.append((_s, _e, _r.randrange(1, 10**6)))\nassert max_schedule_value(_bj, 250) == 3513719966",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.06",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function count_distinct_substrings(s: str) -> int that returns the number of distinct non-empty substrings of s. The alphabet is lowercase a-z and len(s) can be up to 30000, so materialising all O(n^2) substrings (for example a set of slices) will exhaust memory and time — use a suffix automaton, a suffix array with LCP, or a comparable linear/near-linear structure. The count itself can be returned as a plain Python int (it exceeds 32-bit range). Must finish well within 10 seconds on a 30000-character input. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_distinct_substrings(\"z\") == 1\nassert count_distinct_substrings(\"aaaa\") == 4\nassert count_distinct_substrings(\"abab\") == 7\nassert count_distinct_substrings(\"mississippi\") == 53\nassert count_distinct_substrings(\"ab\" * 50) == 199\nimport random\n_r = random.Random(31337)\n_s = \"\".join(_r.choice(\"abc\") for _ in range(30000))\nassert count_distinct_substrings(_s) == 449759708",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.07",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function sliding_median_sum(a: list[int], w: int) -> int with 1 <= w <= len(a) <= 100000 and |a[i]| <= 10**9. For every contiguous window of length w (there are len(a) - w + 1 of them), compute the window median defined as follows: let b be the sorted window; if w is odd the median is b[w // 2]; if w is even the median is (b[w // 2 - 1] + b[w // 2]) // 2 using Python floor division, which rounds toward negative infinity when the sum is negative and odd. Return the sum of the medians of all windows. Re-sorting every window from scratch is too slow at the largest sizes (w can be ~5000 with 100000 elements) — maintain the window incrementally, e.g. a sorted list updated with bisect insert/delete, or two heaps with lazy deletion. Must finish well within 10 seconds. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert sliding_median_sum([4, -2, 7], 1) == 9\nassert sliding_median_sum([9, 1, 8, 2], 4) == 5\nassert sliding_median_sum([-5, -2], 2) == -4\nassert sliding_median_sum([5, -1, 3, 2], 2) == 5\nassert sliding_median_sum([1, 2, 3], 3) == 2\nimport random\n_r = random.Random(778899)\n_a = [_r.randrange(-10**9, 10**9) for _ in range(100000)]\nassert sliding_median_sum(_a, 4999) == 113826330940\nassert sliding_median_sum(_a[:50000], 1000) == 240106233242",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.expert.08",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function format_rational(p: int, q: int, d: int) -> str that formats the exact rational number p/q (q >= 1, p any integer with |p| up to 10**30, 0 <= d <= 50) as a decimal string rounded to exactly d fractional digits using round-half-to-even (banker's rounding), computed EXACTLY with integer arithmetic — binary floats or the built-in round() on floats will fail the tie cases. Rounding rule: round the magnitude |p|/q to d digits; on an exact tie (the discarded part is exactly half of the last kept unit) round so the last kept digit is even; then re-apply the sign, EXCEPT that a result equal to zero is written without a minus sign. Output format: if d == 0, just the integer digits (e.g. '4'); otherwise the integer digits, a '.', then exactly d digits (zero-padded), e.g. '0.12' or '-0.38'. No exponent notation, no '+' sign, no separators. Examples: format_rational(1, 8, 2) == '0.12' because 0.125 ties to the even digit 2, while format_rational(3, 8, 2) == '0.38'. Use only the Python standard library (the decimal module is allowed but unnecessary). Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert format_rational(1, 8, 2) == \"0.12\"\nassert format_rational(3, 8, 2) == \"0.38\"\nassert format_rational(-1, 8, 2) == \"-0.12\"\nassert format_rational(-1, 1000, 2) == \"0.00\"\nassert format_rational(5, 2, 0) == \"2\"\nassert format_rational(7, 2, 0) == \"4\"\nassert format_rational(-5, 2, 0) == \"-2\"\nassert format_rational(0, 7, 3) == \"0.000\"\nassert format_rational(999, 1000, 2) == \"1.00\"\nassert format_rational(10**30 + 1, 7, 25) == \"142857142857142857142857142857.2857142857142857142857143\"",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

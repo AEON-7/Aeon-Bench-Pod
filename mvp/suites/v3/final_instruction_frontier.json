@@ -1,0 +1,625 @@
+[
+ {
+  "id": "v3.instruction.frontier.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem that satisfies ALL of these constraints simultaneously. Output ONLY the poem: no title, no preamble, no commentary, no code fences, no blank lines, no leading or trailing spaces on any line, single spaces between words.\n1. Exactly 7 lines.\n2. Every line contains exactly 6 words.\n3. The letter 'e' (uppercase or lowercase) must not appear anywhere in the poem.\n4. Line 1 begins with capital 'G', line 2 with capital 'H', line 3 with capital 'I', line 4 with capital 'J', line 5 with capital 'K', line 6 with capital 'L', line 7 with capital 'M' (seven consecutive letters of the alphabet).\n5. Line 4 ends with a colon ':'.\n6. Each of the other six lines ends with a period '.'.\n7. Periods and the colon appear ONLY at line ends, and no other punctuation of any kind is used (no commas, hyphens, apostrophes, quotes, semicolons, question marks, exclamation marks).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 7,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AG[^\\n]*\\nH[^\\n]*\\nI[^\\n]*\\nJ[^\\n]*\\nK[^\\n]*\\nL[^\\n]*\\nM[^\\n]*\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:[^\\n]*\\.\\n){3}[^\\n]*:\\n(?:[^\\n]*\\.\\n){2}[^\\n]*\\.\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!\\S+( \\S+){5}$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[,;!?'\\\"\\-]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)\\.(?!$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m):(?!$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z0-9 \\n.:]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.02",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a single paragraph (one block of text, no blank lines) that satisfies ALL of these constraints. Output ONLY the paragraph: no title, no preamble, no commentary.\n1. Exactly 5 sentences, each ending with a period. No exclamation marks or question marks anywhere.\n2. Sentence 1 begins with the word 'Amber', sentence 2 with 'Basalt', sentence 3 with 'Cobalt', sentence 4 with 'Damson', sentence 5 with 'Emerald' (each capitalized exactly like that).\n3. The exact lowercase word 'quartz' appears exactly TWICE in the paragraph (whole word, exactly two occurrences in total).\n4. No commas, colons or semicolons anywhere.\n5. The letter 'w' (uppercase or lowercase) must not appear anywhere.\n6. Periods appear ONLY at the ends of the five sentences.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "n": 5,
+     "op": "=="
+    },
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "n": 1,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AAmber\\b[^.!?]*\\.\\s+Basalt\\b[^.!?]*\\.\\s+Cobalt\\b[^.!?]*\\.\\s+Damson\\b[^.!?]*\\.\\s+Emerald\\b[^.!?]*\\.\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bquartz\\b.*?\\bquartz\\b",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bquartz\\b.*?\\bquartz\\b.*?\\bquartz\\b",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[,;:]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[!?]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "w",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.03",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem that satisfies ALL of these constraints. Output ONLY the poem: no title, no preamble, no commentary, no blank lines, no leading or trailing spaces on any line, single spaces between words.\n1. Exactly 6 lines.\n2. Every line contains exactly 8 words.\n3. Every line ends with a period, and the last word of each line (the word immediately before the period) is the SAME word as the first word of that line (letter-for-letter; capitalization may differ).\n4. The word 'lantern' appears somewhere in the poem.\n5. The letter 'g' (uppercase or lowercase) never appears anywhere.\n6. No punctuation at all except the six line-ending periods.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 6,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!(\\w+)\\b.*\\b\\1\\.$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!\\S+( \\S+){7}$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\blantern\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "g",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[,;:'\\\"!?\\-]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)\\.(?!$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^[ \\t]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z0-9 \\n.]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.04",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Apply the following operations, IN ORDER, to the starting string cinderglass (11 lowercase letters).\n1. Reverse the entire string.\n2. Replace every occurrence of the letter s with the letter k.\n3. Delete the 4th character of the current string (1-indexed).\n4. Convert every vowel (a, e, i, o, u) to uppercase.\n5. Move the first two characters of the string to the end, preserving their order.\n6. Insert the digit 9 immediately after every uppercase letter.\n7. Swap the case of every letter (uppercase becomes lowercase, lowercase becomes uppercase); digits are unchanged.\n8. Append to the end of the string, in decimal, the number of characters the string contains at this point (counted before appending).\nReply with ONLY the final string on a single line: no quotes, no spaces, no explanation, nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "a9GRe9DNi9CKK13",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.05",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem of exactly 3 stanzas separated by single blank lines, satisfying ALL of these constraints. Output ONLY the poem: no title, no preamble, no commentary, no leading spaces on any line.\n1. Each stanza has exactly 4 lines (12 lines of text in total).\n2. The first line of stanza 1 begins with the word 'Under'; the first line of stanza 2 begins with 'Between'; the first line of stanza 3 begins with 'Beyond' (capitalized exactly like that).\n3. Every line of stanza 1 ends with the word 'night'; every line of stanza 2 ends with the word 'flame'; every line of stanza 3 ends with the word 'tide'.\n4. There is NO punctuation anywhere in the poem (no periods, commas, apostrophes, anything).\n5. The letter 's' (uppercase or lowercase) never appears anywhere in the poem.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "n": 3,
+     "op": "=="
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 12,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AUnder[^\\n]*\\bnight\\n[^\\n]*\\bnight\\n[^\\n]*\\bnight\\n[^\\n]*\\bnight\\n[ \\t]*\\nBetween[^\\n]*\\bflame\\n[^\\n]*\\bflame\\n[^\\n]*\\bflame\\n[^\\n]*\\bflame\\n[ \\t]*\\nBeyond[^\\n]*\\btide\\n[^\\n]*\\btide\\n[^\\n]*\\btide\\n[^\\n]*\\btide\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "s",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[.,;:'\\\"!?\\-]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^[ \\t]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z0-9 \\n]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.06",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a single paragraph about a clock satisfying ALL of these constraints. Output ONLY the paragraph: no title, no preamble, no commentary, no blank lines.\n1. Exactly 7 sentences.\n2. The paragraph's very first word is 'Tick' (capitalized exactly like that).\n3. Sentences 1, 3, 5 and 7 end with a period; sentences 2, 4 and 6 end with a question mark. Periods and question marks appear ONLY as those sentence endings, and there are no exclamation marks.\n4. Every one of the 7 sentences contains the exact lowercase word 'clock'.\n5. No commas anywhere.\n6. The letter 'm' (uppercase or lowercase) never appears anywhere.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "n": 7,
+     "op": "=="
+    },
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "n": 1,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\ATick\\b[^.!?]*\\bclock\\b[^.!?]*\\.\\s+[^.!?]*\\bclock\\b[^.!?]*\\?\\s+[^.!?]*\\bclock\\b[^.!?]*\\.\\s+[^.!?]*\\bclock\\b[^.!?]*\\?\\s+[^.!?]*\\bclock\\b[^.!?]*\\.\\s+[^.!?]*\\bclock\\b[^.!?]*\\?\\s+[^.!?]*\\bclock\\b[^.!?]*\\.\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": ",",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "!",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "m",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.07",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Produce a numbered list satisfying ALL of these constraints. Output ONLY the list: no title, no preamble, no commentary, no blank lines, single spaces between tokens, no trailing spaces.\n1. Exactly 5 lines. Line k begins with the marker 'k)' — that is, line 1 starts '1)', line 2 starts '2)', line 3 starts '3)', line 4 starts '4)', line 5 starts '5)' — followed by a single space.\n2. Counting the marker as the first token, every line has exactly 6 space-separated tokens (marker + 5 words).\n3. The third token of every line (the second word after the marker) is exactly 'onyx'.\n4. Every letter in the output is lowercase.\n5. The letter 't' never appears anywhere.\n6. No punctuation of any kind except the ')' in the five markers.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 5,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A1\\) \\S+ onyx \\S+ \\S+ \\S+\\n2\\) \\S+ onyx \\S+ \\S+ \\S+\\n3\\) \\S+ onyx \\S+ \\S+ \\S+\\n4\\) \\S+ onyx \\S+ \\S+ \\S+\\n5\\) \\S+ onyx \\S+ \\S+ \\S+\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[A-Z]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "t",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[.,;:'\\\"!?\\-]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^a-z0-9) \\n]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.08",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem of exactly 2 stanzas separated by a single blank line, satisfying ALL of these constraints. Output ONLY the poem: no title, no preamble, no commentary.\n1. Each stanza has exactly 3 lines (6 lines of text in total).\n2. The exact word 'echo' appears exactly 4 times in the poem, counted as a whole word ('echoes' would NOT count).\n3. The exact word 'stone' appears exactly 2 times (whole word; 'stones' would not count).\n4. The exact word 'glass' appears exactly 1 time (whole word).\n5. Every letter in the poem is lowercase.\n6. There is no punctuation anywhere (letters and spaces only on each line).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "n": 2,
+     "op": "=="
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 6,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\becho\\b.*?\\becho\\b.*?\\becho\\b.*?\\becho\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\becho\\b.*?\\becho\\b.*?\\becho\\b.*?\\becho\\b.*?\\becho\\b",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bstone\\b.*?\\bstone\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bstone\\b.*?\\bstone\\b.*?\\bstone\\b",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bglass\\b",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bglass\\b.*?\\bglass\\b",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[A-Z]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[.,;:'\\\"!?\\-]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z\\n ]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.09",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write exactly 4 lines of text satisfying ALL of these constraints. Output ONLY the 4 lines: no title, no preamble, no commentary, no blank lines, no trailing spaces.\n1. Line 1 begins with the word 'Zinc', line 2 with 'Zeal', line 3 with 'Zero', line 4 with 'Zone' (capitalized exactly like that).\n2. Every line is EXACTLY 25 characters long, counting every letter and every space (newlines are not counted).\n3. The output contains only letters and spaces — no digits, no punctuation — and words are separated by single spaces.\n4. The ONLY uppercase letters in the output are the four 'Z's that start the lines; every other letter is lowercase.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 4,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AZinc[^\\n]*\\nZeal[^\\n]*\\nZero[^\\n]*\\nZone[^\\n]*\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=.)(?!.{25}$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z\\n ]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)(?<=.)[A-Z]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "  ",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m) $",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.10",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem of exactly 8 lines satisfying ALL of these constraints. Output ONLY the poem: no title, no preamble, no commentary, no blank lines, no leading or trailing spaces, single spaces between words.\n1. Lines 1, 3, 5 and 7 are written ENTIRELY IN UPPERCASE letters; lines 2, 4, 6 and 8 are written entirely in lowercase letters.\n2. Every line contains exactly 5 words.\n3. The poem contains only letters and spaces (no digits, no punctuation).\n4. Line 1 contains the word 'STORM'.\n5. Line 8 is exactly: so it ends here quietly",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 8,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[A-Z ]+\\n[a-z ]+\\n[A-Z ]+\\n[a-z ]+\\n[A-Z ]+\\n[a-z ]+\\n[A-Z ]+\\n[a-z ]+\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!\\S+( \\S+){4}$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[^\\n]*\\bSTORM\\b",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\A.*\\nso it ends here quietly\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^ ",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "  ",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.11",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem of exactly 9 lines satisfying ALL of these constraints. Output ONLY the poem: no title, no preamble, no commentary, no blank lines, no leading spaces, single spaces between words.\n1. Every line contains exactly 4 words.\n2. The first word of every line is exactly 4 letters long.\n3. Every line ends with the letters 'ing' (its final word ends in -ing).\n4. The word 'the' never appears anywhere.\n5. The letter 'u' (uppercase or lowercase) never appears anywhere.\n6. There is no punctuation anywhere (letters and spaces only).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 9,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!\\S+( \\S+){3}$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?![A-Za-z]{4} )",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!.*ing$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bthe\\b",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "u",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z\\n ]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^[ \\t]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "  ",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.frontier.12",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a poem of exactly 8 lines satisfying ALL of these constraints. Output ONLY the poem: no title, no preamble, no commentary, no blank lines, no leading spaces, single spaces between words.\n1. The first letters of the 8 lines, in order, spell OBSIDIAN: line 1 starts with capital 'O', line 2 with 'B', line 3 with 'S', line 4 with 'I', line 5 with 'D', line 6 with 'I', line 7 with 'A', line 8 with 'N'.\n2. Every line contains exactly 5 words.\n3. In every line, the LAST word begins with the same letter as the line's first word (case-insensitive).\n4. The word 'obsidian' itself must NOT appear anywhere, in any casing.\n5. There is no punctuation anywhere (letters and spaces only).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 8,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AO[^\\n]*\\nB[^\\n]*\\nS[^\\n]*\\nI[^\\n]*\\nD[^\\n]*\\nI[^\\n]*\\nA[^\\n]*\\nN[^\\n]*\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!\\S+( \\S+){4}$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^(?=\\S)(?!(\\w).* \\1\\w*$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "obsidian",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z\\n ]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^[ \\t]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "  ",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -196,11 +196,12 @@ def generate_artifact(kind, prompt_id, model, target_url, api_key=None, params=N
             "ok": ok, "bytes": len(html), "gen_ms": resp.get("e2e_ms")}
 
 
-def ranking(kind=None):
-    """Elo + W/L/T per model from the human votes (replayed in time order).
-    Only votes from evaluators whose honeypot accuracy is currently >= TRUST_ACCURACY
-    count, so a user who drops below the bar is excluded until they redeem (and a user
-    who climbs back is re-included automatically)."""
+def _eligible_votes(kind=None):
+    """The trust-filtered vote stream EVERY rating replays — the per-model ranking()
+    and the per-artifact gallery rating share this so the gallery can never rank on a
+    weaker filter. Only votes from evaluators whose honeypot accuracy is currently
+    >= TRUST_ACCURACY count, so a user who drops below the bar is excluded until they
+    redeem (and a user who climbs back is re-included automatically)."""
     acc = db.honeypot_accuracy()
     eligible = {uid for uid, s in acc.items()
                 if s["adjudicated"] >= 1 and (s["accuracy"] or 0) >= TRUST_ACCURACY}
@@ -226,7 +227,14 @@ def ranking(kind=None):
         voters_per_key.setdefault((pid, pair), set()).add(uid)
     latest = {k: v for k, v in latest.items()
               if len(voters_per_key[(k[1], k[2])]) >= QUORUM_VOTERS}
-    votes = sorted(latest.values(), key=lambda v: v.get("ts") or 0)
+    return sorted(latest.values(), key=lambda v: v.get("ts") or 0)
+
+
+def ranking(kind=None):
+    """Elo + W/L/T per model from the human votes (replayed in time order). Vote
+    eligibility — the honeypot trust gate, ballot-stuffing dedup and voter quorum —
+    lives in _eligible_votes, shared with the gallery's per-artifact rating."""
+    votes = _eligible_votes(kind)
     elo, rec = {}, {}
 
     def seen(m):
@@ -258,6 +266,81 @@ def ranking(kind=None):
                      "win_rate": round(100 * r["w"] / r["games"], 1) if r["games"] else 0.0})
     rows.sort(key=lambda x: -x["elo"])
     return rows
+
+
+# ---- public Code Gallery (top-rated artifacts per prompt, per kind) ----
+
+GALLERY_TOP_N = 10
+# A young prompt with almost no counted votes still deserves content: pad it with its
+# newest UNRATED artifacts (flagged "unrated") only while it has fewer rated than this.
+GALLERY_MIN_RATED = 3
+
+
+def artifact_ratings(kind):
+    """Per-ARTIFACT Elo + W/L/T by replaying the SAME eligible vote stream ranking()
+    uses (honeypot trust gate, ballot-stuffing dedup, voter quorum — _eligible_votes),
+    with a_id/b_id as the two players instead of the model names. Honeypot decoys can
+    never earn a rating: they exist only in is_test matches (already excluded from the
+    stream) and are dropped by id here as defense-in-depth.
+    Returns {artifact_id: {"elo": float, "w": int, "l": int, "t": int, "votes": int}}."""
+    bogus_ids = {x["id"] for x in db.list_bogus(kind)}
+    out = {}
+
+    def seen(aid):
+        out.setdefault(aid, {"elo": 1000.0, "w": 0, "l": 0, "t": 0, "votes": 0})
+
+    K = 24
+    for v in _eligible_votes(kind):
+        a, b, w = v.get("a_id"), v.get("b_id"), v.get("winner")
+        if not a or not b or a == b or a in bogus_ids or b in bogus_ids:
+            continue
+        seen(a); seen(b)
+        Ra, Rb = out[a]["elo"], out[b]["elo"]
+        Ea = 1 / (1 + 10 ** ((Rb - Ra) / 400))
+        Sa = 1.0 if w == "a" else (0.0 if w == "b" else 0.5)
+        out[a]["elo"] = Ra + K * (Sa - Ea)
+        out[b]["elo"] = Rb + K * ((1 - Sa) - (1 - Ea))
+        out[a]["votes"] += 1; out[b]["votes"] += 1
+        if w == "a":
+            out[a]["w"] += 1; out[b]["l"] += 1
+        elif w == "b":
+            out[b]["w"] += 1; out[a]["l"] += 1
+        else:
+            out[a]["t"] += 1; out[b]["t"] += 1
+    return out
+
+
+def gallery(kind):
+    """The Code Gallery clusters for one kind: for each prompt (corpus order), the top
+    GALLERY_TOP_N ok, non-bogus artifacts by (elo desc, votes desc). Young prompts with
+    fewer than GALLERY_MIN_RATED rated artifacts are padded with their newest unrated
+    ones, flagged "unrated" so the UI can say so. Prompts with no artifacts at all are
+    skipped. Metadata only — bodies stay behind the sandboxed render/download routes."""
+    ratings = artifact_ratings(kind)
+    by_prompt = _real_by_prompt(kind)          # ok=1 only, bogus already excluded
+    out = []
+    for p in PROMPTS.get(kind, []):
+        arts = by_prompt.get(p["id"]) or []
+        rated = sorted((a for a in arts if a["id"] in ratings),
+                       key=lambda a: (-ratings[a["id"]]["elo"], -ratings[a["id"]]["votes"]))
+        top = rated[:GALLERY_TOP_N]
+        if len(rated) < GALLERY_MIN_RATED:     # arts is created_at DESC → newest first
+            top += [a for a in arts if a["id"] not in ratings][:GALLERY_TOP_N - len(top)]
+        if not top:
+            continue
+        items = []
+        for a in top:
+            r = ratings.get(a["id"])
+            it = {"id": a["id"], "model": a["model"], "bytes": a.get("bytes"),
+                  "gen_ms": a.get("gen_ms"), "created_at": a.get("created_at"),
+                  "elo": round(r["elo"]) if r else None,
+                  "w": r["w"] if r else 0, "l": r["l"] if r else 0,
+                  "t": r["t"] if r else 0, "votes": r["votes"] if r else 0}
+            if not r:
+                it["unrated"] = True
+            items.append(it)
+        out.append({"id": p["id"], "title": p["title"], "brief": p["brief"], "artifacts": items})
+    return out
 
 
 # ---- seeded demo artifacts (so the side-by-side works before any model is run) ----

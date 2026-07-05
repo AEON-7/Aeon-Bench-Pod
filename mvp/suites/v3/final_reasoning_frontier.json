@@ -1,0 +1,224 @@
+[
+ {
+  "id": "v3.reasoning.frontier.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "On the island of Veyra every inhabitant is either a knight (always tells the truth) or a knave (always lies). Eight islanders — Toran, Vessa, Orin, Malda, Quill, Senna, Ryx and Pell — make one statement each:\n- Toran: \"Vessa and Ryx are of the same type (both knights or both knaves).\"\n- Vessa: \"Exactly three of the eight of us are knights.\"\n- Orin: \"Toran is a knave or Malda is a knight (inclusive or).\"\n- Malda: \"Quill is a knave.\"\n- Quill: \"Senna and I are both knights.\"\n- Senna: \"Ryx is a knave.\"\n- Ryx: \"Orin and Malda are of different types.\"\n- Pell: \"Vessa is a knave and exactly four of the eight of us are knights.\"\nThere is exactly one assignment of types consistent with all eight statements. How many of the eight islanders are knights? Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "On the island of Skarrow every inhabitant is either a knight (always tells the truth) or a knave (always lies). Six islanders — Dovan, Ilex, Fenra, Ostin, Brill and Cava — are questioned about a brass key. Exactly one of the six holds the key. They say:\n- Dovan: \"The key-holder is a knave.\"\n- Ilex: \"Dovan holds the key.\"\n- Fenra: \"I hold the key if and only if I am a knight.\"\n- Ostin: \"Exactly two of the six of us are knights.\"\n- Brill: \"Cava holds the key, or Ostin is a knave (inclusive or).\"\n- Cava: \"I do not hold the key, and Dovan is a knave.\"\nThe identity of the key-holder is uniquely determined by these statements. Who holds the key? Finish with your answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name} — the bare name only, nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Fenra\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^}]*\\b(Dovan|Ilex|Ostin|Brill|Cava)\\b[^}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.03",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Eight friends — Arla, Bex, Corm, Della, Evo, Fyn, Grae and Hutt — sit at a round table with seats numbered 1 through 8 clockwise, one person per seat. Seat k is directly opposite seat k+4 (so 1-5, 2-6, 3-7, 4-8 are opposite pairs). Two seats are adjacent when their numbers differ by 1, and seat 8 is also adjacent to seat 1. \"Immediately clockwise of seat k\" means seat k+1 (and seat 1 is immediately clockwise of seat 8). All of the following are true:\n1. Arla sits in seat 1.\n2. Bex sits directly opposite Corm.\n3. Della sits immediately clockwise of Bex.\n4. Evo is not adjacent to Arla.\n5. Fyn sits in an even-numbered seat.\n6. Grae is adjacent to Corm.\n7. Hutt is not directly opposite Della.\n8. Evo sits exactly two seats clockwise of Fyn (going clockwise from Fyn, the second seat is Evo's).\nThere is exactly one seating satisfying all clues. Who sits in seat 5? Finish with your answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name} — the bare name only, nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Hutt\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^}]*\\b(Arla|Bex|Corm|Della|Evo|Fyn|Grae)\\b[^}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.04",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Six conference talks — Korrin, Nembra, Tessel, Vox, Ilding and Maro — are scheduled into six consecutive hourly slots numbered 1 through 6, exactly one talk per slot. All of the following are true:\n1. Korrin is in an earlier slot than Nembra.\n2. Tessel is in neither slot 1 nor slot 6.\n3. Vox is in the slot immediately after Ilding's (Vox's slot number is Ilding's plus one).\n4. Maro is in an odd-numbered slot.\n5. Nembra's slot number and Tessel's slot number differ by more than 1.\n6. Ilding is in an earlier slot than Korrin.\n7. Vox is not in slot 4.\n8. Korrin is in an even-numbered slot.\nThere is exactly one schedule satisfying all clues. Which talk is in slot 5? Finish with your answer as exactly one talk name inside \\boxed{}, e.g. \\boxed{Name} — the bare name only, nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Maro\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^}]*\\b(Korrin|Nembra|Tessel|Vox|Ilding)\\b[^}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.05",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Consider classical propositional logic over the atoms p, q, r, s, t. \"If X then Y\" is the material conditional, and \"or\" is always inclusive. Take these five premises:\nP1: If p then (q or not r).\nP2: (not q) or s.\nP3: r or t.\nP4: If s then not t.\nP5: p or r.\nNow consider these five candidate conclusions:\nC1: If r then s.\nC2: If q then r.\nC3: If t then not s.\nC4: q or t.\nC5: If t then not q.\nA conclusion is entailed when it is true in every truth assignment that satisfies all five premises simultaneously. Determine exactly which of C1–C5 are entailed by the premises, then report the SUM of the indices of the entailed conclusions (for example, if exactly C1 and C4 were entailed you would answer 5; if none were entailed you would answer 0). Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "10"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.06",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Count the strings of length 13 over the alphabet {R, G, B} that satisfy ALL three conditions:\n(a) no two adjacent letters are equal;\n(b) the letter R appears exactly five times;\n(c) the letter G is never immediately followed by the letter B (the substring \"GB\" never occurs).\nGive the exact count. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "321"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.07",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Seven people — Pia, Quon, Rafe, Sil, Tova, Ume and Vint — are to be seated in a single row of seven chairs numbered 1 through 7, one person per chair. Count the seatings that satisfy ALL of the following:\n1. Pia and Quon are not in adjacent chairs (their chair numbers differ by more than 1).\n2. Rafe is in a lower-numbered chair than Sil.\n3. Tova is in neither chair 1 nor chair 7.\n4. Ume and Vint are in adjacent chairs (their chair numbers differ by exactly 1).\n5. Sil is not in chair 4.\nGive the exact number of valid seatings. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "292"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.08",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Five market stalls stand in a row, numbered 1 to 5 from left to right. Each stall has exactly one trader (Marek, Odile, Petra, Rasin, Sylva), exactly one awning colour (crimson, ochre, teal, ivory, slate) and exactly one ware (spice, silk, glass, copper, salt); every trader, colour and ware is used exactly once. \"Left\" means a lower stall number, \"adjacent\" means stall numbers differing by exactly 1, and \"at an end\" means stall 1 or stall 5. All of the following are true:\n1. The slate stall is at an end.\n2. Stall 3 has the ochre awning.\n3. The ivory stall is somewhere to the left of the crimson stall.\n4. Marek's stall is immediately to the left of the teal stall.\n5. Odile is at stall 1.\n6. Rasin's stall is adjacent to the crimson stall.\n7. Sylva's stall is somewhere to the right of Petra's.\n8. Rasin's stall is not at an end.\n9. The trader at the teal stall sells glass.\n10. Odile sells spice.\n11. Petra sells neither spice nor salt.\n12. The copper seller is immediately to the right of the silk seller.\n13. The salt seller's stall is not at an end.\nThere is exactly one arrangement satisfying all clues. Which trader sells salt? Finish with your answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name} — the bare name only, nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Marek\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^}]*\\b(Odile|Petra|Rasin|Sylva)\\b[^}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.09",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Ten islanders stand in a line at positions 1 through 10. Each is either a knight (always tells the truth) or a knave (always lies). The person at position 1 says: \"At least one of the ten of us is a knave.\" For each i from 2 to 10, the person at position i says: \"The number of knaves among the ten of us is a multiple of i.\" (Recall that 0 is a multiple of every positive integer.) There is exactly one assignment of types consistent with all ten statements. How many of the ten are knights? Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.10",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A radio network has eight relay stations named Kel, Mor, Nav, Osk, Pru, Qem, Rin and Sol. Exactly these thirteen pairs of stations are directly linked:\nKel–Mor, Kel–Nav, Kel–Pru, Mor–Nav, Mor–Osk, Mor–Sol, Nav–Osk, Nav–Rin, Osk–Pru, Pru–Qem, Qem–Rin, Qem–Sol, Rin–Sol.\nEach station must be assigned exactly one of three frequencies (F1, F2, F3), and directly linked stations must receive different frequencies. Count the number of distinct valid frequency assignments (assignments differing at any station count as different; the three frequencies are distinguishable). Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "24"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.11",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Seven Boolean variables a, b, c, d, e, f, g each take the value true or false. Count the assignments (out of the 128 possible) that satisfy ALL six constraints simultaneously:\n1. If a is true, then b is true and g is false.\n2. At least one of b, c, d is true.\n3. c and d are not both true.\n4. If e is true, then f is true.\n5. g is true if and only if at least one of d, e is true.\n6. If f is true, then b is true or g is true (inclusive or).\nGive the exact number of satisfying assignments. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "18"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.frontier.12",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A ledger was stolen from the Brasshouse vault by exactly one of six clerks: Varek, Lunn, Essa, Trin, Kolvo or Merri. Under questioning each clerk made two statements:\n- Varek: (1) \"Kolvo is innocent.\" (2) \"I stole it.\"\n- Lunn: (1) \"I did not steal it.\" (2) \"Varek's second statement is false.\"\n- Essa: (1) \"Kolvo is guilty or Trin is guilty (inclusive or).\" (2) \"I am innocent.\"\n- Trin: (1) \"Essa stole it.\" (2) \"Lunn is the thief.\"\n- Kolvo: (1) \"Trin's first statement is false.\" (2) \"Merri is innocent.\"\n- Merri: (1) \"Varek is innocent.\" (2) \"Both of Kolvo's statements are true.\"\nIt is known that every clerk either told the truth in both of their statements or lied in both of their statements, and that exactly two of the six clerks lied in both. There is exactly one thief consistent with all of this. Who stole the ledger? Finish with your answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name} — the bare name only, nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Kolvo\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^}]*\\b(Varek|Lunn|Essa|Trin|Merri)\\b[^}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -89,6 +89,12 @@ def _run_summary(info):
     }
 
 
+# When a NEW suite version ships, the default board scopes to it — which is empty until
+# models re-run. Rather than a blank public leaderboard, fall back to the newest legacy
+# suite that HAS runs, honestly labeled via suite_shown/legacy so the UI can badge it.
+_LEGACY_SUITES = ["aeon-suite-v2", "aeon-suite-v1"]
+
+
 def leaderboard(suite=None):
     """One board row per CANONICAL model identity (the HF repo when known, else the declared
     name) — so the same model under different local aliases lines up, and EVERY run for it is
@@ -97,6 +103,18 @@ def leaderboard(suite=None):
     A TIER-scoped run (e.g. the hard-only pass, suite id 'aeon-suite-v2-hard') is a DIFFERENT test
     than the comprehensive suite and would skew the average — so the default board shows ONLY the
     comprehensive suite. Pass suite='aeon-suite-v2-hard' (etc.) to see a tier board on its own."""
+    out = _leaderboard_scoped(suite)
+    if suite is None and not out["models"]:
+        for legacy in _LEGACY_SUITES:                    # new suite, no runs yet -> legacy view
+            lb = _leaderboard_scoped(legacy)
+            if lb["models"]:
+                lb["suite_shown"], lb["legacy"] = legacy, True
+                return lb
+    out["suite_shown"] = suite or suite_mod.SUITE_ID
+    return out
+
+
+def _leaderboard_scoped(suite=None):
     rows = db.all_results_with_runs()
     COMPREHENSIVE = suite_mod.SUITE_ID
 

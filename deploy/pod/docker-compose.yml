@@ -209,8 +209,8 @@ services:
           $${AEON_MAX_TOKENS:+--max-tokens "$${AEON_MAX_TOKENS}"} \
           $${AEON_LIMIT:+--limit "$${AEON_LIMIT}"}
     environment:
-      AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:?set AEON_MOTHERSHIP in .env (mothership base URL)}
-      AEON_HF_LINK:    ${AEON_HF_LINK:?set AEON_HF_LINK in .env}
+      AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:-https://aeon-bench.com}   # prod default; override in .env only to test elsewhere
+      AEON_HF_LINK:    ${AEON_HF_LINK:?the ONE required input — the HF model to benchmark (org/Model or a URL)}
       AEON_TARGET_PORT: ${AEON_TARGET_PORT:-8000}
       AEON_ENGINE:     ${AEON_ENGINE:-}          # vllm | aeon-vllm-ultimate (DGX default) | llama.cpp
       AEON_HARDWARE:   ${AEON_HARDWARE:-}        # label, e.g. "NVIDIA DGX Spark GB10 128GB"
@@ -250,8 +250,15 @@ services:
       AEON_ROLE: pod                     # local lab: Live view + your own runs
       AEON_DB: /root/.aeon/pod.db        # the SAME SQLite the aeon-pod control plane writes (WAL: safe concurrent read)
       AEON_PORT: "8080"
+      # Submissions from console-launched runs go to prod by default; override in .env to test elsewhere.
+      AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:-https://aeon-bench.com}
+      # Harness image names so a run launched from the dashboard's Run tab can spawn the harnesses.
+      AEON_HERMES_IMAGE:   aeon-harness-hermes
+      AEON_OPENCLAW_IMAGE: aeon-harness-openclaw
+      AEON_OPENCODE_IMAGE: aeon-harness-opencode
     volumes:
       - pod-state:/root/.aeon            # shares the device key + pod.db with aeon-pod
+      - /var/run/docker.sock:/var/run/docker.sock   # spawn per-task harness containers for console runs
     ports:
       - "${AEON_DASH_PORT:-8080}:8080"   # your lab dashboard
     restart: unless-stopped

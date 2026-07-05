@@ -14,13 +14,19 @@ leaderboard. Direct-endpoint runs are stored as *self-reported* — useful local
 
 ## Quickstart
 
+The only input is the model — everything else auto-defaults (mothership →
+`https://aeon-bench.com`, engine auto-detected, device key generated on first enrol):
+
 ```bash
-cd deploy/pod
-cp .env.example .env          # set AEON_HF_LINK + AEON_MOTHERSHIP
-docker compose up --build     # pull → verify → serve → bench → submit
+git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod
+AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
+# pull → hash-verify → serve → bench (incl. Hermes/OpenClaw/OpenCode) → submit to aeon-bench.com
 ```
 
-Or run the pod dashboard for a GUI (launch runs, saved keys, live progress):
+Watch it live + launch more runs at **http://localhost:8080**. (Copy `deploy/pod/.env.example`
+to `deploy/pod/.env` only to override a default or add an `HF_TOKEN`.)
+
+Or run just the pod dashboard for a GUI (launch runs, saved keys, live progress):
 
 ```bash
 cd mvp && pip install -r requirements.txt

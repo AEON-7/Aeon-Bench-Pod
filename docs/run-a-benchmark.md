@@ -21,25 +21,30 @@ the AEON suite through the three agent harnesses, and submits the signed result.
 
 ```bash
 git clone https://github.com/AEON-7/Aeon-Bench-Pod.git
-cd Aeon-Bench-Pod/deploy/pod
+cd Aeon-Bench-Pod
 ```
 
-(Or download the repo zip from the GitHub page and `cd` into `deploy/pod`.)
+(Or download the repo zip from the GitHub page and `cd` into it.)
 
-### 1.2 Configure
+### 1.2 Configure — usually nothing
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` — only two vars are required:
+The **only required input is the model**. Everything else auto-defaults: submissions go to the
+live mothership `https://aeon-bench.com`, the engine is auto-detected from `nvidia-smi`, ports are
+fixed, and the pod's ed25519 device key is generated on first enrol. So you can skip `.env`
+entirely and pass the model inline (see 1.3).
 
 | Var | What it is |
 |---|---|
-| `AEON_HF_LINK` | the model to benchmark — a Hugging Face repo id or URL (`org/model`, a full `huggingface.co/...` URL, `org/model@<rev>`, or `.../tree/<rev>`). This selects the served model **and** travels with your submission for model-identity verification. |
-| `AEON_MOTHERSHIP` | the mothership base URL to submit to, e.g. `https://aeon-bench.com`. |
+| `AEON_HF_LINK` | **(required)** the model to benchmark — a Hugging Face repo id or URL (`org/model`, a full `huggingface.co/...` URL, `org/model@<rev>`, or `.../tree/<rev>`). Selects the served model **and** travels with your submission for model-identity verification. |
+| `AEON_MOTHERSHIP` | *(optional)* mothership base URL — defaults to `https://aeon-bench.com`; set only to submit to a private/test mothership. |
 
-Useful optional vars (full list documented in `.env.example`):
+To override any default, copy the template and edit only what you need:
+
+```bash
+cp deploy/pod/.env.example deploy/pod/.env
+```
+
+Useful optional vars (full list documented in `deploy/pod/.env.example`):
 
 - `AEON_SYSTEM=dgx-spark` — on an NVIDIA DGX Spark, makes the pod default to the first-party
   `aeon-vllm-ultimate` engine.
@@ -53,9 +58,14 @@ Useful optional vars (full list documented in `.env.example`):
 
 ### 1.3 Run
 
+Pass the model inline — no `.env` needed:
+
 ```bash
-docker compose up --build
+AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
 ```
+
+(If you created a `deploy/pod/.env`, just `docker compose -f deploy/pod/docker-compose.yml up --build`.)
+Watch it live at **http://localhost:8080**.
 
 What happens (the controlled A→B flow — see [`deploy/pod/AGENTS.md`](../deploy/pod/AGENTS.md)):
 

@@ -272,6 +272,15 @@ services:
       - ${AEON_MODELS_HOST:-${HOME}/aeon-models}:/models   # validated weights (host-visible)
     ports:
       - "${AEON_DASH_PORT:-8091}:8091"   # the pod dashboard
+    # NVIDIA hosts: give the dashboard GPU visibility (platform detection drives the engine
+    # catalog — without it CUDA engines disable themselves). Uncomment on GPU boxes:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: ["gpu"]
     restart: unless-stopped
 
 volumes:

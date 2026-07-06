@@ -31,13 +31,15 @@ serve gives a **self-reported** run (useful locally, never globally ranked).
 ## Fastest path — the prebuilt dashboard container (one command)
 
 ```bash
-docker run -d --name aeon-pod --network host \
+docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
   ghcr.io/aeon-7/aeon-pod:latest
 # open http://localhost:8091 → Run tab       (macOS: -p 8091:8091 instead of --network host)
 ```
+
+> `--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/) and matters more than it looks: without GPU access the pod detects a CPU-only box — CUDA engines (aeon-vllm-ultimate / vLLM / SGLang) disable themselves and the recipe-tuning catalog shrinks. On a Mac or CPU-only host, drop the flag.
 
 Everything happens from the **Run tab**:
 

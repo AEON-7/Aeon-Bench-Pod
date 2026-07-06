@@ -22,13 +22,15 @@ Pull the maintained multi-platform image (x86 / ARM / DGX Spark / Apple-silicon 
 and open the dashboard — everything happens from the GUI:
 
 ```bash
-docker run -d --name aeon-pod --network host \
+docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
   ghcr.io/aeon-7/aeon-pod:latest
 # open http://localhost:8091 → Run tab
 ```
+
+> `--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/) and matters more than it looks: without GPU access the pod detects a CPU-only box — CUDA engines (aeon-vllm-ultimate / vLLM / SGLang) disable themselves and the recipe-tuning catalog shrinks. On a Mac or CPU-only host, drop the flag.
 
 macOS (Docker Desktop has no host networking; Apple MLX serves bare-metal on the host):
 
@@ -65,7 +67,7 @@ Pull the latest image, drop the old container, run the new one — this is also 
 
 ```bash
 docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
-docker run -d --name aeon-pod --network host \
+docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \

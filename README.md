@@ -40,12 +40,16 @@ docker run -d --name aeon-pod -p 8091:8091 \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
-From the **Run tab**: paste an HF link (or a local weights folder + its HF link — hash-checked,
-no re-download), watch the **VALIDATED MODEL** light go green, pick the engine container for your
-hardware — **aeon-vllm-ultimate** (AEON's own optimal engine, the one behind the official boards),
-**vLLM**, **SGLang**, **llama.cpp**, **vLLM ROCm**, a **custom image**, or **Apple MLX** (bare-metal;
-the startup recipe is recorded exactly like a docker recipe) — and launch. The pod validates,
-serves, benchmarks, signs, submits: **attested**, replicable, on the global board.
+From the **Run tab**: paste an HF link — or hit **⌕ scan system** (every model already on disk:
+HF cache, LM Studio library, sizes + locations, each auto-reconciled to its HF card) or
+**▤ browse** to pick a folder. A hash-matched local copy is good as gold: **no re-download**.
+Watch the **VALIDATED MODEL** light go green, pick the engine for your hardware —
+**aeon-vllm-ultimate** (AEON's own optimal engine, the one behind the official boards),
+**vLLM**, **SGLang**, **llama.cpp**, **vLLM ROCm**, a **custom image**, or the bare-metal pair:
+**Apple MLX** (macOS) and **LM Studio** (Windows/macOS/Linux host performance) — bare startup
+recipes are recorded exactly like docker recipes — and launch. The pod validates, serves,
+benchmarks, signs, submits: **attested**, replicable, on the global board, with the inference
+engine + hardware + full startup recipe shown on every result.
 
 The mounts, in one line each: the **docker socket** lets the pod launch engine + harness
 containers; **aeon-pod-state** persists your ed25519 device key + local runs; **/models** (with

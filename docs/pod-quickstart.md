@@ -20,14 +20,17 @@ docker run -d --name aeon-pod --network host \
 *(macOS: swap `--network host` for `-p 8091:8091` — Apple MLX serves bare-metal on the host
 and the dashboard benches it at `host.docker.internal`.)*
 
-From the **Run tab**: paste an HF link — or a local weights folder + its HF link (hash-checked
-against the repo manifest; a matching copy is good as gold, **no re-download**). The
-**VALIDATED MODEL** light goes green, you pick the **engine container** for your hardware
-(aeon-vllm-ultimate / vLLM / SGLang / llama.cpp / vLLM-ROCm / custom image / Apple MLX
-bare-metal), and launch. The pod **serves** the validated weights on the fixed alias
-`model-under-test`, **benchmarks** — driving the agentic suite through **Hermes / OpenClaw /
-OpenCode** (versions disclosed) — and **submits** the ed25519-signed bundle: **attested**,
-with the exact serve recipe (docker or bare-metal, reported identically) attached.
+From the **Run tab**: paste an HF link — or hit **⌕ scan system** (finds every model already on
+disk: HF cache, LM Studio library, AEON pulls — size, location, format, each auto-reconciled to
+its HF card so the hash check runs automatically) or **▤ browse** the pod host's folders. A
+hash-matched local copy is good as gold: **no re-download**; a manually-typed HF link always
+overrides the auto-reconciliation. The **VALIDATED MODEL** light goes green, you pick the
+**engine** for your hardware (aeon-vllm-ultimate / vLLM / SGLang / llama.cpp / vLLM-ROCm /
+custom image — or bare-metal **Apple MLX** and **LM Studio**, the Windows host-performance
+path), and launch. The pod **serves** the validated weights, **benchmarks** — driving the
+agentic suite through **Hermes / OpenClaw / OpenCode** (versions disclosed) — and **submits**
+the ed25519-signed bundle: **attested**, with the inference engine, bench hardware, and exact
+startup recipe (docker or bare-metal, reported identically) on every result.
 
 > On a DGX Spark (GB10) the pod defaults to the first-party `aeon-vllm-ultimate` engine with
 > its optimal flags — the same engine behind AEON's own boards.

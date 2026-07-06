@@ -468,13 +468,89 @@ def _stop(proc):
             pass
 
 
+def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, board, suite_id,
+                harness_ids, harness_only, judge, judge_url, judge_key, max_tokens, retry_max_tokens,
+                temperature, concurrency, vision, audio, perf, perf_max_conc, arena_per_kind,
+                difficulty, bench_seed):
+    """Run EVERY benchmark dimension against an ALREADY-served, hash-verified model and submit
+    each as its own attested bundle: text (+ arena artifacts) → agentic-v2 through each harness →
+    vision → audio → perf grid. Shared by run_attested (split-pod) and run_controlled
+    (single-process) so both produce IDENTICAL comprehensive results — the source-of-truth for
+    'what a comprehensive run does', so the two paths can never drift again."""
+    from aeon import agentic_v2
+    from aeon import suite as suite_mod
+    from pod import run_harness2
+    st, r = 0, {"skipped": "harness_only"}
+    if not harness_only:
+        _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
+            temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
+            retry_max_tokens=retry_max_tokens, concurrency=concurrency,
+            hf_repo=repo, trust_tier="attested", model_verified="verified")
+        print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
+        # ARENA generation (games/apps/animations) ships INSIDE the signed text bundle.
+        artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
+                                     per_kind=arena_per_kind) if arena_per_kind else []
+        st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
+            suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
+            judge_model=judge, artifacts=artifacts, **provenance)
+        print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> "
+              f"HTTP {st}  {json.dumps(r)[:300]}")
+
+    # AGENTIC through each REAL harness (agentic-v2 env-execution, fresh container per model-run).
+    hstatuses = []
+    if harness_ids and difficulty:
+        want_d = {d.strip() for d in difficulty.split(",") if d.strip()}
+        if any(c.get("difficulty") for c in agentic_v2.CASES):
+            agentic_v2.CASES = [c for c in agentic_v2.CASES
+                                if not c.get("difficulty") or c.get("difficulty") in want_d]
+    for h in (harness_ids or []):
+        try:
+            disc = run_harness2.discover(h)
+            print(f"[pod] harness {h} ({disc.get('harness_version', '?')}): "
+                  f"{len(agentic_v2.CASES)} env-execution tasks, fresh container state")
+            hres = run_harness2.run_agentic_v2(h, target, alias, concurrency=4,
+                progress_cb=lambda c, s, stt: print(f"    [{h}] {c:26s} {stt:13s} {s}"))
+        except Exception as e:
+            print(f"[pod] harness {h} could not run: {e}")
+            continue
+        hresults = [{k: x.get(k) for k in ("case_id", "category", "tier", "status",
+                                           "score", "raw_output", "evidence", "speed")} for x in hres]
+        hscored = [x["score"] for x in hresults if isinstance(x["score"], float)]
+        print(f"[pod] harness {h}: mean {sum(hscored)/len(hscored):.3f} over {len(hscored)} tasks"
+              if hscored else f"[pod] harness {h}: no scored tasks")
+        try:
+            hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
+                suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
+                judge_model=judge, harness=disc.get("harness", h),
+                harness_version=disc.get("harness_version"), **provenance)
+            print(f"[pod] submit (harness {h} {disc.get('harness_version', '?')}) -> HTTP {hst}  {json.dumps(hr)[:200]}")
+        except Exception as e:
+            hst = 0
+            print(f"[pod] submit (harness {h}) FAILED: {e}")
+        hstatuses.append(hst)
+    if harness_only:
+        st = 200 if (hstatuses and all(s == 200 for s in hstatuses)) else (hstatuses[-1] if hstatuses else 0)
+
+    if vision and not harness_only:
+        _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                           max_tokens=max_tokens, temperature=temperature)
+    if audio and not harness_only:
+        _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                          temperature=temperature)
+    if perf and not harness_only:
+        _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                         harness_ids=harness_ids, max_conc=perf_max_conc)
+    return st, r
+
+
 def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="text",
                    suite_id=None, key_path=None, weights_dir=None, keep_weights=False,
                    port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
-                   drafter_hf=None):
+                   drafter_hf=None, retry_max_tokens=None, audio=True, perf=False,
+                   perf_max_conc=None, arena_per_kind=2, harness_only=False):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -663,47 +739,15 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                           deployment_manifest=deployment_manifest, bench_seed=bench_seed)
         pod = Pod(mothership, key_path or DEFAULT_KEY)
 
-        # 1) the standard suite through the verified-served model -> the ATTESTED text submission
-        _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
-            temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
-            concurrency=concurrency,
-            hf_repo=repo, trust_tier="attested", model_verified="verified")
-        print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
-        st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
-            suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
-            judge_model=judge, **provenance)
-        print(f"[pod] submit (suite) -> {mothership}: HTTP {st}  {json.dumps(r)[:300]}")
-
-        # 2) the agentic suite through EACH harness -> the AI-Harness board. Best-effort: an
-        #    uninstalled / stubbed harness degrades to per-task harness_error, never aborting.
-        if harness_ids:
-            from aeon import agentic
-            from pod import run_harness
-            for h in harness_ids:
-                try:
-                    hres = run_harness.run_agentic_suite(
-                        h, target, alias,
-                        progress_cb=lambda c, s, stt: print(f"    [{h}] {c:22s} {stt:13s} {s}"))
-                except Exception as e:
-                    print(f"[pod] harness {h} could not run: {e}")
-                    continue
-                disc = hres[0] if hres else {}
-                hresults = [{"case_id": x["case_id"], "category": x["category"], "tier": x["tier"],
-                             "status": x["status"], "score": x["score"],
-                             "raw_output": json.dumps(x.get("transcript") or {})[:4000],
-                             "evidence": x.get("metrics") or {}, "speed": {}} for x in hres]
-                hst, hr = pod.run_and_submit(repo, agentic.SUITE_ID, hresults, board=board,
-                    suite_hash=suite_mod.suite_hash(), environment=env,
-                    target_class="hf_pull_controlled", judge_model=judge,
-                    harness=disc.get("harness", h), harness_version=disc.get("harness_version"),
-                    **provenance)
-                print(f"[pod] submit (harness {h} {disc.get('harness_version', '?')}) -> "
-                      f"HTTP {hst}  {json.dumps(hr)[:200]}")
-
-        # 3) the VISION suite through the served (multimodal) model -> the VISION board (probe-gated)
-        if vision:
-            _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                               max_tokens=max_tokens, temperature=temperature)
+        # ALL boards through the shared dimension-runner — text (+arena) · agentic-v2 harnesses ·
+        # vision · audio · perf — identical to the split-pod run_attested path (no drift).
+        st, r = _run_boards(pod, repo=repo, rev=ver["revision"], ver=ver, recipe=recipe,
+            target=target, alias=alias, env=env, provenance=provenance, board=board,
+            suite_id=suite_id, harness_ids=harness_ids, harness_only=harness_only,
+            judge=judge, judge_url=judge_url, judge_key=judge_key, max_tokens=max_tokens,
+            retry_max_tokens=retry_max_tokens, temperature=temperature, concurrency=concurrency,
+            vision=vision, audio=audio, perf=perf, perf_max_conc=perf_max_conc,
+            arena_per_kind=arena_per_kind, difficulty=difficulty, bench_seed=bench_seed)
         return st, r
     finally:
         _stop(server)
@@ -782,92 +826,14 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
                       weights_per_file=ver.get("per_file") or {}, recipe=recipe,
                       deployment_manifest=deployment_manifest, bench_seed=bench_seed)
     pod = Pod(mothership, key_path or DEFAULT_KEY)
-    st, r = 0, {"skipped": "harness_only"}
-    if not harness_only:
-        # Benchmark LOCALLY into the pod's own pod.db — the POD dashboard reads it live (per case, no
-        # network). The mothership only ever receives a COMPLETE, verified run, submitted once here, and
-        # shows it once accepted. (No mid-run streaming: the pod owns its data; a killed run's cases stay
-        # in pod.db + are visible in the pod's dashboard for the user to re-run or submit.)
-        _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
-            temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
-            retry_max_tokens=retry_max_tokens, concurrency=concurrency,
-            hf_repo=repo, trust_tier="attested", model_verified="verified")
-        print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
-
-        # ARENA generation (games/apps/animations) is part of EVERY benchmark: generate from the
-        # served model NOW and ship the artifacts INSIDE the signed text-run bundle (ingest saves
-        # them into the arena on the final commit).
-        artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
-                                     per_kind=arena_per_kind) if arena_per_kind else []
-
-        st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
-            suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
-            judge_model=judge, artifacts=artifacts, **provenance)
-        print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> {mothership}: "
-              f"HTTP {st}  {json.dumps(r)[:300]}")
-
-    # AGENTIC through each REAL harness (fresh container state per model-run; env-execution tasks
-    # scored on observable outcomes). Measures the harness AND the model together.
-    hstatuses = []
-    # If a difficulty filter is in effect (e.g. hard-bench = hard,expert) AND the agentic tasks now
-    # carry a `difficulty` field, scope the harness pass to those tiers too; tasks without a
-    # difficulty field are always kept (a task that never opted into tiering still runs).
-    if harness_ids and difficulty:
-        from aeon import agentic_v2
-        want_d = {d.strip() for d in difficulty.split(",") if d.strip()}
-        if any(c.get("difficulty") for c in agentic_v2.CASES):
-            agentic_v2.CASES = [c for c in agentic_v2.CASES
-                                if not c.get("difficulty") or c.get("difficulty") in want_d]
-            print(f"[pod] agentic harness pass scoped to difficulty {sorted(want_d)}: "
-                  f"{len(agentic_v2.CASES)} tasks")
-    for h in (harness_ids or []):
-        try:
-            from aeon import agentic_v2
-            from pod import run_harness2
-            disc = run_harness2.discover(h)
-            print(f"[pod] harness {h} ({disc.get('harness_version', '?')}): "
-                  f"{len(agentic_v2.CASES)} env-execution tasks, fresh container state")
-            hres = run_harness2.run_agentic_v2(h, target, alias, concurrency=4,
-                progress_cb=lambda c, s, stt: print(f"    [{h}] {c:26s} {stt:13s} {s}"))
-        except Exception as e:
-            print(f"[pod] harness {h} could not run: {e}")
-            continue
-        hresults = [{k: x.get(k) for k in ("case_id", "category", "tier", "status",
-                                           "score", "raw_output", "evidence", "speed")} for x in hres]
-        hscored = [x["score"] for x in hresults if isinstance(x["score"], float)]
-        print(f"[pod] harness {h}: mean {sum(hscored)/len(hscored):.3f} over {len(hscored)} tasks"
-              if hscored else f"[pod] harness {h}: no scored tasks")
-        # A submit blip on one harness must not abort the others (each is an independent bundle).
-        try:
-            hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
-                suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
-                judge_model=judge, harness=disc.get("harness", h),
-                harness_version=disc.get("harness_version"), **provenance)
-            print(f"[pod] submit (harness {h} {disc.get('harness_version', '?')}) -> HTTP {hst}  {json.dumps(hr)[:200]}")
-        except Exception as e:
-            hst = 0
-            print(f"[pod] submit (harness {h}) FAILED: {e}")
-        hstatuses.append(hst)
-
-    # In harness-only mode the text submit was skipped, so `st` is a placeholder — report the
-    # harness submits instead so the caller's exit code reflects whether the harness data LANDED
-    # (all 200 -> ok; any failure -> non-zero so a sweep re-runs this model).
-    if harness_only:
-        st = 200 if (hstatuses and all(s == 200 for s in hstatuses)) else (hstatuses[-1] if hstatuses else 0)
-
-    # VISION suite (probe-gated; a text-only model records capability_absent, not submitted).
-    if vision and not harness_only:
-        _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                           max_tokens=max_tokens, temperature=temperature)
-    # AUDIO suite (probe-gated the same way).
-    if audio and not harness_only:
-        _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                          temperature=temperature)
-    # PERFORMANCE grid (direct concurrency ladder + per-harness timing).
-    if perf and not harness_only:
-        _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                         harness_ids=harness_ids, max_conc=perf_max_conc)
-    return st, r
+    # ALL boards through the shared dimension-runner (identical to the single-process
+    # run_controlled path — text (+arena) · agentic-v2 harnesses · vision · audio · perf).
+    return _run_boards(pod, repo=repo, rev=rev, ver=ver, recipe=recipe, target=target, alias=alias,
+        env=env, provenance=provenance, board=board, suite_id=suite_id, harness_ids=harness_ids,
+        harness_only=harness_only, judge=judge, judge_url=judge_url, judge_key=judge_key,
+        max_tokens=max_tokens, retry_max_tokens=retry_max_tokens, temperature=temperature,
+        concurrency=concurrency, vision=vision, audio=audio, perf=perf, perf_max_conc=perf_max_conc,
+        arena_per_kind=arena_per_kind, difficulty=difficulty, bench_seed=bench_seed)
 
 
 def main():
@@ -1004,7 +970,10 @@ def main():
             concurrency=a.concurrency, local_dir=a.local_dir, serve_url=a.serve_url,
             engine_image=a.engine_image,
             serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None),
-            drafter_hf=a.drafter_hf)
+            drafter_hf=a.drafter_hf,
+            # comprehensive dimensions — previously dropped on the --hf-link (GUI) path
+            retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, perf=a.perf,
+            perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena, harness_only=a.harness_only)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,

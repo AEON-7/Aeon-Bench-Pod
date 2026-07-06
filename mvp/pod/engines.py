@@ -233,20 +233,54 @@ def _has_cuda() -> bool:
         return False
 
 
+def _daemon_has_nvidia() -> bool:
+    """Ask the DOCKER DAEMON whether the host has the NVIDIA runtime. The containerized
+    dashboard may lack GPU access itself (someone forgot --gpus all), but sibling engine
+    containers it launches CAN still get GPUs — the daemon, not this container, is the truth."""
+    try:
+        out = subprocess.run(["docker", "info", "--format", "{{json .Runtimes}}"],
+                             capture_output=True, text=True, timeout=8)
+        return out.returncode == 0 and "nvidia" in (out.stdout or "")
+    except Exception:
+        return False
+
+
+_PLAT_CACHE: dict | None = None
+
+
 def host_platform() -> dict:
     """What THIS host can serve with. `accel` is the primary accelerator; `in_container` means
     the dashboard itself runs inside docker (serve containers become SIBLINGS via the mounted
-    socket, and weight mounts must use HOST paths — see _host_path)."""
+    socket, and weight mounts must use HOST paths — see _host_path). Cached for the process
+    lifetime — hardware doesn't change mid-run, and per-request nvidia-smi probes can flap."""
+    global _PLAT_CACHE
+    if _PLAT_CACHE is not None:
+        return _PLAT_CACHE
     from pod import modelhost
     osname = {"Darwin": "macos", "Windows": "windows"}.get(_platform.system(), "linux")
     metal = osname == "macos" and _platform.machine().lower() in ("arm64", "aarch64")
-    accel = "cuda" if _has_cuda() else "rocm" if _has_rocm() else "metal" if metal else "cpu"
-    return {
+    in_container = os.path.exists("/.dockerenv")
+    docker = bool(shutil.which("docker"))
+    accel_source = "probe"
+    if _has_cuda():
+        accel = "cuda"
+    elif _has_rocm():
+        accel = "rocm"
+    elif metal:
+        accel = "metal"
+    elif in_container and docker and _daemon_has_nvidia():
+        accel = "cuda"                       # host is CUDA-capable even if THIS container isn't
+        accel_source = "docker-daemon"       # (run the dashboard with --gpus all for full detail)
+    else:
+        accel = "cpu"
+    _PLAT_CACHE = {
         "os": osname, "arch": _platform.machine().lower(), "accel": accel,
+        "accel_source": accel_source,
         "dgx_spark": modelhost.is_dgx_spark(),
-        "docker": bool(shutil.which("docker")),
-        "in_container": os.path.exists("/.dockerenv"),
+        "docker": docker,
+        "in_container": in_container,
     }
+    return _PLAT_CACHE
 
 
 def recommended_engine(plat: dict, *, gguf: bool = False) -> str:

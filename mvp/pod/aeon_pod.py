@@ -537,9 +537,12 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         harness_ids = []
     else:
         harness_ids = _skip_short_ctx_harnesses(harness_ids, recipe)
-    if serve_url:                                    # operator-started serve (macOS/MLX bare metal)
+    if serve_url:                                    # operator-started serve (MLX / LM Studio bare metal)
         serve = False
         print(f"[pod] external serve: benching {serve_url} against the validated weights")
+    elif serve and not recipe.get("command"):        # engine can't be pod-launched (e.g. LM Studio app)
+        raise SystemExit(f"[pod] engine '{recipe['engine']}' is operator-started — start it with the "
+                         "recipe's startup commands, then relaunch with --serve-url <its /v1 URL>")
 
     # z-lab DFlash drafter auto-discovery (spec decode is LOSSLESS — speed only). Best-effort:
     # any probe/pull failure here falls back to plain decode, never blocking the serve.
@@ -561,6 +564,12 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     try:
         # for an operator-started serve (serve_url) we ALSO wait: the user may still be launching it
         ids = _wait_ready(target) if (serve or serve_url) else [alias]
+        if recipe.get("alias_from_server") and ids and alias not in ids:
+            # bare-metal servers (MLX / LM Studio) name the model themselves — bench under the id
+            # the server ACTUALLY reports rather than an alias it would reject
+            alias = ids[0]
+            recipe["served_alias"] = alias
+            print(f"[pod] served id adopted from server: '{alias}'")
         served_ok = alias in ids
         print(f"[pod] engine ready; served = {ids}  (alias present: {served_ok})")
 

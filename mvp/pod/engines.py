@@ -74,6 +74,16 @@ ENGINES = {
                 "is the pod's BARE-METAL path: `pip install mlx-lm`, serve with the generated "
                 "command, and the startup recipe is reported exactly like a docker recipe.",
     },
+    "lmstudio": {
+        "name": "LM Studio", "style": "lmstudio", "containerized": False,
+        "image": None,
+        "url": "https://lmstudio.ai",
+        "platforms": ["cuda", "metal", "cpu"], "formats": ["gguf", "mlx"],
+        "note": "Desktop-native serving (Windows / macOS / Linux; llama.cpp + MLX backends) — "
+                "BARE-METAL host performance, no container. Start its OpenAI-compatible server "
+                "with the generated commands, point the pod at it; the startup recipe is "
+                "reported exactly like a docker recipe.",
+    },
 }
 
 
@@ -107,11 +117,14 @@ def host_platform() -> dict:
 
 def recommended_engine(plat: dict, *, gguf: bool = False) -> str:
     """The default pick for a platform: DGX Spark -> AEON's own optimal engine; GGUF weights ->
-    llama.cpp regardless; else the accelerator's flagship."""
-    if gguf:
-        return "llama.cpp"
+    llama.cpp; NO docker at all -> the bare-metal engines (MLX on Apple silicon, LM Studio
+    elsewhere — e.g. a bare Windows box); else the accelerator's containerized flagship."""
     if plat.get("dgx_spark"):
         return "aeon-vllm-ultimate"
+    if not plat.get("docker"):
+        return "mlx" if plat["accel"] == "metal" else "lmstudio"
+    if gguf:
+        return "llama.cpp"
     return {"cuda": "vllm", "rocm": "vllm-rocm", "metal": "mlx", "cpu": "llama.cpp"}[plat["accel"]]
 
 
@@ -124,6 +137,8 @@ def catalog(plat: dict | None = None) -> dict:
         available = plat["accel"] in e["platforms"] or "cpu" in e["platforms"]
         if eid == "mlx" and plat["os"] != "macos":
             available = False
+        if eid == "lmstudio":
+            available = True                     # desktop app, any OS, no container needed
         if e.get("containerized", True) and not plat["docker"]:
             available = False
         out.append({"id": eid, "name": e["name"], "image": e.get("image"),
@@ -189,7 +204,21 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
         return {"engine": "mlx", "serve_mode": "bare", "image": None, "command": cmd,
                 "bare_cmd": "pip install mlx-lm   # once\n" + " ".join(cmd),
                 "no_harness": True,   # harness containers address a served alias MLX can't provide (yet)
+                "alias_from_server": True,   # bench under whatever id the server actually reports
                 "setup": "pip install mlx-lm"}
+
+    if e["style"] == "lmstudio":
+        # BARE METAL desktop serving (Windows/macOS/Linux) — the host-performance path for
+        # non-container users. The operator starts LM Studio's OpenAI-compatible server with
+        # these exact commands; the pod validates the weights on disk, benches the endpoint,
+        # and this startup recipe travels with the result exactly like a docker recipe.
+        mdl = os.path.abspath(local_dir)
+        bare = (f"lms server start --port {port}\n"
+                f'lms load "{mdl}" --context-length {ctx}\n'
+                f"# (or load the model in the LM Studio app with context length {ctx})")
+        return {"engine": "lmstudio", "serve_mode": "bare", "image": None, "command": None,
+                "bare_cmd": bare, "no_harness": True, "alias_from_server": True,
+                "setup": "LM Studio + its `lms` CLI — https://lmstudio.ai"}
 
     docker = ["docker", "run", "--rm", "--name", SERVE_CONTAINER, "--network", "host",
               *_gpu_flags(engine_id, plat), "-v", f"{_host_path(local_dir)}:/model:ro"]

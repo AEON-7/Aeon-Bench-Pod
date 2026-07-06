@@ -1219,10 +1219,14 @@ function renderSubmissionDetail(d) {
     : `<button class="ghost" id="subFlag">flag as bad bench</button>`) : "";
   const rejudge = admin ? `<button class="ghost" id="subRejudge">re-judge Tier-1</button>` : "";
   const judge = r.judge_is_self ? `self (${escH(r.model)})` : escH(r.judge_model || "—");
+  // inference engine + bench hardware belong in the RESULT's headline, not just the repro card
+  const rp0 = d.reproduction || {};
+  const engHw = (rp0.engine ? ` · engine <b>${escH(rp0.engine)}</b>${rp0.serve_mode === "bare" ? ' <span class="micro">(bare metal)</span>' : ""}` : "")
+    + (rp0.hardware_detected || rp0.hardware_claimed ? ` · <span class="catk" title="hardware detected on the bench machine">${escH(rp0.hardware_detected || rp0.hardware_claimed)}</span>` : "");
   const meta = `<div class="sub-meta">
     <h3>${escH(r.model)} <span class="tag">${escH(r.board)}</span> ${r.flagged ? '<span class="ev-badge bad">bad bench</span>' : ""}</h3>
     <div class="note" style="text-align:left">run <span class="mono">${escH(r.id)}</span> · ${escH(r.status)} · ${escH(r.n_cases)} cases · ${_fmtTime(r.started_at)}<br>
-      judge: <b>${judge}</b> · suite ${escH(r.suite_id)} <span class="mono">${escH(r.suite_hash || "")}</span>${r.bench_seed ? ' · fast-bench seed <span class="mono cmp-seedtag">' + escH(r.bench_seed) + "</span>" : ""} ·
+      judge: <b>${judge}</b> · suite ${escH(r.suite_id)} <span class="mono">${escH(r.suite_hash || "")}</span>${r.bench_seed ? ' · fast-bench seed <span class="mono cmp-seedtag">' + escH(r.bench_seed) + "</span>" : ""}${engHw} ·
       <a class="mlink" href="${escA(d.manifest_url)}" target="_blank">signed manifest ↗</a></div>
     <div class="sub-actions">${flagBtn} ${rejudge}</div>
     ${r.flag_reason ? `<div class="note err" style="text-align:left">flag reason: ${escH(r.flag_reason)}</div>` : ""}</div>`;
@@ -1854,16 +1858,26 @@ function engineChanged() {
     `<a class="mlink" href="${escA(e.url)}" target="_blank" rel="noopener">${escH(e.name)} ↗</a> · ${escH(e.note)}` +
     (e.image ? ` · image <span class="mono">${escH(e.image)}</span>` : "") +
     ` · formats <span class="mono">${e.formats.join("/")}</span>`;
-  const mlx = e && e.id === "mlx";
-  const mh = $("#mlxHelp"); if (mh) mh.hidden = !mlx;
-  const img = $("#veImage"); if (img) img.disabled = !!(e && e.containerized === false);
-  if (mlx) updateMlxCmd();
+  const bare = e && e.containerized === false;         // MLX / LM Studio: operator-started serve
+  const mh = $("#mlxHelp"); if (mh) mh.hidden = !bare;
+  const img = $("#veImage"); if (img) img.disabled = !!bare;
+  if (bare) updateMlxCmd();
 }
 
+// The bare-metal serve helper (MLX / LM Studio): exact startup commands, per engine — what the
+// operator runs on the host; the SAME text is recorded with the run like a docker recipe.
 function updateMlxCmd() {
-  const cmdEl = $("#mlxCmd"); if (!cmdEl) return;
-  const path = ($("#hfLocal") && $("#hfLocal").value.trim()) || "~/models/<the-validated-snapshot>";
-  cmdEl.textContent = "pip install mlx-lm   # once\nmlx_lm.server --model " + path + " --host 0.0.0.0 --port 8000";
+  const cmdEl = $("#mlxCmd"), e = curEngine(); if (!cmdEl || !e) return;
+  const path = ($("#hfLocal") && $("#hfLocal").value.trim()) || "<the-validated-model-folder>";
+  if (e.id === "lmstudio") {
+    const t = $("#bareTitle"); if (t) t.textContent = "⊞ BARE-METAL SERVE (LM Studio)";
+    const n = $("#bareNote"); if (n) n.textContent = "Desktop-native host performance (Windows/macOS/Linux) — start LM Studio's OpenAI-compatible server with these commands (or load the model in the app), then launch: the pod hash-validates the weights on disk, benches this endpoint, and records this startup recipe exactly like a docker recipe.";
+    cmdEl.textContent = `lms server start --port 8000\nlms load "${path}" --context-length 65536\n# (or load it in the LM Studio app with context length 65536)`;
+  } else {
+    const t = $("#bareTitle"); if (t) t.textContent = "⌘ BARE-METAL SERVE (Apple MLX)";
+    const n = $("#bareNote"); if (n) n.textContent = "macOS can't run MLX inside a container — start the serve yourself, then launch: the pod validates the weights, benches this endpoint, and records the startup recipe below exactly like a docker recipe.";
+    cmdEl.textContent = "pip install mlx-lm   # once\nmlx_lm.server --model " + path + " --host 0.0.0.0 --port 8000";
+  }
   const su = $("#veServeUrl");
   if (su && !su.value) {
     const inC = RUN.engines && RUN.engines.platform && RUN.engines.platform.in_container;
@@ -1871,6 +1885,77 @@ function updateMlxCmd() {
     su.value = inC ? "http://host.docker.internal:8000/v1" : "http://127.0.0.1:8000/v1";
   }
 }
+
+// ---- local-model discovery: scan the system's model homes / browse the pod host's disk ----
+
+function fmtGB(b) { return b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : b >= 1e6 ? (b / 1e6).toFixed(0) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB"; }
+
+async function scanModels() {
+  const btn = $("#lwScan"); if (btn) { btn.disabled = true; btn.textContent = "⌕ scanning…"; }
+  let d;
+  try { d = await api("/api/pod/scan_models", { headers: podHeaders() }); }
+  catch (e) { runStatus("scan failed: " + JSON.stringify(e), "err"); }
+  if (btn) { btn.disabled = false; btn.textContent = "⌕ scan system"; }
+  if (!d) return;
+  RUN.scan = d.models || [];
+  const row = $("#scanRow"), sel = $("#scanSel");
+  if (!row || !sel) return;
+  const cnt = $("#scanCount"); if (cnt) cnt.textContent = `(${RUN.scan.length} found · largest first)`;
+  sel.innerHTML = `<option value="">— pick a model found on disk —</option>` + RUN.scan.map((m, i) =>
+    `<option value="${i}">${escH(m.name)} — ${fmtGB(m.size_bytes)} · ${escH((m.formats || []).join("/"))} · ${escH(m.source)}${m.hf_guess ? " · ✓ HF-reconciled" : " · no HF match (fill link manually)"}</option>`).join("");
+  row.hidden = false;
+  if (!RUN.scan.length) runStatus("no models found in the known model homes (HF cache, LM Studio, AEON, ~/models — add roots via AEON_SCAN_DIRS)", "warn");
+}
+
+function pickScanned(i) {
+  const m = RUN.scan && RUN.scan[i]; if (!m) return;
+  $("#hfLocal").value = m.path;
+  const link = $("#hfLink");
+  // auto-reconciled HF card fills the link ONLY when the field is empty or still auto-filled —
+  // a manually-typed link always wins (the user's override)
+  if (m.hf_guess && (!link.value.trim() || link.dataset.auto === "1")) {
+    link.value = m.hf_guess + (m.hf_revision ? "@" + m.hf_revision : "");
+    link.dataset.auto = "1";
+  }
+  updateMlxCmd();
+  scheduleValidate();                       // reconciliation -> automatic hash check
+}
+
+// server-side browse: the dashboard may be remote/containerized, so the POD lists its own disk
+const BROWSE = { path: null, isModel: false };
+
+async function browseTo(path) {
+  let d;
+  try {
+    d = await api("/api/pod/browse" + (path ? "?path=" + encodeURIComponent(path) : ""),
+                  { headers: podHeaders() });
+  } catch (e) { return; }
+  const list = $("#browseList"), pathEl = $("#browsePath"), info = $("#browseInfo"), use = $("#browseUse");
+  BROWSE.path = d.path; BROWSE.isModel = !!d.is_model;
+  if (pathEl) pathEl.textContent = d.path || "select a starting point";
+  if (use) use.disabled = !d.is_model;
+  if (info) info.textContent = d.error ? ("✗ " + d.error)
+    : d.is_model ? `✓ model folder — ${fmtGB(d.weights_bytes)} of ${escH((d.formats || []).join("/"))} weights`
+    : d.path ? "no weight files directly in this folder — keep browsing" : "";
+  if (!list) return;
+  if (!d.path) {
+    list.innerHTML = (d.roots || []).map((r) =>
+      `<div class="browse-row root" data-p="${escA(r.path)}"><span class="browse-ic">◈</span>${escH(r.label)}</div>`).join("");
+  } else {
+    const up = d.parent ? `<div class="browse-row up" data-p="${escA(d.parent)}"><span class="browse-ic">↰</span>..</div>` : "";
+    const dirs = (d.dirs || []).map((x) =>
+      `<div class="browse-row${x.has_weights ? " model" : ""}" data-p="${escA(x.path)}">
+         <span class="browse-ic">${x.has_weights ? "▣" : "▷"}</span>${escH(x.name)}
+         ${x.has_weights ? `<span class="browse-sz">${fmtGB(x.weights_bytes)}</span>` : ""}</div>`).join("");
+    const files = (d.weight_files || []).map((f) =>
+      `<div class="browse-row file"><span class="browse-ic">·</span>${escH(f.name)}<span class="browse-sz">${fmtGB(f.size_bytes)}</span></div>`).join("");
+    list.innerHTML = up + dirs + files || `<div class="browse-row file">（empty）</div>`;
+  }
+  list.querySelectorAll(".browse-row[data-p]").forEach((r) => r.onclick = () => browseTo(r.dataset.p));
+}
+
+function openBrowse() { $("#browseModal").hidden = false; browseTo(null); }
+function closeBrowse() { $("#browseModal").hidden = true; }
 
 // ---- model validation (the green light): debounce -> POST /validate -> poll to a verdict ----
 
@@ -1999,12 +2084,14 @@ async function runEndpointBench() {
 // still validates); the serve URL rides only on the MLX bare-metal path.
 function _validatedExtras() {
   const eng = $("#veEngine") ? $("#veEngine").value || null : null;
+  const e = curEngine();
   const localOk = RUN.val && RUN.val.state === "validated" && $("#hfLocal").value.trim();
   return {
     engine: eng,
     engine_image: ($("#veImage") && $("#veImage").value.trim()) || null,
     local_dir: localOk ? $("#hfLocal").value.trim() : null,
-    serve_url: (eng === "mlx" && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
+    // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
+    serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
   };
 }
 
@@ -2110,8 +2197,16 @@ async function init() {
   bind("#hfHardBench", () => runHfPreset("hard-bench", "#hfHardBench"));
   // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
-  vIn("#hfLink", scheduleValidate);
+  vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override
   vIn("#hfLocal", () => { scheduleValidate(); updateMlxCmd(); });
+  bind("#lwScan", scanModels);
+  bind("#lwBrowse", openBrowse);
+  bind("#browseClose", closeBrowse);
+  bind("#browseUse", () => {
+    if (BROWSE.path) { $("#hfLocal").value = BROWSE.path; updateMlxCmd(); scheduleValidate(); }
+    closeBrowse();
+  });
+  { const ss = $("#scanSel"); if (ss) ss.onchange = () => { if (ss.value !== "") pickScanned(+ss.value); }; }
   { const es = $("#veEngine"); if (es) es.onchange = () => { RUN.enginePinned = true; engineChanged(); }; }
   bind("#mlxCopy", async () => {
     const b = $("#mlxCopy");
@@ -2177,6 +2272,7 @@ async function init() {
     if (e.key === "Escape" && !$("#tipModal").hidden) { closeTip(); return; }      // Esc closes the tip modal
     if (e.key === "Escape" && !$("#authModal").hidden) { closeAuth(); return; }   // Esc always closes the dialog
     if (e.key === "Escape" && !$("#galModal").hidden) { closeGalPreview(); return; }  // Esc closes the preview
+    if (e.key === "Escape" && !$("#browseModal").hidden) { closeBrowse(); return; }   // Esc closes the browser
     const ap = $("#arenaPanel");
     if (!ap || ap.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
     if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;

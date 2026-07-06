@@ -1583,6 +1583,26 @@ select:focus {
   border-left: 2px solid var(--accent); background: rgba(0, 240, 255, .02);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
 .mlx-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+/* local-model discovery: scan-system dropdown + server-side disk browser */
+.lw-acts { display: flex; gap: 6px; align-self: flex-end; }
+.lw-acts .ghost { white-space: nowrap; }
+#scanRow select { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
+.browse-card { width: min(720px, 92vw); }
+.browse-path { font-size: 11px; color: var(--muted); padding: 6px 10px; margin: 8px 0;
+  border: 1px solid var(--border); background: rgba(255, 255, 255, .02); overflow-wrap: anywhere; }
+.browse-list { max-height: 46vh; overflow-y: auto; border: 1px solid var(--border); margin-bottom: 10px; }
+.browse-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12.5px;
+  font-family: var(--mono, monospace); cursor: pointer; border-bottom: 1px solid var(--border);
+  transition: background var(--t-fast), color var(--t-fast); }
+.browse-row:last-child { border-bottom: none; }
+.browse-row:hover { background: rgba(0, 240, 255, .05); color: var(--text); }
+.browse-row.model { color: var(--good); }               /* holds weights -> pickable model dir */
+.browse-row.model .browse-ic { color: var(--good); }
+.browse-row.file { cursor: default; color: var(--faint); }
+.browse-row.file:hover { background: none; }
+.browse-row.up, .browse-row.root { color: var(--accent); }
+.browse-ic { flex: 0 0 16px; text-align: center; color: var(--faint); }
+.browse-sz { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {

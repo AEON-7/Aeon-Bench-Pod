@@ -1299,6 +1299,33 @@ def pod_validate_status(vid: str, request: Request):
     return st if st else JSONResponse({"error": "unknown validation id"}, status_code=404)
 
 
+@app.get("/api/pod/scan_models")
+def pod_scan_models(request: Request):
+    """POD-ONLY: sweep this host's model homes (AEON /models, ~/.aeon/models, the HF hub cache,
+    LM Studio dirs, ~/models, AEON_SCAN_DIRS) — every model found with size, location, format and
+    an auto-reconciled HF repo guess where the layout carries identity. Names + stat sizes only;
+    no file contents are read."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import diskscan
+    return diskscan.scan()
+
+
+@app.get("/api/pod/browse")
+def pod_browse(request: Request, path: str | None = None):
+    """POD-ONLY: one directory level of the POD host's filesystem (dirs + weight files) for the
+    local-weights browser — the dashboard may be remote/containerized, so browsing is server-side.
+    Operator-trust surface, same gate as the launchers; listings only, never file contents."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import diskscan
+    return diskscan.browse(path)
+
+
 @app.get("/api/pod/jobs")
 def pod_jobs(request: Request):
     if (g := _require_pod()):

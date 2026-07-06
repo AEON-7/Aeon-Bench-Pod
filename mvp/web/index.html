@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=36" />
+  <link rel="stylesheet" href="/static/styles.css?v=37" />
 </head>
 <body>
   <header>
@@ -115,6 +115,13 @@
           <div class="row">
             <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
             <label class="grow">Local weights <span class="note">(optional — no re-download)</span><input id="hfLocal" type="text" placeholder="already on disk? absolute folder path — hash-checked against the HF repo" /></label>
+            <span class="lw-acts">
+              <button id="lwScan" class="ghost" title="sweep this system's model homes (HF cache, LM Studio, AEON, ~/models) — found models auto-reconcile to their HF card for automatic hash checks">⌕ scan system</button>
+              <button id="lwBrowse" class="ghost" title="browse the pod host's file structure for a model folder">▤ browse</button>
+            </span>
+          </div>
+          <div class="row" id="scanRow" hidden>
+            <label class="grow">Models on this system <span class="note" id="scanCount"></span><select id="scanSel"></select></label>
           </div>
           <div id="valStrip" class="val-strip idle" aria-live="polite"><span class="val-dot"></span><span class="val-msg">MODEL VALIDATION — paste an HF link to begin</span></div>
           <div class="row">
@@ -124,8 +131,8 @@
           </div>
           <div id="engInfo" class="eng-info note"></div>
           <div id="mlxHelp" class="mlx-help" hidden>
-            <div class="mlx-h"><span class="repro-t">⌘ BARE-METAL SERVE (Apple MLX)</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
-            <p class="note">macOS can't run MLX inside a container — start the serve yourself, then launch: the pod validates the weights, benches this endpoint, and records the startup recipe below exactly like a docker recipe.</p>
+            <div class="mlx-h"><span class="repro-t" id="bareTitle">⌘ BARE-METAL SERVE</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
+            <p class="note" id="bareNote"></p>
             <pre class="repro-cmd" id="mlxCmd"></pre>
             <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
           </div>
@@ -375,6 +382,19 @@ docker compose up             # pull → verify → serve → bench → submit</
       </tr></thead><tbody></tbody></table>
     </section>
 
+    <div id="browseModal" class="modal" hidden>
+      <div class="modal-card browse-card">
+        <button class="modal-x" id="browseClose" title="close">×</button>
+        <h3>▤ Pick a model folder</h3>
+        <div class="browse-path mono" id="browsePath">—</div>
+        <div class="browse-list" id="browseList"></div>
+        <div class="modal-actions">
+          <button id="browseUse" class="primary" disabled>✓ use this folder</button>
+          <span class="note" id="browseInfo" style="text-align:left"></span>
+        </div>
+      </div>
+    </div>
+
     <div id="tipModal" class="modal" hidden>
       <div class="modal-card tip-card">
         <button class="modal-x" id="tipClose" title="close">×</button>
@@ -415,6 +435,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=36"></script>
+  <script src="/static/app.js?v=37"></script>
 </body>
 </html>

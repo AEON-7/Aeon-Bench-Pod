@@ -4,6 +4,17 @@
     AEON_PORT=9000 python serve.py
 """
 import os
+import os as _os
+
+# Apple-silicon Docker Desktop (aarch64 + linuxkit kernel): OpenSSL's ARM capability probe hits
+# an instruction the VM doesn't support -> SIGILL before the first log line (cryptography 49 /
+# macOS 26 observed). Disable the probe THERE ONLY — real ARM hosts (DGX Grace) keep hw crypto.
+try:
+    if _os.uname().machine == "aarch64" and "linuxkit" in _os.uname().release:
+        _os.environ.setdefault("OPENSSL_armcap", "0")
+except AttributeError:
+    pass                                   # non-POSIX (Windows dev) — not applicable
+
 import uvicorn
 
 if __name__ == "__main__":

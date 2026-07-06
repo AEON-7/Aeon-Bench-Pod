@@ -604,6 +604,30 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         except Exception as e:
             print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")
 
+    # The serve port must be OURS. A production server already on it (e.g. the DGX's live
+    # aeon-vllm on :8000) would answer /v1/models and the bench would silently run against the
+    # WRONG model until a 404. AEON_PAUSE_CONTAINERS (comma list, host-set env) lets the pod
+    # stop such containers for the bench window and restore them after — the hands-free DGX flow.
+    paused = []
+    if serve and not serve_url:
+        for name in (n.strip() for n in (os.environ.get("AEON_PAUSE_CONTAINERS") or "").split(",")):
+            if not name:
+                continue
+            r = subprocess.run(["docker", "stop", name], capture_output=True, text=True, timeout=180)
+            if r.returncode == 0:
+                paused.append(name)
+                print(f"[pod] paused container '{name}' for the bench window (auto-restored after)")
+        import socket
+        s = socket.socket()
+        s.settimeout(2)
+        busy = s.connect_ex(("127.0.0.1", int(port))) == 0
+        s.close()
+        if busy:
+            raise SystemExit(f"[pod] port {port} is already serving — refusing to bench whatever "
+                             f"lives there. Free it, or set AEON_PAUSE_CONTAINERS=<container> on "
+                             f"the pod (e.g. AEON_PAUSE_CONTAINERS=aeon-vllm) so it is paused and "
+                             f"restored around runs automatically.")
+
     server = _serve(recipe) if serve else None
     target = serve_url or f"http://127.0.0.1:{port}/v1"
     try:
@@ -617,6 +641,10 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             print(f"[pod] served id adopted from server: '{alias}'")
         served_ok = alias in ids
         print(f"[pod] engine ready; served = {ids}  (alias present: {served_ok})")
+        if serve and not served_ok:
+            # our own serve MUST expose our alias — anything else means a different server answered
+            raise SystemExit(f"[pod] served ids {ids} do not include the bench alias '{alias}' — "
+                             f"refusing to bench a different server (something else on :{port}?)")
 
         deployment_manifest = {
             "build_hash": attest.build_hash(), "recipe": recipe,
@@ -682,6 +710,10 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         if recipe.get("container_name") and serve:   # docker-served: make cleanup unconditional —
             subprocess.run(["docker", "rm", "-f", recipe["container_name"]],   # SIGTERM on the client
                            capture_output=True, timeout=60)                    # can strand the container
+        for name in paused:                          # restore what we paused — ALWAYS (start only)
+            r = subprocess.run(["docker", "start", name], capture_output=True, text=True, timeout=180)
+            print(f"[pod] restored container '{name}'" if r.returncode == 0
+                  else f"[pod] !! could not restart '{name}': {r.stderr.strip()[:200]}")
         if not keep_weights:
             print(f"[pod] removing weights {local_dir} (use --keep-weights to retain)")
             shutil.rmtree(local_dir, ignore_errors=True)

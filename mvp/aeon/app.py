@@ -85,7 +85,11 @@ class VerdictBody(BaseModel):
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def index():
-    return FileResponse(os.path.join(WEB, "index.html"))
+    # no-cache on the SHELL: css/js are ?v= cache-busted, but the HTML that references them
+    # must always revalidate — otherwise a browser that saw an old dashboard keeps rendering
+    # stale markup after an image update ("where did the new Run options go?")
+    return FileResponse(os.path.join(WEB, "index.html"),
+                        headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @app.api_route("/healthz", methods=["GET", "HEAD"])

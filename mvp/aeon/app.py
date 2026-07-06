@@ -1453,6 +1453,18 @@ def pod_jobs(request: Request):
     return {"jobs": jobs.list_jobs()}
 
 
+@app.get("/api/pod/launches")
+def pod_launches(request: Request):
+    """Prior launch configs as TEMPLATES for the Run form (knobs only; token NAMES, never
+    values). Pod-only, same gate as the launchers."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from . import db
+    return {"launches": db.list_launches()}
+
+
 @app.get("/api/pod/jobs/{job_id}")
 def pod_job(job_id: str, request: Request):
     if (g := _require_pod()):

@@ -242,6 +242,18 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
     knobs inside aeon_pod.main(): comprehensive turns everything on (all harnesses + vision +
     audio + arena + perf); hard-bench runs the hard,expert tiers through every harness only."""
     from aeon import db
+    # Every launch's knobs become a reusable TEMPLATE (token NAME only — never the value), so
+    # the Run form can be prefilled from a prior run and relaunched with one tweak. Best-effort:
+    # template bookkeeping must never block a launch.
+    try:
+        db.save_launch("verified", hf_link, {
+            "hf_link": hf_link, "difficulty": difficulty, "category": category, "preset": preset,
+            "hf_token_name": hf_token_name, "engine": engine, "port": port,
+            "perf_max_conc": perf_max_conc, "concurrency": concurrency, "local_dir": local_dir,
+            "engine_image": engine_image, "serve_url": serve_url, "serve_flags": serve_flags,
+            "drafter_hf": drafter_hf})
+    except Exception:
+        pass
     extra = {}
     if hf_token_name:                           # gated/private repos: token authenticates ref+download
         tok = db.get_secret(hf_token_name)

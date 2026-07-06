@@ -1886,6 +1886,7 @@ async function setRun() {
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   await loadSavedKeys();
   await loadEngines();
+  await loadLaunches();
   await pollJobs();
   if (RUN.jobsTimer) clearInterval(RUN.jobsTimer);
   RUN.jobsTimer = setInterval(() => {                // refresh job progress while the tab is active
@@ -1905,6 +1906,93 @@ async function loadSavedKeys() {
   };
   fill("#reKey", RUN.keys.filter((k) => k.kind !== "hf_token"), "— none —");
   fill("#hfKey", RUN.keys.filter((k) => k.kind === "hf_token"), "— public —");
+}
+
+// ---- LAUNCH TEMPLATES: prior runs as starting points — tweak one knob, relaunch ---------------
+
+async function loadLaunches() {
+  try { RUN.launches = (await api("/api/pod/launches", { headers: podHeaders() })).launches || []; }
+  catch (e) { RUN.launches = []; }
+  const row = $("#tplRow"), sel = $("#tplSel");
+  if (!row || !sel) return;
+  row.hidden = !RUN.launches.length;
+  const ago = (t) => { const s = Math.max(0, (Date.now() / 1000 - t)) | 0;
+    return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + "m ago"
+         : s < 129600 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
+  sel.innerHTML = `<option value="">— start fresh —</option>` + RUN.launches.map((l, i) => {
+    const p = l.params || {};
+    const bits = [ago(l.created_at), (l.model || "").split("/").pop().slice(0, 44),
+                  p.preset || "text-only", p.engine || "auto engine"];
+    if (p.concurrency) bits.push("c" + p.concurrency);
+    const nf = (p.serve_flags || []).filter((t) => String(t).startsWith("-")).length;
+    if (nf) bits.push(nf + " tuned flags");
+    if (p.drafter_hf) bits.push("DFlash");
+    return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
+  }).join("");
+}
+
+// Inverse of collectServeFlags(): push a saved [flag, value, ...] list back INTO the tuning
+// controls (catalog flags -> their control; --speculative-config -> the spec block; anything
+// unrecognized -> the freeform extras field, verbatim).
+function applyServeFlags(list) {
+  $$("#tuneBody [data-flag]").forEach((el) => {
+    if (el.dataset.kind === "bool") el.checked = false; else el.value = "";
+  });
+  if ($("#specSel")) $("#specSel").value = "";
+  if ($("#specCustom")) $("#specCustom").value = "";
+  if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
+  if ($("#tuneExtra")) $("#tuneExtra").value = "";
+  const byFlag = {};
+  $$("#tuneBody [data-flag]").forEach((el) => { byFlag[el.dataset.flag] = el; });
+  const toks = (list || []).map(String), extras = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t === "--speculative-config") {
+      const json = toks[++i] || "", sel = $("#specSel");
+      if (!sel) continue;
+      if (Array.from(sel.options).some((o) => o.value === json)) sel.value = json;
+      else {
+        sel.value = "custom";
+        if ($("#specCustom")) $("#specCustom").value = json;
+        if ($("#specCustomRow")) $("#specCustomRow").hidden = false;
+      }
+      continue;
+    }
+    const el = byFlag[t];
+    if (el && el.dataset.kind === "bool") { el.checked = true; continue; }
+    if (el) {
+      const v = toks[++i];
+      if (v != null) el.value = v;
+      if (el.tagName === "SELECT" && el.value !== v) { extras.push(t, v); }  // value not in catalog
+      continue;
+    }
+    extras.push(t);                                    // unknown flag: keep verbatim (with value)
+    if (t.startsWith("-") && i + 1 < toks.length && !toks[i + 1].startsWith("-")) extras.push(toks[++i]);
+  }
+  if (extras.length && $("#tuneExtra"))
+    $("#tuneExtra").value = extras.map((x) => (/\s/.test(x) ? `'${x}'` : x)).join(" ");
+  updateTuneCount();
+}
+
+async function applyLaunchTemplate(i) {
+  const t = RUN.launches && RUN.launches[i]; if (!t) return;
+  const p = t.params || {};
+  const set = (sel, v) => { const el = $(sel); if (el) el.value = v == null ? "" : v; };
+  set("#hfLink", p.hf_link); const hl = $("#hfLink"); if (hl) delete hl.dataset.auto;
+  set("#hfLocal", p.local_dir);
+  set("#hfKey", p.hf_token_name);
+  set("#hfPlan", p.preset || "");                     // faithful: a no-preset run replays as text-only
+  set("#hfDiff", p.difficulty);
+  set("#hfConc", p.concurrency);
+  set("#hfMaxConc", p.perf_max_conc == null ? 32 : p.perf_max_conc);
+  set("#veImage", p.engine_image);
+  set("#veServeUrl", p.serve_url);
+  set("#drafterHf", p.drafter_hf);
+  if (p.engine && $("#veEngine")) { $("#veEngine").value = p.engine; engineChanged(); }
+  applyServeFlags(p.serve_flags || []);               // AFTER engineChanged re-rendered the catalog
+  scheduleValidate();                                 // model (+ local copy) re-validates automatically
+  if (p.drafter_hf) validateDrafter();
+  runStatus("template applied — every setting prefilled from that run. Tweak anything, then Launch.", "ok");
 }
 
 // ---- engine catalog (the "pick your container" dropdown; hardware-annotated server-side) ----
@@ -2333,6 +2421,7 @@ async function launchRun(path, body, btnSel) {
   if (btn) btn.disabled = false;
   runStatus("launched — job " + r.job_id + ". Progress below; the run streams into ● Live once benchmarking starts.", "ok");
   await pollJobs();
+  loadLaunches();                       // the new launch is now the top template
 }
 
 const JOB_STAGE = { queued: "queued", starting: "starting", resolving: "resolving HF ref",
@@ -2402,6 +2491,7 @@ async function init() {
   bind("#audioProbe", probeAudio);
   bind("#reLaunch", runEndpointBench);
   bind("#hfLaunch", runHfVerified);
+  { const ts = $("#tplSel"); if (ts) ts.onchange = () => { if (ts.value !== "") applyLaunchTemplate(+ts.value); }; }
   // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override

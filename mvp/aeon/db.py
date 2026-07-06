@@ -182,6 +182,17 @@ CREATE TABLE IF NOT EXISTS pod_secrets (
     created_at  REAL,
     updated_at  REAL
 );
+
+-- Pod-LOCAL launch templates: every validated-bench launch's knobs, so a prior run can prefill
+-- the Run form and be relaunched with one tweak. Params only — token NAMES ride along, values
+-- stay in pod_secrets.
+CREATE TABLE IF NOT EXISTS pod_launches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  REAL,
+    kind        TEXT DEFAULT 'verified',
+    model       TEXT,
+    params_json TEXT NOT NULL
+);
 """
 
 
@@ -1096,6 +1107,31 @@ def list_secrets():
 def delete_secret(name):
     with connect() as c:
         c.execute("DELETE FROM pod_secrets WHERE name=?", (name,))
+
+
+# ---- pod-LOCAL launch templates (the Run form's knobs; params only, never secret values) ----
+
+def save_launch(kind, model, params):
+    """Record a launch's knobs as a reusable template. An identical param set replaces its
+    older copy (a re-run floats to the top instead of piling up duplicates); the table keeps
+    the newest 40."""
+    init_db()
+    blob = json.dumps(params, sort_keys=True)
+    with connect() as c:
+        c.execute("DELETE FROM pod_launches WHERE params_json=?", (blob,))
+        c.execute("INSERT INTO pod_launches (created_at, kind, model, params_json) VALUES (?,?,?,?)",
+                  (time.time(), kind, model, blob))
+        c.execute("DELETE FROM pod_launches WHERE id NOT IN "
+                  "(SELECT id FROM pod_launches ORDER BY created_at DESC LIMIT 40)")
+
+
+def list_launches(limit=20):
+    init_db()
+    with connect() as c:
+        rows = c.execute("SELECT id, created_at, kind, model, params_json FROM pod_launches "
+                         "ORDER BY created_at DESC LIMIT ?", (int(limit),)).fetchall()
+    return [{"id": r["id"], "created_at": r["created_at"], "kind": r["kind"],
+             "model": r["model"], "params": json.loads(r["params_json"])} for r in rows]
 
 
 def get_pod_run(run_id):

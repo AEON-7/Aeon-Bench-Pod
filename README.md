@@ -27,8 +27,9 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
   ghcr.io/aeon-7/aeon-pod:latest
-# open http://localhost:8091 → Run tab
 ```
+
+Then open **http://localhost:8091 → Run tab**.
 
 > `--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/) and matters more than it looks: without GPU access the pod detects a CPU-only box — CUDA engines (aeon-vllm-ultimate / vLLM / SGLang) disable themselves and the recipe-tuning catalog shrinks. On a Mac or CPU-only host, drop the flag.
 

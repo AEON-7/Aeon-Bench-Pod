@@ -2314,22 +2314,15 @@ function _validatedExtras() {
 async function runHfVerified() {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
+  // The TEST PLAN rides on the main launch (default: comprehensive — the full benchmark).
+  // Hard Bench owns its own tiers (hard,expert), so Scope only applies to the other plans.
+  const plan = ($("#hfPlan") && $("#hfPlan").value) || null;
   await launchRun("/api/pod/run/verified",
-    { hf_link, difficulty: $("#hfDiff").value || null, hf_token_name: $("#hfKey").value || null,
+    { hf_link, preset: plan,
+      difficulty: plan === "hard-bench" ? null : ($("#hfDiff").value || null),
+      hf_token_name: $("#hfKey").value || null,
       perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
       ..._validatedExtras() }, "#hfLaunch");
-}
-
-// One-shot preset launches — 'comprehensive' turns everything on; 'hard-bench' runs the
-// hard,expert tiers through every harness only. The pod resolves the preset to the underlying
-// knobs, so the Scope select is intentionally ignored here (the preset sets its own tiers).
-async function runHfPreset(preset, btnSel) {
-  const hf_link = $("#hfLink").value.trim();
-  if (!hf_link) { runStatus("HF link is required", "err"); return; }
-  await launchRun("/api/pod/run/verified",
-    { hf_link, preset, hf_token_name: $("#hfKey").value || null,
-      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
-      ..._validatedExtras() }, btnSel);
 }
 
 async function launchRun(path, body, btnSel) {
@@ -2409,8 +2402,6 @@ async function init() {
   bind("#audioProbe", probeAudio);
   bind("#reLaunch", runEndpointBench);
   bind("#hfLaunch", runHfVerified);
-  bind("#hfComprehensive", () => runHfPreset("comprehensive", "#hfComprehensive"));
-  bind("#hfHardBench", () => runHfPreset("hard-bench", "#hfHardBench"));
   // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override

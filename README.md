@@ -89,6 +89,14 @@ Your device key, runs and models live in the named volumes — **updating never 
 If :8091 is taken on your host (e.g. a bare-metal dashboard is already running), add
 `-e AEON_PORT=8092` and open :8092 instead.
 
+> ⚠ `docker run` flags do **not** persist across an update — if your old container had extra
+> `-e` flags, add them to the new run line too. Common ones: `-e AEON_SYSTEM=<hardware-label>`
+> (names your hardware on results) and `-e AEON_PAUSE_CONTAINERS=<name>` (auto-stops a
+> production inference container that holds the GPU/port during a bench, auto-restarts it
+> after — without it a bench can collide with your resident server and refuse to run).
+> Check what the old container had with: `docker inspect aeon-pod --format '{{json .Config.Env}}'`
+> **before** removing it.
+
 ## Start · stop · logs
 
 ```bash

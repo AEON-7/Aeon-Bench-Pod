@@ -347,10 +347,18 @@ def perf_board():
                 "n_errors": sum(c.get("n_errors") or 0 for c in cat_cells),
                 "summary": "category_mean",       # provenance marker for the API consumer
             }
-        # peak aggregate throughput across the ladder = the row's headline + sort key
-        # (now the mean cohort aggregate — total tok/s of the live concurrent streams)
-        aggs = [(v.get("overall") or {}).get("agg_decode_tps") for v in direct.values()]
-        aggs = [a for a in aggs if isinstance(a, (int, float))]
+        # peak aggregate throughput = the BEST REAL COHORT anywhere in the ladder — one
+        # category × concurrency cell (e.g. Coding @ c32). Never the cross-category MEAN
+        # row: that understates the demonstrated peak by roughly the category count
+        # (each rung's mean averages fast cells with slow ones).
+        peak_agg, peak_cell = None, None
+        for conc_lvl, scopes in direct.items():
+            for cat, cell in scopes.items():
+                if cat == "overall" or not isinstance(cell, dict):
+                    continue
+                a = cell.get("agg_decode_tps")
+                if isinstance(a, (int, float)) and (peak_agg is None or a > peak_agg):
+                    peak_agg, peak_cell = a, {"category": cat, "conc": conc_lvl}
         hw = (info.get("env") or {}).get("hardware") or {}
         hwlabel = hw.get("detected_label") or hw.get("label")
         c_lo = (direct.get(min(concs)) if concs else {}) or {}    # single-stream = lowest concurrency
@@ -369,7 +377,8 @@ def perf_board():
             "hardware": hwlabel,
             "conc_levels": sorted(concs),
             # the four axes the recipe-discovery tool ranks on (per model, filterable by hardware):
-            "peak_agg_tps": max(aggs) if aggs else None,                     # throughput under load
+            "peak_agg_tps": peak_agg,                     # best real cohort (category × conc cell)
+            "peak_agg_cell": peak_cell,                   # provenance: which cell demonstrated it
             "peak_single_tps": _lowest_conc_metric(c_lo, "decode_tps", max),  # single-stream speed
             "latency": {"ttft_ms": _lowest_conc_metric(c_lo, "ttft_ms", min),
                         "tpot_ms": _lowest_conc_metric(c_lo, "tpot_ms", min),

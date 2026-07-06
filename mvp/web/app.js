@@ -1549,7 +1549,7 @@ function renderPerfList() {
         ${x.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(x.hardware)}</span>` : ""}
         ${crowns ? `<span class="pcrowns">${crowns}</span>` : ""}</div>
       <div class="pcard-stats perf4-stats">
-        <div class="spdchip pcard-hero${x === cAgg ? " win" : ""}"><span class="catk">peak agg tok/s</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
+        <div class="spdchip pcard-hero${x === cAgg ? " win" : ""}" title="best real concurrent cohort in the ladder — one category at one concurrency, all streams live"><span class="catk">peak agg tok/s${x.peak_agg_cell ? ` <span class="catx">· ${escH(x.peak_agg_cell.category)} @ c${x.peak_agg_cell.conc}</span>` : ""}</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
         <div class="spdchip${x === cSingle ? " win" : ""}"><span class="catk">single-stream tok/s</span><span class="catv">${fmtTps(x.peak_single_tps)}</span></div>
         <div class="spdchip${x === cLat ? " win" : ""}"><span class="catk">latency ttft · tpot</span><span class="catv">${fmtDur(lat.ttft_ms)}<span class="catx"> · ${fmtDur(lat.tpot_ms)}</span></span></div>
         <div class="spdchip qchip${x === cQual ? " win" : ""}"><span class="catk">quality</span><span class="catv">${x.quality != null ? x.quality.toFixed(1) : "—"}</span></div>

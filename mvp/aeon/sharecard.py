@@ -102,13 +102,22 @@ def _chip(d, x, y, label, value, color, pad=16, fsize=30, check=False):
 
 
 def _avatar(url: str | None, size: int = 128) -> Image.Image:
-    """Circular owner avatar; any failure -> branded Æ disc (never blocks the card)."""
+    """Circular owner avatar (the HF account image, same as the boards); any failure ->
+    branded Æ disc (never blocks the card). Accepts a remote URL or a local site path
+    like /static/aeon-avatar.png (own-org models resolve to a local asset)."""
     im = None
     if url and url.startswith("http"):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "aeon-bench/og"})
             with urllib.request.urlopen(req, timeout=4) as r:
                 im = Image.open(io.BytesIO(r.read())).convert("RGB").resize((size, size), Image.LANCZOS)
+        except Exception:
+            im = None
+    elif url and url.startswith("/") and not url.endswith(".svg"):
+        try:
+            p = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "web",
+                                              url.lstrip("/")))
+            im = Image.open(p).convert("RGB").resize((size, size), Image.LANCZOS)
         except Exception:
             im = None
     if im is None:

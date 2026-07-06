@@ -1683,15 +1683,20 @@ select:focus {
 
 /* ---- SHARE: per-benchmark share button (mcards + perf detail) ---- */
 .share-btn {
-  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
-  padding: 3px 10px; font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--faint); background: rgba(255, 255, 255, .02); border: 1px solid var(--border);
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 5px 13px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent); background: rgba(0, 240, 255, .07); border: 1px solid rgba(0, 240, 255, .55);
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+  text-shadow: 0 0 10px rgba(0, 240, 255, .35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, .12), inset 0 0 10px rgba(0, 240, 255, .05);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
 }
-.share-btn:hover { color: var(--accent); border-color: var(--accent); background: rgba(0, 240, 255, .06); }
+.share-btn:hover {
+  color: var(--accent-ink); background: var(--accent); border-color: var(--accent);
+  text-shadow: none; box-shadow: 0 0 20px rgba(0, 240, 255, .45);
+}
 .share-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
-.share-btn.copied { color: var(--good); border-color: var(--good); }
+.share-btn.copied { color: var(--good); border-color: var(--good); background: rgba(61, 220, 133, .08); text-shadow: none; box-shadow: 0 0 14px rgba(61, 220, 133, .25); }
 
 /* ---- perf ELEVATION: machined instrument plates, energized hero, honest heat ---- */
 .perf-card {

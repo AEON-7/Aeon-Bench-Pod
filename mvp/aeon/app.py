@@ -268,7 +268,7 @@ def _share_info(key: str):
     org, _, name = model.rpartition("/")
     avatar = None
     try:
-        avatar = (modelmeta.resolve(model) or {}).get("avatar")
+        avatar = (modelmeta.resolve(model) or {}).get("avatar_url")
     except Exception:
         pass
     return {"model": model, "org": org, "name": name or model, "rank": rank,

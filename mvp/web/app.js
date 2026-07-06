@@ -1925,6 +1925,76 @@ function engineChanged() {
   const mh = $("#mlxHelp"); if (mh) mh.hidden = !bare;
   const img = $("#veImage"); if (img) img.disabled = !!bare;
   if (bare) updateMlxCmd();
+  renderTune(e);
+}
+
+// ---- RECIPE TUNING: the engine's flag catalog as controls + freeform extras --------------------
+// Every knob we've ever used or tuned, annotated with what we've learned; overrides merge into
+// the serve command server-side (pod.engines.merge_flags — bench wiring protected) and the final
+// recipe is recorded with the run. This is the optimal-recipe search surface.
+
+function renderTune(e) {
+  const wrap = $("#tuneWrap"), body = $("#tuneBody");
+  if (!wrap || !body) return;
+  const flags = (e && e.flags) || [];
+  wrap.hidden = !flags.length;                         // bare engines (MLX/LM Studio): no knob grammar yet
+  if (!flags.length) { body.innerHTML = ""; updateTuneCount(); return; }
+  body.innerHTML = flags.map((f) => {
+    const id = "tf_" + f.flag.replace(/[^a-z0-9]/gi, "_");
+    let ctl;
+    if (f.kind === "enum") {
+      ctl = `<select id="${id}" data-flag="${escA(f.flag)}" data-kind="enum">
+        <option value="">— engine default —</option>` +
+        f.options.map((o) => `<option value="${escA(o)}">${escH(o)}</option>`).join("") + `</select>`;
+    } else if (f.kind === "bool") {
+      ctl = `<label class="tune-bool"><input type="checkbox" id="${id}" data-flag="${escA(f.flag)}" data-kind="bool"> on</label>`;
+    } else if (f.kind === "number") {
+      ctl = `<input type="number" id="${id}" data-flag="${escA(f.flag)}" data-kind="number"` +
+        (f.step ? ` step="${f.step}"` : "") + (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
+    } else {
+      ctl = `<input type="text" id="${id}" data-flag="${escA(f.flag)}" data-kind="string" spellcheck="false"` +
+        (f.default != null ? ` placeholder="${escA(String(f.default))}"` : "") + `>`;
+    }
+    return `<div class="tune-row" title="${escA(f.note || "")}">
+      <span class="tune-k">${escH(f.label)} <span class="mono tune-f">${escH(f.flag)}</span></span>
+      ${ctl}<span class="tune-n">${escH(f.note || "")}</span></div>`;
+  }).join("");
+  body.querySelectorAll("[data-flag]").forEach((el) => {
+    el.oninput = updateTuneCount; el.onchange = updateTuneCount;
+  });
+  updateTuneCount();
+}
+
+// minimal quote-aware tokenizer for the freeform extras (JSON values carry spaces)
+function tokenizeFlags(s) {
+  const out = []; let cur = "", q = null;
+  for (const ch of s || "") {
+    if (q) { if (ch === q) q = null; else cur += ch; }
+    else if (ch === '"' || ch === "'") q = ch;
+    else if (/\s/.test(ch)) { if (cur) { out.push(cur); cur = ""; } }
+    else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function collectServeFlags() {
+  const out = [];
+  $$("#tuneBody [data-flag]").forEach((el) => {
+    const flag = el.dataset.flag, kind = el.dataset.kind;
+    if (kind === "bool") { if (el.checked) out.push(flag); return; }
+    const v = (el.value || "").trim();
+    if (v) out.push(flag, v);
+  });
+  out.push(...tokenizeFlags($("#tuneExtra") ? $("#tuneExtra").value : ""));
+  return out.length ? out : null;
+}
+
+function updateTuneCount() {
+  const c = $("#tuneCount"); if (!c) return;
+  const n = (collectServeFlags() || []).filter((t) => t.startsWith("-")).length;
+  c.hidden = !n;
+  c.textContent = n ? `${n} override${n > 1 ? "s" : ""} active` : "";
 }
 
 // The bare-metal serve helper (MLX / LM Studio): exact startup commands, per engine — what the
@@ -2172,6 +2242,7 @@ function _validatedExtras() {
     local_dir: localOk ? $("#hfLocal").value.trim() : null,
     // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
+    serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
   };
 }
 
@@ -2279,6 +2350,7 @@ async function init() {
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override
   vIn("#hfLocal", () => { scheduleValidate(); updateMlxCmd(); });
+  vIn("#tuneExtra", updateTuneCount);
   bind("#lwScan", scanModels);
   bind("#lwBrowse", openBrowse);
   bind("#browseClose", closeBrowse);

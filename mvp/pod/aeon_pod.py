@@ -463,7 +463,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
-                   local_dir=None, serve_url=None, engine_image=None):
+                   local_dir=None, serve_url=None, engine_image=None, serve_flags=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -527,11 +527,14 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     print(f"[pod] verified: weights_hash={ver['weights_hash'][:16]}… method={ver['method']} "
           f"({ver['lfs_checked']} LFS-checked / {ver['n_weight_files']} weight files)")
 
-    recipe = modelhost.derive_recipe(local_dir, ref, port=port, engine=engine, image=engine_image)
+    recipe = modelhost.derive_recipe(local_dir, ref, port=port, engine=engine, image=engine_image,
+                                     extra_flags=serve_flags)
     alias = recipe["served_alias"]
     print(f"[pod] recipe: {recipe['engine']} ({recipe.get('serve_mode', 'bare')}, "
           f"ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
           + (f"  [{recipe['reason']}]" if recipe.get("reason") else ""))
+    if recipe.get("custom_flags"):
+        print(f"[pod] recipe tuning applied: {' · '.join(recipe['custom_flags'])}")
     if recipe.get("no_harness"):                     # e.g. MLX: no served-alias contract for harnesses
         print("[pod] harness pass skipped for this engine (no served-alias contract)")
         harness_ids = []
@@ -808,6 +811,10 @@ def main():
         "recipe is recorded like a docker recipe")
     ap.add_argument("--engine-image", default=os.environ.get("AEON_ENGINE_IMAGE"),
         help="custom container image for the chosen --engine (recorded with the run)")
+    ap.add_argument("--serve-flags", default=None, help="JSON list of serve-flag overrides for the "
+        "engine (recipe tuning, e.g. '[\"--gpu-memory-utilization\",\"0.70\"]'); matching flags are "
+        "replaced, new ones appended, bench wiring (--served-model-name/--host/--port) protected. "
+        "Recorded with the run")
     ap.add_argument("--weights-dir", default=None, help="where to pull weights (default ~/.aeon/models/...)")
     ap.add_argument("--keep-weights", action="store_true", help="retain downloaded weights after the run")
     ap.add_argument("--no-serve", action="store_true", help="model already served at --port (skip launching the engine)")
@@ -917,7 +924,8 @@ def main():
             harness_ids=hids, limit=a.limit, serve=not a.no_serve, fast=a.fast, seed=a.seed,
             per_cell=a.per_cell, difficulty=a.difficulty, category=a.category, vision=not a.no_vision,
             concurrency=a.concurrency, local_dir=a.local_dir, serve_url=a.serve_url,
-            engine_image=a.engine_image)
+            engine_image=a.engine_image,
+            serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None))
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,

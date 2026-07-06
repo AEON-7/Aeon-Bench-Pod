@@ -87,6 +87,118 @@ ENGINES = {
 }
 
 
+# ---- the FLAG CATALOG: every common serve knob we've used or tuned, per engine grammar --------
+# Drives the Run tab's "recipe tuning" panel — the point of the bench is finding the OPTIMAL
+# recipe per system, so the knobs that move real performance are first-class, annotated with
+# what we've learned (DGX GB10: gpu-util 0.70 is OOM-safe on unified memory; FlashInfer is
+# broken on GB10 — use triton_attn/flash_attn; 64K ctx is the Hermes harness floor; DFlash
+# spec-decode is lossless and n trades single-stream vs concurrent speed).
+FLAG_CATALOG = {
+    "vllm": [   # shared grammar: aeon-vllm-ultimate / vLLM / vLLM-ROCm
+        {"flag": "--max-model-len", "kind": "number", "default": 65536,
+         "label": "max model len", "note": "served context; 64K is the bench floor (Hermes refuses less) — smaller = less KV pressure"},
+        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.90, "step": 0.05,
+         "label": "gpu memory util", "note": "VRAM fraction; unified-memory boxes (DGX Spark GB10) are OOM-safe at 0.70"},
+        {"flag": "--max-num-seqs", "kind": "number", "default": 256,
+         "label": "max num seqs", "note": "concurrent sequence cap; 16-24 is the GB10 sweet spot at 64K ctx"},
+        {"flag": "--quantization", "kind": "enum", "options": ["modelopt", "compressed-tensors", "awq", "gptq", "fp8", "bitsandbytes"],
+         "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)"},
+        {"flag": "--kv-cache-dtype", "kind": "enum", "options": ["auto", "fp8_e4m3", "fp8_e5m2"],
+         "label": "kv cache dtype", "note": "fp8 KV halves cache memory -> more concurrency at long ctx"},
+        {"flag": "--attention-backend", "kind": "enum", "options": ["triton_attn", "flash_attn", "flashinfer", "xformers"],
+         "label": "attention backend", "note": "GB10: triton_attn/flash_attn (FlashInfer is broken on GB10)"},
+        {"flag": "--dtype", "kind": "enum", "options": ["auto", "bfloat16", "float16"],
+         "label": "dtype", "note": "activation dtype; auto respects the checkpoint"},
+        {"flag": "--enable-prefix-caching", "kind": "bool", "label": "prefix caching",
+         "note": "reuses shared-prefix KV across requests (the perf grid cache-busts anyway)"},
+        {"flag": "--enable-chunked-prefill", "kind": "bool", "label": "chunked prefill",
+         "note": "interleaves prefill with decode — smoother TTFT under load"},
+        {"flag": "--trust-remote-code", "kind": "bool", "label": "trust remote code",
+         "note": "required by repos with custom modeling code"},
+        {"flag": "--tensor-parallel-size", "kind": "number", "default": 1,
+         "label": "tensor parallel", "note": "multi-GPU: shards the model across N GPUs"},
+        {"flag": "--reasoning-parser", "kind": "enum", "options": ["gemma4", "deepseek_r1", "qwen3"],
+         "label": "reasoning parser", "note": "separates <think> from the answer — WITHOUT it a reasoning model leaks its trace and tanks Instruction/Prose"},
+        {"flag": "--tool-call-parser", "kind": "enum", "options": ["gemma4", "hermes", "llama3_json", "mistral"],
+         "label": "tool-call parser", "note": "pairs with auto tool choice for the agentic harnesses"},
+        {"flag": "--enable-auto-tool-choice", "kind": "bool", "label": "auto tool choice",
+         "note": "lets harnesses drive native tool calling"},
+        {"flag": "--speculative-config", "kind": "string",
+         "label": "speculative config (JSON)", "note": 'DFlash spec-decode is LOSSLESS — e.g. {"method":"dflash","model":"/drafter","num_speculative_tokens":6} (n=6 concurrent-optimal, 11-12 single-stream)'},
+        {"flag": "--swap-space", "kind": "number", "default": 4, "label": "swap space (GiB)",
+         "note": "CPU offload headroom per GPU"},
+    ],
+    "sglang": [
+        {"flag": "--context-length", "kind": "number", "default": 65536,
+         "label": "context length", "note": "64K is the bench floor (Hermes)"},
+        {"flag": "--mem-fraction-static", "kind": "number", "default": 0.88, "step": 0.05,
+         "label": "mem fraction", "note": "KV pool fraction — lower if you OOM"},
+        {"flag": "--max-running-requests", "kind": "number", "default": 256,
+         "label": "max running requests", "note": "concurrency cap"},
+        {"flag": "--quantization", "kind": "enum", "options": ["fp8", "awq", "gptq", "modelopt"],
+         "label": "quantization", "note": "match the checkpoint"},
+        {"flag": "--tp", "kind": "number", "default": 1, "label": "tensor parallel", "note": "multi-GPU sharding"},
+    ],
+    "llama": [
+        {"flag": "-c", "kind": "number", "default": 65536, "label": "context (-c)",
+         "note": "64K is the bench floor (Hermes)"},
+        {"flag": "-ngl", "kind": "number", "default": 999, "label": "gpu layers (-ngl)",
+         "note": "999 = everything on GPU; lower to fit VRAM"},
+        {"flag": "--threads", "kind": "number", "label": "cpu threads", "note": "CPU-side worker threads"},
+        {"flag": "--parallel", "kind": "number", "default": 4, "label": "parallel slots",
+         "note": "concurrent request slots (pair with --cont-batching)"},
+        {"flag": "--cont-batching", "kind": "bool", "label": "continuous batching",
+         "note": "required for real concurrency"},
+        {"flag": "--flash-attn", "kind": "bool", "label": "flash attention", "note": "faster attention where supported"},
+    ],
+}
+
+#: bench contract — these are the pod's wiring, never operator-tunable
+PROTECTED_FLAGS = {"--served-model-name", "--host", "--port", "--alias", "--model-path", "-m"}
+
+
+def merge_flags(base: list[str], extra: list[str] | None) -> tuple[list[str], list[str]]:
+    """Overlay operator flag overrides onto an engine's base flags: a flag already present has
+    its value REPLACED (or is kept bare for bools); a new flag is appended. PROTECTED_FLAGS are
+    dropped (the bench contract owns them). Returns (merged, applied) — `applied` is the
+    provenance list recorded in the recipe."""
+    if not extra:
+        return list(base), []
+    # tokenize extra into (flag, value|None) pairs
+    pairs, i = [], 0
+    while i < len(extra):
+        tok = str(extra[i]).strip()
+        if not tok:
+            i += 1
+            continue
+        if tok.startswith("-"):
+            val = None
+            if i + 1 < len(extra) and not str(extra[i + 1]).startswith("-"):
+                val = str(extra[i + 1]).strip()
+                i += 1
+            if tok not in PROTECTED_FLAGS:
+                pairs.append((tok, val))
+        i += 1
+    merged, applied = list(base), []
+    for flag, val in pairs:
+        applied.append(flag if val is None else f"{flag} {val}")
+        if flag in merged:                               # replace in place
+            j = merged.index(flag)
+            has_val = j + 1 < len(merged) and not str(merged[j + 1]).startswith("-")
+            if val is None:
+                if has_val:
+                    del merged[j + 1]
+            elif has_val:
+                merged[j + 1] = val
+            else:
+                merged.insert(j + 1, val)
+        else:                                            # append new
+            merged.append(flag)
+            if val is not None:
+                merged.append(val)
+    return merged, applied
+
+
 def _has_rocm() -> bool:
     return os.path.exists("/dev/kfd") or bool(shutil.which("rocm-smi"))
 
@@ -145,7 +257,9 @@ def catalog(plat: dict | None = None) -> dict:
                     "url": e["url"], "note": e["note"], "formats": e["formats"],
                     "platforms": e["platforms"],
                     "containerized": e.get("containerized", True),
-                    "available": available, "recommended": eid == rec})
+                    "available": available, "recommended": eid == rec,
+                    # the tunable-knob catalog for this engine's grammar (recipe tuning panel)
+                    "flags": FLAG_CATALOG.get(e["style"], [])})
     return {"platform": plat, "engines": out, "recommended": rec}
 
 
@@ -183,11 +297,12 @@ def _find_gguf(local_dir: str) -> str | None:
 
 def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: int,
                 quant: str | None = None, image: str | None = None,
-                plat: dict | None = None) -> dict:
+                plat: dict | None = None, extra_flags: list[str] | None = None) -> dict:
     """The engine-specific serve recipe. Containerized engines -> a `docker run` argv (host
     networking, weights mounted read-only at /model, fixed container name so cleanup is always
     possible). MLX -> the bare-metal command. `image` overrides the catalog image (custom
-    container); the override is RECORDED so the result still replicates."""
+    container); `extra_flags` are operator recipe-tuning overrides merged via merge_flags
+    (protected bench wiring dropped). Both are RECORDED so the result still replicates."""
     e = ENGINES.get(engine_id)
     if not e:
         raise ValueError(f"unknown engine '{engine_id}' (catalog: {', '.join(ENGINES)})")
@@ -222,30 +337,36 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
 
     docker = ["docker", "run", "--rm", "--name", SERVE_CONTAINER, "--network", "host",
               *_gpu_flags(engine_id, plat), "-v", f"{_host_path(local_dir)}:/model:ro"]
+    applied: list[str] = []
     if e["style"] == "vllm":
         flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
                  "--max-model-len", str(ctx)]
         if quant:
             flags += ["--quantization", str(quant)]
+        flags, applied = merge_flags(flags, extra_flags)
         cmd = docker + ["--entrypoint", "vllm", img, "serve", "/model"] + flags
         srv = {"flags": flags}                          # vllm-style flags: the repro card renders these
     elif e["style"] == "sglang":
-        cmd = docker + ["--ipc=host", img, "python3", "-m", "sglang.launch_server",
-                        "--model-path", "/model", "--served-model-name", alias,
-                        "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]
+        args = ["--model-path", "/model", "--served-model-name", alias,
+                "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]
+        args, applied = merge_flags(args, extra_flags)
+        cmd = docker + ["--ipc=host", img, "python3", "-m", "sglang.launch_server"] + args
         srv = {}
     elif e["style"] == "llama":
         gguf = _find_gguf(local_dir)
         if not gguf:
             raise ValueError("llama.cpp needs GGUF weights; none found in the model dir")
-        cmd = docker + [img, "-m", f"/model/{gguf}", "-c", str(ctx),
-                        "--host", "0.0.0.0", "--port", str(port), "--alias", alias]
+        args = ["-m", f"/model/{gguf}", "-c", str(ctx),
+                "--host", "0.0.0.0", "--port", str(port), "--alias", alias]
         if plat["accel"] == "cuda":
-            cmd += ["-ngl", "999"]
+            args += ["-ngl", "999"]
+        args, applied = merge_flags(args, extra_flags)
+        cmd = docker + [img] + args
         srv = {}
     else:                                                # pragma: no cover — catalog is closed
         raise ValueError(f"engine '{engine_id}' has no serve builder")
 
     return {"engine": engine_id, "serve_mode": "docker", "image": img, "command": cmd,
             "docker_run": " ".join(cmd), "container_name": SERVE_CONTAINER,
-            "image_overridden": bool(image), **srv}
+            "image_overridden": bool(image),
+            **({"custom_flags": applied} if applied else {}), **srv}

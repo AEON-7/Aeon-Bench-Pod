@@ -146,7 +146,7 @@ def _ultimate_supports(files) -> bool:
 
 
 def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None,
-                  image=None) -> dict:
+                  image=None, extra_flags=None) -> dict:
     """Serving recipe from the local config.json + HF card. Engine selection:
       - GGUF weights -> llama.cpp
       - **DGX Spark + aeon-vllm-ultimate available + supported -> aeon-vllm-ultimate (DEFAULT)**
@@ -192,7 +192,7 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     plat = engmod.host_platform()
     if engine in engmod.ENGINES and (engine != "aeon-vllm-ultimate" or not aeon_vllm_ultimate_launcher()):
         srv = engmod.build_serve(engine, local_dir=local_dir, alias=alias, port=port, ctx=ctx,
-                                 quant=quant, image=image, plat=plat)
+                                 quant=quant, image=image, plat=plat, extra_flags=extra_flags)
         if srv["engine"] == "mlx":
             base["served_alias"] = os.path.abspath(local_dir)
         return {**base, **srv}
@@ -200,7 +200,8 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     if gguf and engine not in ("vllm", "aeon-vllm-ultimate"):
         if plat.get("docker") and os.environ.get("AEON_BARE_SERVE") != "1":
             return {**base, **engmod.build_serve("llama.cpp", local_dir=local_dir, alias=alias,
-                                                 port=port, ctx=ctx, image=image, plat=plat)}
+                                                 port=port, ctx=ctx, image=image, plat=plat,
+                                                 extra_flags=extra_flags)}
         return {**base, "engine": "llama.cpp", "serve_mode": "bare",
                 "command": ["llama-server", "-m", gguf, "-c", str(ctx),
                             "--host", "0.0.0.0", "--port", str(port), "--alias", alias]}
@@ -220,13 +221,18 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
         # default to the platform's containerized flagship instead of failing on Popen.
         return {**base, **engmod.build_serve(engmod.recommended_engine(plat),
                                              local_dir=local_dir, alias=alias, port=port,
-                                             ctx=ctx, quant=quant, image=image, plat=plat)}
+                                             ctx=ctx, quant=quant, image=image, plat=plat,
+                                             extra_flags=extra_flags)}
     launcher, eng = (ult or "aeon-vllm-ultimate", "aeon-vllm-ultimate") if use_ultimate else ("vllm", "vllm")
-    cmd = [launcher, "serve", local_dir, "--served-model-name", alias,
-           "--host", "0.0.0.0", "--port", str(port), "--max-model-len", str(ctx)]
+    flags = ["--served-model-name", alias,
+             "--host", "0.0.0.0", "--port", str(port), "--max-model-len", str(ctx)]
     if quant:
-        cmd += ["--quantization", str(quant)]
-    recipe = {**base, "engine": eng, "serve_mode": "bare", "command": cmd}
+        flags += ["--quantization", str(quant)]
+    flags, applied = engmod.merge_flags(flags, extra_flags)   # recipe tuning on the bare path too
+    cmd = [launcher, "serve", local_dir] + flags
+    recipe = {**base, "engine": eng, "serve_mode": "bare", "command": cmd, "flags": flags}
+    if applied:
+        recipe["custom_flags"] = applied
     if use_ultimate and engine is None:
         recipe["reason"] = "DGX Spark default: aeon-vllm-ultimate"
     return recipe

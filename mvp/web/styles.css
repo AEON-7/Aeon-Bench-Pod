@@ -1578,6 +1578,32 @@ select:focus {
 .val-note { display: block; margin-top: 4px; font-size: 10.5px; color: var(--faint); }
 .eng-info { text-align: left; min-height: 0; margin: 2px 0 0; }
 .eng-info .mlink { color: var(--accent); }
+/* RECIPE TUNING: the engine's knob catalog — the optimal-recipe search surface */
+.tune-wrap { margin: 10px 0 2px; border: 1px solid var(--border); background: rgba(255, 255, 255, .012);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.tune-wrap > summary { cursor: pointer; list-style: none; padding: 10px 14px;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  transition: background var(--t-fast); }
+.tune-wrap > summary::-webkit-details-marker { display: none; }
+.tune-wrap > summary:hover { background: rgba(0, 240, 255, .04); }
+.tune-t { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--accent); }
+.tune-count { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--good);
+  border: 1px solid rgba(61, 220, 133, .5); padding: 2px 8px; margin-left: auto;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); }
+.tune-wrap[open] > summary { border-bottom: 1px solid var(--border); }
+.tune-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 10px 22px; padding: 12px 14px 4px; }
+.tune-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tune-k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.tune-f { text-transform: none; letter-spacing: 0; color: var(--faint); }
+.tune-row select, .tune-row input[type=number], .tune-row input[type=text] { width: 100%; }
+.tune-bool { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.tune-n { font-size: 10px; color: var(--faint); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tune-wrap .row, .tune-wrap .tune-note { padding: 0 14px; }
+.tune-wrap .tune-note { padding-bottom: 12px; text-align: left; }
+
 /* MLX bare-metal helper: the ONE non-container path, reported like a docker recipe */
 .mlx-help { margin: 10px 0 2px; padding: 12px 14px; border: 1px solid var(--border);
   border-left: 2px solid var(--accent); background: rgba(0, 240, 255, .02);

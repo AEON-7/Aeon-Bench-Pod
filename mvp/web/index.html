@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=45" />
+  <link rel="stylesheet" href="/static/styles.css?v=46" />
 </head>
 <body>
   <header>
@@ -324,12 +324,12 @@
         </p>
         <div class="podq">
           <div class="podq-h"><span class="repro-t">⚙ DOCKER — LINUX · WINDOWS/WSL2 · RTX · AMD · DGX</span><button class="ghost repro-copy podq-copy" data-cmd="podqDocker">copy</button></div>
-          <pre class="repro-cmd" id="podqDocker">docker run -d --name aeon-pod --network host \
+          <pre class="repro-cmd" id="podqDocker">docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
-  ghcr.io/aeon-7/aeon-pod:latest
-# open http://localhost:8091 → Run tab</pre>
+  ghcr.io/aeon-7/aeon-pod:latest</pre>
+          <p class="note" style="text-align:left">Then open <b>http://localhost:8091 → Run tab</b>. <span class="mono">--gpus all</span> needs the NVIDIA Container Toolkit — without GPU visibility the CUDA engines hide themselves. CPU-only host? Drop the flag.</p>
         </div>
         <div class="podq">
           <div class="podq-h"><span class="repro-t">⌘ APPLE SILICON — MLX SERVES BARE-METAL ON THE HOST</span><button class="ghost repro-copy podq-copy" data-cmd="podqMac">copy</button></div>
@@ -337,9 +337,8 @@
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
-  ghcr.io/aeon-7/aeon-pod:latest
-# open http://localhost:8091 → Run tab; the MLX serve runs on the host
-# (the pod generates the exact mlx_lm.server command and benches it)</pre>
+  ghcr.io/aeon-7/aeon-pod:latest</pre>
+          <p class="note" style="text-align:left">Then open <b>http://localhost:8091 → Run tab</b>. The pod detects the Apple-silicon host and recommends <b>MLX</b>: it hands you the exact <span class="mono">mlx_lm.server</span> command (bare metal — macOS can't run MLX in a container), benches that endpoint, and records the startup recipe exactly like a docker recipe. <b>LM Studio</b> works the same way.</p>
         </div>
         <div class="runcta">
           <a class="primary" id="ghLink" href="https://github.com/AEON-7/Aeon-Bench-Pod" target="_blank" rel="noopener">▶ AEON Bench Pod on GitHub</a>
@@ -490,6 +489,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=45"></script>
+  <script src="/static/app.js?v=46"></script>
 </body>
 </html>

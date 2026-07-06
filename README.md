@@ -33,7 +33,9 @@ Then open **http://localhost:8091 → Run tab**.
 
 > `--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/) and matters more than it looks: without GPU access the pod detects a CPU-only box — CUDA engines (aeon-vllm-ultimate / vLLM / SGLang) disable themselves and the recipe-tuning catalog shrinks. On a Mac or CPU-only host, drop the flag.
 
-macOS (Docker Desktop has no host networking; Apple MLX serves bare-metal on the host):
+### Apple silicon (MLX) quickstart
+
+macOS uses `-p` instead of `--network host`, and no `--gpus` flag:
 
 ```bash
 docker run -d --name aeon-pod -p 8091:8091 \
@@ -42,6 +44,14 @@ docker run -d --name aeon-pod -p 8091:8091 \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
+
+The pod detects the Apple-silicon host automatically and **recommends MLX** — macOS can't run
+MLX inside a container, so the Run tab hands you the exact bare-metal command
+(`pip install mlx-lm` once, then the generated `mlx_lm.server …` line), waits for the endpoint,
+benches it, and records that startup recipe **exactly like a docker recipe** — the result is
+just as attested and replicable. **LM Studio** works the same way (pick it as the engine; the
+pod generates the `lms server start` / `lms load` lines). GGUF models can also run fully
+containerized via **llama.cpp** (CPU inside the VM — fine for correctness, slow for perf).
 
 From the **Run tab**: paste an HF link — or hit **⌕ scan system** (every model already on disk:
 HF cache, LM Studio library, sizes + locations, each auto-reconciled to its HF card) or

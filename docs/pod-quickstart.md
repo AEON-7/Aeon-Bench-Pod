@@ -37,9 +37,10 @@ startup recipe (docker or bare-metal, reported identically) on every result.
 > On a DGX Spark (GB10) the pod defaults to the first-party `aeon-vllm-ultimate` engine with
 > its optimal flags — the same engine behind AEON's own boards.
 
-## Update to the latest version
+## Update an existing install
 
-Also the fix for `name "aeon-pod" already in use`:
+Pull the latest, drop the old container, run the new one — also the fix for
+`name "aeon-pod" already in use`:
 
 ```bash
 docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
@@ -48,6 +49,18 @@ docker run -d --name aeon-pod --network host   -v /var/run/docker.sock:/var/run/
 
 Your device key, runs and models persist in the named volumes — updating never loses them.
 Port taken on your host? Add `-e AEON_PORT=8092` (and open :8092).
+
+## Start · stop · logs
+
+```bash
+docker stop aeon-pod          # stop the dashboard (state persists in the volumes)
+docker start aeon-pod         # start it again
+docker restart aeon-pod       # reload
+docker logs -f aeon-pod       # follow the dashboard + job logs live
+```
+
+An interrupted benchmark doesn't lose what it already submitted (results stream to the
+mothership in checkpoints); relaunch from the Run tab — validated local weights are reused.
 
 ## Full pipeline via compose (build from source)
 

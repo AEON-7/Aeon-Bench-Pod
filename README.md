@@ -58,7 +58,10 @@ containers; **aeon-pod-state** persists your ed25519 device key + local runs; **
 `AEON_MODELS_HOST_DIR` naming its host path) is where validated weights live so sibling engine
 containers can mount them.
 
-**Update to the latest version** (also fixes `name "aeon-pod" already in use`):
+## Update an existing install
+
+Pull the latest image, drop the old container, run the new one — this is also the fix for
+`name "aeon-pod" already in use`:
 
 ```bash
 docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
@@ -69,9 +72,25 @@ docker run -d --name aeon-pod --network host \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
-Your device key, runs and models persist in the volumes — updating the container never loses
-them. If :8091 is taken on your host (e.g. a bare-metal dashboard is already running), add
+Your device key, runs and models live in the named volumes — **updating never loses them**.
+If :8091 is taken on your host (e.g. a bare-metal dashboard is already running), add
 `-e AEON_PORT=8092` and open :8092 instead.
+
+## Start · stop · logs
+
+```bash
+docker stop aeon-pod          # stop the dashboard (state persists in the volumes)
+docker start aeon-pod         # start it again
+docker restart aeon-pod       # reload (e.g. after changing env on a recreated container)
+docker logs -f aeon-pod       # follow the dashboard + job logs live
+docker ps --filter name=aeon-pod   # is it running?
+```
+
+The dashboard is stateless between restarts — everything durable (device key, run history,
+saved tokens, pulled models) lives in `aeon-pod-state` and your models folder. A benchmark
+interrupted by a stop doesn't lose what it already submitted (results stream to the mothership
+in checkpoints); relaunch it from the Run tab — validated local weights are reused, no
+re-download.
 
 <details><summary>Alternative: full pipeline via compose (build from source)</summary>
 

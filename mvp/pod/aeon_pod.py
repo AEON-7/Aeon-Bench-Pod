@@ -413,6 +413,9 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=N
             print(f"  [perf] harness {h}: " + json.dumps(ht.get("levels", {}))[:160], flush=True)
         except Exception as e:
             print(f"  [perf] harness {h} timing failed (non-fatal): {e}")
+    _mirror_local(suite_id=perf_grid.SUITE_ID, results=rows, repo=repo, target=target,
+                  env=env, board="perf", recipe=provenance.get("recipe"),
+                  bench_seed=provenance.get("bench_seed"))
     st, r = pod.run_and_submit(repo, perf_grid.SUITE_ID, rows, board="perf",
         environment=env, target_class="hf_pull_controlled", **provenance)
     print(f"[pod] submit (perf {len(rows)} cells) -> HTTP {st}  {json.dumps(r)[:200]}")
@@ -470,6 +473,34 @@ def _stop(proc):
             pass
 
 
+def _mirror_local(*, suite_id, results, repo, target, env, board="text", judge=None,
+                  harness=None, harness_version=None, recipe=None, bench_seed=None,
+                  suite_hash=None):
+    """Keep a LOCAL copy of a submitted bundle in pod.db — the pod owns its data, so its
+    own boards (harness matrix, perf grid) show what it benched without asking the
+    mothership. Best-effort: a mirror failure never blocks the submit path."""
+    try:
+        from aeon import db
+        rid = uuid.uuid4().hex[:10]
+        db.create_run(rid, model=repo, target_url=target, judge_model=judge, judge_is_self=False,
+                      suite_id=suite_id, suite_hash=suite_hash, n_cases=len(results),
+                      params={}, env=env, board=board, hf_repo=repo,
+                      model_verified="verified", trust_tier="attested",
+                      harness=harness, harness_version=harness_version,
+                      recipe=recipe, bench_seed=bench_seed)
+        for x in results:
+            db.save_result(rid, x.get("case_id"), category=x.get("category"), tier=x.get("tier"),
+                           status=x.get("status"), score=x.get("score"),
+                           raw_output=x.get("raw_output") or "",
+                           evidence=x.get("evidence") or {}, speed=x.get("speed") or {},
+                           board=board)
+        db.finish_run(rid, "succeeded")
+        return rid
+    except Exception as e:
+        print(f"[pod] local mirror failed (non-fatal): {e}")
+        return None
+
+
 def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, board, suite_id,
                 harness_ids, harness_only, judge, judge_url, judge_key, max_tokens, retry_max_tokens,
                 temperature, concurrency, vision, audio, perf, perf_max_conc, arena_per_kind,
@@ -489,9 +520,31 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             retry_max_tokens=retry_max_tokens, concurrency=concurrency,
             hf_repo=repo, trust_tier="attested", model_verified="verified")
         print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
+        # Stamp the bench environment on the LOCAL run too (concurrency -> the pod's own
+        # board computes aggregate tok/s exactly like the mothership).
+        try:
+            from aeon import db as _db
+            _db.set_run_env(_rid, env)
+        except Exception as e:
+            print(f"[pod] local env stamp failed (non-fatal): {e}")
         # ARENA generation (games/apps/animations) ships INSIDE the signed text bundle.
         artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
                                      per_kind=arena_per_kind) if arena_per_kind else []
+        # Mirror the artifacts into the pod's own arena/gallery (the mothership saves its
+        # copy from the signed bundle; the pod keeps its own).
+        try:
+            from aeon import db as _db
+            n_mir = 0
+            for a in artifacts:
+                if a.get("ok") and (a.get("html") or "").strip():
+                    _db.save_artifact(uuid.uuid4().hex[:10], kind=a.get("kind"),
+                                      prompt_id=a.get("prompt_id"), model=repo,
+                                      html=a.get("html"), ok=True, gen_ms=a.get("gen_ms"))
+                    n_mir += 1
+            if n_mir:
+                print(f"[pod] arena: {n_mir} artifacts mirrored into the local gallery")
+        except Exception as e:
+            print(f"[pod] arena local mirror failed (non-fatal): {e}")
         st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
             suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
             judge_model=judge, artifacts=artifacts, **provenance)
@@ -520,6 +573,10 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
         hscored = [x["score"] for x in hresults if isinstance(x["score"], float)]
         print(f"[pod] harness {h}: mean {sum(hscored)/len(hscored):.3f} over {len(hscored)} tasks"
               if hscored else f"[pod] harness {h}: no scored tasks")
+        _mirror_local(suite_id=agentic_v2.SUITE_ID, results=hresults, repo=repo, target=target,
+                      env=env, board=board, judge=judge, harness=disc.get("harness", h),
+                      harness_version=disc.get("harness_version"), bench_seed=bench_seed,
+                      suite_hash=suite_mod.suite_hash())
         try:
             hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
                 suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",

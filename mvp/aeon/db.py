@@ -502,6 +502,13 @@ def disputed_cases(limit=200):
         return [dict(x) for x in rows]
 
 
+def set_run_env(run_id, env):
+    """Attach/replace a run's environment (e.g. the pod stamps bench concurrency on its
+    LOCAL text run so the local board can compute aggregate throughput like the mothership)."""
+    with connect() as c:
+        c.execute("UPDATE runs SET env_json=? WHERE id=?", (json.dumps(env), run_id))
+
+
 def finish_run(run_id, status, error=None):
     with connect() as c:
         c.execute("UPDATE runs SET status=?, error=?, finished_at=? WHERE id=?",

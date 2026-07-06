@@ -95,12 +95,12 @@ ENGINES = {
 # spec-decode is lossless and n trades single-stream vs concurrent speed).
 FLAG_CATALOG = {
     "vllm": [   # shared grammar: aeon-vllm-ultimate / vLLM / vLLM-ROCm
-        {"flag": "--max-model-len", "kind": "number", "default": 65536,
-         "label": "max model len", "note": "served context; 64K is the bench floor (Hermes refuses less) — smaller = less KV pressure"},
+        {"flag": "--max-model-len", "kind": "number", "default": 65536, "min": 65536,
+         "label": "max model len", "note": "served context; 64K is the BENCH FLOOR (Hermes refuses less) — only HIGHER values allowed"},
         {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.90, "step": 0.05,
          "label": "gpu memory util", "note": "VRAM fraction; unified-memory boxes (DGX Spark GB10) are OOM-safe at 0.70"},
-        {"flag": "--max-num-seqs", "kind": "number", "default": 256,
-         "label": "max num seqs", "note": "concurrent sequence cap; 16-24 is the GB10 sweet spot at 64K ctx"},
+        {"flag": "--max-num-seqs", "kind": "number", "default": 32,
+         "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)"},
         {"flag": "--quantization", "kind": "enum", "options": ["modelopt", "compressed-tensors", "awq", "gptq", "fp8", "bitsandbytes"],
          "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)"},
         {"flag": "--kv-cache-dtype", "kind": "enum", "options": ["auto", "fp8_e4m3", "fp8_e5m2"],
@@ -123,14 +123,14 @@ FLAG_CATALOG = {
          "label": "tool-call parser", "note": "pairs with auto tool choice for the agentic harnesses"},
         {"flag": "--enable-auto-tool-choice", "kind": "bool", "label": "auto tool choice",
          "note": "lets harnesses drive native tool calling"},
-        {"flag": "--speculative-config", "kind": "string",
-         "label": "speculative config (JSON)", "note": 'DFlash spec-decode is LOSSLESS — e.g. {"method":"dflash","model":"/drafter","num_speculative_tokens":6} (n=6 concurrent-optimal, 11-12 single-stream)'},
         {"flag": "--swap-space", "kind": "number", "default": 4, "label": "swap space (GiB)",
          "note": "CPU offload headroom per GPU"},
+        # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
+        # (drafter HF card + preset dropdown), not as a raw catalog knob.
     ],
     "sglang": [
-        {"flag": "--context-length", "kind": "number", "default": 65536,
-         "label": "context length", "note": "64K is the bench floor (Hermes)"},
+        {"flag": "--context-length", "kind": "number", "default": 65536, "min": 65536,
+         "label": "context length", "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed"},
         {"flag": "--mem-fraction-static", "kind": "number", "default": 0.88, "step": 0.05,
          "label": "mem fraction", "note": "KV pool fraction — lower if you OOM"},
         {"flag": "--max-running-requests", "kind": "number", "default": 256,
@@ -140,8 +140,8 @@ FLAG_CATALOG = {
         {"flag": "--tp", "kind": "number", "default": 1, "label": "tensor parallel", "note": "multi-GPU sharding"},
     ],
     "llama": [
-        {"flag": "-c", "kind": "number", "default": 65536, "label": "context (-c)",
-         "note": "64K is the bench floor (Hermes)"},
+        {"flag": "-c", "kind": "number", "default": 65536, "min": 65536, "label": "context (-c)",
+         "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed"},
         {"flag": "-ngl", "kind": "number", "default": 999, "label": "gpu layers (-ngl)",
          "note": "999 = everything on GPU; lower to fit VRAM"},
         {"flag": "--threads", "kind": "number", "label": "cpu threads", "note": "CPU-side worker threads"},
@@ -197,6 +197,28 @@ def merge_flags(base: list[str], extra: list[str] | None) -> tuple[list[str], li
             if val is not None:
                 merged.append(val)
     return merged, applied
+
+
+#: the served-context bench floor — Hermes refuses models reporting less, which would silently
+#: burn a whole run's harness pass. Overrides BELOW the floor are raised back to it.
+CTX_FLOOR = 65536
+_CTX_FLAG = {"vllm": "--max-model-len", "sglang": "--context-length", "llama": "-c"}
+
+
+def _floor_ctx(args: list[str], style: str) -> list[str]:
+    """Raise a sub-floor context override back to CTX_FLOOR (AEON_ALLOW_SHORT_CTX=1 opts out —
+    the pod then skips the Hermes harness honestly instead of failing it)."""
+    if os.environ.get("AEON_ALLOW_SHORT_CTX") == "1":
+        return args
+    flag = _CTX_FLAG.get(style)
+    if flag and flag in args:
+        i = args.index(flag)
+        try:
+            if i + 1 < len(args) and int(float(args[i + 1])) < CTX_FLOOR:
+                args[i + 1] = str(CTX_FLOOR)
+        except (TypeError, ValueError):
+            pass
+    return args
 
 
 def _has_rocm() -> bool:
@@ -297,7 +319,8 @@ def _find_gguf(local_dir: str) -> str | None:
 
 def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: int,
                 quant: str | None = None, image: str | None = None,
-                plat: dict | None = None, extra_flags: list[str] | None = None) -> dict:
+                plat: dict | None = None, extra_flags: list[str] | None = None,
+                drafter_dir: str | None = None) -> dict:
     """The engine-specific serve recipe. Containerized engines -> a `docker run` argv (host
     networking, weights mounted read-only at /model, fixed container name so cleanup is always
     possible). MLX -> the bare-metal command. `image` overrides the catalog image (custom
@@ -337,6 +360,8 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
 
     docker = ["docker", "run", "--rm", "--name", SERVE_CONTAINER, "--network", "host",
               *_gpu_flags(engine_id, plat), "-v", f"{_host_path(local_dir)}:/model:ro"]
+    if drafter_dir:                                      # validated spec-decode drafter -> /drafter
+        docker += ["-v", f"{_host_path(drafter_dir)}:/drafter:ro"]
     applied: list[str] = []
     if e["style"] == "vllm":
         flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
@@ -344,12 +369,14 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
         if quant:
             flags += ["--quantization", str(quant)]
         flags, applied = merge_flags(flags, extra_flags)
+        flags = _floor_ctx(flags, "vllm")
         cmd = docker + ["--entrypoint", "vllm", img, "serve", "/model"] + flags
         srv = {"flags": flags}                          # vllm-style flags: the repro card renders these
     elif e["style"] == "sglang":
         args = ["--model-path", "/model", "--served-model-name", alias,
                 "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]
         args, applied = merge_flags(args, extra_flags)
+        args = _floor_ctx(args, "sglang")
         cmd = docker + ["--ipc=host", img, "python3", "-m", "sglang.launch_server"] + args
         srv = {}
     elif e["style"] == "llama":
@@ -361,6 +388,7 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
         if plat["accel"] == "cuda":
             args += ["-ngl", "999"]
         args, applied = merge_flags(args, extra_flags)
+        args = _floor_ctx(args, "llama")
         cmd = docker + [img] + args
         srv = {}
     else:                                                # pragma: no cover — catalog is closed

@@ -1950,7 +1950,8 @@ function renderTune(e) {
       ctl = `<label class="tune-bool"><input type="checkbox" id="${id}" data-flag="${escA(f.flag)}" data-kind="bool"> on</label>`;
     } else if (f.kind === "number") {
       ctl = `<input type="number" id="${id}" data-flag="${escA(f.flag)}" data-kind="number"` +
-        (f.step ? ` step="${f.step}"` : "") + (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
+        (f.step ? ` step="${f.step}"` : "") + (f.min != null ? ` min="${f.min}" data-min="${f.min}"` : "") +
+        (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
     } else {
       ctl = `<input type="text" id="${id}" data-flag="${escA(f.flag)}" data-kind="string" spellcheck="false"` +
         (f.default != null ? ` placeholder="${escA(String(f.default))}"` : "") + `>`;
@@ -1983,11 +1984,64 @@ function collectServeFlags() {
   $$("#tuneBody [data-flag]").forEach((el) => {
     const flag = el.dataset.flag, kind = el.dataset.kind;
     if (kind === "bool") { if (el.checked) out.push(flag); return; }
-    const v = (el.value || "").trim();
+    let v = (el.value || "").trim();
+    if (v && el.dataset.min && Number(v) < Number(el.dataset.min)) {
+      v = el.dataset.min; el.value = v;      // bench floor (e.g. 64K ctx) — only higher allowed
+    }
     if (v) out.push(flag, v);
   });
+  const spec = specConfigJson();
+  if (spec) out.push("--speculative-config", spec);
   out.push(...tokenizeFlags($("#tuneExtra") ? $("#tuneExtra").value : ""));
   return out.length ? out : null;
+}
+
+// The SPEC DECODE block: preset templates target the /drafter mount (needs a drafter card);
+// custom JSON is passed through when it parses. Sets the inline drafter state line.
+function specConfigJson() {
+  const sel = $("#specSel"); if (!sel || !sel.value) return null;
+  const st = $("#drafterState");
+  if (sel.value === "custom") {
+    const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
+    if (!raw) return null;
+    try { JSON.parse(raw); } catch (e) {
+      if (st) { st.textContent = "✗ custom config is not valid JSON"; st.className = "drafter-state mono bad"; }
+      return null;
+    }
+    return raw;
+  }
+  if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
+    if (st) { st.textContent = "▸ paste the drafter HF card to arm this preset"; st.className = "drafter-state mono warn"; }
+    return null;                                     // preset references /drafter — no card, no flag
+  }
+  return sel.value;
+}
+
+let DRAFTER_VAL_ID = null;
+function validateDrafter() {
+  const link = ($("#drafterHf") && $("#drafterHf").value.trim()) || "";
+  const st = $("#drafterState"); if (!st) return;
+  if (!link) { st.textContent = ""; DRAFTER_VAL_ID = null; updateTuneCount(); return; }
+  st.textContent = "… resolving drafter card"; st.className = "drafter-state mono";
+  api("/api/pod/validate", { method: "POST", headers: podHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ hf_link: link, hf_token_name: $("#hfKey").value || null }) })
+    .then((r) => { DRAFTER_VAL_ID = r.validate_id; pollDrafter(r.validate_id); })
+    .catch(() => { st.textContent = "✗ validation call failed"; st.className = "drafter-state mono bad"; });
+}
+async function pollDrafter(vid) {
+  if (vid !== DRAFTER_VAL_ID) return;
+  let s; try { s = await api("/api/pod/validate/" + vid, { headers: podHeaders() }); } catch (e) { return; }
+  if (vid !== DRAFTER_VAL_ID) return;
+  const st = $("#drafterState"); if (!st) return;
+  if (s.state === "resolving" || s.state === "hashing") { setTimeout(() => pollDrafter(vid), 1200); return; }
+  if (s.state === "resolved" || s.state === "validated") {
+    st.textContent = `✓ drafter ${s.repo}@${(s.sha || "").slice(0, 8)} — pulls hash-verified at launch`;
+    st.className = "drafter-state mono ok";
+  } else {
+    st.textContent = `✗ ${s.error || "drafter card did not resolve"}`;
+    st.className = "drafter-state mono bad";
+  }
+  updateTuneCount();
 }
 
 function updateTuneCount() {
@@ -2243,6 +2297,7 @@ function _validatedExtras() {
     // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
     serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
+    drafter_hf: ($("#drafterHf") && $("#drafterHf").value.trim()) || null,  // validated + mounted /drafter
   };
 }
 
@@ -2351,6 +2406,10 @@ async function init() {
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override
   vIn("#hfLocal", () => { scheduleValidate(); updateMlxCmd(); });
   vIn("#tuneExtra", updateTuneCount);
+  // spec-decode block: drafter card validates like the model; presets arm --speculative-config
+  { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }
+  { const ss = $("#specSel"); if (ss) ss.onchange = () => { const cr = $("#specCustomRow"); if (cr) cr.hidden = ss.value !== "custom"; updateTuneCount(); }; }
+  vIn("#specCustom", updateTuneCount);
   bind("#lwScan", scanModels);
   bind("#lwBrowse", openBrowse);
   bind("#browseClose", closeBrowse);

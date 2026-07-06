@@ -1281,6 +1281,7 @@ class PodVerifiedRunBody(BaseModel):
     local_dir: str | None = None        # model already on disk: hash-validate, don't re-download
     serve_url: str | None = None        # operator-started serve (macOS/MLX bare-metal path)
     serve_flags: list[str] | None = None  # recipe tuning: flag overrides merged into the serve cmd
+    drafter_hf: str | None = None       # DFlash drafter HF card: validated like the model, -> /drafter
     port: int | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
@@ -1354,6 +1355,7 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         hf_token_name=(body.hf_token_name or None), engine=(body.engine or None), port=(body.port or None),
         engine_image=(body.engine_image or None), local_dir=(body.local_dir or None),
         serve_url=(body.serve_url or None), serve_flags=_clean_serve_flags(body.serve_flags),
+        drafter_hf=(body.drafter_hf or "").strip() or None,
         perf_max_conc=_clamp_conc(body.perf_max_conc), concurrency=_clamp_conc(body.concurrency))
     return {"job_id": jid}
 

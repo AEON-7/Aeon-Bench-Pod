@@ -463,7 +463,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
-                   local_dir=None, serve_url=None, engine_image=None, serve_flags=None):
+                   local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
+                   drafter_hf=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -527,8 +528,37 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     print(f"[pod] verified: weights_hash={ver['weights_hash'][:16]}… method={ver['method']} "
           f"({ver['lfs_checked']} LFS-checked / {ver['n_weight_files']} weight files)")
 
+    # Explicit DFlash drafter: the pasted HF card gets the SAME validation as the model —
+    # resolve -> pull (hub-verified) into the deterministic models home -> sha256 vs the HF
+    # manifest — then mounts at /drafter for the serve. Provenance (repo@sha + weights hash)
+    # rides in the recipe so the spec-decode setup replicates exactly.
+    ddir = drepo_id = drev = None
+    if drafter_hf:
+        drepo_id, dr = modelhost.resolve(drafter_hf)
+        print(f"[pod] drafter card -> {drepo_id}@{dr}")
+        dref = modelhost.fetch_ref(drepo_id, dr)
+        mdl_root = os.environ.get("AEON_MODELS_DIR") or os.path.expanduser("~/.aeon/models")
+        ddir = modelhost.pull(drepo_id, dref.get("revision") or dr,
+                              os.path.join(mdl_root, drepo_id.replace("/", "__")))
+        dver = modelhost.verify(ddir, dref)
+        if not dver["verified"]:
+            raise SystemExit(f"[pod] DRAFTER VERIFICATION FAILED for {drepo_id}: "
+                             f"mismatches={dver['mismatches'][:5]} — refusing unverified spec-decode weights.")
+        drev = dver["revision"]
+        print(f"[pod] drafter verified: {drepo_id}@{(drev or '?')[:12]} "
+              f"weights_hash={dver['weights_hash'][:16]}…")
+
     recipe = modelhost.derive_recipe(local_dir, ref, port=port, engine=engine, image=engine_image,
-                                     extra_flags=serve_flags)
+                                     extra_flags=serve_flags, drafter_dir=ddir)
+    if ddir:
+        if recipe.get("serve_mode") == "bare":       # no /drafter mount on a bare serve — use the real path
+            for k in ("command", "flags"):
+                seq = recipe.get(k) or []
+                for i, t in enumerate(seq):
+                    if isinstance(t, str) and "/drafter" in t:
+                        seq[i] = t.replace("/drafter", ddir)
+        recipe.update({"drafter": ddir, "drafter_repo": drepo_id, "drafter_revision": drev,
+                       "spec_decode": "dflash"})
     alias = recipe["served_alias"]
     print(f"[pod] recipe: {recipe['engine']} ({recipe.get('serve_mode', 'bare')}, "
           f"ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
@@ -549,7 +579,9 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
     # z-lab DFlash drafter auto-discovery (spec decode is LOSSLESS — speed only). Best-effort:
     # any probe/pull failure here falls back to plain decode, never blocking the serve.
-    if recipe.get("engine") in ("vllm", "aeon-vllm-ultimate"):
+    # Skipped when the operator configured spec decode explicitly (drafter card / tuning flag).
+    _explicit_spec = bool(drafter_hf) or ("--speculative-config" in (serve_flags or []))
+    if recipe.get("engine") in ("vllm", "aeon-vllm-ultimate") and not _explicit_spec:
         try:
             drepo = modelhost.discover_dflash(repo)
             if drepo:
@@ -815,6 +847,10 @@ def main():
         "engine (recipe tuning, e.g. '[\"--gpu-memory-utilization\",\"0.70\"]'); matching flags are "
         "replaced, new ones appended, bench wiring (--served-model-name/--host/--port) protected. "
         "Recorded with the run")
+    ap.add_argument("--drafter-hf", default=None, help="DFlash drafter HF card (e.g. "
+        "z-lab/<Model>-DFlash): validated exactly like the model (pull + sha256 vs the HF "
+        "manifest), placed in the models home, mounted at /drafter for --speculative-config; "
+        "repo@revision recorded with the run")
     ap.add_argument("--weights-dir", default=None, help="where to pull weights (default ~/.aeon/models/...)")
     ap.add_argument("--keep-weights", action="store_true", help="retain downloaded weights after the run")
     ap.add_argument("--no-serve", action="store_true", help="model already served at --port (skip launching the engine)")
@@ -925,7 +961,8 @@ def main():
             per_cell=a.per_cell, difficulty=a.difficulty, category=a.category, vision=not a.no_vision,
             concurrency=a.concurrency, local_dir=a.local_dir, serve_url=a.serve_url,
             engine_image=a.engine_image,
-            serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None))
+            serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None),
+            drafter_hf=a.drafter_hf)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,

@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=43" />
+  <link rel="stylesheet" href="/static/styles.css?v=44" />
 </head>
 <body>
   <header>
@@ -149,6 +149,21 @@
           <details class="tune-wrap" id="tuneWrap">
             <summary><span class="tune-t">⚙ RECIPE TUNING</span> <span class="note">startup flags — dial in the optimal recipe for this system</span><span id="tuneCount" class="tune-count" hidden></span></summary>
             <div id="tuneBody" class="tune-body"></div>
+            <div class="tune-spec" id="tuneSpec">
+              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH</span><span id="drafterState" class="drafter-state mono"></span></div>
+              <div class="row">
+                <label class="grow">Drafter HF card<input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
+                <label>Speculative config<select id="specSel">
+                  <option value="">— off —</option>
+                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":6}'>DFlash n=6 — concurrent-optimal</option>
+                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":11}'>DFlash n=11 — single-stream (gemma4)</option>
+                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":12}'>DFlash n=12 — single-stream max</option>
+                  <option value="custom">custom JSON…</option>
+                </select></label>
+              </div>
+              <div class="row" id="specCustomRow" hidden><label class="grow">Custom speculative config (JSON)<input id="specCustom" type="text" spellcheck="false" placeholder='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}' /></label></div>
+              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. The drafter is pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>.</p>
+            </div>
             <div class="row"><label class="grow">Extra flags <span class="note">(anything not listed — appended verbatim)</span><input id="tuneExtra" type="text" placeholder='e.g. --seed 7 --num-scheduler-steps 8' spellcheck="false" /></label></div>
             <p class="note tune-note">Overrides merge into the engine's serve command — a listed flag replaces the default, new flags append; the bench wiring (served alias · host · port) is protected. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>
           </details>
@@ -475,6 +490,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=43"></script>
+  <script src="/static/app.js?v=44"></script>
 </body>
 </html>

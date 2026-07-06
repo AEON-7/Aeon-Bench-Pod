@@ -146,7 +146,7 @@ def _ultimate_supports(files) -> bool:
 
 
 def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None,
-                  image=None, extra_flags=None) -> dict:
+                  image=None, extra_flags=None, drafter_dir=None) -> dict:
     """Serving recipe from the local config.json + HF card. Engine selection:
       - GGUF weights -> llama.cpp
       - **DGX Spark + aeon-vllm-ultimate available + supported -> aeon-vllm-ultimate (DEFAULT)**
@@ -192,7 +192,8 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     plat = engmod.host_platform()
     if engine in engmod.ENGINES and (engine != "aeon-vllm-ultimate" or not aeon_vllm_ultimate_launcher()):
         srv = engmod.build_serve(engine, local_dir=local_dir, alias=alias, port=port, ctx=ctx,
-                                 quant=quant, image=image, plat=plat, extra_flags=extra_flags)
+                                 quant=quant, image=image, plat=plat, extra_flags=extra_flags,
+                                 drafter_dir=drafter_dir)
         if srv["engine"] == "mlx":
             base["served_alias"] = os.path.abspath(local_dir)
         return {**base, **srv}
@@ -222,7 +223,7 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
         return {**base, **engmod.build_serve(engmod.recommended_engine(plat),
                                              local_dir=local_dir, alias=alias, port=port,
                                              ctx=ctx, quant=quant, image=image, plat=plat,
-                                             extra_flags=extra_flags)}
+                                             extra_flags=extra_flags, drafter_dir=drafter_dir)}
     launcher, eng = (ult or "aeon-vllm-ultimate", "aeon-vllm-ultimate") if use_ultimate else ("vllm", "vllm")
     flags = ["--served-model-name", alias,
              "--host", "0.0.0.0", "--port", str(port), "--max-model-len", str(ctx)]

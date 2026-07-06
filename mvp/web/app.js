@@ -1356,9 +1356,20 @@ function _pcell(m, conc, cat) {
 // categories are never mixed into one pool, so no "overall" line pretends they ran together.
 function _perfStreams(m) {
   const concs = (m.conc_levels || []).filter((c) => m.direct[c]);
-  const ov = (c) => ((m.direct[c] || {}).overall) || {};
-  const per = concs.map((c) => ov(c).decode_tps);
-  const agg = concs.map((c) => ov(c).agg_decode_tps);
+  // Each rung plots its FASTEST isolated category cohort — one real measured pool (e.g.
+  // coding @ c64 = 64 live coding streams, wall-clock total incl. real prefill) — never the
+  // cross-category mean, which understates the demonstrated total. Per-stream is the SAME
+  // cohort's total ÷ streams, so the two lines multiply exactly at every rung.
+  const best = concs.map((c) => {
+    let b = null;
+    for (const [cat, cell] of Object.entries(m.direct[c] || {})) {
+      if (cat === "overall" || !cell || cell.agg_decode_tps == null) continue;
+      if (!b || cell.agg_decode_tps > b.agg) b = { cat, agg: cell.agg_decode_tps };
+    }
+    return b;
+  });
+  const agg = best.map((b) => (b ? b.agg : null));
+  const per = best.map((b, i) => (b ? b.agg / concs[i] : null));
   if (!concs.length || !agg.some((v) => v != null)) return `<p class="note" style="text-align:left">no direct grid in this run</p>`;
   const W = 900, H = 300, PL = 60, PB = 34, PT = 16, PR = 120;
   const xs = (i) => PL + (W - PL - PR) * (concs.length === 1 ? 0.5 : i / (concs.length - 1));
@@ -1372,7 +1383,7 @@ function _perfStreams(m) {
     const path = pts.map((v, i) => v == null ? null : `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).filter(Boolean).join(" ");
     if (!path) return "";
     const dots = pts.map((v, i) => v == null ? "" :
-      `<circle cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="3.2" fill="${color}"><title>${tip(concs[i], v)}</title></circle>`).join("");
+      `<circle cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="3.2" fill="${color}"><title>${tip(concs[i], v, i)}</title></circle>`).join("");
     let li = pts.length - 1; while (li >= 0 && pts[li] == null) li--;
     const end = li < 0 ? "" : `<text class="pend" x="${(xs(li) + 10).toFixed(1)}" y="${(ys(pts[li]) + 4).toFixed(1)}" fill="${color}">${label} ${_pfv(pts[li])}</text>`;
     return `<polyline points="${path}" fill="none" stroke="${color}" stroke-width="${width}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>` + dots + end;
@@ -1393,11 +1404,15 @@ function _perfStreams(m) {
       `fill="url(#aggFill)"/>` : "";
   const lines =
     `<g filter="url(#lineGlow)">` +
-    draw(agg, "#00f0ff", 3, null, "concurrent", (c, v) => `concurrent total at c${c}: the ${c} live streams together decode ${_pfv(v)} tok/s (mean of the five category cohorts)`) +
+    draw(agg, "#00f0ff", 3, null, "concurrent", (c, v, i) =>
+      `${(best[i] || {}).cat || ""} cohort at c${c}: ${c} live streams sustained ${_pfv(v)} tok/s TOGETHER ` +
+      `(end-to-end wall clock, real cache-busted prefill — the fastest category cohort at this rung)`) +
     `</g>` +
-    draw(per, "#7fd8ff", 2, "6 5", "per stream", (c, v) => `per stream at c${c}: each of the ${c} live streams decodes ~${_pfv(v)} tok/s`);
-  const legend = `<span class="perf-lg"><i style="background:#00f0ff"></i>concurrent total tok/s — all live streams together</span>` +
-    `<span class="perf-lg"><i class="perf-lg-dash" style="background:#7fd8ff"></i>per-stream tok/s — what each stream gets</span>`;
+    draw(per, "#7fd8ff", 2, "6 5", "per stream", (c, v, i) =>
+      `per-stream share at c${c}: total ÷ ${c} = ${_pfv(v)} tok/s each, end-to-end ` +
+      `(decode-phase speed per stream lives on the tok/s-per-stream tab)`);
+  const legend = `<span class="perf-lg"><i style="background:#00f0ff"></i>concurrent total tok/s — fastest category cohort per rung</span>` +
+    `<span class="perf-lg"><i class="perf-lg-dash" style="background:#7fd8ff"></i>per-stream share — total ÷ streams (the lines multiply)</span>`;
   return `<div class="perf-legend">${legend}</div>` +
     `<svg viewBox="0 0 ${W} ${H}" class="perf-svg perf-svg-hero" role="img" aria-label="single-stream vs concurrent tok/s">${defs}${gy}${gx}${area}${lines}</svg>`;
 }
@@ -1607,7 +1622,7 @@ function renderPerfDetail(m) {
      </div>
      ${_perfRecipe(m)}
      <div class="perf-card perf-hero-card"><h3 class="perf-h3">single stream vs concurrent
-         <span class="micro">tok/s per rung — what each live stream gets vs all live streams together · each point = the MEAN of the five isolated category cohorts (categories never mix in one pool)</span></h3>
+         <span class="micro">tok/s per rung — each point is the FASTEST isolated category cohort at that concurrency (a real measured pool; categories never mix) · per-stream = total ÷ streams, so the lines multiply exactly</span></h3>
        ${_perfStreams(m)}</div>
      <div class="perf-mets">${mets}<span class="perf-better">${better === "lower" ? "▼ lower is better" : "▲ higher is better"}</span></div>
      <div class="perf-grid2">

@@ -244,8 +244,10 @@ def _share_info(key: str):
         return None
     lb = scoring.leaderboard()
     row = rank = None
-    for i, m in enumerate(lb.get("models") or []):
-        if (m.get("canonical") or m.get("model") or "").replace("/", "__") == key:
+    kl = key.lower()                       # canonical ids are lowercased; display names aren't —
+    for i, m in enumerate(lb.get("models") or []):     # accept either casing in a shared link
+        if any((v or "").replace("/", "__").lower() == kl
+               for v in (m.get("canonical"), m.get("model"))):
             row, rank = m, i + 1
             break
     if not row:

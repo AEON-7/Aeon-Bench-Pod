@@ -264,6 +264,12 @@ def _share_info(key: str):
                 break
     except Exception:
         pass
+    # PEAK CONCURRENT = the best recorded aggregate for this model — the perf grid's peak OR
+    # the quality run's aggregate under its test load (a stale/low perf entry, e.g. a
+    # single-stream-tuned recipe, must not undersell a fresher concurrent number).
+    row_agg = row.get("agg_tps")
+    if row_agg and (not peak or row_agg > peak):
+        peak = row_agg
     model = row.get("model") or row.get("canonical") or ""
     org, _, name = model.rpartition("/")
     avatar = None

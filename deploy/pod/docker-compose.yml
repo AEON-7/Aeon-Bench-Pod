@@ -1,26 +1,28 @@
 # AEON Bench — POD appliance (the controlled A→B benchmark you run on YOUR GPU host).
 #
-# This brings up the whole local stack a user spins up to benchmark a model on their own
-# hardware and submit results to a mothership. The flow (see AGENTS.md for detail):
+# TWO WAYS TO USE THIS FILE:
 #
-#   model-under-test   pull → hash-verify HF weights → serve on a fixed alias (vLLM /
-#                      aeon-vllm-ultimate on a DGX Spark)          [the "B" — the served model]
-#   aeon-pod           benchmark the served alias through each harness, then submit the
-#                      ed25519-signed results bundle to the mothership  [the "A" — control plane]
-#   harness images     the 3 vanilla agent harnesses (Hermes/OpenClaw/OpenCode) the agentic
-#                      suite is driven THROUGH — these are NOT long-running services. The pod is
-#                      the control plane: for each agentic task it spawns a FRESH one-shot
-#                      `docker run --rm` harness container (via the mounted Docker socket), copies
-#                      the outputs back, and tears it down — so agent state can never leak between
-#                      tasks. This compose only *builds* the three images (harness-build) with the
-#                      EXACT names the adapters run (`aeon-harness-{hermes,openclaw,opencode}` —
-#                      see mvp/pod/adapters/*.py); the pod launches them itself.
+#   1. INFRASTRUCTURE UP (default — no model needed):
+#        docker compose -f deploy/pod/docker-compose.yml up -d --build
+#      Brings up the POD DASHBOARD on http://localhost:8091 and builds the three agentic-harness
+#      images. Benchmarks are then launched FROM THE GUI (Run tab: validate a model by hash, pick
+#      an engine container, tune the recipe, launch) or via the pod API. This is the intended
+#      day-to-day mode. (No clone at all? The prebuilt image one-liner in README.md does the same.)
 #
-# Quickstart:  cp .env.example .env  &&  edit .env  &&  docker compose up --build
-# See docs/run-a-benchmark.md and docs/pod-quickstart.md.
+#   2. HEADLESS ONE-SHOT PIPELINE (optional, explicit):
+#        AEON_HF_LINK=org/Your-Model docker compose --profile pipeline -f deploy/pod/docker-compose.yml up --build
+#      The classic A→B batch flow: pull → hash-verify → serve → bench → submit, then exit.
+#      Only THIS profile requires AEON_HF_LINK.
 #
-# Build context is the repo root (`../..`) so the pod image can COPY mvp/. Run from this dir:
-#   docker compose -f deploy/pod/docker-compose.yml up --build   (or `cd deploy/pod && docker compose up`)
+# The moving parts (see AGENTS.md for detail):
+#   pod-dashboard      the GUI + API + control plane  [default]
+#   harness-build-*    build the 3 vanilla agent harnesses (Hermes/OpenClaw/OpenCode) the agentic
+#                      suite is driven THROUGH — NOT long-running services: the pod spawns a FRESH
+#                      one-shot `docker run --rm` harness container per task via the mounted
+#                      Docker socket (exact image names the adapters run)  [default]
+#   pull / model-under-test / aeon-pod   the headless batch pipeline  [--profile pipeline]
+#
+# Build context is the repo root (`../..`) so the pod image can COPY mvp/.
 
 name: aeon-pod
 
@@ -40,11 +42,11 @@ services:
   # The weights are pulled+verified by the `pull` step (below) into the shared volume; vLLM then
   # serves them from disk. AEON_HF_LINK selects the model.
   model-under-test:
-    # TODO verify the exact image tag you want to pin. vllm/vllm-openai:latest is the upstream
-    #   OpenAI-compatible server image; pin a concrete tag (e.g. vllm/vllm-openai:v0.6.3) for
-    #   reproducibility. On a DGX Spark (GB10/arm64) use the aeon-vllm-ultimate image instead
-    #   (see the commented block below) — that is the pod's DGX-Spark default engine.
-    image: ${AEON_VLLM_IMAGE:-vllm/vllm-openai:latest}   # TODO verify / pin a concrete tag
+    profiles: ["pipeline"]               # headless one-shot only — GUI runs serve their own engine
+    # vllm/vllm-openai:latest is the upstream OpenAI-compatible server image; pin a concrete tag
+    # for strict reproducibility. On a DGX Spark (GB10/arm64) use the aeon-vllm-ultimate image
+    # instead (see the commented block below) — that is the pod's DGX-Spark default engine.
+    image: ${AEON_VLLM_IMAGE:-vllm/vllm-openai:latest}
     depends_on:
       pull:
         condition: service_completed_successfully
@@ -99,6 +101,7 @@ services:
   # content-addressed weights_hash and compare to HF's published LFS sha256 (the SIGNATURE that the
   # bytes on disk ARE exactly repo@sha). Lands the verified snapshot in the shared `weights` volume.
   pull:
+    profiles: ["pipeline"]               # headless one-shot only
     build:
       context: ../..                     # repo root (Dockerfile COPYs mvp/)
       dockerfile: deploy/pod/Dockerfile
@@ -109,7 +112,11 @@ services:
         import os, json, sys
         sys.path.insert(0, "/app/mvp")
         from pod import modelhost as mh
-        link = os.environ["AEON_HF_LINK"]
+        link = os.environ.get("AEON_HF_LINK") or ""
+        if not link:
+            print("[pull] AEON_HF_LINK is required for the pipeline profile: "
+                  "AEON_HF_LINK=org/Your-Model docker compose --profile pipeline up", file=sys.stderr)
+            sys.exit(2)
         repo, rev = mh.resolve(link)
         print(f"[pull] {repo}@{rev}", flush=True)
         ref = mh.fetch_ref(repo, rev)
@@ -123,7 +130,7 @@ services:
                    "recipe": mh.derive_recipe("/weights", ref, engine=os.environ.get("AEON_ENGINE") or None)},
                   open("/weights/.aeon-modelref.json", "w"))
     environment:
-      AEON_HF_LINK: ${AEON_HF_LINK:?set AEON_HF_LINK in .env (HF repo id or URL)}
+      AEON_HF_LINK: ${AEON_HF_LINK:-}   # required for THIS profile; the pull step errors clearly if empty
       AEON_SYSTEM: ${AEON_SYSTEM:-}      # set to dgx-spark to force the aeon-vllm-ultimate recipe
       AEON_ENGINE: ${AEON_ENGINE:-}      # pin engine: vllm | aeon-vllm-ultimate | llama.cpp
       HF_HOME: /hf-cache
@@ -177,6 +184,7 @@ services:
   # network so it (and the host-net harness containers it spawns) reach the model on 127.0.0.1.
   # The flags map 1:1 to aeon_pod.py. The device key + local pod.db persist in `pod-state` (~/.aeon).
   aeon-pod:
+    profiles: ["pipeline"]               # headless one-shot only
     image: aeon-pod:latest
     build:
       context: ../..
@@ -210,7 +218,7 @@ services:
           $${AEON_LIMIT:+--limit "$${AEON_LIMIT}"}
     environment:
       AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:-https://aeon-bench.com}   # prod default; override in .env only to test elsewhere
-      AEON_HF_LINK:    ${AEON_HF_LINK:?the ONE required input — the HF model to benchmark (org/Model or a URL)}
+      AEON_HF_LINK:    ${AEON_HF_LINK:-}  # the pipeline's one required input (org/Model or a URL)
       AEON_TARGET_PORT: ${AEON_TARGET_PORT:-8000}
       AEON_ENGINE:     ${AEON_ENGINE:-}          # vllm | aeon-vllm-ultimate (DGX default) | llama.cpp
       AEON_HARDWARE:   ${AEON_HARDWARE:-}        # label, e.g. "NVIDIA DGX Spark GB10 128GB"
@@ -234,33 +242,36 @@ services:
       #   - ./suites:/app/mvp/suites:ro
     restart: "no"
 
-  # ── Your LOCAL lab dashboard ("your lab") ───────────────────────────────────────────────────
-  # The SAME app in POD role (AEON_ROLE=pod), reading the local pod.db the control plane writes:
-  # your runs over time + the LIVE view (per-category progress + the prompt/answer feed) as the
-  # pod benchmarks. Local only — nothing here is public. The mothership shows a run only once you
-  # submit a verified one and it's accepted. Open http://localhost:8080.
+  # ── The POD DASHBOARD (default service — this IS the pod) ──────────────────────────────────
+  # GUI + API + control plane on http://localhost:8091. Benchmarks are launched from its Run tab
+  # (or the pod API): validate a model by hash (paste an HF link / scan disk / browse), pick the
+  # engine container, tune the recipe, launch — the dashboard spawns the engine + per-task
+  # harness containers as SIBLINGS through the mounted Docker socket. Local only — nothing here
+  # is public; the mothership shows a run only once an attested submission is accepted.
   pod-dashboard:
     image: aeon-pod:latest
     build:
       context: ../..
       dockerfile: deploy/pod/Dockerfile
-    entrypoint: ["python", "serve.py"]
-    working_dir: /app/mvp
     environment:
-      AEON_ROLE: pod                     # local lab: Live view + your own runs
-      AEON_DB: /root/.aeon/pod.db        # the SAME SQLite the aeon-pod control plane writes (WAL: safe concurrent read)
-      AEON_PORT: "8080"
-      # Submissions from console-launched runs go to prod by default; override in .env to test elsewhere.
+      AEON_ROLE: pod                     # your lab: Run tab + Live view + your own runs
+      AEON_DB: /root/.aeon/pod.db        # SAME SQLite the pipeline profile writes (WAL-safe)
+      AEON_PORT: "8091"
+      # Submissions go to prod by default; override in .env only to test elsewhere.
       AEON_MOTHERSHIP: ${AEON_MOTHERSHIP:-https://aeon-bench.com}
-      # Harness image names so a run launched from the dashboard's Run tab can spawn the harnesses.
+      # Validated weights live here; sibling engine containers need the HOST path for -v mounts.
+      AEON_MODELS_DIR: /models
+      AEON_MODELS_HOST_DIR: ${AEON_MODELS_HOST:-${HOME}/aeon-models}
+      # Harness image names the Run tab's launches spawn (built by harness-build-* below).
       AEON_HERMES_IMAGE:   aeon-harness-hermes
       AEON_OPENCLAW_IMAGE: aeon-harness-openclaw
       AEON_OPENCODE_IMAGE: aeon-harness-opencode
     volumes:
-      - pod-state:/root/.aeon            # shares the device key + pod.db with aeon-pod
-      - /var/run/docker.sock:/var/run/docker.sock   # spawn per-task harness containers for console runs
+      - pod-state:/root/.aeon            # device key + pod.db (persists across updates)
+      - /var/run/docker.sock:/var/run/docker.sock   # spawn engine + per-task harness containers
+      - ${AEON_MODELS_HOST:-${HOME}/aeon-models}:/models   # validated weights (host-visible)
     ports:
-      - "${AEON_DASH_PORT:-8080}:8080"   # your lab dashboard
+      - "${AEON_DASH_PORT:-8091}:8091"   # the pod dashboard
     restart: unless-stopped
 
 volumes:

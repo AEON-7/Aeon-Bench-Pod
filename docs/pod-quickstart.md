@@ -62,13 +62,15 @@ docker logs -f aeon-pod       # follow the dashboard + job logs live
 An interrupted benchmark doesn't lose what it already submitted (results stream to the
 mothership in checkpoints); relaunch from the Run tab — validated local weights are reused.
 
-## Full pipeline via compose (build from source)
+## Docker compose (build from source)
 
-The one-shot A→B pipeline (pull → verify → serve → bench → submit) as a compose stack:
+Default = **infrastructure up** (dashboard :8091 + harness images, no model needed — bench from
+the GUI/API); the classic one-shot A→B pipeline lives behind an explicit profile:
 
 ```bash
 git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod
-AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
+docker compose -f deploy/pod/docker-compose.yml up -d --build                       # infrastructure
+AEON_HF_LINK=org/Your-Model  docker compose --profile pipeline -f deploy/pod/docker-compose.yml up --build   # one-shot
 ```
 
 ## Overriding defaults

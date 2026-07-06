@@ -57,14 +57,14 @@ Everything happens from the **Run tab**:
 - Launch → hash-validate → serve → benchmark (fresh agentic-harness container per task:
   Hermes / OpenClaw / OpenCode) → **ed25519-sign → submit attested**.
 
-## Alternative — full pipeline via Compose (build from source)
+## Alternative — docker compose (build from source)
 
 ```bash
-cp deploy/pod/.env.example .env      # then edit .env
-#   AEON_HF_LINK=org/Your-Model            # the model to benchmark
-#   AEON_MOTHERSHIP=https://aeon-bench.com # where to submit (default already points here)
-#   HF_TOKEN=hf_…                          # only for gated/private repos
-docker compose -f deploy/pod/docker-compose.yml up --build
+# infrastructure up (no model needed): dashboard :8091 + harness images; bench from the GUI/API
+docker compose -f deploy/pod/docker-compose.yml up -d --build
+
+# OR the headless one-shot pipeline (the only mode that needs a model):
+AEON_HF_LINK=org/Your-Model  docker compose --profile pipeline -f deploy/pod/docker-compose.yml up --build
 ```
 
 The `pull` step resolves the HF link, downloads + **hash-verifies** the weights; the engine

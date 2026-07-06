@@ -92,12 +92,17 @@ interrupted by a stop doesn't lose what it already submitted (results stream to 
 in checkpoints); relaunch it from the Run tab — validated local weights are reused, no
 re-download.
 
-<details><summary>Alternative: full pipeline via compose (build from source)</summary>
+<details><summary>Alternative: docker compose (build from source)</summary>
 
 ```bash
 git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod
-AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
-# pull → hash-verify → serve → bench (incl. Hermes/OpenClaw/OpenCode) → submit to aeon-bench.com
+
+# infrastructure up (no model needed): dashboard on :8091 + harness images —
+# then run benchmarks from the GUI / API
+docker compose -f deploy/pod/docker-compose.yml up -d --build
+
+# OR the headless one-shot pipeline (pull → verify → serve → bench → submit, then exit):
+AEON_HF_LINK=org/Your-Model  docker compose --profile pipeline -f deploy/pod/docker-compose.yml up --build
 ```
 (Copy `deploy/pod/.env.example` to `.env` only to override a default or add an `HF_TOKEN`.)
 </details>

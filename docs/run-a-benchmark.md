@@ -89,11 +89,15 @@ Useful optional vars (full list documented in `deploy/pod/.env.example`):
 Pass the model inline — no `.env` needed:
 
 ```bash
-AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
+# infrastructure only (no model — then bench from the GUI/API):
+docker compose -f deploy/pod/docker-compose.yml up -d --build
+
+# OR the headless one-shot pipeline:
+AEON_HF_LINK=org/Your-Model  docker compose --profile pipeline -f deploy/pod/docker-compose.yml up --build
 ```
 
-(If you created a `deploy/pod/.env`, just `docker compose -f deploy/pod/docker-compose.yml up --build`.)
-Watch it live at **http://localhost:8080**.
+(If you created a `deploy/pod/.env`, the inline var is optional.)
+Watch it live at **http://localhost:8091**.
 
 What happens (the controlled A→B flow — see [`deploy/pod/AGENTS.md`](../deploy/pod/AGENTS.md)):
 

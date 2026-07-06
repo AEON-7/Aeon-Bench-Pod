@@ -92,6 +92,7 @@ the signed bundle. First `up` builds the three harness images; later runs reuse 
 | `HF_TOKEN` | gated/private HF repos |
 | `AEON_MAX_TOKENS` | generation cap (reasoning models need headroom; default 2048) |
 | `AEON_LIMIT` | first-N cases only (quick smoke) |
+| `AEON_PAUSE_CONTAINERS` | comma list of containers the pod docker-stops during a bench serve and ALWAYS restarts after (e.g. `aeon-vllm` on a DGX that runs a production serve on :8000 — frees the port AND the unified memory) |
 
 ## State that persists (don't delete)
 

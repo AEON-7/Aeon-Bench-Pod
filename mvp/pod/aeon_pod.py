@@ -32,6 +32,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
@@ -695,10 +696,24 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                 paused.append(name)
                 print(f"[pod] paused container '{name}' for the bench window (auto-restored after)")
         import socket
-        s = socket.socket()
-        s.settimeout(2)
-        busy = s.connect_ex(("127.0.0.1", int(port))) == 0
-        s.close()
+
+        def _port_busy():
+            s = socket.socket()
+            s.settimeout(2)
+            try:
+                return s.connect_ex(("127.0.0.1", int(port))) == 0
+            finally:
+                s.close()
+
+        # A gracefully-stopping server (vLLM after `docker stop`) can hold the port for several
+        # seconds AFTER the stop returns — poll for release instead of refusing on the instant
+        # probe. Generous window when we just paused something (its shutdown is in flight);
+        # short grace otherwise.
+        deadline = time.time() + (60 if paused else 8)
+        busy = _port_busy()
+        while busy and time.time() < deadline:
+            time.sleep(2)
+            busy = _port_busy()
         if busy:
             raise SystemExit(f"[pod] port {port} is already serving — refusing to bench whatever "
                              f"lives there. Free it, or set AEON_PAUSE_CONTAINERS=<container> on "

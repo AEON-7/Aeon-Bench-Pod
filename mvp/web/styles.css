@@ -1620,6 +1620,19 @@ select:focus {
 .pod-cta-sub { font-weight: 400; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .pod-modal-card { width: min(760px, 94vw); max-height: 86vh; overflow-y: auto; }
 .pod-modal-card h3 { display: flex; align-items: baseline; gap: 10px; color: var(--accent); }
+/* modal action row: chamfered machined buttons — never bare browser links */
+.pod-modal-card .runcta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 16px 0 2px; }
+.pod-modal-card .runcta a {
+  display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+  padding: 9px 16px; font-size: 12px; font-weight: 600; letter-spacing: .05em;
+  color: var(--muted); border: 1px solid var(--border-strong); background: rgba(255, 255, 255, .02);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.pod-modal-card .runcta a:hover { color: var(--accent); border-color: var(--accent); background: rgba(0, 240, 255, .06); }
+.pod-modal-card .runcta a:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.pod-modal-card .runcta a.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.pod-modal-card .runcta a.primary:hover { filter: brightness(1.12); color: var(--accent-ink); }
 .podq { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--border);
   border-left: 2px solid var(--accent); background: rgba(255, 255, 255, .015);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }

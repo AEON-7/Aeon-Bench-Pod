@@ -261,6 +261,7 @@ function renderBoard() {
             : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`}
           ${vram}
           <a class="get-model-btn" data-meta-card="${escA(m.model)}" target="_blank" rel="noopener noreferrer" hidden>Get&nbsp;Model</a>
+          <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
         </div>
         <div class="mcard-caps">${caps}</div>
       </div>
@@ -276,6 +277,7 @@ function renderBoard() {
     renderChart();
   });
   $$("#board .mlink").forEach((a) => a.onclick = () => openSubmissionsFor(a.dataset.model));
+  $$("#board .share-btn").forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
   // instrument boot: composite counts up in sync with the gauge-ring sweep — first load only
   if ($("#board").classList.contains("fresh")) {
     $$("#board .mcard .composite").forEach((el, i) => { if (models[i]) countUp(el, models[i].comp); });
@@ -1363,13 +1365,29 @@ function _perfStreams(m) {
     const end = li < 0 ? "" : `<text class="pend" x="${(xs(li) + 10).toFixed(1)}" y="${(ys(pts[li]) + 4).toFixed(1)}" fill="${color}">${label} ${_pfv(pts[li])}</text>`;
     return `<polyline points="${path}" fill="none" stroke="${color}" stroke-width="${width}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>` + dots + end;
   };
+  // the calibrated-instrument treatment: soft signal glow on the lines, a cyan energy field
+  // under the concurrent curve (SVG ids are unique — this chart renders once per view)
+  const defs = `<defs>
+    <linearGradient id="aggFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#00f0ff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#00f0ff" stop-opacity="0"/></linearGradient>
+    <filter id="lineGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  const aggPts = agg.map((v, i) => v == null ? null : [xs(i), ys(v)]).filter(Boolean);
+  const area = aggPts.length > 1
+    ? `<polygon points="${aggPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ")} ` +
+      `${aggPts[aggPts.length - 1][0].toFixed(1)},${(H - PB).toFixed(1)} ${aggPts[0][0].toFixed(1)},${(H - PB).toFixed(1)}" ` +
+      `fill="url(#aggFill)"/>` : "";
   const lines =
+    `<g filter="url(#lineGlow)">` +
     draw(agg, "#00f0ff", 3, null, "concurrent", (c, v) => `concurrent total at c${c}: the ${c} live streams together decode ${_pfv(v)} tok/s (mean of the five category cohorts)`) +
+    `</g>` +
     draw(per, "#7fd8ff", 2, "6 5", "per stream", (c, v) => `per stream at c${c}: each of the ${c} live streams decodes ~${_pfv(v)} tok/s`);
   const legend = `<span class="perf-lg"><i style="background:#00f0ff"></i>concurrent total tok/s — all live streams together</span>` +
     `<span class="perf-lg"><i class="perf-lg-dash" style="background:#7fd8ff"></i>per-stream tok/s — what each stream gets</span>`;
   return `<div class="perf-legend">${legend}</div>` +
-    `<svg viewBox="0 0 ${W} ${H}" class="perf-svg" role="img" aria-label="single-stream vs concurrent aggregate tok/s">${gy}${gx}${lines}</svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" class="perf-svg perf-svg-hero" role="img" aria-label="single-stream vs concurrent tok/s">${defs}${gy}${gx}${area}${lines}</svg>`;
 }
 
 function _perfCurves(m, metric) {
@@ -1573,6 +1591,7 @@ function renderPerfDetail(m) {
        ${_perfTrust(m.trust_tier)}
        ${m.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(m.hardware)}</span>` : ""}
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
+       <button class="share-btn" id="perfShare" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
      </div>
      ${_perfRecipe(m)}
      <div class="perf-card perf-hero-card"><h3 class="perf-h3">single stream vs concurrent
@@ -1586,6 +1605,7 @@ function renderPerfDetail(m) {
      ${_perfHarness(m)}
      <p class="note" style="text-align:left">ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")} · benched ${fmtDate(m.started_at)}</p>`;
   $("#perfBack").onclick = () => { PERF_SEL.model = null; renderPerf(); };
+  { const sb = $("#perfShare"); if (sb) sb.onclick = () => shareBench(sb.dataset.share, sb); }
   $$("#perfBody .chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
   const prc = $("#perfReproCopy");
   if (prc) prc.onclick = async () => {
@@ -2003,6 +2023,19 @@ function closeBrowse() { $("#browseModal").hidden = true; }
 // "Run a Bench Pod" quickstart modal (mothership header CTA + the elig-bar link)
 function openPodModal() { const m = $("#podModal"); if (m) m.hidden = false; }
 function closePodModal() { const m = $("#podModal"); if (m) m.hidden = true; }
+
+// Share a benchmark: copy its /share/<model> link — the server renders a 1200×630 social card
+// (rank · composite · peak concurrent tok/s · owner avatar) wherever the link is posted.
+async function shareBench(model, btn) {
+  const url = location.origin.replace(/^http:\/\/(127|localhost)[^/]*/, "https://aeon-bench.com")
+    + "/share/" + encodeURIComponent((model || "").replace(/\//g, "__"));
+  try { await navigator.clipboard.writeText(url); } catch (e) { return; }
+  if (btn) {
+    const t = btn.textContent;
+    btn.textContent = "✓ link copied"; btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = t; btn.classList.remove("copied"); }, 1500);
+  }
+}
 
 // ---- model validation (the green light): debounce -> POST /validate -> poll to a verdict ----
 

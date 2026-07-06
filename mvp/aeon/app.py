@@ -15,7 +15,7 @@ import uuid
 import zipfile
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -231,6 +231,94 @@ def live(board: str = "text"):
                     "trust_tier": run.get("trust_tier"), "started_at": run.get("started_at"),
                     "categories": cats, "recent": recent})
     return {"running": out}
+
+
+# ---- SHARE: server-rendered OG cards (scrapers read meta tags + fetch a PNG; no JS runs) ------
+
+_SHARE_KEY_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
+def _share_info(key: str):
+    """Card payload for a share key (canonical id with '/'->'__'). None when unknown."""
+    if len(key) > 140 or any(ch not in _SHARE_KEY_OK for ch in key):
+        return None
+    lb = scoring.leaderboard()
+    row = rank = None
+    for i, m in enumerate(lb.get("models") or []):
+        if (m.get("canonical") or m.get("model") or "").replace("/", "__") == key:
+            row, rank = m, i + 1
+            break
+    if not row:
+        return None
+    peak = hw = None
+    try:
+        for pm in scoring.perf_board().get("models", []):
+            if pm.get("canonical") == row.get("canonical"):
+                peak, hw = pm.get("peak_agg_tps"), pm.get("hardware")
+                break
+    except Exception:
+        pass
+    model = row.get("model") or row.get("canonical") or ""
+    org, _, name = model.rpartition("/")
+    avatar = None
+    try:
+        avatar = (modelmeta.resolve(model) or {}).get("avatar")
+    except Exception:
+        pass
+    return {"model": model, "org": org, "name": name or model, "rank": rank,
+            "composite": row.get("composite"), "peak_tps": peak,
+            "trust": "attested" if row.get("record_eligible") else "local",
+            "hardware": hw, "suite": f"{lb.get('suite_shown') or ''} · rank {rank}",
+            "avatar_url": avatar}
+
+
+@app.get("/api/share/card/{key}.png")
+def share_card(key: str):
+    """The 1200×630 social card PNG for one benchmark (cached; never 500s)."""
+    from . import sharecard
+    try:
+        info = _share_info(key)
+        png = sharecard.cached("m:" + key, (lambda: sharecard.render_model_card(info)) if info
+                               else (lambda: sharecard.render_fallback_card()))
+    except Exception:
+        from . import sharecard as sc
+        png = sc.render_fallback_card()
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=900"})
+
+
+@app.get("/share/{key}", response_class=HTMLResponse)
+def share_page(key: str):
+    """Scraper-facing share page: OG/Twitter meta + instant hop into the app. The IMAGE carries
+    the design; these tags carry the words."""
+    info = _share_info(key)
+    base = (os.environ.get("AEON_PUBLIC_URL") or "https://aeon-bench.com").rstrip("/")
+    if info:
+        bits = []
+        if info.get("composite") is not None:
+            bits.append(f"composite {info['composite']:.1f}")
+        if info.get("peak_tps"):
+            bits.append(f"peak {info['peak_tps']:.0f} tok/s concurrent")
+        if info.get("trust") == "attested":
+            bits.append("attested")
+        title = f"{info['name']} — rank {info['rank']:02d} on AEON Bench"
+        desc = " · ".join(bits) or "open, attested local-LLM benchmarks"
+    else:
+        title, desc = "AEON Bench", "Open, attested benchmarks for local LLMs — run a pod on your own hardware."
+    img = f"{base}/api/share/card/{key}.png"
+    e = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>{e(title)}</title>
+<meta property="og:type" content="website"><meta property="og:site_name" content="AEON Bench">
+<meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(desc)}">
+<meta property="og:url" content="{base}/share/{e(key)}"><meta property="og:image" content="{img}">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{e(title)}">
+<meta name="twitter:description" content="{e(desc)}"><meta name="twitter:image" content="{img}">
+<meta name="theme-color" content="#00f0ff">
+<meta http-equiv="refresh" content="0;url=/"></head>
+<body style="background:#07070d;color:#e3e3ee;font-family:monospace">
+<p>▲ AEON//BENCH — <a style="color:#00f0ff" href="/">continue to the board</a></p></body></html>"""
 
 
 @app.get("/api/model/meta")

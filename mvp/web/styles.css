@@ -1604,6 +1604,33 @@ select:focus {
 .browse-ic { flex: 0 0 16px; text-align: center; color: var(--faint); }
 .browse-sz { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* ---- RUN A BENCH POD (mothership main-page CTA): chamfered button -> quickstart paths ---- */
+.pod-cta > summary { list-style: none; }
+.pod-cta > summary::-webkit-details-marker { display: none; }
+.pod-cta-btn {
+  display: inline-flex; align-items: baseline; gap: 12px; cursor: pointer;
+  padding: 12px 22px; font-weight: 700; font-size: 15px; letter-spacing: .04em;
+  color: var(--accent); border: 1px solid var(--accent); background: rgba(0, 240, 255, .05);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
+}
+.pod-cta-btn:hover { background: rgba(0, 240, 255, .11); box-shadow: inset 0 0 24px rgba(0, 240, 255, .08); }
+.pod-cta-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.pod-cta[open] .pod-cta-btn { background: var(--accent); color: var(--accent-ink); }
+.pod-cta[open] .pod-cta-btn .pod-cta-sub { color: var(--accent-ink); opacity: .75; }
+.pod-cta-mark { font-size: 12px; }
+.pod-cta-sub { font-weight: 400; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.podq { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--border);
+  border-left: 2px solid var(--accent); background: rgba(255, 255, 255, .015);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.podq-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.podq .repro-cmd { margin: 0; }
+
+/* perf: single-stream vs aggregate hero + dashed legend swatch + endpoint labels */
+.perf-hero-card { margin: 12px 0 16px; }
+.pend { font-size: 11px; font-weight: 700; font-family: var(--mono, monospace); }
+.perf-lg-dash { background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px) !important; }
+
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

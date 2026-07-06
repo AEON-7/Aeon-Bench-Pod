@@ -1338,10 +1338,47 @@ function _pcell(m, conc, cat) {
   return (m.direct[conc] || {})[cat === "overall" ? "overall" : cat.toLowerCase()] || null;
 }
 
+// THE scaling story: what ONE stream gets vs what the box delivers in total, per rung of the
+// ladder. Both series come from the level summary of the ISOLATED per-category sweeps —
+// categories are never mixed into one pool, so no "overall" line pretends they ran together.
+function _perfStreams(m) {
+  const concs = (m.conc_levels || []).filter((c) => m.direct[c]);
+  const ov = (c) => ((m.direct[c] || {}).overall) || {};
+  const per = concs.map((c) => ov(c).decode_tps);
+  const agg = concs.map((c) => ov(c).agg_decode_tps);
+  if (!concs.length || !agg.some((v) => v != null)) return `<p class="note" style="text-align:left">no direct grid in this run</p>`;
+  const W = 900, H = 300, PL = 60, PB = 34, PT = 16, PR = 120;
+  const xs = (i) => PL + (W - PL - PR) * (concs.length === 1 ? 0.5 : i / (concs.length - 1));
+  const vmax = Math.max(...per.concat(agg).filter((v) => v != null)) || 1;
+  const ys = (v) => PT + (H - PT - PB) * (1 - v / vmax);
+  const gy = [0, .25, .5, .75, 1].map((f) => { const v = vmax * f, y = ys(v);
+    return `<line class="pgrid" x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}"/>` +
+      `<text class="ptick" x="${PL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end">${_pfv(v)}</text>`; }).join("");
+  const gx = concs.map((c, i) => `<text class="ptick" x="${xs(i).toFixed(1)}" y="${H - PB + 18}" text-anchor="middle">c${c}</text>`).join("");
+  const draw = (pts, color, width, dash, label, tip) => {
+    const path = pts.map((v, i) => v == null ? null : `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).filter(Boolean).join(" ");
+    if (!path) return "";
+    const dots = pts.map((v, i) => v == null ? "" :
+      `<circle cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="3.2" fill="${color}"><title>${tip(concs[i], v)}</title></circle>`).join("");
+    let li = pts.length - 1; while (li >= 0 && pts[li] == null) li--;
+    const end = li < 0 ? "" : `<text class="pend" x="${(xs(li) + 10).toFixed(1)}" y="${(ys(pts[li]) + 4).toFixed(1)}" fill="${color}">${label} ${_pfv(pts[li])}</text>`;
+    return `<polyline points="${path}" fill="none" stroke="${color}" stroke-width="${width}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>` + dots + end;
+  };
+  const lines =
+    draw(agg, "#00f0ff", 3, null, "aggregate", (c, v) => `aggregate at c${c}: ${_pfv(v)} tok/s across all ${c} streams`) +
+    draw(per, "#7fd8ff", 2, "6 5", "per stream", (c, v) => `per stream at c${c}: each of the ${c} streams decodes ~${_pfv(v)} tok/s`);
+  const legend = `<span class="perf-lg"><i style="background:#00f0ff"></i>aggregate tok/s — all streams combined</span>` +
+    `<span class="perf-lg"><i class="perf-lg-dash" style="background:#7fd8ff"></i>per-stream tok/s — what each stream gets</span>`;
+  return `<div class="perf-legend">${legend}</div>` +
+    `<svg viewBox="0 0 ${W} ${H}" class="perf-svg" role="img" aria-label="single-stream vs concurrent aggregate tok/s">${gy}${gx}${lines}</svg>`;
+}
+
 function _perfCurves(m, metric) {
   const concs = (m.conc_levels || []).filter((c) => m.direct[c]);
   if (!concs.length) return `<p class="note" style="text-align:left">no direct grid in this run</p>`;
-  const cats = ["overall", ...PERF.categories];
+  // categories ONLY — each category's rung is a REAL cohort (c16 = 16 concurrent streams of that
+  // prompt type). The synthetic cross-category "overall" never ran as one pool, so it isn't a line.
+  const cats = [...PERF.categories];
   const W = 560, H = 300, PL = 56, PB = 34, PT = 14, PR = 14;
   const xs = (i) => PL + (W - PL - PR) * (concs.length === 1 ? 0.5 : i / (concs.length - 1));
   let vmax = 0;
@@ -1383,8 +1420,12 @@ function _perfHeat(m, metric, better) {
     if (better === "lower") t = 1 - t;                        // brighter ALWAYS means better
     return `<td style="background:rgba(94,224,255,${(0.08 + 0.5 * t).toFixed(3)})">${_pfv(v)}</td>`;
   };
+  // the summary row is a MEAN across the isolated category sweeps — never one mixed pool
+  const rowLabel = (cat) => cat === "overall"
+    ? `<th title="mean across the isolated category sweeps — categories never run mixed in one pool">mean*</th>`
+    : `<th>${escH(cat)}</th>`;
   return `<table class="perf-heat"><thead><tr><th></th>${concs.map((c) => `<th>c${c}</th>`).join("")}</tr></thead><tbody>` +
-    cats.map((cat) => `<tr><th>${escH(cat)}</th>${concs.map((c) => { const x = _pcell(m, c, cat); return cell(x ? x[metric] : null); }).join("")}</tr>`).join("") +
+    cats.map((cat) => `<tr>${rowLabel(cat)}${concs.map((c) => { const x = _pcell(m, c, cat); return cell(x ? x[metric] : null); }).join("")}</tr>`).join("") +
     `</tbody></table>`;
 }
 
@@ -1535,9 +1576,12 @@ function renderPerfDetail(m) {
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
      </div>
      ${_perfRecipe(m)}
+     <div class="perf-card perf-hero-card"><h3 class="perf-h3">single stream vs concurrent aggregate
+         <span class="micro">tok/s per rung — what each stream gets vs the box's total · summary of the isolated category sweeps (categories never mix in one pool)</span></h3>
+       ${_perfStreams(m)}</div>
      <div class="perf-mets">${mets}<span class="perf-better">${better === "lower" ? "▼ lower is better" : "▲ higher is better"}</span></div>
      <div class="perf-grid2">
-       <div class="perf-card"><h3 class="perf-h3">${escH(label)} vs concurrency <span class="micro">by prompt category</span></h3>${_perfCurves(m, key)}</div>
+       <div class="perf-card"><h3 class="perf-h3">${escH(label)} vs concurrency <span class="micro">per category — each swept in isolation</span></h3>${_perfCurves(m, key)}</div>
        <div class="perf-card"><h3 class="perf-h3">category × concurrency <span class="micro">brighter = better</span></h3>${_perfHeat(m, key, better)}</div>
      </div>
      ${_perfHarness(m)}
@@ -2214,6 +2258,13 @@ async function init() {
     b.textContent = "✓ copied"; setTimeout(() => { b.textContent = "copy command"; }, 1400);
   });
   bind("#keyAdd", addKey);
+  // Run-a-Bench-Pod quickstart copy buttons (mothership CTA)
+  $$(".podq-copy").forEach((b) => b.onclick = async () => {
+    const pre = $("#" + b.dataset.cmd); if (!pre) return;
+    try { await navigator.clipboard.writeText(pre.textContent); } catch (e) { return; }
+    b.textContent = "✓ copied"; b.classList.add("copied");
+    setTimeout(() => { b.textContent = "copy"; b.classList.remove("copied"); }, 1400);
+  });
   bind("#podTokenSave", () => {
     try { localStorage.setItem("aeon_pod_token", $("#podToken").value.trim()); } catch (e) {}
     runStatus("pod token set", "ok"); loadSavedKeys();

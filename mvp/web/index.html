@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=37" />
+  <link rel="stylesheet" href="/static/styles.css?v=38" />
 </head>
 <body>
   <header>
@@ -274,23 +274,40 @@
     </section>
 
     <section class="panel launch" id="runBench">
-      <details class="run-details">
-        <summary>Run your own benchmark — from your lab, never from this page</summary>
+      <details class="run-details pod-cta">
+        <summary class="pod-cta-btn"><span class="pod-cta-mark">▲</span> Run a Bench Pod <span class="pod-cta-sub">one command · any hardware · attested results</span></summary>
         <p class="runblurb">
           Results are produced by a <strong>controlled pod you run on your own hardware</strong> —
-          never from here. The pod pulls the model from Hugging Face, <strong>verifies its
-          signature</strong> against the HF reference, serves it with a recorded recipe, runs the
-          suite through the Hermes / OpenClaw / OpenCode harnesses, and submits a signed result.
+          never from this page. Pull the prebuilt dashboard container, open the Run tab, and the
+          pod <strong>hash-validates</strong> the model, serves it in your chosen engine
+          (aeon-vllm-ultimate · vLLM · SGLang · llama.cpp · ROCm · custom image · Apple MLX ·
+          LM&nbsp;Studio), benchmarks through the real harnesses, and submits a signed
+          <strong>attested</strong> result — engine, hardware and startup recipe attached.
         </p>
+        <div class="podq">
+          <div class="podq-h"><span class="repro-t">⚙ DOCKER — LINUX · WINDOWS/WSL2 · RTX · AMD · DGX</span><button class="ghost repro-copy podq-copy" data-cmd="podqDocker">copy</button></div>
+          <pre class="repro-cmd" id="podqDocker">docker run -d --name aeon-pod --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  ghcr.io/aeon-7/aeon-pod:latest
+# open http://localhost:8091 → Run tab</pre>
+        </div>
+        <div class="podq">
+          <div class="podq-h"><span class="repro-t">⌘ APPLE SILICON — MLX SERVES BARE-METAL ON THE HOST</span><button class="ghost repro-copy podq-copy" data-cmd="podqMac">copy</button></div>
+          <pre class="repro-cmd" id="podqMac">docker run -d --name aeon-pod -p 8091:8091 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  ghcr.io/aeon-7/aeon-pod:latest
+# open http://localhost:8091 → Run tab; the MLX serve runs on the host
+# (the pod generates the exact mlx_lm.server command and benches it)</pre>
+        </div>
         <div class="runcta">
-          <a class="primary" id="ghLink" href="https://github.com/AEON-7/Aeon-Bench-Pod" target="_blank" rel="noopener">▶ Get the pod on GitHub</a>
+          <a class="primary" id="ghLink" href="https://github.com/AEON-7/Aeon-Bench-Pod" target="_blank" rel="noopener">▶ AEON Bench Pod on GitHub</a>
           <a class="ghost" href="/api/pod/docker-compose.yml" download>⬇ docker-compose.yml</a>
-          <a class="ghost" href="/api/pod/agents.md" download>⬇ agents.md</a>
           <a class="ghost" href="/api/pod/run-a-benchmark.md" target="_blank" rel="noopener">📖 How to run / view / submit</a>
         </div>
-        <pre class="runquick"><code>git clone https://github.com/AEON-7/Aeon-Bench-Pod &amp;&amp; cd Aeon-Bench-Pod
-cp .env.example .env          # set AEON_HF_LINK + AEON_MOTHERSHIP
-docker compose up             # pull → verify → serve → bench → submit</code></pre>
         <div id="status" class="status"></div>
       </details>
     </section>
@@ -435,6 +452,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=37"></script>
+  <script src="/static/app.js?v=38"></script>
 </body>
 </html>

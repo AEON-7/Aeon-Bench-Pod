@@ -163,14 +163,38 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
             cfg = json.load(open(cfgp, encoding="utf-8"))
         except Exception:
             cfg = {}
-    native_ctx = cfg.get("max_position_embeddings") or cfg.get("n_positions") or 8192
+    # Native context: MULTIMODAL configs nest the text settings (Gemma4ForConditionalGeneration
+    # keeps max_position_embeddings=262144 inside text_config with NOTHING top-level — the old
+    # top-level-only read fell back to a fictitious 8192 and refused a 262K model). None = the
+    # config simply doesn't say; that is NOT evidence of a short window.
+    def _native_ctx(c):
+        for scope in (c, c.get("text_config") or {}, c.get("llm_config") or {},
+                      c.get("language_config") or {}):
+            for k in ("max_position_embeddings", "n_positions", "model_max_length", "seq_length"):
+                v = scope.get(k) if isinstance(scope, dict) else None
+                if isinstance(v, (int, float)) and v > 0:
+                    return int(v)
+        return None
+    native_ctx = _native_ctx(cfg)
+    # An EXPLICIT operator context (recipe-tuning flag or env) wins over the derived default —
+    # the operator may know about rope scaling the config doesn't advertise.
+    op_ctx = None
+    ef = [str(t) for t in (extra_flags or [])]
+    for cf in ("--max-model-len", "--context-length", "-c"):
+        if cf in ef and ef.index(cf) + 1 < len(ef):
+            try:
+                op_ctx = int(float(ef[ef.index(cf) + 1]))
+            except ValueError:
+                pass
+            break
     # Serve at a consistent bench context: the agentic harnesses (Hermes) REQUIRE >=64K, and 64K is
     # ample for every suite prompt while a model's full window (e.g. 256K) needlessly bloats the KV
-    # cache. Cap at the model's native max (never exceed it); AEON_MAX_MODEL_LEN overrides explicitly.
-    ctx = int(os.environ.get("AEON_MAX_MODEL_LEN") or min(native_ctx, BENCH_MAX_CTX))
+    # cache. Cap at the model's native max when KNOWN; unknown native serves at the bench standard.
+    ctx = int(os.environ.get("AEON_MAX_MODEL_LEN") or op_ctx
+              or (min(native_ctx, BENCH_MAX_CTX) if native_ctx else BENCH_MAX_CTX))
     # HARD floor: Hermes refuses to run below 64K, so a short-context verified serve would burn a
-    # full bench on a doomed harness pass. Refuse up front; AEON_ALLOW_SHORT_CTX=1 serves at native
-    # anyway (the pod then SKIPS the hermes harness for that run — see aeon_pod).
+    # full bench on a doomed harness pass. Refuse up front — but ONLY on a KNOWN-short model with
+    # no operator override; AEON_ALLOW_SHORT_CTX=1 serves at native anyway (hermes then skipped).
     if ctx < BENCH_MAX_CTX and os.environ.get("AEON_ALLOW_SHORT_CTX") != "1":
         raise SystemExit(f"[pod] bench requires --max-model-len >= {BENCH_MAX_CTX} (Hermes harness "
                          f"floor); model native ctx = {native_ctx}. Set AEON_ALLOW_SHORT_CTX=1 to "

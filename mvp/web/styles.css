@@ -441,6 +441,8 @@ details.how .note { text-align: left; max-width: 78ch; }
 
 .mcard-id { grid-area: id; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
 .mcard-name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+/* action buttons always wrap to their OWN line under the model name (never crowd the rank ghost) */
+.mcard-acts { flex-basis: 100%; display: flex; align-items: center; gap: 10px; }
 .mcard-name .mlink { font-size: 16px; font-weight: 600; color: var(--text); border: 0;
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 .mcard-name .mlink:hover { color: var(--accent); }

@@ -219,9 +219,11 @@ function renderEligBar() {
     + `<input type="checkbox" id="verifiedOnlyCb" ${verifiedOnly ? "checked" : ""}>`
     + `<span>Verified only</span></label>`
     + `<span class="elignote">Global rank counts <b class="ev-ok">verified</b> runs only · <b>${nElig}</b> verified · <b>${data.length - nElig}</b> local · `
-    + `<a href="/api/pod/run-a-benchmark.md" target="_blank" rel="noopener">submit a verified run →</a></span>`;
+    + `<a href="#" id="eligPodLink">run a bench pod →</a></span>`;
   const cb = $("#verifiedOnlyCb");
   if (cb) cb.onchange = (e) => { verifiedOnly = e.target.checked; renderBoard(); };
+  const pl = $("#eligPodLink");
+  if (pl) pl.onclick = (e) => { e.preventDefault(); openPodModal(); };
 }
 
 function renderBoard() {
@@ -2001,6 +2003,10 @@ async function browseTo(path) {
 function openBrowse() { $("#browseModal").hidden = false; browseTo(null); }
 function closeBrowse() { $("#browseModal").hidden = true; }
 
+// "Run a Bench Pod" quickstart modal (mothership header CTA + the elig-bar link)
+function openPodModal() { const m = $("#podModal"); if (m) m.hidden = false; }
+function closePodModal() { const m = $("#podModal"); if (m) m.hidden = true; }
+
 // ---- model validation (the green light): debounce -> POST /validate -> poll to a verdict ----
 
 function scheduleValidate() {
@@ -2219,8 +2225,8 @@ function applyRole() {
   if (liveTab) liveTab.hidden = !isPod;              // Live is a POD-only view (local lab)
   const runTab = document.querySelector("#tabs [data-run]");
   if (runTab) runTab.hidden = !isPod;               // Run (launch a benchmark) is POD-only too
-  const runBench = $("#runBench");
-  if (runBench) runBench.hidden = isPod;            // the GitHub-pointer panel is a MOTHERSHIP affordance
+  const podCta = $("#podCta");
+  if (podCta) podCta.hidden = isPod;                // "Run a Bench Pod" is a MOTHERSHIP affordance (a pod IS one)
   const ptr = $("#podTokenRow");
   if (ptr) ptr.hidden = !(isPod && CFG.pod_token_required);
   const tag = document.querySelector(".brand .tag");
@@ -2258,6 +2264,9 @@ async function init() {
     b.textContent = "✓ copied"; setTimeout(() => { b.textContent = "copy command"; }, 1400);
   });
   bind("#keyAdd", addKey);
+  // Run a Bench Pod — the header CTA opens the quickstart modal (docker + Apple/MLX + GitHub)
+  bind("#podCta", openPodModal);
+  bind("#podClose", closePodModal);
   // Run-a-Bench-Pod quickstart copy buttons (mothership CTA)
   $$(".podq-copy").forEach((b) => b.onclick = async () => {
     const pre = $("#" + b.dataset.cmd); if (!pre) return;
@@ -2324,6 +2333,7 @@ async function init() {
     if (e.key === "Escape" && !$("#authModal").hidden) { closeAuth(); return; }   // Esc always closes the dialog
     if (e.key === "Escape" && !$("#galModal").hidden) { closeGalPreview(); return; }  // Esc closes the preview
     if (e.key === "Escape" && !$("#browseModal").hidden) { closeBrowse(); return; }   // Esc closes the browser
+    if (e.key === "Escape" && !$("#podModal").hidden) { closePodModal(); return; }    // Esc closes the pod quickstart
     const ap = $("#arenaPanel");
     if (!ap || ap.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
     if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;

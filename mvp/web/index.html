@@ -8,12 +8,13 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=38" />
+  <link rel="stylesheet" href="/static/styles.css?v=39" />
 </head>
 <body>
   <header>
     <div class="brand">▲ <b>AEON</b>//BENCH <span class="tag">local mvp</span></div>
     <div class="hauth" id="headerAuth"></div>
+    <button id="podCta" class="pod-cta-btn pod-cta-top" type="button" hidden title="Benchmark a model on YOUR hardware — one command, attested results"><span class="pod-cta-mark">▲</span> Run a Bench Pod</button>
     <button id="tipBtn" class="tip-btn" type="button" title="Support the developer"><span class="tip-hi">♥</span> Tip the Dev</button>
     <div class="suite" id="suiteInfo">suite…</div>
   </header>
@@ -273,9 +274,10 @@
       </div>
     </section>
 
-    <section class="panel launch" id="runBench">
-      <details class="run-details pod-cta">
-        <summary class="pod-cta-btn"><span class="pod-cta-mark">▲</span> Run a Bench Pod <span class="pod-cta-sub">one command · any hardware · attested results</span></summary>
+    <div id="podModal" class="modal" hidden>
+      <div class="modal-card pod-modal-card">
+        <button class="modal-x" id="podClose" title="close">×</button>
+        <h3><span class="pod-cta-mark">▲</span> Run a Bench Pod <span class="pod-cta-sub">one command · any hardware · attested results</span></h3>
         <p class="runblurb">
           Results are produced by a <strong>controlled pod you run on your own hardware</strong> —
           never from this page. Pull the prebuilt dashboard container, open the Run tab, and the
@@ -308,9 +310,9 @@
           <a class="ghost" href="/api/pod/docker-compose.yml" download>⬇ docker-compose.yml</a>
           <a class="ghost" href="/api/pod/run-a-benchmark.md" target="_blank" rel="noopener">📖 How to run / view / submit</a>
         </div>
-        <div id="status" class="status"></div>
-      </details>
-    </section>
+        <div id="status" class="status" hidden></div>
+      </div>
+    </div>
 
     <section class="panel" id="adminPanel" hidden>
       <div class="lbhead">
@@ -452,6 +454,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=38"></script>
+  <script src="/static/app.js?v=39"></script>
 </body>
 </html>

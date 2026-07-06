@@ -1297,6 +1297,7 @@ let PERF = null;
 // model=null → the ranked list; a set model → its drill-down. The METRIC survives
 // drill/back/drill so the operator's chosen lens is never reset under them.
 let PERF_SEL = { model: null, metric: "agg_decode_tps" };
+let PERF_HW = null;               // hardware filter for the recipe-discovery board (null = all platforms)
 const PERF_METRICS = [
   ["agg_decode_tps", "tok/s aggregate", "higher", "total generated tokens per second across all concurrent streams"],
   ["decode_tps", "tok/s per stream", "higher", "mean single-stream decode speed"],
@@ -1434,24 +1435,53 @@ function renderPerf() {
 // drawn from the single /api/perf/board payload — no per-card fetches — so the list
 // scales to hundreds of submissions; avatars hydrate through the shared META cache.
 function renderPerfList() {
-  const ms = [...PERF.models].sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
-  $("#perfBody").innerHTML = `<div class="perf-list">` + ms.map((x, i) => {
-    const c1 = ((x.direct || {})[1] || {}).overall || {};
-    const concs = (x.conc_levels || []).filter((c) => x.direct[c]);
-    return `<div class="pcard chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
+  // Recipe-discovery board: every model shows all four axes — peak single-stream, peak aggregate,
+  // lowest latency, quality — and the whole board filters by the hardware it was benched on. With a
+  // hardware selected, the throughput / single-stream / latency / quality CHAMPIONS (each an optimal
+  // recipe for that axis) are crowned inline.
+  const hws = (PERF.hardwares && PERF.hardwares.length)
+    ? PERF.hardwares : [...new Set(PERF.models.map((x) => x.hardware).filter(Boolean))];
+  if (PERF_HW && !hws.includes(PERF_HW)) PERF_HW = null;
+  const ms = [...PERF.models]
+    .filter((x) => !PERF_HW || x.hardware === PERF_HW)
+    .sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
+  const champ = (val, lower) => {                     // the winning recipe on one axis within the filter
+    let best = null, bv = null;
+    ms.forEach((x) => { const v = val(x); if (v == null) return; if (bv == null || (lower ? v < bv : v > bv)) { bv = v; best = x; } });
+    return best;
+  };
+  const cAgg = champ((x) => x.peak_agg_tps), cSingle = champ((x) => x.peak_single_tps),
+        cLat = champ((x) => (x.latency || {}).ttft_ms, true), cQual = champ((x) => x.quality);
+  const filterBar = hws.length ? `<div class="perf-filter">
+      <span class="perf-filter-lbl">optimal recipe for</span>
+      <button class="chip hwf${!PERF_HW ? " on" : ""}" data-hw="">all platforms</button>
+      ${hws.map((h) => `<button class="chip hwf${PERF_HW === h ? " on" : ""}" data-hw="${escA(h)}">${escH(h)}</button>`).join("")}
+    </div>` : "";
+  $("#perfBody").innerHTML = filterBar + `<div class="perf-list">` + ms.map((x, i) => {
+    const lat = x.latency || {}, concs = (x.conc_levels || []).filter((c) => x.direct[c]);
+    const crowns = [
+      x === cAgg ? `<span class="pcrown c-agg" title="fastest aggregate throughput here">⚡ throughput</span>` : "",
+      x === cSingle ? `<span class="pcrown c-single" title="fastest single stream here">▸ single-stream</span>` : "",
+      x === cLat ? `<span class="pcrown c-lat" title="lowest latency (TTFT) here">◔ latency</span>` : "",
+      x === cQual ? `<span class="pcrown c-qual" title="highest quality score here">◆ quality</span>` : "",
+    ].filter(Boolean).join("");
+    return `<div class="pcard perf4 chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
       <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
       <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
         <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
-      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span>${x.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(x.hardware)}</span>` : ""}</div>
-      <div class="pcard-stats">
-        <div class="spdchip pcard-hero"><span class="catk">peak agg tok/s</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
-        <div class="spdchip"><span class="catk">ttft@c1</span><span class="catv">${fmtDur(c1.ttft_ms)}</span></div>
-        <div class="spdchip"><span class="catk">tpot@c1</span><span class="catv">${fmtDur(c1.tpot_ms)}</span></div>
-        <div class="spdchip"><span class="catk">tok/s@c1</span><span class="catv">${fmtTps(c1.decode_tps)}</span></div>
+      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span>
+        ${x.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(x.hardware)}</span>` : ""}
+        ${crowns ? `<span class="pcrowns">${crowns}</span>` : ""}</div>
+      <div class="pcard-stats perf4-stats">
+        <div class="spdchip pcard-hero${x === cAgg ? " win" : ""}"><span class="catk">peak agg tok/s</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
+        <div class="spdchip${x === cSingle ? " win" : ""}"><span class="catk">single-stream tok/s</span><span class="catv">${fmtTps(x.peak_single_tps)}</span></div>
+        <div class="spdchip${x === cLat ? " win" : ""}"><span class="catk">latency ttft · tpot</span><span class="catv">${fmtDur(lat.ttft_ms)}<span class="catx"> · ${fmtDur(lat.tpot_ms)}</span></span></div>
+        <div class="spdchip qchip${x === cQual ? " win" : ""}"><span class="catk">quality</span><span class="catv">${x.quality != null ? x.quality.toFixed(1) : "—"}</span></div>
       </div>
-      <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] : ""}</span></div>
+      <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] + " · recipe ▸" : "recipe ▸ click"}</span></div>
     </div>`;
   }).join("") + `</div>`;
+  $$("#perfBody .hwf").forEach((b) => b.onclick = () => { PERF_HW = b.dataset.hw || null; renderPerf(); });
   $$("#perfBody .pcard").forEach((el) => {
     const open = () => { PERF_SEL.model = el.dataset.pm; renderPerf(); };
     el.onclick = (ev) => { if (ev.target.closest(".model-creator")) return; open(); };   // avatar = creator link
@@ -1461,6 +1491,25 @@ function renderPerfList() {
     const cached = META.get(model);
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
+}
+
+// The exact attested serve recipe behind a model's perf numbers — same grammar as the run-detail
+// repro card, with the DFlash drafter (z-lab repo + n) named so the result truly replicates.
+function _perfRecipe(m) {
+  const rp = m.reproduction || {};
+  const cmd = rp.docker_run_assembled;
+  if (!cmd) return "";
+  const d = rp.drafter;
+  const draft = d ? `<br>DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — pulled + mounted at /drafter in the command)</span>` : "";
+  return `<div class="sub-repro perf-repro">
+    <div class="repro-h"><span class="repro-t">⚙ the recipe behind these numbers</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        <a class="act-btn act-dl" href="/api/runs/${encodeURIComponent(m.run)}/replicate?format=script" title="download a ready-to-run serve script (hf download + docker run)">serve.sh</a>
+        <a class="act-btn act-dl" href="/api/runs/${encodeURIComponent(m.run)}/replicate?format=compose" title="download a docker-compose.yml with the exact serve flags">compose.yml</a>
+        <button class="ghost repro-copy" id="perfReproCopy">copy command</button></span></div>
+    <div class="note" style="text-align:left">${m.hardware ? `benched on <b>${escH(m.hardware)}</b> · ` : ""}engine <b>${escH(rp.engine || "—")}</b>${rp.engine_version ? ` <span class="mono">${escH(rp.engine_version)}</span>` : ""}${rp.spec_decode ? ` · spec-decode <b>${escH(rp.spec_decode)}</b>` : ""}${draft}<br>
+      The exact attested serve config that produced the speeds above — tune <span class="mono">--gpu-memory-utilization</span> to your VRAM.</div>
+    <pre class="repro-cmd" id="perfReproCmd">${escH(cmd)}</pre></div>`;
 }
 
 // (b) drill-down: back → model header → metric lens → curves + heatmap + harness table
@@ -1479,6 +1528,7 @@ function renderPerfDetail(m) {
        ${m.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(m.hardware)}</span>` : ""}
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
      </div>
+     ${_perfRecipe(m)}
      <div class="perf-mets">${mets}<span class="perf-better">${better === "lower" ? "▼ lower is better" : "▲ higher is better"}</span></div>
      <div class="perf-grid2">
        <div class="perf-card"><h3 class="perf-h3">${escH(label)} vs concurrency <span class="micro">by prompt category</span></h3>${_perfCurves(m, key)}</div>
@@ -1488,6 +1538,12 @@ function renderPerfDetail(m) {
      <p class="note" style="text-align:left">ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")} · benched ${fmtDate(m.started_at)}</p>`;
   $("#perfBack").onclick = () => { PERF_SEL.model = null; renderPerf(); };
   $$("#perfBody .chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
+  const prc = $("#perfReproCopy");
+  if (prc) prc.onclick = async () => {
+    try { await navigator.clipboard.writeText((m.reproduction || {}).docker_run_assembled || ""); } catch (e) { return; }
+    prc.textContent = "✓ copied"; prc.classList.add("copied");
+    setTimeout(() => { prc.textContent = "copy command"; prc.classList.remove("copied"); }, 1400);
+  };
   const cached = META.get(m.model);
   if (cached && cached !== "pending") applyMeta(m.model, cached); else fetchMeta(m.model);
 }

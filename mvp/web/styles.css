@@ -1516,6 +1516,31 @@ select:focus {
   .vramfilter select { flex: 1 1 100%; }
 }
 
+/* ---- RECIPE DISCOVERY (Performance board): hardware filter · 4-axis cards · champions · recipe ---- */
+.perf-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px; }
+.perf-filter-lbl { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin-right: 2px; }
+.chip.hwf { font-variant-numeric: tabular-nums; }
+/* four axes as a fixed 4-up rail so columns line up across models (the discovery read) */
+.pcard.perf4 .perf4-stats { display: grid; grid-template-columns: repeat(4, minmax(74px, auto)); gap: 10px 22px; align-items: flex-end; }
+.perf4-stats .spdchip { align-items: flex-end; text-align: right; }
+.perf4-stats .spdchip .catv { transition: color var(--t-fast); }
+.perf4-stats .catx { color: var(--muted); font-weight: 600; font-size: 12px; }
+.qchip .catv { color: var(--r1); }                    /* quality reads in the leaderboard's gold */
+.spdchip.win .catv { color: var(--accent); text-shadow: 0 0 14px rgba(0, 240, 255, .35); }
+.qchip.win .catv { color: var(--r1); text-shadow: 0 0 14px rgba(232, 194, 104, .4); }
+/* champion crowns: the axis (throughput / single-stream / latency / quality) this recipe wins
+   within the current hardware filter — the optimal-recipe read at a glance */
+.pcrowns { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-left: 2px; }
+.pcrown { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700;
+  padding: 2px 7px; border: 1px solid currentColor; line-height: 1.35;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); }
+.pcrown.c-agg { color: var(--accent); background: rgba(0, 240, 255, .07); }
+.pcrown.c-single { color: #7fd8ff; background: rgba(127, 216, 255, .07); }
+.pcrown.c-lat { color: var(--warn); background: rgba(255, 180, 84, .08); }
+.pcrown.c-qual { color: var(--r1); background: rgba(232, 194, 104, .08); }
+.perf-repro { margin: 2px 0 18px; }                   /* recipe card = same machined plate as .sub-repro */
+@media (max-width: 720px) { .pcard.perf4 .perf4-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

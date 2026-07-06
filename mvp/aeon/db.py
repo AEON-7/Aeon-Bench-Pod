@@ -564,7 +564,7 @@ def all_results_with_runs(board="text"):
         rows = c.execute(
             """SELECT r.run_id, r.case_id, r.category, r.tier, r.status, r.score, r.creativity, r.speed_json,
                       ru.model, ru.id AS run, ru.started_at, ru.status AS run_status,
-                      ru.hf_repo, ru.model_verified, ru.harness, ru.harness_version,
+                      ru.hf_repo, ru.model_verified, ru.harness, ru.harness_version, ru.env_json,
                       COALESCE(ru.trust_tier, 'self_reported') AS trust_tier, ru.bench_seed, ru.suite_hash,
                       ru.suite_id, COALESCE(ru.canonical_id, ru.model) AS canonical_id
                  FROM results r JOIN runs ru ON ru.id = r.run_id
@@ -586,7 +586,7 @@ def perf_results():
         rows = c.execute(
             """SELECT r.run_id, r.case_id, r.status, r.evidence_json,
                       ru.model, ru.id AS run, ru.started_at, ru.env_json,
-                      ru.hf_repo, ru.model_verified,
+                      ru.hf_repo, ru.hf_revision, ru.recipe, ru.model_verified,
                       COALESCE(ru.trust_tier, 'self_reported') AS trust_tier, ru.suite_id,
                       COALESCE(ru.canonical_id, ru.model) AS canonical_id
                  FROM results r JOIN runs ru ON ru.id = r.run_id

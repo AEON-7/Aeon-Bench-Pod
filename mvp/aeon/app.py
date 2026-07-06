@@ -132,9 +132,24 @@ def leaderboard(suite: str | None = None):
 
 @app.get("/api/perf/board")
 def perf_board():
-    """PERFORMANCE board: per model, the latest perf run's direct grid (TTFT/TPOT/tok-s per
-    prompt category × concurrency) + through-harness task timing — drives the perf charts."""
-    return scoring.perf_board()
+    """PERFORMANCE board / recipe-discovery: per model, the latest perf run's direct grid
+    (TTFT/TPOT/tok-s per prompt category × concurrency) + through-harness task timing + the four
+    headline axes (peak single-stream, peak aggregate, lowest latency, quality) — and the exact
+    serve recipe behind them (assembled docker run + DFlash drafter disclosure), so the board is
+    an optimal-recipe finder per hardware."""
+    d = scoring.perf_board()
+    for m in d.get("models", []):
+        recipe = m.pop("recipe", None)               # raw recipe stays server-side; expose the assembly
+        m["reproduction"] = {
+            "docker_run_assembled": _docker_cmd(recipe, m.get("hf_repo"), m.get("hf_revision")),
+            "image": (recipe or {}).get("image"),
+            "engine": (recipe or {}).get("engine"),
+            "engine_version": (recipe or {}).get("engine_version"),
+            "spec_decode": (recipe or {}).get("spec_decode"),
+            "drafter": _drafter_info(recipe),
+            "run": m.get("run"),
+        }
+    return d
 
 
 @app.get("/api/compare/seeds")
@@ -718,26 +733,81 @@ def _recipe_serve(recipe):
     return image, recipe.get("port") or 8000, [str(f) for f in flags], recipe.get("drafter")
 
 
+def _drafter_info(recipe):
+    """DFlash speculative-decode drafter disclosure for a stored recipe, or None for plain decode.
+    The recipe pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) is what
+    lets others replicate. `n` (num_speculative_tokens) comes from the top-level field if recorded,
+    else parsed out of the --speculative-config JSON in the serve flags."""
+    if not recipe:
+        return None
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or recipe.get("spec_decode")):
+        return None
+    n = recipe.get("drafter_n") or recipe.get("drafter_nst")
+    for i, f in enumerate(recipe.get("flags") or []):
+        if f == "--speculative-config" and i + 1 < len(recipe["flags"]):
+            try:
+                n = n or json.loads(recipe["flags"][i + 1]).get("num_speculative_tokens")
+            except Exception:
+                pass
+            break
+    return {"method": recipe.get("spec_decode") or "dflash",
+            "repo": recipe.get("drafter_repo"),          # e.g. z-lab/gemma-4-26B-A4B-it-DFlash
+            "revision": recipe.get("drafter_revision"), "n": n}
+
+
+def _portable_speculative(flags):
+    """Flags with any --speculative-config drafter `model` path normalised to the /drafter mount,
+    so the assembled command never leaks (or depends on) a bench-host-local drafter path."""
+    out = list(flags)
+    for i, f in enumerate(out):
+        if f == "--speculative-config" and i + 1 < len(out):
+            try:
+                cfg = json.loads(out[i + 1])
+                if isinstance(cfg, dict) and cfg.get("model"):
+                    cfg["model"] = "/drafter"
+                    out[i + 1] = json.dumps(cfg)
+            except Exception:
+                pass
+    return out
+
+
 def _docker_cmd(recipe, hf_repo, hf_revision):
     """Assemble the copy-pasteable replication command for a run's stored serve recipe.
-    Flags are VERBATIM — identical serve settings, minus the bench itself. Only
-    host-specific paths are made portable: weights mount at ./weights, an optional
-    speculative-decode drafter at $DRAFTER_DIR. Docker flag/startup choices move real
-    performance per model, so this is the exact config behind the numbers on the board."""
+    Flags are VERBATIM — identical serve settings, minus the bench itself. Host-specific paths
+    are made portable: weights mount at ./weights, and (for DFlash spec-decode) the z-lab drafter
+    is pulled by NAME to ./drafter and mounted at /drafter, with num_speculative_tokens disclosed.
+    Docker flag/startup choices move real performance per model, so this is the exact config
+    behind the numbers on the board — and it truly replicates, drafter included."""
     serve = _recipe_serve(recipe)
     if not serve:
         return None
-    image, port, flags, drafter = serve
+    image, port, flags, _ = serve
+    d = _drafter_info(recipe)
+    if d:
+        flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     lines = []
     if hf_repo:
         rev = f" --revision {hf_revision}" if hf_revision else ""
         lines += ["# 1) pull the exact weights this run benchmarked (sha256-verified upstream)",
                   f"hf download {hf_repo}{rev} --local-dir ./weights", ""]
+    if d and d.get("repo"):
+        drev = f" --revision {d['revision']}" if d.get("revision") else ""
+        ncmt = f", num_speculative_tokens={d['n']}" if d.get("n") else ""
+        lines += [f"# 1b) pull the z-lab DFlash drafter — lossless speculative decode (speed only{ncmt})",
+                  f"hf download {d['repo']}{drev} --local-dir ./drafter", ""]
+    if d:
+        disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
+        if d.get("revision"):
+            disc += f"@{str(d['revision'])[:12]}"
+        if d.get("n"):
+            disc += f" · n={d['n']}"
+        lines.append("# " + disc + " — lossless: the target verifies every draft token; speed only")
     lines.append("# 2) serve with the exact flags from this run")
     lines.append("docker run --rm --gpus all --name replica \\")
     lines.append("  -v ./weights:/model \\")
-    if drafter:
-        lines.append("  -v $DRAFTER_DIR:/drafter \\  # spec-decode drafter weights (lossless; speed only)")
+    if d:
+        lines.append("  -v ./drafter:/drafter \\"
+                     + (f"  # {d['repo']}" if d.get("repo") else "  # z-lab DFlash drafter weights"))
     lines.append(f"  -p {port}:{port} \\")
     lines.append(f"  --entrypoint vllm {image} \\")
     lines.append("  serve /model \\")
@@ -765,6 +835,8 @@ def _reproduction(r):
         "docker_run": (recipe or {}).get("docker_run") if recipe else None,
         "flags": (recipe or {}).get("flags") if recipe else None,
         "spec_decode": (recipe or {}).get("spec_decode") if recipe else None,
+        # DFlash drafter disclosure (repo + revision + n) so viewers can truly replicate spec-decode
+        "drafter": _drafter_info(recipe),
         "weights_hash": r.get("weights_hash"),
         "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
         "build_hash": dm.get("build_hash"),
@@ -822,17 +894,27 @@ def _compose_yaml(r, recipe):
     serve = _recipe_serve(recipe)
     if not serve:
         return None
-    image, port, flags, drafter = serve
+    image, port, flags, _ = serve
+    d = _drafter_info(recipe)
+    if d:
+        flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     cmd = "\n".join("      - " + _yaml_quote(t) for t in ["serve", "/model"] + flags)
     vols = "      - ./weights:/model"
-    if drafter:
-        vols += "\n      - ${DRAFTER_DIR}:/drafter   # spec-decode drafter weights (lossless; speed only)"
+    if d:
+        vols += ("\n      - ./drafter:/drafter"
+                 + (f"   # {d['repo']}" if d.get("repo") else "   # z-lab DFlash drafter weights"))
     usage = ""
     if r.get("hf_repo"):
         rev = f" --revision {r['hf_revision']}" if r.get("hf_revision") else ""
+        dpull = ""
+        if d and d.get("repo"):
+            drev = f" --revision {d['revision']}" if d.get("revision") else ""
+            ncmt = f" (num_speculative_tokens={d['n']})" if d.get("n") else ""
+            dpull = ("# 1b) pull the z-lab DFlash drafter — lossless spec-decode; speed only"
+                     f"{ncmt}:\n#      hf download {d['repo']}{drev} --local-dir ./drafter\n")
         usage = ("#\n# 1) pull the exact weights this run benchmarked (sha256-verified upstream):\n"
                  f"#      hf download {r['hf_repo']}{rev} --local-dir ./weights\n"
-                 "# 2) docker compose up\n")
+                 f"{dpull}# 2) docker compose up\n")
     return _replicate_header(r) + "\n" + usage + f"""services:
   model:
     image: {image}

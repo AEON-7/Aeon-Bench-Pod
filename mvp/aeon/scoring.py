@@ -5,6 +5,8 @@ Speed is reported separately, never folded into the quality rank (DESIGN §14).
 """
 from __future__ import annotations
 
+import json
+
 from . import capabilities
 from . import db
 from . import suite as suite_mod
@@ -203,6 +205,52 @@ def _leaderboard_scoped(suite=None):
     return {"categories": suite_mod.CATEGORIES, "models": board}
 
 
+def _hw_label(env):
+    """Hardware label a run was benched on (detected wins; operator claim is the fallback)."""
+    hw = (env or {}).get("hardware") or {}
+    return hw.get("detected_label") or hw.get("label")
+
+
+def _quality_index():
+    """(canonical, hardware_label) -> best current-suite QUALITY composite, so the Performance
+    board can show each model's quality score alongside its speed. Also indexes (canonical, None)
+    as a hardware-agnostic fallback (quality is ~model-intrinsic; a model may have benched perf on
+    a rig it never ran the quality suite on). Current SUITE_ID only — legacy suites don't compare."""
+    rows = db.all_results_with_runs("text")
+    by_run = {}
+    for r in rows:
+        if r.get("harness") or (r.get("suite_id") or suite_mod.SUITE_ID) != suite_mod.SUITE_ID:
+            continue
+        by_run.setdefault(r["run"], {
+            "run": r["run"], "model": r["model"], "canonical": r.get("canonical_id") or r["model"],
+            "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
+            "trust_tier": r.get("trust_tier") or "self_reported", "started_at": r["started_at"],
+            "env_json": r.get("env_json"), "results": []})["results"].append(r)
+    idx = {}
+    for info in by_run.values():
+        comp = _run_summary(info)["composite"]
+        try:
+            label = _hw_label(json.loads(info.get("env_json") or "{}"))
+        except Exception:
+            label = None
+        for key in ((info["canonical"], label), (info["canonical"], None)):
+            cur = idx.get(key)
+            if cur is None or comp > cur["composite"]:      # keep the BEST quality run for this pairing
+                idx[key] = {"composite": comp, "run": info["run"]}
+    return idx
+
+
+def _lowest_conc_metric(c_lo, metric, agg):
+    """A single-stream metric at the lowest tested concurrency: prefer the 'overall' scope,
+    else aggregate across category scopes (agg=max for throughput, min for latency)."""
+    ov = (c_lo.get("overall") or {}).get(metric)
+    if isinstance(ov, (int, float)):
+        return ov
+    vals = [(c_lo.get(s) or {}).get(metric) for s in c_lo if s != "overall"]
+    vals = [x for x in vals if isinstance(x, (int, float))]
+    return agg(vals) if vals else None
+
+
 def perf_board():
     """PERFORMANCE board: one row per canonical model = its LATEST perf run (suite
     aeon-perf-v1), unpacked into two grids the dashboard can chart directly:
@@ -216,7 +264,8 @@ def perf_board():
         by_run.setdefault(r["run"], {
             "run": r["run"], "model": r["model"],
             "canonical": r.get("canonical_id") or r["model"],
-            "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
+            "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
+            "recipe": r.get("recipe"), "verified": r.get("model_verified"),
             "trust_tier": r.get("trust_tier") or "self_reported",
             "env": r.get("env") or {},
             "started_at": r["started_at"], "results": []})["results"].append(r)
@@ -225,6 +274,7 @@ def perf_board():
         c = info["canonical"]
         if c not in latest or (info["started_at"] or 0) > (latest[c]["started_at"] or 0):
             latest[c] = info
+    qidx = _quality_index()                          # (canonical, hw) -> best v3 quality composite
     models = []
     for c, info in latest.items():
         direct, harness, concs = {}, {}, set()
@@ -261,19 +311,36 @@ def perf_board():
         aggs = [(v.get("overall") or {}).get("agg_decode_tps") for v in direct.values()]
         aggs = [a for a in aggs if isinstance(a, (int, float))]
         hw = (info.get("env") or {}).get("hardware") or {}
+        hwlabel = hw.get("detected_label") or hw.get("label")
+        c_lo = (direct.get(min(concs)) if concs else {}) or {}    # single-stream = lowest concurrency
+        q = qidx.get((c, hwlabel)) or qidx.get((c, None))         # v3 quality composite for this model+hw
+        try:
+            recipe = json.loads(info.get("recipe") or "null")
+        except Exception:
+            recipe = None
         models.append({
             "model": info["hf_repo"] or info["model"], "canonical": c,
-            "hf_repo": info["hf_repo"], "verified": info["verified"],
+            "hf_repo": info["hf_repo"], "hf_revision": info.get("hf_revision"),
+            "verified": info["verified"],
             "trust_tier": info["trust_tier"], "run": info["run"],
             "started_at": info["started_at"],
             # hardware AS DETECTED on the bench machine; the operator's claim is the fallback
-            "hardware": hw.get("detected_label") or hw.get("label"),
+            "hardware": hwlabel,
             "conc_levels": sorted(concs),
-            "peak_agg_tps": max(aggs) if aggs else None,
+            # the four axes the recipe-discovery tool ranks on (per model, filterable by hardware):
+            "peak_agg_tps": max(aggs) if aggs else None,                     # throughput under load
+            "peak_single_tps": _lowest_conc_metric(c_lo, "decode_tps", max),  # single-stream speed
+            "latency": {"ttft_ms": _lowest_conc_metric(c_lo, "ttft_ms", min),
+                        "tpot_ms": _lowest_conc_metric(c_lo, "tpot_ms", min),
+                        "conc": min(concs) if concs else None},
+            "quality": (q or {}).get("composite"),                          # v3 composite (joined)
+            "quality_run": (q or {}).get("run"),
+            "recipe": recipe,               # raw serve recipe; the endpoint assembles docker_run + drafter
             "direct": direct, "harness": harness,
         })
     models.sort(key=lambda m: -(m["peak_agg_tps"] or 0))
-    return {"categories": suite_mod.CATEGORIES, "models": models}
+    hardwares = sorted({m["hardware"] for m in models if m["hardware"]})
+    return {"categories": suite_mod.CATEGORIES, "models": models, "hardwares": hardwares}
 
 
 def seed_index(board="text"):

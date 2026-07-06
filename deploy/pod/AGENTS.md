@@ -93,12 +93,17 @@ gets disclosed — pin them deliberately and they reproduce.
   2. VERIFY    modelhost.verify()     → sha256 every weight file → a content-addressed
                `weights_hash`; compare to HF's published LFS sha256. This is the SIGNATURE that the
                bytes on disk ARE exactly repo@sha as hosted on HF. (Refuse to serve on mismatch.)
-  3. SERVE     modelhost.derive_recipe() picks the engine and serves on the FIXED alias
-               `model-under-test`:
-                 • GGUF weights                              → llama.cpp
-                 • DGX Spark + aeon-vllm-ultimate available  → aeon-vllm-ultimate  (DEFAULT)
-                 • otherwise                                 → vanilla vLLM
-               The recipe (engine, context_len, quant, command) is recorded WITH the benchmark.
+  3. SERVE     modelhost.derive_recipe() builds the serve recipe on the FIXED alias
+               `model-under-test`. Engine: the operator's pick from the pod.engines catalog
+               (aeon-vllm-ultimate / vLLM / vLLM-ROCm / SGLang / llama.cpp — containerized
+               `docker run`; Apple MLX + LM Studio — bare-metal, recipe recorded identically;
+               custom image override allowed), else auto: GGUF → llama.cpp; DGX Spark +
+               aeon-vllm-ultimate → aeon-vllm-ultimate; Apple silicon → MLX; else vLLM.
+               RECIPE TUNING: operator flag overrides merge in (engines.merge_flags — matching
+               flags replaced, new appended; --served-model-name/--host/--port protected; the
+               64K context floor is enforced). An explicit DFlash drafter card is pulled +
+               hash-verified like the model and mounted at /drafter. The full recipe (engine,
+               image, flags, custom_flags, drafter repo@rev) is recorded WITH the benchmark.
   4. BENCH     aeon_pod.run_pod() runs the AEON suite against the served alias into a LOCAL SQLite
                dashboard (~/.aeon/pod.db — NEVER the mothership DB). The agentic suite is driven
                THROUGH each harness above; each agentic result records (harness, harness_version).

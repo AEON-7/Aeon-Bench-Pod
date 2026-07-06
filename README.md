@@ -47,9 +47,11 @@ Watch the **VALIDATED MODEL** light go green, pick the engine for your hardware 
 **aeon-vllm-ultimate** (AEON's own optimal engine, the one behind the official boards),
 **vLLM**, **SGLang**, **llama.cpp**, **vLLM ROCm**, a **custom image**, or the bare-metal pair:
 **Apple MLX** (macOS) and **LM Studio** (Windows/macOS/Linux host performance) — bare startup
-recipes are recorded exactly like docker recipes — and launch. The pod validates, serves,
-benchmarks, signs, submits: **attested**, replicable, on the global board, with the inference
-engine + hardware + full startup recipe shown on every result.
+recipes are recorded exactly like docker recipes. **⚙ Recipe tuning** exposes every common
+startup flag as an annotated control (64K context floor enforced), a **DFlash drafter** slot
+(the drafter's HF card is hash-validated like the model) and freeform extras — then launch.
+The pod validates, serves, benchmarks, signs, submits: **attested**, replicable, on the global
+board, with the inference engine + hardware + full startup recipe shown on every result.
 
 The mounts, in one line each: the **docker socket** lets the pod launch engine + harness
 containers; **aeon-pod-state** persists your ed25519 device key + local runs; **/models** (with

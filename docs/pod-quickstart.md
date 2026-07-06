@@ -27,7 +27,9 @@ hash-matched local copy is good as gold: **no re-download**; a manually-typed HF
 overrides the auto-reconciliation. The **VALIDATED MODEL** light goes green, you pick the
 **engine** for your hardware (aeon-vllm-ultimate / vLLM / SGLang / llama.cpp / vLLM-ROCm /
 custom image — or bare-metal **Apple MLX** and **LM Studio**, the Windows host-performance
-path), and launch. The pod **serves** the validated weights, **benchmarks** — driving the
+path), optionally open **⚙ RECIPE TUNING** (every common startup flag, annotated; 64K context
+floor enforced; a **DFlash drafter** slot that hash-validates the drafter's HF card like the
+model), and launch. The pod **serves** the validated weights, **benchmarks** — driving the
 agentic suite through **Hermes / OpenClaw / OpenCode** (versions disclosed) — and **submits**
 the ed25519-signed bundle: **attested**, with the inference engine, bench hardware, and exact
 startup recipe (docker or bare-metal, reported identically) on every result.

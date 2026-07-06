@@ -13,11 +13,38 @@ Three steps: **Execute a test → View your results → Submit results.** (Submi
 
 ## 1. Execute a test
 
-The pod lives in [`deploy/pod/`](../deploy/pod/). It pulls and **hash-verifies** the model weights
-from Hugging Face, serves the model locally (vLLM, or `aeon-vllm-ultimate` on a DGX Spark), drives
-the AEON suite through the three agent harnesses, and submits the signed result.
+The pod pulls and **hash-verifies** the model weights from Hugging Face, serves the model in the
+engine you pick, drives the AEON suite through the three agent harnesses, and submits the signed
+result.
 
-### 1.1 Get the repo
+### 1.0 The dashboard way (recommended) — prebuilt container, everything from the GUI
+
+```bash
+docker run -d --name aeon-pod --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  ghcr.io/aeon-7/aeon-pod:latest
+# open http://localhost:8091 → Run tab     (macOS: -p 8091:8091 instead of --network host)
+```
+
+From the **Run tab**:
+
+1. **Pick the model** — paste an HF link, **⌕ scan system** (every model already on disk: HF
+   cache, LM Studio library, AEON pulls — each auto-reconciled to its HF card), or **▤ browse**.
+   A hash-matched local copy is good as gold — **no re-download**. Wait for the green
+   **VALIDATED MODEL** light.
+2. **Pick the engine** — **aeon-vllm-ultimate** (AEON's own boards run this), **vLLM**,
+   **SGLang**, **llama.cpp** (GGUF), **vLLM-ROCm** (AMD), a **custom image**, or bare-metal
+   **Apple MLX** / **LM Studio** (startup recipe recorded exactly like a docker recipe).
+3. **Tune the recipe (optional)** — **⚙ RECIPE TUNING** exposes every common startup flag as an
+   annotated control (the 64K context floor is enforced — Hermes rejects less), a **DFlash
+   drafter** slot (paste the drafter's HF card: validated like the model, mounted at `/drafter`,
+   preset `n` configs — spec decode is lossless, speed only) and freeform extra flags. The final
+   recipe travels with the result and is downloadable as `serve.sh` / `compose.yml`.
+4. **Launch.** Validate → serve → benchmark → sign → submit **attested**.
+
+### 1.1 Alternative: the compose pipeline (build from source)
 
 ```bash
 git clone https://github.com/AEON-7/Aeon-Bench-Pod.git
@@ -48,7 +75,8 @@ Useful optional vars (full list documented in `deploy/pod/.env.example`):
 
 - `AEON_SYSTEM=dgx-spark` — on an NVIDIA DGX Spark, makes the pod default to the first-party
   `aeon-vllm-ultimate` engine.
-- `AEON_ENGINE` — pin the engine (`vllm` | `aeon-vllm-ultimate` | `llama.cpp`).
+- `AEON_ENGINE` — pin the engine (`aeon-vllm-ultimate` | `vllm` | `vllm-rocm` | `sglang` |
+  `llama.cpp` | `mlx` | `lmstudio`); the dashboard's engine dropdown sets this for you.
 - `AEON_HARDWARE` — a label recorded with the run, e.g. `"NVIDIA DGX Spark GB10 128GB"`.
 - `AEON_JUDGE` / `AEON_JUDGE_URL` / `AEON_JUDGE_KEY` — a **frontier** judge for subjective Tier-1
   cases. Leave empty for deterministic-only scoring. **Never** the model under test judging itself.

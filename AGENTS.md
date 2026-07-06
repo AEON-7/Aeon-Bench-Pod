@@ -28,7 +28,36 @@ serve gives a **self-reported** run (useful locally, never globally ranked).
 - Optional native path: **Python 3.11+** (`pip install -r mvp/requirements.txt`).
 - **~2× the model's disk size** free for the verified weight snapshot + HF cache.
 
-## Fastest path — one command (Docker Compose)
+## Fastest path — the prebuilt dashboard container (one command)
+
+```bash
+docker run -d --name aeon-pod --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  ghcr.io/aeon-7/aeon-pod:latest
+# open http://localhost:8091 → Run tab       (macOS: -p 8091:8091 instead of --network host)
+```
+
+Everything happens from the **Run tab**:
+
+- **Model** — paste an HF link, hit **⌕ scan system** (finds every model already on disk — HF
+  cache, LM Studio library, AEON pulls — auto-reconciled to its HF card), or **▤ browse**. A
+  hash-matched local copy is good as gold: **no re-download**. The **VALIDATED MODEL** light
+  goes green when the identity is proven.
+- **Engine** — pick the serve container for your hardware: **aeon-vllm-ultimate** (the engine
+  behind AEON's own boards), **vLLM**, **SGLang**, **llama.cpp** (GGUF), **vLLM-ROCm** (AMD), a
+  **custom image** — or the bare-metal pair, **Apple MLX** (macOS) and **LM Studio**
+  (Windows/host performance); bare startup recipes are recorded exactly like docker recipes.
+- **⚙ Recipe tuning** — every common startup flag as an annotated control (context floor 64K
+  enforced — Hermes rejects less; GB10 gpu-util 0.70 OOM-safe; etc.), a **DFlash drafter** slot
+  (paste the drafter's HF card → validated like the model, mounted at `/drafter`, preset n
+  configs) and freeform extra flags. The final recipe is recorded, shown on the result, and
+  downloadable — every tuned run is a data point in the optimal-recipe search.
+- Launch → hash-validate → serve → benchmark (fresh agentic-harness container per task:
+  Hermes / OpenClaw / OpenCode) → **ed25519-sign → submit attested**.
+
+## Alternative — full pipeline via Compose (build from source)
 
 ```bash
 cp deploy/pod/.env.example .env      # then edit .env
@@ -38,27 +67,15 @@ cp deploy/pod/.env.example .env      # then edit .env
 docker compose -f deploy/pod/docker-compose.yml up --build
 ```
 
-What happens: the `pull` step resolves the HF link, downloads + **hash-verifies** the weights;
-the engine serves them on the fixed alias `model-under-test`; the pod benchmarks that alias —
-**spinning up a fresh agentic-harness container per task** (Hermes / OpenClaw / OpenCode, built
-from latest upstream on first `up`) — then submits the signed bundle. The first build takes a
-few minutes (three harness images); later runs reuse them.
+The `pull` step resolves the HF link, downloads + **hash-verifies** the weights; the engine
+serves them on the fixed alias `model-under-test`; the pod benchmarks that alias and submits
+the signed bundle. First `up` builds the three harness images; later runs reuse them.
 
 > **DGX Spark / GB10:** set `AEON_SYSTEM=dgx-spark` and use the first-party engine image
 > `ghcr.io/aeon-7/aeon-vllm-ultimate:latest` (DFlash speculative decoding). See its startup
 > guide at `github.com/AEON-7/vllm-ultimate-dgx-spark`. **Serve ≥64K context** (`--max-model-len
-> 65536`) — the Hermes harness rejects models reporting a <64K window.
-
-## Native path — the pod dashboard (GUI)
-
-```bash
-cd mvp && pip install -r requirements.txt
-AEON_ROLE=pod python serve.py         # http://localhost:8080
-```
-
-Open the dashboard and use the **Run** tab: point at a running model for a quick local run, or
-paste a HuggingFace link for a one-button **verified** run. It shows live per-category progress
-and streams the prompt/answer feed. Saved API keys / HF tokens are stored only in this pod.
+> 65536`) — the Hermes harness rejects models reporting a <64K window (the pod enforces this
+> floor on tuned recipes automatically).
 
 ## Config surface (`.env` / environment)
 

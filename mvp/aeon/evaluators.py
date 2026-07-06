@@ -296,19 +296,29 @@ def _parse_verdict(text):
 
 
 def eval_tier1(case, candidate, judge):
-    """judge: a FRONTIER-model Target with .chat(), or None. With judge=None only fully
-    deterministic (tier0-shadowed) cases are scored; a case carrying any subjective criterion
-    needs a frontier judge and is left UNSCORED — the model under test never judges itself."""
+    """judge: a FRONTIER-model Target with .chat(), or None.
+
+    With judge=None the DETERMINISTIC (tier0-shadowed) criteria still score: an OPTIONAL
+    (required=False) subjective criterion is excluded from the weight denominator and recorded
+    as judge_pending — one optional judge-only nicety must not zero a whole category out of
+    the composite (the v3 Prose bug). A case with a REQUIRED subjective criterion genuinely
+    cannot be scored without a frontier judge and stays UNSCORED — the model under test never
+    judges itself."""
     crits = case["eval"]["rubric"]
-    if judge is None and any("tier0_check" not in cr for cr in crits):
+    if judge is None and any("tier0_check" not in cr and cr.get("required") for cr in crits):
         return None, {"tier": 1, "needs_frontier_judge": True,
-                      "note": "subjective criteria require a frontier judge (no self / no weak judge)"}
+                      "note": "a REQUIRED subjective criterion needs a frontier judge (no self / no weak judge)"}
     out = []
     total_w = 0.0
     got_w = 0.0
     required_failed = False
     for cr in crits:
         w = cr.get("weight", 1.0)
+        if judge is None and "tier0_check" not in cr:  # optional subjective without a judge:
+            out.append({"id": cr["id"], "question": cr["question"], "satisfied": None,
+                        "evidence": "judge_pending — optional criterion excluded from the score",
+                        "decided_by": "judge_pending", "required": False})
+            continue                                   # excluded from total_w — not counted against
         total_w += w
         if "tier0_check" in cr:                       # program decides — authoritative
             sat, ev, decided_by = (*run_checker(cr["tier0_check"], candidate), "tier0_shadow")

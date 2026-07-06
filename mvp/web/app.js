@@ -241,8 +241,18 @@ function renderBoard() {
       `<div class="catchip"><span class="catk">${escH(c)}</span>${cellBar(m.categories[c])}</div>`).join("");
     const covCell = cfg.coverage
       ? `<div class="spdchip"><span class="catk">coverage</span><span class="catv">${m.coverage || "—"}</span></div>` : "";
-    const spdCells = speedDefs.map((s) =>
-      `<div class="spdchip"><span class="catk">${escH(s[1])}</span><span class="catv">${s[2] ? s[2](m[s[0]]) : (m[s[0]] != null ? Math.round(m[s[0]]) : "—")}</span></div>`).join("");
+    const spdCells = speedDefs.map((s) => {
+      let label = s[1], val = m[s[0]], tip = "";
+      // The quality bench runs its cases CONCURRENTLY, so per-stream tok/s is throttled by
+      // design — when the run recorded its test concurrency, show the AGGREGATE throughput
+      // the model actually sustained under that load (the honest raw-throughput number).
+      if (s[0] === "avg_decode_tps" && m.agg_tps != null) {
+        val = m.agg_tps;
+        label = "agg tok/s" + (m.bench_concurrency ? "·c" + m.bench_concurrency : "");
+        tip = ` title="aggregate throughput under the bench's concurrent test load (total generated tokens ÷ wall-clock at c${m.bench_concurrency || "?"}); single-stream speed lives on the Performance tab"`;
+      }
+      return `<div class="spdchip"${tip}><span class="catk">${escH(label)}</span><span class="catv">${s[2] ? s[2](val) : (val != null ? Math.round(val) : "—")}</span></div>`;
+    }).join("");
     const vram = m.vram_est_gb != null
       ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
     const band = m.comp >= 80 ? "pass" : m.comp >= 40 ? "part" : "fail";

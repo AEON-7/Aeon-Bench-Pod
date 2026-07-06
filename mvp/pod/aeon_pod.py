@@ -166,7 +166,8 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     mean = sum(scored) / len(scored) if scored else 0.0
     print(f"[pod] local result: mean {mean:.3f} over {len(scored)} scored / {n} cases")
 
-    env = {"hardware": _hardware_profile(hardware), "engine": {"name": engine}, "runner": "aeon-pod"}
+    env = {"hardware": _hardware_profile(hardware), "engine": {"name": engine}, "runner": "aeon-pod",
+           "concurrency": concurrency}
     pod = Pod(mothership, key_path or os.path.expanduser("~/.aeon/device_key.pem"))
     st, r = pod.run_and_submit(model, suite_id or suite_mod.SUITE_ID, results, board=board,
                                suite_hash=suite_mod.suite_hash(), environment=env,
@@ -731,7 +732,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             "hardware": _hardware_profile(hardware),
         }
         env = {"hardware": _hardware_profile(hardware), "engine": {"name": recipe["engine"]},
-               "runner": "aeon-pod-controlled"}
+               "runner": "aeon-pod-controlled", "concurrency": concurrency}
         # provenance that travels with EVERY submission from this run (suite + each harness) and
         # lets the mothership re-verify the model identity against HF before it counts as attested.
         provenance = dict(hf_repo=repo, hf_revision=ver["revision"], weights_hash=ver["weights_hash"],
@@ -821,7 +822,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
         "hf": {"repo": repo, "revision": rev}, "hardware": _hardware_profile(hardware),
     }
     env = {"hardware": _hardware_profile(hardware), "engine": {"name": recipe.get("engine")},
-           "runner": "aeon-pod-controlled"}
+           "runner": "aeon-pod-controlled", "concurrency": concurrency}
     provenance = dict(hf_repo=repo, hf_revision=rev, weights_hash=ver.get("weights_hash"),
                       weights_per_file=ver.get("per_file") or {}, recipe=recipe,
                       deployment_manifest=deployment_manifest, bench_seed=bench_seed)

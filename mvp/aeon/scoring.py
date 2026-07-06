@@ -64,10 +64,13 @@ def _run_summary(info):
     a reasoning model is slow on reasoning prompts, fast on lookups)."""
     cats, ttfts, tpss, e2es, crv = {}, [], [], [], {}
     cat_sp = {}   # category -> {ttft:[], tps:[], e2e:[]}
+    out_toks, busy_ms = 0, 0.0
     for r in info["results"]:
         sp = r.get("speed") or {}
         c = r["category"]
         ttfts.append(sp.get("ttft_ms")); tpss.append(sp.get("decode_tps")); e2es.append(sp.get("e2e_ms"))
+        if sp.get("output_tokens") and sp.get("e2e_ms"):
+            out_toks += sp["output_tokens"]; busy_ms += sp["e2e_ms"]
         b = cat_sp.setdefault(c, {"ttft": [], "tps": [], "e2e": []})
         b["ttft"].append(sp.get("ttft_ms")); b["tps"].append(sp.get("decode_tps")); b["e2e"].append(sp.get("e2e_ms"))
         if r["score"] is not None:
@@ -77,6 +80,14 @@ def _run_summary(info):
     cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
     composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
     tier = info.get("trust_tier") or "self_reported"
+    # AGGREGATE throughput under the run's actual test load: with N cases in flight the
+    # per-stream number is throttled by design, so the honest raw-throughput figure is total
+    # generated tokens over the run's busy wall-clock (sum of per-case time / lanes). Only
+    # computable when the run recorded its bench concurrency (env.concurrency, new pods).
+    conc = (info.get("environment") or {}).get("concurrency")
+    agg_tps = None
+    if conc and conc > 1 and out_toks and busy_ms:
+        agg_tps = round(out_toks / ((busy_ms / 1000.0) / conc), 1)
     return {
         "run": info["run"], "model": info["model"], "canonical": info["canonical"],
         "hf_repo": info["hf_repo"], "verified": info["verified"], "started_at": info["started_at"],
@@ -85,6 +96,7 @@ def _run_summary(info):
         "composite": composite, "categories": cat_scores,
         "creativity": {c: round(sum(v) / len(v), 2) for c, v in crv.items()},
         "avg_ttft_ms": _avg(ttfts), "avg_decode_tps": _avg(tpss), "avg_e2e_ms": _avg(e2es),
+        "agg_tps": agg_tps, "bench_concurrency": conc,
         "category_speed": {c: {"ttft_ms": _avg(b["ttft"]), "decode_tps": _avg(b["tps"]),
                                "e2e_ms": _avg(b["e2e"])} for c, b in cat_sp.items()},
         "n_cases": len(info["results"]),
@@ -132,13 +144,19 @@ def _leaderboard_scoped(suite=None):
             continue
         if not _in_scope(r.get("suite_id")):
             continue
-        by_run.setdefault(r["run"], {
-            "run": r["run"], "model": r["model"],
-            "canonical": r.get("canonical_id") or r["model"],
-            "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
-            "trust_tier": r.get("trust_tier") or "self_reported",
-            "bench_seed": r.get("bench_seed"), "suite_hash": r.get("suite_hash"),
-            "started_at": r["started_at"], "results": []})["results"].append(r)
+        if r["run"] not in by_run:
+            try:
+                renv = json.loads(r.get("env_json") or "{}")
+            except Exception:
+                renv = {}
+            by_run[r["run"]] = {
+                "run": r["run"], "model": r["model"],
+                "canonical": r.get("canonical_id") or r["model"],
+                "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
+                "trust_tier": r.get("trust_tier") or "self_reported",
+                "bench_seed": r.get("bench_seed"), "suite_hash": r.get("suite_hash"),
+                "started_at": r["started_at"], "environment": renv, "results": []}
+        by_run[r["run"]]["results"].append(r)
 
     runs = [_run_summary(info) for info in by_run.values()]
 
@@ -192,6 +210,9 @@ def _leaderboard_scoped(suite=None):
             "avg_ttft_ms": _avg([r["avg_ttft_ms"] for r in agg]),
             "avg_decode_tps": _avg([r["avg_decode_tps"] for r in agg]),
             "avg_e2e_ms": _avg([r["avg_e2e_ms"] for r in agg]),
+            # concurrent throughput under test load (runs that recorded their concurrency)
+            "agg_tps": _avg([r.get("agg_tps") for r in agg]),
+            "bench_concurrency": max((r.get("bench_concurrency") or 0 for r in agg), default=0) or None,
             "n_cases": latest["n_cases"],
             "vram_est_gb": vram.estimate_gb(display),
             "tags": capabilities.model_tags(display, mean_cats, "text"),

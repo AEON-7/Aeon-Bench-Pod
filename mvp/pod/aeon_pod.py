@@ -462,13 +462,22 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    suite_id=None, key_path=None, weights_dir=None, keep_weights=False,
                    port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
-                   per_cell=1, difficulty=None, category=None, vision=True, concurrency=1):
+                   per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
+                   local_dir=None, serve_url=None, engine_image=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
       with full provenance (weights hash + recipe + build hash). The mothership re-verifies the
       per-file hashes against HF before it counts. Serving + the real harness CLIs run on the GPU
-      host; everything else here is portable."""
+      host; everything else here is portable.
+
+    `local_dir`   — weights ALREADY on disk: hash-validated against the HF manifest instead of
+                    re-downloaded ("good as gold" when the bytes match); never deleted.
+    `serve_url`   — an operator-started serve of THOSE validated weights (the macOS/MLX bare-metal
+                    path, where the containerized dashboard cannot spawn a host process): the pod
+                    validates + benches + signs, and the bare startup recipe is recorded exactly
+                    like a docker recipe.
+    `engine_image`— custom container image override for the chosen engine (recorded)."""
     os.environ.pop("AEON_DB_URL", None)              # pod state is LOCAL SQLite, never the mothership DB
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
     os.makedirs(os.path.dirname(os.environ["AEON_DB"]), exist_ok=True)
@@ -498,9 +507,16 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     ref = modelhost.fetch_ref(repo, rev)
     print(f"[pod] HF commit {(ref.get('sha') or '?')[:12]} — {len(ref.get('files') or {})} files advertised")
 
-    dest = weights_dir or os.path.expanduser(f"~/.aeon/models/{repo.replace('/', '__')}")
-    print(f"[pod] pulling weights -> {dest}  (first run can take a while)")
-    local_dir = modelhost.pull(repo, ref.get("revision") or rev, dest)
+    if local_dir:                                   # weights already on disk: validate, don't re-pull
+        local_dir = os.path.abspath(os.path.expanduser(local_dir))
+        keep_weights = True                          # NEVER delete a user-supplied model dir
+        print(f"[pod] LOCAL weights {local_dir} — hash-validating against {repo}@{rev} (no re-download)")
+    else:
+        mdl_root = os.environ.get("AEON_MODELS_DIR")           # containerized dashboard: /models volume
+        dest = weights_dir or (os.path.join(mdl_root, repo.replace("/", "__")) if mdl_root
+                               else os.path.expanduser(f"~/.aeon/models/{repo.replace('/', '__')}"))
+        print(f"[pod] pulling weights -> {dest}  (first run can take a while)")
+        local_dir = modelhost.pull(repo, ref.get("revision") or rev, dest)
 
     ver = modelhost.verify(local_dir, ref)
     if not ver["verified"]:
@@ -511,11 +527,19 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     print(f"[pod] verified: weights_hash={ver['weights_hash'][:16]}… method={ver['method']} "
           f"({ver['lfs_checked']} LFS-checked / {ver['n_weight_files']} weight files)")
 
-    recipe = modelhost.derive_recipe(local_dir, ref, port=port, engine=engine)
+    recipe = modelhost.derive_recipe(local_dir, ref, port=port, engine=engine, image=engine_image)
     alias = recipe["served_alias"]
-    print(f"[pod] recipe: {recipe['engine']} (ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
+    print(f"[pod] recipe: {recipe['engine']} ({recipe.get('serve_mode', 'bare')}, "
+          f"ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
           + (f"  [{recipe['reason']}]" if recipe.get("reason") else ""))
-    harness_ids = _skip_short_ctx_harnesses(harness_ids, recipe)
+    if recipe.get("no_harness"):                     # e.g. MLX: no served-alias contract for harnesses
+        print("[pod] harness pass skipped for this engine (no served-alias contract)")
+        harness_ids = []
+    else:
+        harness_ids = _skip_short_ctx_harnesses(harness_ids, recipe)
+    if serve_url:                                    # operator-started serve (macOS/MLX bare metal)
+        serve = False
+        print(f"[pod] external serve: benching {serve_url} against the validated weights")
 
     # z-lab DFlash drafter auto-discovery (spec decode is LOSSLESS — speed only). Best-effort:
     # any probe/pull failure here falls back to plain decode, never blocking the serve.
@@ -533,9 +557,10 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")
 
     server = _serve(recipe) if serve else None
-    target = f"http://127.0.0.1:{port}/v1"
+    target = serve_url or f"http://127.0.0.1:{port}/v1"
     try:
-        ids = _wait_ready(target) if serve else [alias]
+        # for an operator-started serve (serve_url) we ALSO wait: the user may still be launching it
+        ids = _wait_ready(target) if (serve or serve_url) else [alias]
         served_ok = alias in ids
         print(f"[pod] engine ready; served = {ids}  (alias present: {served_ok})")
 
@@ -600,6 +625,9 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         return st, r
     finally:
         _stop(server)
+        if recipe.get("container_name") and serve:   # docker-served: make cleanup unconditional —
+            subprocess.run(["docker", "rm", "-f", recipe["container_name"]],   # SIGTERM on the client
+                           capture_output=True, timeout=60)                    # can strand the container
         if not keep_weights:
             print(f"[pod] removing weights {local_dir} (use --keep-weights to retain)")
             shutil.rmtree(local_dir, ignore_errors=True)
@@ -763,6 +791,14 @@ def main():
     ap.add_argument("--hf-link", default=None, help="HuggingFace link/repo — CONTROLLED A→B: "
         "pull → hash-verify → serve → bench → harnesses → sign. The ONLY path to the global board.")
     ap.add_argument("--port", type=int, default=8000, help="port the controlled engine serves on")
+    ap.add_argument("--local-dir", default=None, help="model ALREADY on disk: hash-validated against "
+        "the --hf-link repo's manifest instead of re-downloaded (good as gold when the bytes match); "
+        "never deleted")
+    ap.add_argument("--serve-url", default=None, help="operator-started serve of the validated weights "
+        "(macOS/MLX bare-metal path): the pod validates + benches this URL + signs; the bare startup "
+        "recipe is recorded like a docker recipe")
+    ap.add_argument("--engine-image", default=os.environ.get("AEON_ENGINE_IMAGE"),
+        help="custom container image for the chosen --engine (recorded with the run)")
     ap.add_argument("--weights-dir", default=None, help="where to pull weights (default ~/.aeon/models/...)")
     ap.add_argument("--keep-weights", action="store_true", help="retain downloaded weights after the run")
     ap.add_argument("--no-serve", action="store_true", help="model already served at --port (skip launching the engine)")
@@ -776,7 +812,9 @@ def main():
     # shared:
     ap.add_argument("--mothership", required=True, help="mothership base URL, e.g. http://localhost:8090")
     ap.add_argument("--api-key", default=os.environ.get("AEON_API_KEY"))
-    ap.add_argument("--engine", default=None, help="vllm|llama.cpp|ollama|lmstudio|aeon-vllm-ultimate")
+    ap.add_argument("--engine", default=None, help="catalog engine id: aeon-vllm-ultimate|vllm|"
+        "vllm-rocm|sglang|llama.cpp|mlx (containerized recipes; mlx = macOS bare metal) — or a "
+        "legacy label (ollama|lmstudio) for --target runs")
     ap.add_argument("--hardware", default=None, help="hardware label, e.g. 'NVIDIA DGX Spark GB10 128GB'")
     ap.add_argument("--hf-repo", default=None, help="(local path) HF repo id to claim for identity")
     ap.add_argument("--board", default="text")
@@ -869,7 +907,8 @@ def main():
             temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key,
             harness_ids=hids, limit=a.limit, serve=not a.no_serve, fast=a.fast, seed=a.seed,
             per_cell=a.per_cell, difficulty=a.difficulty, category=a.category, vision=not a.no_vision,
-            concurrency=a.concurrency)
+            concurrency=a.concurrency, local_dir=a.local_dir, serve_url=a.serve_url,
+            engine_image=a.engine_image)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,

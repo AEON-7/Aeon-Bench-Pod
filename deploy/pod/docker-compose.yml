@@ -89,7 +89,7 @@ services:
   # the SAME `model-under-test` alias on :8000, so nothing else changes. Example:
   #
   #   model-under-test:
-  #     image: ${AEON_ULTIMATE_IMAGE:-ghcr.io/aeon-bench/aeon-vllm-ultimate:latest}  # TODO verify tag/digest
+  #     image: ${AEON_ULTIMATE_IMAGE:-ghcr.io/aeon-7/aeon-vllm-ultimate:latest}
   #     command: ["serve", "/weights", "--served-model-name", "model-under-test",
   #               "--host", "0.0.0.0", "--port", "8000", "--max-model-len", "${AEON_MAX_MODEL_LEN:-65536}"]
   #   (cosign-verify the digest first — see trust-architecture §2.2 first-party exception.)

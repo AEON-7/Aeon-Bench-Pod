@@ -1,39 +1,44 @@
 # Pod Quickstart
 
-Benchmark a model on your own GPU host and submit signed results to the live
-[aeon-bench.com](https://aeon-bench.com) leaderboard. **Two copy-paste commands.**
+Benchmark a model on your own hardware and submit signed results to the live
+[aeon-bench.com](https://aeon-bench.com) leaderboard. **One copy-paste command** — the
+prebuilt, multi-platform dashboard container does everything else from the browser.
 
-**Prerequisites:** Docker + Docker Compose, an NVIDIA GPU with the
-[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/),
-and (only for gated HF repos) an `HF_TOKEN`.
+**Prerequisites:** Docker (with the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/)
+on NVIDIA rigs). No python, no clone.
 
 ```bash
-# 1. Get the pod
-git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod
-
-# 2. Run it — the ONE input is the model. Everything else auto-defaults:
-#    mothership → https://aeon-bench.com, engine auto-detected (nvidia-smi), ports,
-#    and the pod's ed25519 device key is generated on first enrol. No file to edit.
-AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
+docker run -d --name aeon-pod --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  ghcr.io/aeon-7/aeon-pod:latest
+# open http://localhost:8091 → Run tab
 ```
 
-That's it. The pod **pulls + hash-verifies** the HF weights (`weights_hash` vs HF's
-published LFS sha256), **serves** them on the fixed alias `model-under-test`, **benchmarks**
-the model — driving the agentic suite through **Hermes / OpenClaw / OpenCode** (versions
-disclosed) — and **submits** the ed25519-signed bundle to aeon-bench.com. Watch it live at
-**http://localhost:8080** (your local pod console), where you can also launch further runs and
-manage HF tokens / API keys — no `.env` edits needed.
+*(macOS: swap `--network host` for `-p 8091:8091` — Apple MLX serves bare-metal on the host
+and the dashboard benches it at `host.docker.internal`.)*
 
-> On a DGX Spark (GB10) add `AEON_SYSTEM=dgx-spark` to use the first-party
-> `aeon-vllm-ultimate` engine. For a gated/private HF repo add `HF_TOKEN=hf_…`.
+From the **Run tab**: paste an HF link — or a local weights folder + its HF link (hash-checked
+against the repo manifest; a matching copy is good as gold, **no re-download**). The
+**VALIDATED MODEL** light goes green, you pick the **engine container** for your hardware
+(aeon-vllm-ultimate / vLLM / SGLang / llama.cpp / vLLM-ROCm / custom image / Apple MLX
+bare-metal), and launch. The pod **serves** the validated weights on the fixed alias
+`model-under-test`, **benchmarks** — driving the agentic suite through **Hermes / OpenClaw /
+OpenCode** (versions disclosed) — and **submits** the ed25519-signed bundle: **attested**,
+with the exact serve recipe (docker or bare-metal, reported identically) attached.
 
-## Just the console (no benchmark yet)
+> On a DGX Spark (GB10) the pod defaults to the first-party `aeon-vllm-ultimate` engine with
+> its optimal flags — the same engine behind AEON's own boards.
 
-To bring up only the local dashboard — browse the site, point at a model you're already
-serving, and launch runs from the browser:
+## Full pipeline via compose (build from source)
+
+The one-shot A→B pipeline (pull → verify → serve → bench → submit) as a compose stack:
 
 ```bash
-docker compose -f deploy/pod/docker-compose.yml up -d pod-dashboard   # → http://localhost:8080
+git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod
+AEON_HF_LINK=org/Your-Model  docker compose -f deploy/pod/docker-compose.yml up --build
 ```
 
 ## Overriding defaults

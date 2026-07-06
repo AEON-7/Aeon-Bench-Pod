@@ -145,11 +145,15 @@ def _ultimate_supports(files) -> bool:
     return not any(f.endswith(".gguf") for f in files)
 
 
-def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None) -> dict:
+def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None,
+                  image=None) -> dict:
     """Serving recipe from the local config.json + HF card. Engine selection:
       - GGUF weights -> llama.cpp
       - **DGX Spark + aeon-vllm-ultimate available + supported -> aeon-vllm-ultimate (DEFAULT)**
-      - otherwise -> vanilla vLLM
+      - a CATALOG engine id (pod.engines: vllm / vllm-rocm / sglang / llama.cpp / mlx /
+        aeon-vllm-ultimate) -> that engine's containerized `docker run` recipe (bare-metal for
+        MLX — macOS can't run MLX in containers), with `image=` overriding the container image;
+      - otherwise -> vanilla vLLM on PATH (legacy bare-metal fallback)
     `engine=` pins a specific engine; the user can also override the whole recipe. Whatever is
     used is recorded WITH the benchmark for reproducibility."""
     cfg = {}
@@ -177,22 +181,52 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
 
     gguf = next((os.path.join(r, f) for r, _, fs in os.walk(local_dir)
                  for f in fs if f.endswith(".gguf")), None)
+
+    from pod import engines as engmod
+    base = {"served_alias": alias, "port": port, "source": "auto",
+            "architecture": arch, "context_len": ctx, "quant": quant}
+
+    # An explicit catalog engine (Run-tab dropdown / --engine) -> that engine's containerized
+    # recipe; a custom `image` rides along and is recorded. MLX serves the LOCAL DIR bare-metal
+    # and its served id is that path (mlx_lm.server has no alias flag), recorded as such.
+    plat = engmod.host_platform()
+    if engine in engmod.ENGINES and (engine != "aeon-vllm-ultimate" or not aeon_vllm_ultimate_launcher()):
+        srv = engmod.build_serve(engine, local_dir=local_dir, alias=alias, port=port, ctx=ctx,
+                                 quant=quant, image=image, plat=plat)
+        if srv["engine"] == "mlx":
+            base["served_alias"] = os.path.abspath(local_dir)
+        return {**base, **srv}
+
     if gguf and engine not in ("vllm", "aeon-vllm-ultimate"):
-        return {"engine": "llama.cpp", "served_alias": alias, "port": port, "source": "auto",
-                "architecture": arch, "context_len": ctx,
+        if plat.get("docker") and os.environ.get("AEON_BARE_SERVE") != "1":
+            return {**base, **engmod.build_serve("llama.cpp", local_dir=local_dir, alias=alias,
+                                                 port=port, ctx=ctx, image=image, plat=plat)}
+        return {**base, "engine": "llama.cpp", "serve_mode": "bare",
                 "command": ["llama-server", "-m", gguf, "-c", str(ctx),
                             "--host", "0.0.0.0", "--port", str(port), "--alias", alias]}
+
+    # Apple silicon default: MLX bare-metal (macOS cannot run MLX — or CUDA vLLM — in containers).
+    if engine is None and plat.get("accel") == "metal":
+        srv = engmod.build_serve("mlx", local_dir=local_dir, alias=alias, port=port, ctx=ctx, plat=plat)
+        base["served_alias"] = os.path.abspath(local_dir)
+        return {**base, **srv, "reason": "Apple silicon default: MLX (bare metal)"}
 
     ult = aeon_vllm_ultimate_launcher()
     use_ultimate = (engine == "aeon-vllm-ultimate") or (
         engine is None and is_dgx_spark() and bool(ult) and _ultimate_supports(local_files))
+    if not use_ultimate and engine is None and plat.get("docker") and not shutil.which("vllm") \
+            and os.environ.get("AEON_BARE_SERVE") != "1":
+        # no serve binary on PATH but docker IS here (e.g. the containerized dashboard):
+        # default to the platform's containerized flagship instead of failing on Popen.
+        return {**base, **engmod.build_serve(engmod.recommended_engine(plat),
+                                             local_dir=local_dir, alias=alias, port=port,
+                                             ctx=ctx, quant=quant, image=image, plat=plat)}
     launcher, eng = (ult or "aeon-vllm-ultimate", "aeon-vllm-ultimate") if use_ultimate else ("vllm", "vllm")
     cmd = [launcher, "serve", local_dir, "--served-model-name", alias,
            "--host", "0.0.0.0", "--port", str(port), "--max-model-len", str(ctx)]
     if quant:
         cmd += ["--quantization", str(quant)]
-    recipe = {"engine": eng, "served_alias": alias, "port": port, "source": "auto",
-              "architecture": arch, "context_len": ctx, "quant": quant, "command": cmd}
+    recipe = {**base, "engine": eng, "serve_mode": "bare", "command": cmd}
     if use_ultimate and engine is None:
         recipe["reason"] = "DGX Spark default: aeon-vllm-ultimate"
     return recipe

@@ -142,6 +142,7 @@ def perf_board():
         recipe = m.pop("recipe", None)               # raw recipe stays server-side; expose the assembly
         m["reproduction"] = {
             "docker_run_assembled": _docker_cmd(recipe, m.get("hf_repo"), m.get("hf_revision")),
+            "bare_cmd": (recipe or {}).get("bare_cmd"),   # MLX bare-metal recipe, same card
             "image": (recipe or {}).get("image"),
             "engine": (recipe or {}).get("engine"),
             "engine_version": (recipe or {}).get("engine_version"),
@@ -833,6 +834,10 @@ def _reproduction(r):
         "engine": (recipe or {}).get("engine") if recipe else None,
         "engine_version": (recipe or {}).get("engine_version") if recipe else None,
         "docker_run": (recipe or {}).get("docker_run") if recipe else None,
+        # bare-metal serves (Apple MLX — macOS can't run MLX in a container) report their startup
+        # recipe EXACTLY like a docker recipe: same card, honestly labeled.
+        "bare_cmd": (recipe or {}).get("bare_cmd") if recipe else None,
+        "serve_mode": (recipe or {}).get("serve_mode") if recipe else None,
         "flags": (recipe or {}).get("flags") if recipe else None,
         "spec_decode": (recipe or {}).get("spec_decode") if recipe else None,
         # DFlash drafter disclosure (repo + revision + n) so viewers can truly replicate spec-decode
@@ -1181,7 +1186,10 @@ class PodVerifiedRunBody(BaseModel):
     category: str | None = None         # None = all categories; comma-list scopes the text suite
     preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
     hf_token_name: str | None = None    # saved secret name for a gated/private repo token
-    engine: str | None = None
+    engine: str | None = None           # catalog engine id (pod.engines) — the Run-tab dropdown
+    engine_image: str | None = None     # custom container image override (recorded with the run)
+    local_dir: str | None = None        # model already on disk: hash-validate, don't re-download
+    serve_url: str | None = None        # operator-started serve (macOS/MLX bare-metal path)
     port: int | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
@@ -1239,8 +1247,56 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
     jid = jobs.submit_verified(body.hf_link.strip(), difficulty=(body.difficulty or None),
         category=(body.category or None), preset=(body.preset or None),
         hf_token_name=(body.hf_token_name or None), engine=(body.engine or None), port=(body.port or None),
+        engine_image=(body.engine_image or None), local_dir=(body.local_dir or None),
+        serve_url=(body.serve_url or None),
         perf_max_conc=_clamp_conc(body.perf_max_conc), concurrency=_clamp_conc(body.concurrency))
     return {"job_id": jid}
+
+
+@app.get("/api/pod/engines")
+def pod_engines(request: Request):
+    """POD-ONLY: the curated inference-engine catalog, annotated for THIS host (platform,
+    availability, the recommended default) — drives the Run tab's engine dropdown."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import engines
+    return engines.catalog()
+
+
+class PodValidateBody(BaseModel):
+    hf_link: str
+    local_path: str | None = None       # weights already on disk -> full sha256 vs the HF manifest
+    hf_token_name: str | None = None    # saved secret for gated/private repos
+
+
+@app.post("/api/pod/validate")
+def pod_validate(body: PodValidateBody, request: Request):
+    """POD-ONLY: start async model validation (resolve the HF repo; hash a local dir against its
+    LFS manifest when given). The GUI polls GET /api/pod/validate/{id} for the green light."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    if not (body.hf_link or "").strip():
+        return JSONResponse({"error": "hf_link is required"}, status_code=400)
+    token = None
+    if body.hf_token_name:
+        token = db.get_secret(body.hf_token_name)
+    from pod import validate as vmod
+    return {"validate_id": vmod.start(body.hf_link, body.local_path, token)}
+
+
+@app.get("/api/pod/validate/{vid}")
+def pod_validate_status(vid: str, request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import validate as vmod
+    st = vmod.status(vid)
+    return st if st else JSONResponse({"error": "unknown validation id"}, status_code=404)
 
 
 @app.get("/api/pod/jobs")

@@ -1229,9 +1229,11 @@ function renderSubmissionDetail(d) {
   // Replicate-this-serve card: the exact docker startup flags behind this result, copy-pasteable.
   // Startup/flag optimization moves real performance per model — this is the attested config.
   const rp = d.reproduction || {};
-  const cmdText = rp.docker_run || rp.docker_run_assembled;
+  // docker recipes and bare-metal recipes (Apple MLX) report through the SAME card
+  const bare = !rp.docker_run && !rp.docker_run_assembled && rp.bare_cmd;
+  const cmdText = rp.docker_run || rp.docker_run_assembled || rp.bare_cmd;
   const repro = !cmdText ? "" : `<div class="sub-repro">
-    <div class="repro-h"><span class="repro-t">⚙ replicate this serve</span>
+    <div class="repro-h"><span class="repro-t">${bare ? "⌘ replicate this serve — bare metal" : "⚙ replicate this serve"}</span>
       <span style="display:flex;gap:6px;align-items:center">
         <a class="act-btn act-dl" href="/api/runs/${encodeURIComponent(r.id)}/replicate?format=script" title="download a ready-to-run serve script (hf download + docker run)">serve.sh</a>
         <a class="act-btn act-dl" href="/api/runs/${encodeURIComponent(r.id)}/replicate?format=compose" title="download a docker-compose.yml with the exact serve flags">compose.yml</a>
@@ -1497,7 +1499,7 @@ function renderPerfList() {
 // repro card, with the DFlash drafter (z-lab repo + n) named so the result truly replicates.
 function _perfRecipe(m) {
   const rp = m.reproduction || {};
-  const cmd = rp.docker_run_assembled;
+  const cmd = rp.docker_run_assembled || rp.bare_cmd;   // bare-metal (MLX) reports the same way
   if (!cmd) return "";
   const d = rp.drafter;
   const draft = d ? `<br>DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — pulled + mounted at /drafter in the command)</span>` : "";
@@ -1806,6 +1808,7 @@ async function setRun() {
   const rp = $("#runPanel"); if (rp) rp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   await loadSavedKeys();
+  await loadEngines();
   await pollJobs();
   if (RUN.jobsTimer) clearInterval(RUN.jobsTimer);
   RUN.jobsTimer = setInterval(() => {                // refresh job progress while the tab is active
@@ -1825,6 +1828,123 @@ async function loadSavedKeys() {
   };
   fill("#reKey", RUN.keys.filter((k) => k.kind !== "hf_token"), "— none —");
   fill("#hfKey", RUN.keys.filter((k) => k.kind === "hf_token"), "— public —");
+}
+
+// ---- engine catalog (the "pick your container" dropdown; hardware-annotated server-side) ----
+
+async function loadEngines() {
+  if (!RUN.engines) {
+    try { RUN.engines = await api("/api/pod/engines", { headers: podHeaders() }); } catch (e) { RUN.engines = null; }
+  }
+  const el = $("#veEngine"); if (!el || !RUN.engines) return;
+  el.innerHTML = RUN.engines.engines.map((e) =>
+    `<option value="${escA(e.id)}"${e.available ? "" : " disabled"}${e.recommended ? " selected" : ""}>` +
+    `${escH(e.name)}${e.recommended ? " — recommended here" : e.available ? "" : " (not on this host)"}</option>`).join("");
+  engineChanged();
+}
+
+function curEngine() {
+  const id = $("#veEngine") && $("#veEngine").value;
+  return (RUN.engines && RUN.engines.engines.find((e) => e.id === id)) || null;
+}
+
+function engineChanged() {
+  const e = curEngine(), info = $("#engInfo");
+  if (info) info.innerHTML = !e ? "" :
+    `<a class="mlink" href="${escA(e.url)}" target="_blank" rel="noopener">${escH(e.name)} ↗</a> · ${escH(e.note)}` +
+    (e.image ? ` · image <span class="mono">${escH(e.image)}</span>` : "") +
+    ` · formats <span class="mono">${e.formats.join("/")}</span>`;
+  const mlx = e && e.id === "mlx";
+  const mh = $("#mlxHelp"); if (mh) mh.hidden = !mlx;
+  const img = $("#veImage"); if (img) img.disabled = !!(e && e.containerized === false);
+  if (mlx) updateMlxCmd();
+}
+
+function updateMlxCmd() {
+  const cmdEl = $("#mlxCmd"); if (!cmdEl) return;
+  const path = ($("#hfLocal") && $("#hfLocal").value.trim()) || "~/models/<the-validated-snapshot>";
+  cmdEl.textContent = "pip install mlx-lm   # once\nmlx_lm.server --model " + path + " --host 0.0.0.0 --port 8000";
+  const su = $("#veServeUrl");
+  if (su && !su.value) {
+    const inC = RUN.engines && RUN.engines.platform && RUN.engines.platform.in_container;
+    // a containerized dashboard reaches the host's bare-metal serve via host.docker.internal
+    su.value = inC ? "http://host.docker.internal:8000/v1" : "http://127.0.0.1:8000/v1";
+  }
+}
+
+// ---- model validation (the green light): debounce -> POST /validate -> poll to a verdict ----
+
+function scheduleValidate() {
+  clearTimeout(RUN.valDeb);
+  RUN.valDeb = setTimeout(startValidate, 700);
+}
+
+async function startValidate() {
+  const link = ($("#hfLink") && $("#hfLink").value.trim()) || "";
+  const local = ($("#hfLocal") && $("#hfLocal").value.trim()) || "";
+  RUN.val = null; RUN.valId = null;
+  if (!link) { valRender({ state: "idle" }); return; }
+  valRender({ state: local ? "hashing" : "resolving" });
+  let r;
+  try {
+    r = await api("/api/pod/validate", { method: "POST",
+      headers: podHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ hf_link: link, local_path: local || null, hf_token_name: $("#hfKey").value || null }) });
+  } catch (e) { valRender({ state: "failed", error: "validation call failed — is this a pod?" }); return; }
+  RUN.valId = r.validate_id;
+  pollValidate(r.validate_id);
+}
+
+async function pollValidate(vid) {
+  if (vid !== RUN.valId) return;                       // a newer validation superseded this one
+  let st;
+  try { st = await api("/api/pod/validate/" + encodeURIComponent(vid), { headers: podHeaders() }); }
+  catch (e) { return; }
+  if (vid !== RUN.valId) return;
+  RUN.val = st;
+  valRender(st);
+  if (st.state === "resolving" || st.state === "hashing") {
+    setTimeout(() => pollValidate(vid), 1200);
+  } else if (st.recommended_engine && !RUN.enginePinned) {
+    const el = $("#veEngine");                          // e.g. GGUF repo -> llama.cpp
+    if (el && [...el.options].some((o) => o.value === st.recommended_engine && !o.disabled)) {
+      el.value = st.recommended_engine; engineChanged();
+    }
+  }
+}
+
+function valRender(st) {
+  const el = $("#valStrip"); if (!el) return;
+  const s = st.state, sha = (st.sha || "").slice(0, 10);
+  const cls = { validated: "ok", resolved: "ok soft", resolving: "busy", hashing: "busy",
+                mismatch: "bad", failed: "warn" }[s] || "idle";
+  el.className = "val-strip " + cls;
+  const msg = el.querySelector(".val-msg") || el.appendChild(Object.assign(document.createElement("span"), { className: "val-msg" }));
+  if (s === "idle") {
+    msg.innerHTML = "MODEL VALIDATION — paste an HF link to begin";
+  } else if (s === "resolving") {
+    msg.innerHTML = "RESOLVING — fetching the repo's canonical manifest from Hugging Face…";
+  } else if (s === "hashing") {
+    msg.innerHTML = "HASH-VALIDATING — sha256 of every local weight file vs the HF manifest (large models take a moment)…";
+  } else if (s === "validated") {
+    msg.innerHTML = `<b>VALIDATED MODEL</b> — <span class="mono">${escH(st.repo)}@${escH(sha)}</span> · ` +
+      `${st.lfs_checked}/${st.n_weight_files} weight files hash-matched · local copy is good as gold, no re-download` +
+      ` · launch submits <b>attested</b>`;
+  } else if (s === "resolved") {
+    msg.innerHTML = `<b>SOURCE VALIDATED</b> — <span class="mono">${escH(st.repo)}@${escH(sha)}</span> resolved` +
+      ` (${st.lfs_advertised} signed weight files) · weights hash-verify automatically on pull · launch submits <b>attested</b>` +
+      (st.error ? `<span class="val-note">${escH(st.error)}</span>` : "");
+  } else if (s === "mismatch") {
+    msg.innerHTML = `<b>LOCAL WEIGHTS DO NOT MATCH</b> <span class="mono">${escH(st.repo)}</span>` +
+      ` — mismatched: <span class="mono">${escH((st.mismatches || []).join(", ") || "?")}</span>` +
+      `<span class="val-req">▸ to validate: point the HF link at the repo these weights actually came from, ` +
+      `or clear the local path (launching now ignores the local copy and pulls fresh — still attested)</span>`;
+  } else if (s === "failed") {
+    msg.innerHTML = `<b>NOT VALIDATED</b> — ${escH(st.error || "could not resolve the repo")}` +
+      `<span class="val-req">▸ to validate: a real HF repo link (org/model), plus a saved HF token if the repo is gated` +
+      `</span><span class="val-req warn-line">⚠ this configuration is LOCAL-ONLY until validation resolves — ` +
+      `it will run, but never rank globally</span>`;
+  }
 }
 
 function renderKeys() {
@@ -1874,12 +1994,27 @@ async function runEndpointBench() {
       perf_max_conc: maxConcVal("#reMaxConc"), concurrency: maxConcVal("#reConc") }, "#reLaunch");
 }
 
+// The validated-bench launch payload: engine + custom image always travel; the local dir rides
+// ONLY when it hash-validated (a mismatched local copy is ignored — the pod pulls fresh, which
+// still validates); the serve URL rides only on the MLX bare-metal path.
+function _validatedExtras() {
+  const eng = $("#veEngine") ? $("#veEngine").value || null : null;
+  const localOk = RUN.val && RUN.val.state === "validated" && $("#hfLocal").value.trim();
+  return {
+    engine: eng,
+    engine_image: ($("#veImage") && $("#veImage").value.trim()) || null,
+    local_dir: localOk ? $("#hfLocal").value.trim() : null,
+    serve_url: (eng === "mlx" && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
+  };
+}
+
 async function runHfVerified() {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
   await launchRun("/api/pod/run/verified",
     { hf_link, difficulty: $("#hfDiff").value || null, hf_token_name: $("#hfKey").value || null,
-      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc") }, "#hfLaunch");
+      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
+      ..._validatedExtras() }, "#hfLaunch");
 }
 
 // One-shot preset launches — 'comprehensive' turns everything on; 'hard-bench' runs the
@@ -1890,7 +2025,8 @@ async function runHfPreset(preset, btnSel) {
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
   await launchRun("/api/pod/run/verified",
     { hf_link, preset, hf_token_name: $("#hfKey").value || null,
-      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc") }, btnSel);
+      perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
+      ..._validatedExtras() }, btnSel);
 }
 
 async function launchRun(path, body, btnSel) {
@@ -1972,6 +2108,16 @@ async function init() {
   bind("#hfLaunch", runHfVerified);
   bind("#hfComprehensive", () => runHfPreset("comprehensive", "#hfComprehensive"));
   bind("#hfHardBench", () => runHfPreset("hard-bench", "#hfHardBench"));
+  // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
+  const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
+  vIn("#hfLink", scheduleValidate);
+  vIn("#hfLocal", () => { scheduleValidate(); updateMlxCmd(); });
+  { const es = $("#veEngine"); if (es) es.onchange = () => { RUN.enginePinned = true; engineChanged(); }; }
+  bind("#mlxCopy", async () => {
+    const b = $("#mlxCopy");
+    try { await navigator.clipboard.writeText($("#mlxCmd").textContent); } catch (e) { return; }
+    b.textContent = "✓ copied"; setTimeout(() => { b.textContent = "copy command"; }, 1400);
+  });
   bind("#keyAdd", addKey);
   bind("#podTokenSave", () => {
     try { localStorage.setItem("aeon_pod_token", $("#podToken").value.trim()); } catch (e) {}

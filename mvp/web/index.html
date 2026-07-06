@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=35" />
+  <link rel="stylesheet" href="/static/styles.css?v=36" />
 </head>
 <body>
   <header>
@@ -103,15 +103,52 @@
 
     <section class="panel" id="runPanel" hidden>
       <div class="lbhead"><h2>Run a benchmark</h2></div>
-      <p class="lede">Launch from your lab: quick endpoint run, or one-button verified HF run.</p>
+      <p class="lede">Every launch attempts a <b>validated</b> bench: hash-proven model, your choice of engine container, signed submission.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note"><b>Point at a running model</b> for a quick local run, or paste a <b>Hugging Face link</b> for a one-button <b>verified</b> run — the pod pulls the weights, checks their signature against HF, serves them, benchmarks, and submits an attested result.</p>
+        <p class="note">Paste a <b>Hugging Face link</b> — or point at weights <b>already on disk</b> plus their HF link. The pod resolves the repo and <b>hash-validates</b> the model (a matching local copy is good as gold: no re-download). Pick the <b>engine container</b> for your hardware — AEON's own boards run <b>aeon-vllm-ultimate</b> with fully-optimal settings; vLLM, SGLang, llama.cpp, ROCm or a custom image elsewhere; Apple silicon serves <b>MLX bare-metal</b> (macOS can't run MLX in a container) with the startup recipe reported exactly like a docker recipe. Validated model + AEON's bench execution + the pod's ed25519 signature = an <span class="elig-badge verified">✓ attested</span> global result. Anything that can't validate still runs — stored <b>local-only</b>, never globally ranked.</p>
       </details>
 
       <div class="run-cards">
+        <div class="run-card vcard">
+          <h3>◉ Validated bench</h3>
+          <p class="note">Pull (or reuse) → hash-validate → serve in your engine → benchmark → sign → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result.</p>
+          <div class="row">
+            <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
+            <label class="grow">Local weights <span class="note">(optional — no re-download)</span><input id="hfLocal" type="text" placeholder="already on disk? absolute folder path — hash-checked against the HF repo" /></label>
+          </div>
+          <div id="valStrip" class="val-strip idle" aria-live="polite"><span class="val-dot"></span><span class="val-msg">MODEL VALIDATION — paste an HF link to begin</span></div>
+          <div class="row">
+            <label>Engine<select id="veEngine" title="the inference container the model runs in"></select></label>
+            <label class="grow">Custom image <span class="note">(optional)</span><input id="veImage" type="text" placeholder="override the engine's container image, e.g. my/vllm:nightly" /></label>
+            <label>HF token <span class="note">(gated repos)</span><select id="hfKey"></select></label>
+          </div>
+          <div id="engInfo" class="eng-info note"></div>
+          <div id="mlxHelp" class="mlx-help" hidden>
+            <div class="mlx-h"><span class="repro-t">⌘ BARE-METAL SERVE (Apple MLX)</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
+            <p class="note">macOS can't run MLX inside a container — start the serve yourself, then launch: the pod validates the weights, benches this endpoint, and records the startup recipe below exactly like a docker recipe.</p>
+            <pre class="repro-cmd" id="mlxCmd"></pre>
+            <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
+          </div>
+          <div class="row">
+            <label>Scope<select id="hfDiff">
+              <option value="">Full suite</option><option value="easy">Easy</option>
+              <option value="medium">Medium</option><option value="hard">Hard</option>
+              <option value="expert">Expert</option><option value="frontier">Frontier</option>
+            </select></label>
+            <label>Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
+            <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
+            <button id="hfLaunch" class="primary">▶ Launch validated bench</button>
+          </div>
+          <div class="row preset-row">
+            <span class="note">Presets:</span>
+            <button id="hfComprehensive" class="ghost" title="Everything on: all harnesses + vision + audio + arena + perf">Comprehensive</button>
+            <button id="hfHardBench" class="ghost" title="Hard + expert tiers through every harness (no vision/audio/arena/perf)">Hard Bench</button>
+          </div>
+        </div>
+
         <div class="run-card">
-          <h3>▶ Benchmark a running model</h3>
-          <p class="note">An OpenAI-compatible endpoint you're already serving. Scored <span class="tag">self-reported</span>.</p>
+          <h3>▸ Endpoint bench <span class="tag" title="no model validation — stored on this pod only, never globally ranked">local-only</span></h3>
+          <p class="note">An OpenAI-compatible endpoint you're already serving — quick, but unvalidated: scored <span class="tag">self-reported</span> and never globally ranked. Use the validated bench above to count.</p>
           <div class="row">
             <label>Base URL<input id="reBase" type="text" value="http://127.0.0.1:8000/v1" /></label>
             <label>Model name<input id="reModel" type="text" placeholder="as the server reports it" /></label>
@@ -126,30 +163,6 @@
             <label>Concurrency<input id="reConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
             <label>Max concurrency<input id="reMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <button id="reLaunch" class="primary">▶ Launch</button>
-          </div>
-        </div>
-
-        <div class="run-card">
-          <h3>✓ Verified HuggingFace run</h3>
-          <p class="note">Pull → verify signature → serve → benchmark → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result.</p>
-          <div class="row">
-            <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
-          </div>
-          <div class="row">
-            <label>HF token <span class="note">(gated repos)</span><select id="hfKey"></select></label>
-            <label>Scope<select id="hfDiff">
-              <option value="">Full suite</option><option value="easy">Easy</option>
-              <option value="medium">Medium</option><option value="hard">Hard</option>
-              <option value="expert">Expert</option><option value="frontier">Frontier</option>
-            </select></label>
-            <label>Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
-            <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
-            <button id="hfLaunch" class="primary">▶ Pull, verify &amp; benchmark</button>
-          </div>
-          <div class="row preset-row">
-            <span class="note">Presets:</span>
-            <button id="hfComprehensive" class="ghost" title="Everything on: all harnesses + vision + audio + arena + perf">Comprehensive</button>
-            <button id="hfHardBench" class="ghost" title="Hard + expert tiers through every harness (no vision/audio/arena/perf)">Hard Bench</button>
           </div>
         </div>
       </div>
@@ -402,6 +415,6 @@ docker compose up             # pull → verify → serve → bench → submit</
     </div>
   </footer>
 
-  <script src="/static/app.js?v=35"></script>
+  <script src="/static/app.js?v=36"></script>
 </body>
 </html>

@@ -1,0 +1,50 @@
+# Builds + publishes the prebuilt multi-platform POD image: ghcr.io/<owner>/aeon-pod
+# (linux/amd64 + linux/arm64 — x86 rigs, DGX Spark/ARM servers, Apple-silicon Docker Desktop).
+# The quickstart pulls :latest; every push is also pinned by commit sha for reproducibility.
+name: pod-image
+
+on:
+  push:
+    branches: [main]
+    paths: ["mvp/**", "deploy/pod/Dockerfile", ".github/workflows/pod-image.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3        # arm64 layer of the multi-arch build
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/aeon-pod
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: build + push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/pod/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

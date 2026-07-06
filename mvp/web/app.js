@@ -708,6 +708,7 @@ async function setArena(kind) {
   ARENA.pinned = "";
   renderAuth();
   loadRanking();
+  fitArenaFrames();                 // scale the 1280×960 virtual frames to the column now
   gateOrMatch();
 }
 
@@ -765,6 +766,7 @@ async function nextMatch() {
 
 async function renderFrame(sel, side) {
   const fr = $(sel);
+  fitArenaFrames();
   if (!ARENA.match) { fr.srcdoc = blankFrame(""); return; }
   try {
     const r = await fetch(`/api/arena/render?match_id=${encodeURIComponent(ARENA.match.match_id)}&side=${side}`,
@@ -773,6 +775,19 @@ async function renderFrame(sel, side) {
     fr.srcdoc = (a && a.html) || blankFrame("failed to load");
   } catch (e) { fr.srcdoc = blankFrame("failed to load"); }
 }
+
+// Scale each 1280×960 virtual-viewport iframe down to its .arena-fit box, so the WHOLE
+// artifact is in frame (apps that want vertical room get it — the box keeps 4:3).
+function fitArenaFrames() {
+  $$(".arena-fit").forEach((box) => {
+    const fr = box.querySelector(".arena-frame");
+    if (fr && box.clientWidth) fr.style.transform = `scale(${box.clientWidth / 1280})`;
+  });
+}
+window.addEventListener("resize", () => {
+  clearTimeout(fitArenaFrames._t);
+  fitArenaFrames._t = setTimeout(fitArenaFrames, 120);
+});
 
 function setModels(a, b) {
   DECRYPT_GEN++;                                   // cancel any in-flight name reveal

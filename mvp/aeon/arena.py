@@ -32,10 +32,14 @@ KIND_LABEL = {"app": "Generated Apps", "game": "Generated Games", "animation": "
 TRUST_ACCURACY = 0.95
 
 # Minimum number of DISTINCT eligible voters that must weigh in on a (prompt, model-pair)
-# before that matchup's votes are allowed to move Elo. Blocks single-account steering:
-# a lone account can vote each distinct pairing once, but one voter never clears the
-# quorum, so its votes stay inert until independent evaluators corroborate the matchup.
-QUORUM_VOTERS = 2
+# before that matchup's votes are allowed to move Elo. At quorum 2 a lone account's votes
+# stay inert until a second evaluator corroborates — but with a small evaluator community
+# that leaves the WHOLE arena unrated (a trusted evaluator casts 100+ honeypot-verified
+# votes and sees nothing move), and its marginal security is thin: a determined attacker
+# just runs a second account. Default 1 — the honeypot trust gate, per-(prompt,pair)
+# dedup, per-IP account caps and admin moderation carry the integrity; raise via
+# AEON_QUORUM_VOTERS as the evaluator population grows.
+QUORUM_VOTERS = max(1, int(os.environ.get("AEON_QUORUM_VOTERS", "1")))
 
 SYS = (
     "You are an expert front-end engineer. Respond with ONE complete, self-contained "
@@ -212,9 +216,11 @@ def _eligible_votes(kind=None):
     latest = {}
     for v in votes:
         a, b = v.get("a_model"), v.get("b_model")
-        if not a or not b or a == b:
+        # model identity is case-insensitive here too — the same (prompt, pairing) under
+        # different submitted casings must collapse to ONE dedup/quorum key
+        if not a or not b or a.lower() == b.lower():
             continue
-        latest[(v.get("user_id"), v.get("prompt_id"), frozenset((a, b)))] = v
+        latest[(v.get("user_id"), v.get("prompt_id"), frozenset((a.lower(), b.lower())))] = v
     # Per-user influence cap (single-account Elo steering): the dedup above already limits
     # a user to ONE vote per (prompt, pairing), but one account could still cast a biased
     # vote on every DISTINCT pairing at full K. Require a QUORUM of distinct eligible
@@ -235,34 +241,44 @@ def ranking(kind=None):
     eligibility — the honeypot trust gate, ballot-stuffing dedup and voter quorum —
     lives in _eligible_votes, shared with the gallery's per-artifact rating."""
     votes = _eligible_votes(kind)
-    elo, rec = {}, {}
+    elo, rec, disp = {}, {}, {}
+
+    # Model identity is CASE-INSENSITIVE: artifacts submitted at different times carry the
+    # display casing ('AEON-7/…') or the lowercased canonical ('aeon-7/…') for the SAME
+    # model — keying on the raw string split one model's record in two. Votes replay in ts
+    # order, so the most recent casing wins the display name.
+    def _k(m):
+        return (m or "").lower()
 
     def seen(m):
-        elo.setdefault(m, 1000.0)
-        rec.setdefault(m, {"model": m, "w": 0, "l": 0, "t": 0, "games": 0})
+        k = _k(m)
+        elo.setdefault(k, 1000.0)
+        rec.setdefault(k, {"w": 0, "l": 0, "t": 0, "games": 0})
+        disp[k] = m
 
     K = 24
     for v in votes:
         a, b, w = v["a_model"], v["b_model"], v["winner"]
-        if not a or not b or a == b:
+        if not a or not b or _k(a) == _k(b):
             continue
         seen(a); seen(b)
-        Ra, Rb = elo[a], elo[b]
+        ka, kb = _k(a), _k(b)
+        Ra, Rb = elo[ka], elo[kb]
         Ea = 1 / (1 + 10 ** ((Rb - Ra) / 400))
         Sa = 1.0 if w == "a" else (0.0 if w == "b" else 0.5)
-        elo[a] = Ra + K * (Sa - Ea)
-        elo[b] = Rb + K * ((1 - Sa) - (1 - Ea))
-        rec[a]["games"] += 1; rec[b]["games"] += 1
+        elo[ka] = Ra + K * (Sa - Ea)
+        elo[kb] = Rb + K * ((1 - Sa) - (1 - Ea))
+        rec[ka]["games"] += 1; rec[kb]["games"] += 1
         if w == "a":
-            rec[a]["w"] += 1; rec[b]["l"] += 1
+            rec[ka]["w"] += 1; rec[kb]["l"] += 1
         elif w == "b":
-            rec[b]["w"] += 1; rec[a]["l"] += 1
+            rec[kb]["w"] += 1; rec[ka]["l"] += 1
         else:
-            rec[a]["t"] += 1; rec[b]["t"] += 1
+            rec[ka]["t"] += 1; rec[kb]["t"] += 1
 
     rows = []
-    for m, r in rec.items():
-        rows.append({**r, "elo": round(elo[m]),
+    for k, r in rec.items():
+        rows.append({**r, "model": disp[k], "elo": round(elo[k]),
                      "win_rate": round(100 * r["w"] / r["games"], 1) if r["games"] else 0.0})
     rows.sort(key=lambda x: -x["elo"])
     return rows

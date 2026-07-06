@@ -874,7 +874,12 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 .arena-model.lost { color: var(--faint); text-decoration: line-through; }
 .arena-model.tie { color: var(--warn); }
 .arena-meta { margin-left: auto; font-size: 11px; color: var(--faint); }
-.arena-frame { width: 100%; height: 440px; border: 0; background: #0b0b14; display: block; }
+/* Artifacts render at a FIXED 1280×960 virtual viewport and are scaled to fit the column —
+   the whole app is visible (no cropped/scrolling frames) and taller apps get real room.
+   Input still works through the transform (the browser maps pointer coords). */
+.arena-fit { position: relative; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; background: #0b0b14; }
+.arena-frame { width: 1280px; height: 960px; border: 0; background: #0b0b14; display: block;
+  position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .arena-vote { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 8px 0; }
 .arena-vote .vote { padding: 11px 22px; font-weight: 700; font-size: 14px; letter-spacing: .4px; }
 .arena-vote .vote.a::after { content: " [A]"; opacity: .5; font-size: 11px; }

@@ -218,12 +218,9 @@ function renderEligBar() {
     `<label class="eligtoggle" data-tip="Show only the verified global ranking (HF-pull controlled + signed)">`
     + `<input type="checkbox" id="verifiedOnlyCb" ${verifiedOnly ? "checked" : ""}>`
     + `<span>Verified only</span></label>`
-    + `<span class="elignote">Global rank counts <b class="ev-ok">verified</b> runs only · <b>${nElig}</b> verified · <b>${data.length - nElig}</b> local · `
-    + `<a href="#" id="eligPodLink">run a bench pod →</a></span>`;
+    + `<span class="elignote">Global rank counts <b class="ev-ok">verified</b> runs only · <b>${nElig}</b> verified · <b>${data.length - nElig}</b> local</span>`;
   const cb = $("#verifiedOnlyCb");
   if (cb) cb.onchange = (e) => { verifiedOnly = e.target.checked; renderBoard(); };
-  const pl = $("#eligPodLink");
-  if (pl) pl.onclick = (e) => { e.preventDefault(); openPodModal(); };
 }
 
 function renderBoard() {
@@ -1367,9 +1364,9 @@ function _perfStreams(m) {
     return `<polyline points="${path}" fill="none" stroke="${color}" stroke-width="${width}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>` + dots + end;
   };
   const lines =
-    draw(agg, "#00f0ff", 3, null, "aggregate", (c, v) => `aggregate at c${c}: ${_pfv(v)} tok/s across all ${c} streams`) +
-    draw(per, "#7fd8ff", 2, "6 5", "per stream", (c, v) => `per stream at c${c}: each of the ${c} streams decodes ~${_pfv(v)} tok/s`);
-  const legend = `<span class="perf-lg"><i style="background:#00f0ff"></i>aggregate tok/s — all streams combined</span>` +
+    draw(agg, "#00f0ff", 3, null, "concurrent", (c, v) => `concurrent total at c${c}: the ${c} live streams together decode ${_pfv(v)} tok/s (mean of the five category cohorts)`) +
+    draw(per, "#7fd8ff", 2, "6 5", "per stream", (c, v) => `per stream at c${c}: each of the ${c} live streams decodes ~${_pfv(v)} tok/s`);
+  const legend = `<span class="perf-lg"><i style="background:#00f0ff"></i>concurrent total tok/s — all live streams together</span>` +
     `<span class="perf-lg"><i class="perf-lg-dash" style="background:#7fd8ff"></i>per-stream tok/s — what each stream gets</span>`;
   return `<div class="perf-legend">${legend}</div>` +
     `<svg viewBox="0 0 ${W} ${H}" class="perf-svg" role="img" aria-label="single-stream vs concurrent aggregate tok/s">${gy}${gx}${lines}</svg>`;
@@ -1578,8 +1575,8 @@ function renderPerfDetail(m) {
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
      </div>
      ${_perfRecipe(m)}
-     <div class="perf-card perf-hero-card"><h3 class="perf-h3">single stream vs concurrent aggregate
-         <span class="micro">tok/s per rung — what each stream gets vs the box's total · summary of the isolated category sweeps (categories never mix in one pool)</span></h3>
+     <div class="perf-card perf-hero-card"><h3 class="perf-h3">single stream vs concurrent
+         <span class="micro">tok/s per rung — what each live stream gets vs all live streams together · each point = the MEAN of the five isolated category cohorts (categories never mix in one pool)</span></h3>
        ${_perfStreams(m)}</div>
      <div class="perf-mets">${mets}<span class="perf-better">${better === "lower" ? "▼ lower is better" : "▲ higher is better"}</span></div>
      <div class="perf-grid2">

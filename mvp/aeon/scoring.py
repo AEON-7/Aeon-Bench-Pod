@@ -307,7 +307,27 @@ def perf_board():
                 }
         if not direct and not harness:
             continue
+        # The level SUMMARY is recomputed here as the ARITHMETIC MEAN across the per-category
+        # cells — each category is a REAL concurrent cohort at that rung; the categories never
+        # ran together in one pool, so the stored 'overall' (old mixed-pool runs: a cross-
+        # category tally; new isolated runs: a time-weighted figure) is never displayed as-is.
+        for scopes in direct.values():
+            cat_cells = [v for k, v in scopes.items() if k != "overall" and isinstance(v, dict)]
+            if not cat_cells:
+                continue
+            def _catmean(key):
+                vals = [c.get(key) for c in cat_cells if isinstance(c.get(key), (int, float))]
+                return round(sum(vals) / len(vals), 2) if vals else None
+            scopes["overall"] = {
+                "ttft_ms": _catmean("ttft_ms"), "ttft_p95": _catmean("ttft_p95"),
+                "tpot_ms": _catmean("tpot_ms"), "decode_tps": _catmean("decode_tps"),
+                "agg_decode_tps": _catmean("agg_decode_tps"),
+                "prefill_tps": _catmean("prefill_tps"),
+                "n_errors": sum(c.get("n_errors") or 0 for c in cat_cells),
+                "summary": "category_mean",       # provenance marker for the API consumer
+            }
         # peak aggregate throughput across the ladder = the row's headline + sort key
+        # (now the mean cohort aggregate — total tok/s of the live concurrent streams)
         aggs = [(v.get("overall") or {}).get("agg_decode_tps") for v in direct.values()]
         aggs = [a for a in aggs if isinstance(a, (int, float))]
         hw = (info.get("env") or {}).get("hardware") or {}

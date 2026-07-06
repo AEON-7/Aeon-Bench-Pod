@@ -58,6 +58,21 @@ containers; **aeon-pod-state** persists your ed25519 device key + local runs; **
 `AEON_MODELS_HOST_DIR` naming its host path) is where validated weights live so sibling engine
 containers can mount them.
 
+**Update to the latest version** (also fixes `name "aeon-pod" already in use`):
+
+```bash
+docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
+docker run -d --name aeon-pod --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  ghcr.io/aeon-7/aeon-pod:latest
+```
+
+Your device key, runs and models persist in the volumes — updating the container never loses
+them. If :8091 is taken on your host (e.g. a bare-metal dashboard is already running), add
+`-e AEON_PORT=8092` and open :8092 instead.
+
 <details><summary>Alternative: full pipeline via compose (build from source)</summary>
 
 ```bash

@@ -206,9 +206,21 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     gguf = next((os.path.join(r, f) for r, _, fs in os.walk(local_dir)
                  for f in fs if f.endswith(".gguf")), None)
 
+    # DECLARED modalities from config.json — travels with the recipe so the bench can tell
+    # "model has no audio" (probe skip is correct) apart from "model DECLARES audio but the
+    # serve rejected it" (a recipe/engine problem that must be surfaced, never silently skipped).
+    modalities = ["text"]
+    if isinstance(cfg.get("vision_config"), dict) or "image_token_id" in cfg \
+            or isinstance(cfg.get("mm_vision_config"), dict):
+        modalities.append("vision")
+    if isinstance(cfg.get("audio_config"), dict) or "audio_token_id" in cfg \
+            or isinstance(cfg.get("speech_config"), dict):
+        modalities.append("audio")
+
     from pod import engines as engmod
     base = {"served_alias": alias, "port": port, "source": "auto",
-            "architecture": arch, "context_len": ctx, "quant": quant}
+            "architecture": arch, "context_len": ctx, "quant": quant,
+            "modalities": modalities}
 
     # An explicit catalog engine (Run-tab dropdown / --engine) -> that engine's containerized
     # recipe; a custom `image` rides along and is recorded. MLX serves the LOCAL DIR bare-metal

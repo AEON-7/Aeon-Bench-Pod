@@ -16,7 +16,8 @@ mvp/aeon.db-*
 mvp/.aeon_attest_key.pem
 mvp/artifacts_store/
 mvp/blobs/
-mvp/aeon/assets/audio/
+mvp/aeon/assets/audio/*
+!mvp/aeon/assets/audio/speech/
 
 # secrets / env
 .env

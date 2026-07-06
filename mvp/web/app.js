@@ -1832,7 +1832,16 @@ async function pollLive() {
     }
     return;
   }
-  renderLive(d);
+  // A run spends long stretches in NON-STREAMING dimensions (arena / harness / perf) where no
+  // db run is live — the active JOB's stage strip keeps Live honest through those phases.
+  let job = null;
+  if (CFG.role === "pod") {
+    try {
+      const js = await api("/api/pod/jobs", { headers: podHeaders() });
+      job = (js.jobs || []).find((x) => x.status === "running") || null;
+    } catch (e) { /* jobs API optional — Live still renders db runs */ }
+  }
+  renderLive(d, job);
 }
 
 // only genuinely NEW feed cases animate on each poll (innerHTML rebuilds everything).
@@ -1840,13 +1849,20 @@ async function pollLive() {
 // with multiple concurrent runs and with a killed+relaunched run of the same model.
 let LIVE_SEEN_MAP = new Map();
 
-function renderLive(d) {
+function renderLive(d, job) {
   const runs = (d && d.running) || [];
-  const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", runs.length > 0);
-  const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", runs.length > 0);
+  const activeJob = job && job.status === "running" ? job : null;
+  const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", runs.length > 0 || !!activeJob);
+  const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", runs.length > 0 || !!activeJob);
+  const jobStrip = activeJob ? `<div class="live-job">
+      <h4 class="live-feed-h">run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}
+        <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span></h4>
+      ${stageStrip(activeJob)}</div>` : "";
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
-    $("#liveBody").innerHTML = `<p class="board-empty">No benchmark is running right now. When a controlled pod is mid-run, its per-category progress and the prompts + answers stream here live.</p>`;
+    $("#liveBody").innerHTML = activeJob
+      ? jobStrip + `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf). Case-by-case output appears here during the text and vision suites.</p>`
+      : `<p class="board-empty">No benchmark is running right now. When a controlled pod is mid-run, its per-category progress and the prompts + answers stream here live.</p>`;
     return;
   }
   const liveKeys = new Set(runs.map((r) => r.run || r.run_id || r.id || r.model || "?"));
@@ -1854,7 +1870,7 @@ function renderLive(d) {
   // the 5s innerHTML rebuild must not steal the operator's reading position
   const _feedScroll = [...document.querySelectorAll("#liveBody .live-feed")].map((e) => e.scrollTop);
   const _preScroll = [...document.querySelectorAll("#liveBody .live-a pre")].map((e) => e.scrollTop);
-  $("#liveBody").innerHTML = runs.map((r) => {
+  $("#liveBody").innerHTML = jobStrip + runs.map((r) => {
     const runKey = r.run || r.run_id || r.id || r.model || "?";
     let LIVE_SEEN = LIVE_SEEN_MAP.get(runKey);
     if (!LIVE_SEEN) { LIVE_SEEN = new Set(); LIVE_SEEN_MAP.set(runKey, LIVE_SEEN); }
@@ -2468,6 +2484,20 @@ async function pollJobs() {
 
 let JOB_STAGES = {};   // job id -> last seen stage (drives the departures-board flash)
 
+// Per-DIMENSION progress strip: text · arena · harness:hermes · vision · audio · perf-cN —
+// every stage the run has touched, each with its own live mini-bar (parsed server-side from
+// the pod's [pod][stage] markers). The strip is the whole-run picture, not just the text suite.
+function stageStrip(j) {
+  const sts = j.stages || [];
+  if (!sts.length) return "";
+  return `<div class="jstages">` + sts.map((s) => {
+    const pct = s.total ? Math.min(100, 100 * s.done / s.total) : 0;
+    const full = s.total > 0 && s.done >= s.total;
+    return `<span class="jstage${full ? " ok" : ""}" title="${escA(s.name)} — ${s.done}/${s.total}">
+      <i style="width:${pct.toFixed(1)}%"></i><b>${escH(s.name)}</b><em>${s.done}/${s.total}</em></span>`;
+  }).join("") + `</div>`;
+}
+
 function renderJobs(jobs) {
   const box = $("#runJobs"); if (!box) return;
   if (!jobs.length) { box.innerHTML = ""; return; }
@@ -2487,7 +2517,7 @@ function renderJobs(jobs) {
       ${kindB}<span class="job-stage">${escH(stg)}</span>
       ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
       ${j.difficulty ? `<span class="tag">${escH(j.difficulty)}</span>` : ""}
-      ${live}${stop}${err}</div>`;
+      ${live}${stop}${stageStrip(j)}${err}</div>`;
   }).join("");
   $$(".job-live").forEach((b) => b.onclick = () => $("#tabs [data-live]").click());
   $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id));

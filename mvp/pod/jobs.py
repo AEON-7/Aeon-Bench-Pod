@@ -57,9 +57,15 @@ _STAGES = [
     ("local result:", "submitting"),
     ("submit (", "submitting"),
     ("submit ->", "submitting"),
+    # dimension markers (after the submit markers so they win on their announce lines)
+    ("ARENA generation", "arena"),
+    ("harness ", "harness"),
+    ("(vision suite", "vision"),
+    ("(audio suite", "audio"),
+    ("PERF grid", "perf"),
 ]
 
-_PUBLIC = ("id", "kind", "status", "stage", "model", "hf_link", "base_url",
+_PUBLIC = ("id", "kind", "status", "stage", "stages", "model", "hf_link", "base_url",
            "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "returncode")
 
 
@@ -167,6 +173,23 @@ def _run_job(jid):
                 _set(j, run_id=rid)
             except Exception:
                 pass
+        # structured per-dimension progress: "[pod][stage] <name> <done>/<total>" lines are
+        # emitted by aeon_pod at every dimension (text/arena/harness:<id>/vision/audio/perf-cN)
+        if line.startswith("[pod][stage] "):
+            try:
+                name, frac = line[13:].rsplit(" ", 1)
+                dn, tt = frac.split("/")
+                with _LOCK:
+                    sts = j.setdefault("stages", [])
+                    cur = next((s for s in sts if s["name"] == name), None)
+                    if not cur:
+                        cur = {"name": name, "done": 0, "total": int(tt)}
+                        sts.append(cur)
+                    cur["done"], cur["total"] = int(dn), int(tt)
+                    j["updated_at"] = _now()
+            except Exception:
+                pass
+            continue
         stage = None
         for sub, st in _STAGES:
             if sub in line:

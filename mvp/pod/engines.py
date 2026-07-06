@@ -125,6 +125,10 @@ FLAG_CATALOG = {
          "note": "lets harnesses drive native tool calling"},
         {"flag": "--swap-space", "kind": "number", "default": 4, "label": "swap space (GiB)",
          "note": "CPU offload headroom per GPU"},
+        {"flag": "--limit-mm-per-prompt", "kind": "string", "label": "multimodal limits",
+         "note": "per-prompt multimodal item caps, e.g. {\"audio\":2,\"image\":4} — some builds "
+                 "need this for a declared-audio model to ACCEPT input_audio (the bench warns "
+                 "on a declared-vs-served mismatch)"},
         # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
         # (drafter HF card + preset dropdown), not as a raw catalog knob.
     ],

@@ -1688,6 +1688,22 @@ select:focus {
 .pend { font-size: 11px; font-weight: 700; font-family: var(--mono, monospace); }
 .perf-lg-dash { background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px) !important; }
 
+/* ---- per-DIMENSION progress strip (Run tab job cards + Live view) ---- */
+.jstages { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
+.jstage {
+  position: relative; overflow: hidden; display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 3px 10px; font-family: var(--mono, monospace); font-size: 10.5px; letter-spacing: .06em;
+  color: var(--muted); border: 1px solid var(--line); background: var(--well);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+.jstage i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(0, 240, 255, .14); transition: width .4s var(--ease-out); }
+.jstage b, .jstage em { position: relative; font-style: normal; }
+.jstage b { color: var(--text); font-weight: 600; }
+.jstage.ok { border-color: rgba(61, 220, 133, .45); color: var(--good); }
+.jstage.ok i { background: rgba(61, 220, 133, .12); }
+.jstage.ok b { color: var(--good); }
+.live-job { margin-bottom: 14px; }
+
 /* ---- SHARE: per-benchmark share button (mcards + perf detail) ---- */
 .share-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;

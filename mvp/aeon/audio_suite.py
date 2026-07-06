@@ -13,8 +13,38 @@ import json
 
 from . import audiogen
 
-CATEGORIES_AUDIO = ["Counting", "Pitch", "Duration", "Timbre", "Pattern"]
-SUITE_ID = "aeon-audio-v1"
+CATEGORIES_AUDIO = ["Counting", "Pitch", "Duration", "Timbre", "Pattern", "Speech"]
+SUITE_ID = "aeon-audio-v2"          # v2: + Speech (real recorded spoken digits, exact-match)
+
+# Pinned recorded-speech assets (Free Spoken Digit Dataset — see audiogen.speech_asset).
+# digit -> (file, sha256); one recording per digit, speakers alternated.
+_SPEECH = {
+    0: ("0_jackson_0.wav", "eea86018ce1730baaf7f5dd6ec88c1f727dd90203521a9115b489310a248ea05"),
+    1: ("1_theo_0.wav", "a856fff7bcb68328a76b269c0d8b1d4269c28ac7e3d6725fe9da5bdd05405b55"),
+    2: ("2_jackson_0.wav", "214bac0c813b584410e3cb8cace2673d256b3fd735810bd516b2bfd0c2298620"),
+    3: ("3_theo_0.wav", "d58347dea5ba78c84cff98c0cdc8bc133bff7d4ac379ab53f47cdadff566a9b8"),
+    4: ("4_jackson_0.wav", "e0febd48e7cf7cfdca949d0d07769e0fc708fb2e8e7648691fa7e6ed7a5b1ded"),
+    5: ("5_theo_0.wav", "a5c0beb43ad7e0236d927481d98b6f6bb1b21fbbd7bc26e7f42fcdf6d5f307d5"),
+    6: ("6_jackson_0.wav", "fe7705fdfaddc378d72c479664ab8aacd53fa78a99c3d130ad74b1ff40212595"),
+    7: ("7_theo_0.wav", "3074f5a5db8a3588bc8616c5888fa25bbac2c71728d14a6b413baf89d779ef70"),
+    8: ("8_jackson_0.wav", "25172d71c574ee504094d4b704efa478a253d29ee7da562ce6ec4800ffdb6eaf"),
+    9: ("9_theo_0.wav", "2a30491b41495dd457c496dc80c7f4066b28a8eb8bc4c57c100f4a7fa2a2e8ef"),
+}
+
+_DIGITS = [str(d) for d in range(10)]
+
+
+def _speech_case(digit):
+    f, sha = _SPEECH[digit]
+    return {
+        "id": f"audio.speech.digit{digit}", "category": "Speech", "tier": 0,
+        "requires": "audio_ok",
+        "audio": [{"gen": "speech_asset", "args": {"file": f, "sha256": sha}}],
+        "prompt": "The audio contains ONE spoken English digit (zero through nine). "
+                  "Which digit was spoken? Reply with ONLY <answer>N</answer> using the "
+                  "single numeral, e.g. <answer>4</answer>.",
+        "eval": {"checkers": [{"type": "closed_set", "options": _DIGITS, "answer": str(digit)}]},
+    }
 
 # All S/L strings of length 3 / 4 — the closed set for pattern transcription.
 _PAT3 = ["".join(p) for p in itertools.product("SL", repeat=3)]
@@ -93,6 +123,9 @@ CASES = [
                "Transcribe the pattern in order as a string of S and L characters. "
                "Reply with ONLY <answer>PATTERN</answer>, e.g. <answer>SLLS</answer>.",
      "eval": {"checkers": [{"type": "closed_set", "options": _PAT4, "answer": "LSSL"}]}},
+
+    # ---- Speech: REAL recorded spoken digits (FSDD), exact-match transcription ----
+    *[_speech_case(d) for d in range(10)],
 ]
 
 

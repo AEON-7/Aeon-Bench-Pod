@@ -139,12 +139,33 @@ def pattern(seq="SLS", freq=770, short_ms=120, long_ms=420, gap_ms=220):
     return _finish(fr, {"seq": seq, "short_ms": short_ms, "long_ms": long_ms})
 
 
+# ---- pinned SPEECH assets (real recorded speech with exact ground truth) ----------------
+# Free Spoken Digit Dataset (github.com/Jakobovski/free-spoken-digit-dataset, CC BY-SA 4.0 —
+# see assets/audio/speech/ATTRIBUTION.md). Each file is pinned by sha256: a modified or
+# missing asset fails LOUDLY instead of silently testing different audio. 8 kHz mono WAV
+# (the header carries the rate; transports pass the file verbatim).
+SPEECH_DIR = os.path.join(os.path.dirname(__file__), "assets", "audio", "speech")
+
+
+def speech_asset(file, sha256):
+    """A pinned recorded-speech WAV -> (sha, wav_bytes, meta). Integrity-checked against
+    the sha embedded in the CASE SPEC (so suite_hash pins the exact recording)."""
+    path = os.path.join(SPEECH_DIR, os.path.basename(file))
+    with open(path, "rb") as fh:
+        data = fh.read()
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != sha256:
+        raise RuntimeError(f"speech asset {file} hash mismatch: {actual[:16]} != {sha256[:16]}")
+    return actual, data, {"file": os.path.basename(file)}
+
+
 GENERATORS = {
     "beeps": beeps,
     "two_tones": two_tones,
     "long_short": long_short,
     "noise_or_tone": noise_or_tone,
     "pattern": pattern,
+    "speech_asset": speech_asset,
 }
 
 

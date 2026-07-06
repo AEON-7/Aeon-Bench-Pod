@@ -280,6 +280,7 @@ def _bench_and_results(model, target, *, api_key=None, max_tokens=2048, temperat
         done["i"] += 1
         s = f"{score:.2f}" if isinstance(score, float) else str(score)
         print(f"  {done['i']:3d}/{n}  {cid:24s} {status:13s} {s}")
+        _stage_throttled("text", done["i"], n)
         if checkpoint and done["i"] % checkpoint_every == 0:
             try:
                 checkpoint(_collect_results(rid))
@@ -313,6 +314,7 @@ def _vision_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=
         done["i"] += 1
         s = f"{score:.2f}" if isinstance(score, float) else str(score)
         print(f"  [vision] {done['i']:2d}/{n}  {cid:26s} {status:15s} {s}")
+        _stage("vision", done["i"], n)
 
     pr = runner.run_vision_benchmark(rid, alias, target, params={"temperature": temperature,
                                      "max_tokens": max_tokens}, progress_cb=cb)
@@ -333,9 +335,12 @@ def _vision_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=
     return st, r
 
 
-def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2048, temperature=0.0):
+def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2048,
+                      temperature=0.0, declared_audio=False):
     """AUDIO suite on the served model -> attested (board='audio'). Probe-gated like vision:
-    a model that doesn't accept input_audio records capability_absent and nothing is submitted."""
+    a model that doesn't accept input_audio records capability_absent and nothing is submitted.
+    When the model's config DECLARES audio, a probe rejection is a RECIPE/ENGINE problem, not
+    a capability gap — warn loudly instead of skipping in silence."""
     from aeon import audio_suite as aus
     from aeon import db, runner
     rid = uuid.uuid4().hex[:10]
@@ -347,11 +352,20 @@ def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2
         done["i"] += 1
         s = f"{score:.2f}" if isinstance(score, float) else str(score)
         print(f"  [audio] {done['i']:2d}/{n}  {cid:26s} {status:15s} {s}")
+        _stage("audio", done["i"], n)
 
     pr = runner.run_audio_benchmark(rid, alias, target, params={"temperature": temperature,
                                     "max_tokens": max_tokens}, progress_cb=cb)
     if not pr.get("audio_ok"):
-        print(f"[pod] audio: model does not accept input_audio ({pr.get('transport')}) — not submitting an audio run")
+        if declared_audio:
+            print(f"[pod] !! AUDIO CAPABILITY MISMATCH: the model config DECLARES audio "
+                  f"(audio_config/audio_token_id present) but the served engine REJECTED "
+                  f"input_audio ({pr.get('transport')}: {str(pr.get('error'))[:200]}). The model "
+                  f"was NOT audio-tested. Likely fixes: add --limit-mm-per-prompt in RECIPE "
+                  f"TUNING (e.g. {{\"audio\":2}}), or an engine build with audio support.")
+        else:
+            print(f"[pod] audio: model does not accept input_audio ({pr.get('transport')}) — "
+                  f"not submitting an audio run (config declares no audio; correct skip)")
         return None
     results = _collect_results(rid)
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
@@ -385,8 +399,13 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=N
     from pod import perf_grid
     conc_levels = _cap_conc(conc_levels, max_conc, extend=True)
     print(f"[pod] PERF grid: direct conc {conc_levels} x {len(perf_grid.CATEGORIES)} categories", flush=True)
+    def _pcb(c, d, tot):
+        if d in (1, tot):
+            print(f"  [perf] c={c}  {d}/{tot}", flush=True)
+        _stage_throttled(f"perf-c{c}", d, tot)
+
     grid = perf_grid.run_direct_grid(target, alias, conc_levels=conc_levels, max_tokens=max_tokens,
-        progress_cb=lambda c, d, tot: print(f"  [perf] c={c}  {d}/{tot}", flush=True) if d in (1, tot) else None)
+                                     progress_cb=_pcb)
     rows = perf_grid.to_results(grid)
     for h in (harness_ids or []):
         try:
@@ -427,9 +446,13 @@ def _arena_artifacts(target, alias, *, seed=None, per_kind=2):
     every model in a sweep answers the IDENTICAL prompts. Returned for the signed submit bundle."""
     from pod import arena_gen
     print(f"[pod] ARENA generation: {per_kind} per kind (app/game/animation), seed={seed}", flush=True)
+    def _acb(d, tot, it):
+        print(f"  [arena] {d}/{tot} {it.get('kind')}/{it.get('prompt_id')}: "
+              f"{'ok' if it.get('ok') else 'FAILED'}", flush=True)
+        _stage("arena", d, tot)
+
     arts = arena_gen.generate_for_model(target, alias, per_kind=per_kind, seed=seed,
-        progress_cb=lambda d, tot, it: print(
-            f"  [arena] {d}/{tot} {it.get('kind')}/{it.get('prompt_id')}: {'ok' if it.get('ok') else 'FAILED'}", flush=True))
+                                        progress_cb=_acb)
     ok = sum(1 for a in arts if a.get("ok"))
     print(f"[pod] arena: {ok}/{len(arts)} artifacts generated")
     return arts
@@ -471,6 +494,19 @@ def _stop(proc):
             proc.kill()
         except Exception:
             pass
+
+
+def _stage(name, done, total):
+    """Machine-readable progress marker — the GUI job manager parses these lines into the
+    per-dimension progress strip (Run tab job cards + the Live view). Callers throttle."""
+    print(f"[pod][stage] {name} {done}/{total}", flush=True)
+
+
+def _stage_throttled(name, done, total):
+    """Emit at the edges and every ~5% — enough for a live bar without flooding the log."""
+    step = max(1, total // 20)
+    if done == 1 or done == total or done % step == 0:
+        _stage(name, done, total)
 
 
 def _mirror_local(*, suite_id, results, repo, target, env, board="text", judge=None,
@@ -563,8 +599,15 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             disc = run_harness2.discover(h)
             print(f"[pod] harness {h} ({disc.get('harness_version', '?')}): "
                   f"{len(agentic_v2.CASES)} env-execution tasks, fresh container state")
+            hdone = {"i": 0}
+
+            def _hcb(c, s, stt, _h=h, _n=len(agentic_v2.CASES), _d=hdone):
+                _d["i"] += 1
+                print(f"    [{_h}] {c:26s} {stt:13s} {s}")
+                _stage(f"harness:{_h}", _d["i"], _n)
+
             hres = run_harness2.run_agentic_v2(h, target, alias, concurrency=4,
-                progress_cb=lambda c, s, stt: print(f"    [{h}] {c:26s} {stt:13s} {s}"))
+                                               progress_cb=_hcb)
         except Exception as e:
             print(f"[pod] harness {h} could not run: {e}")
             continue
@@ -595,7 +638,8 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
                            max_tokens=max_tokens, temperature=temperature)
     if audio and not harness_only:
         _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                          temperature=temperature)
+                          temperature=temperature,
+                          declared_audio="audio" in ((recipe or {}).get("modalities") or []))
     if perf and not harness_only:
         _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
                          harness_ids=harness_ids, max_conc=perf_max_conc)

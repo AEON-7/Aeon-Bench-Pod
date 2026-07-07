@@ -40,7 +40,7 @@ from __future__ import annotations
 import os
 import re
 
-SUITE_ID = "aeon-agentic-v2.1"   # bumped when the codegen (app/game/animation) tasks were added
+SUITE_ID = "aeon-agentic-v2.2"   # v2.2: +5 GOD-MODE frontier tasks (arena-artifact producing)
 
 _WS = re.compile(r"\s+")
 
@@ -591,6 +591,11 @@ CASES = [
         "_expected": {"files": {"starfield.html": _ANIM_STARFIELD_HTML}, "answer": "DONE"},
     },
 ]
+
+# GOD-MODE frontier tasks (multi-file, arena-artifact producing) live in agentic_god.py
+from .agentic_god import GOD_CASES  # noqa: E402
+
+CASES.extend(GOD_CASES)
 
 CASE_IDS = [c["id"] for c in CASES]
 

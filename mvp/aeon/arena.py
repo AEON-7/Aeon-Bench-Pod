@@ -131,7 +131,10 @@ def _load_prompts():
                 if p["kind"] not in out or p["id"] in seen:
                     continue
                 seen.add(p["id"])
-                out[p["kind"]].append({k: p[k] for k in ("id", "title", "brief", "prompt")})
+                entry = {k: p[k] for k in ("id", "title", "brief", "prompt")}
+                if p.get("agent_only"):
+                    entry["agent_only"] = True   # gallery/match group only — never the chat-generation pool
+                out[p["kind"]].append(entry)
     except Exception:
         pass  # never let a bad corpus file break the arena — fall back to built-ins
     return out

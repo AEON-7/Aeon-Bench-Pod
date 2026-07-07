@@ -163,6 +163,21 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
                    raw_output=_truncated_transcript(result),
                    evidence=evidence,
                    speed={"e2e_s": round(float(result.get("duration_s") or 0.0), 3)})
+        # GOD-MODE tasks: the agent-built HTML is an ARENA ARTIFACT — capture it before the
+        # workdir vanishes (ships in the harness bundle for the Agent-arena human eval).
+        art = case.get("artifact")
+        if art and isinstance(art, dict) and art.get("file"):
+            p = os.path.join(workdir, art["file"])
+            if os.path.isfile(p):
+                try:
+                    with open(p, encoding="utf-8", errors="replace") as f:
+                        html = f.read()
+                    if html.strip():
+                        row["artifact"] = {"kind": art.get("kind"),
+                                           "prompt_id": art.get("prompt_id"),
+                                           "html": html[:900_000], "ok": True}
+                except OSError:
+                    pass
     except Exception as e:                       # NEVER aborts the batch
         row.update(status="harness_error", score=0.0,
                    raw_output=json.dumps({"error": f"{type(e).__name__}: {e}"[:1000]}),

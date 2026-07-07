@@ -259,6 +259,11 @@ def _save_artifacts(pod, bundle):
     if not isinstance(arts, list):
         return 0
     model = re.sub(r"[<>\"'`]", "", pod.get("model") or "")[:80]   # same sanitize as arena.generate_artifact
+    # Agent-built artifacts (god-mode harness tasks) compete as the MODEL+HARNESS pair — the
+    # Agent arena human eval judges the pairing, and the plain model's Elo stays unpolluted.
+    har = re.sub(r"[^A-Za-z0-9._-]", "", str(bundle.get("harness") or ""))[:20]
+    if har:
+        model = f"{model} @{har}"[:80]
     saved = 0
     for a in arts[:MAX_ARTIFACTS]:
         try:

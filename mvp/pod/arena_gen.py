@@ -39,7 +39,8 @@ def pick_prompts(per_kind: int = 2, seed=None):
     """
     out = []
     for kind in arena.KINDS:
-        pool = sorted(arena.PROMPTS.get(kind, []), key=lambda p: p["id"])
+        pool = sorted((p for p in arena.PROMPTS.get(kind, []) if not p.get("agent_only")),
+                      key=lambda p: p["id"])
         n = min(per_kind, len(pool))
         if n <= 0:
             continue

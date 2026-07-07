@@ -656,5 +656,45 @@
   "title": "The Sigil Scribe",
   "brief": "Type an intent and a spectral quill distills it into a glowing sigil you charge and burn.",
   "prompt": "Build a complete spectral sigil-scribing machine as a single self-contained HTML file (all CSS and JS inline, no external resources, runs fully offline). Show a black parchment canvas under a candlelight vignette with a single input field placeholder 'inscribe your intent'. On Enter, distill the phrase chaos-magick style: strip vowels and duplicate letters, then map each surviving letter deterministically (simple hash) to one of 22 glyph nodes arranged on an invisible circle so the same phrase always produces the same sigil. Animate a glowing quill point traveling node to node at constant speed, drawing the connecting path with slight hand-tremor wobble from a noise offset, leaving luminous ink that dries from cyan-white to deep violet; ornament the start node with a small circle and the end node with a crossbar. WebAudio (unlocked on first interaction): filtered-noise quill scratch keyed to drawing speed plus a faint band-passed whisper bed with a slow LFO while drawing. When complete the sigil idles with a breathing glow; hold mouse or touch on it to CHARGE — glow and a rising harmonic swell build over 2 seconds shown on a charge meter — and release to BURN: the path ignites stroke-by-stroke in reverse, shedding 100–150 ember particles with gravity and flicker, leaving a faint scorch ghost before the canvas clears for the next intent. HUD: the distilled letters rendered as small runes, the charge meter while holding, and a count of sigils burned this session. Use delta-time for quill travel, particle physics, and glow phases. Include 3 example-phrase buttons for an instant demo and a CLEAR reset button; ensure full mouse and touch parity."
+ },
+ {
+  "kind": "app",
+  "id": "agent.starship_bridge",
+  "title": "Starship Bridge (agent-built)",
+  "brief": "God-mode harness task: four live cockpit subsystems, built autonomously by an agent inside its harness.",
+  "prompt": "Agent-arena artifact group: outputs of the av2-god-01-starship-bridge harness task.",
+  "agent_only": true
+ },
+ {
+  "kind": "app",
+  "id": "agent.data_observatory",
+  "title": "Data Observatory (agent-built)",
+  "brief": "God-mode harness task: the agent computes real statistics from a CSV, then builds a linked-view dashboard that must agree with its own numbers.",
+  "prompt": "Agent-arena artifact group: outputs of the av2-god-02-data-observatory harness task.",
+  "agent_only": true
+ },
+ {
+  "kind": "game",
+  "id": "agent.rogue_vault",
+  "title": "Rogue Vault (agent-built)",
+  "brief": "God-mode harness task: a deterministic seeded roguelike — same seed, same 12-room vault, every load.",
+  "prompt": "Agent-arena artifact group: outputs of the av2-god-03-rogue-vault harness task.",
+  "agent_only": true
+ },
+ {
+  "kind": "animation",
+  "id": "agent.generative_symphony",
+  "title": "Generative Symphony (agent-built)",
+  "brief": "God-mode harness task: a 90-second four-section WebAudio composition with a live analyser visualization, scored against its own score.json.",
+  "prompt": "Agent-arena artifact group: outputs of the av2-god-04-generative-symphony harness task.",
+  "agent_only": true
+ },
+ {
+  "kind": "game",
+  "id": "agent.living_atlas",
+  "title": "The Living Atlas (agent-built)",
+  "brief": "God-mode harness task: a four-faction civilization sim whose six controls must match their own documentation.",
+  "prompt": "Agent-arena artifact group: outputs of the av2-god-05-living-atlas harness task.",
+  "agent_only": true
  }
 ]

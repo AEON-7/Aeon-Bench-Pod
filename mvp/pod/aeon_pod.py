@@ -611,6 +611,9 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
         except Exception as e:
             print(f"[pod] harness {h} could not run: {e}")
             continue
+        # GOD-MODE artifacts the agent built inside this harness — ride the harness bundle
+        # into the Agent arena (ingest attributes them '<model> @<harness>')
+        h_arts = [x["artifact"] for x in hres if isinstance(x.get("artifact"), dict)]
         hresults = [{k: x.get(k) for k in ("case_id", "category", "tier", "status",
                                            "score", "raw_output", "evidence", "speed")} for x in hres]
         hscored = [x["score"] for x in hresults if isinstance(x["score"], float)]
@@ -624,7 +627,18 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
                 suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
                 judge_model=judge, harness=disc.get("harness", h),
-                harness_version=disc.get("harness_version"), **provenance)
+                harness_version=disc.get("harness_version"), artifacts=h_arts, **provenance)
+            if h_arts:
+                print(f"[pod] harness {h}: {len(h_arts)} agent-built arena artifacts shipped")
+                try:
+                    from aeon import db as _db
+                    for a in h_arts:
+                        _db.save_artifact(uuid.uuid4().hex[:10], kind=a.get("kind"),
+                                          prompt_id=a.get("prompt_id"),
+                                          model=f"{repo} @{disc.get('harness', h)}",
+                                          html=a.get("html"), ok=True)
+                except Exception as e:
+                    print(f"[pod] harness artifact mirror failed (non-fatal): {e}")
             print(f"[pod] submit (harness {h} {disc.get('harness_version', '?')}) -> HTTP {hst}  {json.dumps(hr)[:200]}")
         except Exception as e:
             hst = 0

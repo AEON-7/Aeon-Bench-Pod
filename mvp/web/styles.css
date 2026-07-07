@@ -1867,6 +1867,9 @@ select:focus {
 .jstage.ok { border-color: rgba(61, 220, 133, .45); color: var(--good); }
 .jstage.ok i { background: rgba(61, 220, 133, .12); }
 .jstage.ok b { color: var(--good); }
+.jstage.bad { border-color: rgba(255, 93, 122, .55); color: var(--bad); }
+.jstage.bad i { background: rgba(255, 93, 122, .12); }
+.jstage.bad b { color: var(--bad); }
 .live-job { margin-bottom: 14px; }
 
 /* ---- serve-watch telemetry strip (Live view, while a job runs): VRAM / RAM / CPU gauges

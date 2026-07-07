@@ -358,6 +358,8 @@ def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2
                                     "max_tokens": max_tokens}, progress_cb=cb)
     if not pr.get("audio_ok"):
         if declared_audio:
+            # visible in the GUI stage strip (red chip), not just this log line
+            _stage("audio:BLOCKED", 0, 1)
             print(f"[pod] !! AUDIO CAPABILITY MISMATCH: the model config DECLARES audio "
                   f"(audio_config/audio_token_id present) but the served engine REJECTED "
                   f"input_audio ({pr.get('transport')}: {str(pr.get('error'))[:200]}). The model "

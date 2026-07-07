@@ -18,6 +18,7 @@ with the submission either way.
 """
 from __future__ import annotations
 
+import json
 import os
 import platform as _platform
 import shutil
@@ -373,6 +374,17 @@ def _find_gguf(local_dir: str) -> str | None:
     return None
 
 
+def _declares_audio(local_dir: str) -> bool:
+    """True when the model's config declares an audio tower (audio_config / audio_token_id) —
+    i.e. serving it WITHOUT an audio allowance silently amputates a real capability."""
+    try:
+        with open(os.path.join(local_dir, "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        return any(k in cfg for k in ("audio_config", "audio_token_id", "audio_token_index"))
+    except Exception:
+        return False
+
+
 def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: int,
                 quant: str | None = None, image: str | None = None,
                 plat: dict | None = None, extra_flags: list[str] | None = None,
@@ -424,6 +436,13 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
                  "--max-model-len", str(ctx)]
         if quant:
             flags += ["--quantization", str(quant)]
+        if _declares_audio(local_dir):
+            # A declared-audio model served without an audio allowance rejects every
+            # input_audio request with "At most 0 audio(s) may be provided" (vLLM's default
+            # mm limit) — the audio suite then probe-skips and the capability is silently
+            # untested. Grant it up-front; an operator --limit-mm-per-prompt in recipe
+            # tuning still overrides via merge_flags.
+            flags += ["--limit-mm-per-prompt", '{"image":4,"audio":4}']
         flags, applied = merge_flags(flags, extra_flags)
         flags = _floor_ctx(flags, "vllm")
         cmd = docker + ["--entrypoint", "vllm", img, "serve", "/model"] + flags

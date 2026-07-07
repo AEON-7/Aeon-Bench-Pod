@@ -2904,7 +2904,8 @@ function stageStrip(j) {
   return `<div class="jstages">` + sts.map((s) => {
     const pct = s.total ? Math.min(100, 100 * s.done / s.total) : 0;
     const full = s.total > 0 && s.done >= s.total;
-    return `<span class="jstage${full ? " ok" : ""}" title="${escA(s.name)} — ${s.done}/${s.total}">
+    const bad = /BLOCKED|mismatch/i.test(s.name || "");   // e.g. audio:BLOCKED (capability mismatch)
+    return `<span class="jstage${bad ? " bad" : full ? " ok" : ""}" title="${escA(s.name)} — ${s.done}/${s.total}${bad ? " — capability mismatch; see the job log" : ""}">
       <i style="width:${pct.toFixed(1)}%"></i><b>${escH(s.name)}</b><em>${s.done}/${s.total}</em></span>`;
   }).join("") + `</div>`;
 }

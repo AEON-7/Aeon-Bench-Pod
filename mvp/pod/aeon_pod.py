@@ -836,6 +836,16 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             print(f"[pod] {len(paused)} container(s) paused — "
                   + ("auto-restored after the bench" if restore else
                      "restore DISABLED (they stay stopped; restart manually)"), flush=True)
+            # Persist what we paused: if this process is killed mid-run (pod restart, crash),
+            # the pod's boot reconciler reads this file and restores production containers that
+            # would otherwise stay silently stopped. Removed on the clean-exit path below.
+            try:
+                _pf = os.path.join(os.path.expanduser("~"), ".aeon", "paused.json")
+                os.makedirs(os.path.dirname(_pf), exist_ok=True)
+                with open(_pf, "w") as f:
+                    json.dump({"paused": paused, "restore": restore, "at": time.time()}, f)
+            except OSError:
+                pass
         import socket
 
         def _port_busy():
@@ -919,6 +929,11 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         elif paused:
             print(f"[pod] restore disabled — {len(paused)} paused container(s) left stopped: "
                   + ", ".join(paused))
+        if paused:                                   # clean exit: nothing left for the reconciler
+            try:
+                os.unlink(os.path.join(os.path.expanduser("~"), ".aeon", "paused.json"))
+            except OSError:
+                pass
         if not keep_weights:
             print(f"[pod] removing weights {local_dir} (use --keep-weights to retain)")
             shutil.rmtree(local_dir, ignore_errors=True)

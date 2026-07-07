@@ -541,6 +541,15 @@ def get_run(run_id):
         return run
 
 
+def fail_orphaned_runs(reason: str) -> int:
+    """Mark every 'running' run failed — POD-LOCAL boot reconciliation only (at pod boot no
+    bench can be alive). Callers must never point this at a shared/mothership database."""
+    with connect() as c:
+        cur = c.execute("UPDATE runs SET status='failed', error=? WHERE status='running'",
+                        (reason,))
+        return cur.rowcount or 0
+
+
 def list_runs(limit=100):
     with connect() as c:
         rows = c.execute(

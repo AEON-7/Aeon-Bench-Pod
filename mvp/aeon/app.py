@@ -182,6 +182,32 @@ def _suite_cat_counts():
     return _CAT_COUNTS
 
 
+# A run killed without finalizing (crash, pod restart mid-run) leaves a 'running' row that
+# would keep the REC light on forever. Results rows carry no timestamp, so freshness is
+# progress-change tracking: a 'running' row whose progress hasn't moved in _LIVE_STALE_S is
+# a ghost and drops out of /api/live. (A real case never takes 45 min — resource limits kill
+# it long before.) Cache is per-process; after a restart a ghost survives at most one window.
+_LIVE_BEAT: dict = {}          # run id -> [progress-signature, last-change-ts]
+_LIVE_STALE_S = 45 * 60
+
+
+def _drop_stale_running(rows):
+    now = time.time()
+    fresh = []
+    for r in rows:
+        sig = (r.get("progress") or 0, r.get("n_cases") or 0)
+        beat = _LIVE_BEAT.get(r["id"])
+        if beat is None or beat[0] != sig:
+            _LIVE_BEAT[r["id"]] = [sig, now]
+            fresh.append(r)
+        elif now - beat[1] <= _LIVE_STALE_S:
+            fresh.append(r)
+    live_ids = {r["id"] for r in rows}
+    for k in [k for k in _LIVE_BEAT if k not in live_ids]:   # finished runs leave the cache
+        _LIVE_BEAT.pop(k, None)
+    return fresh
+
+
 @app.get("/api/live")
 def live(board: str = "text"):
     """In-progress (running) runs with their PARTIAL results — the live benchmark view. Fed by the
@@ -191,6 +217,7 @@ def live(board: str = "text"):
         return {"running": [], "role": ROLE}   # LIVE is a POD view; the mothership shows only accepted runs
     running = [r for r in db.list_runs(200)
                if r.get("status") == "running" and (r.get("board") or "text") == board]
+    running = _drop_stale_running(running)
     # A running row from a SUPERSEDED suite (e.g. the old aeon-suite-v2, 290 cases) — or a
     # different sub-suite that also files under board="text" (agentic-v2.1, 16 cases) — must not
     # hijack the card: its n_cases drives the headline total ("37/290") while the per-category
@@ -1354,6 +1381,20 @@ def _require_pod():
     """Hard pod-only gate: 404 on the mothership."""
     return None if IS_POD else JSONResponse(
         {"error": "not available on the mothership", "role": ROLE}, status_code=404)
+
+
+@app.on_event("startup")
+def _pod_boot_reconcile():
+    """A pod boot proves no bench job is alive — heal what a mid-run kill leaves behind
+    (orphaned aeon-bench-serve, paused-but-never-restored production containers, stranded
+    local 'running' rows). No-op on the mothership."""
+    if not IS_POD:
+        return
+    try:
+        from pod import recover
+        threading.Thread(target=recover.reconcile, daemon=True).start()   # container starts can
+    except Exception:                                                     # take minutes — never
+        pass                                                              # block serving the GUI
 
 
 def _require_pod_token(request: Request):

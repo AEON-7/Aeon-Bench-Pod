@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=70" />
+  <link rel="stylesheet" href="/static/styles.css?v=71" />
 </head>
 <body>
   <header>
@@ -139,7 +139,11 @@
           </div>
           <div class="row">
             <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
-            <label class="grow">Local weights <span class="note">(optional — no re-download)</span><input id="hfLocal" type="text" placeholder="already on disk? absolute folder path — hash-checked against the HF repo" /></label>
+            <label class="grow">Local weights <span class="note">(optional — no re-download)</span>
+              <span class="lw-field">
+                <input id="hfLocal" type="text" readonly aria-readonly="true" placeholder="none selected — launch will PULL the repo fresh &amp; hash-verify. Pick a local copy with ⌕ scan or ▤ browse to hash-check bytes on disk instead." title="Read-only: set it by choosing a model with ⌕ scan / ▤ browse. This is the exact folder that gets sha256-checked against the HF manifest." />
+                <button id="hfLocalClear" class="lw-clear" type="button" title="clear the local copy — launch will pull the repo fresh from Hugging Face and hash-verify on download" hidden>✕</button>
+              </span></label>
             <span class="lw-acts">
               <button id="lwScan" class="ghost" title="sweep this system's model homes (HF cache, LM Studio, AEON, ~/models) — found models auto-reconcile to their HF card for automatic hash checks">⌕ scan system</button>
               <button id="lwBrowse" class="ghost" title="browse the pod host's file structure for a model folder">▤ browse</button>
@@ -509,6 +513,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=70"></script>
+  <script src="/static/app.js?v=71"></script>
 </body>
 </html>

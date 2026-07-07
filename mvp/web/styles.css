@@ -1554,6 +1554,20 @@ select:focus {
 /* ---- VALIDATED BENCH (Run tab): model-validation strip · engine picker · MLX bare-metal ---- */
 /* The hero card carries the validated flow; the endpoint card is the demoted local-only path. */
 .run-card.vcard { border-color: var(--border-strong); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); }
+/* Local-weights path: READ-ONLY (driven by scan/browse selection), with a deliberate ✕ clear.
+   It can't be hand-edited to a path that sidesteps the hash check. */
+.lw-field { position: relative; display: flex; align-items: center; }
+.lw-field input[readonly] {
+  cursor: default; padding-right: 26px; color: var(--muted);
+  background: rgba(255, 255, 255, .01); border-style: dashed;
+}
+.lw-field input[readonly]:not([value=""]) { color: var(--text); border-style: solid; }
+.lw-clear {
+  position: absolute; right: 6px; width: 18px; height: 18px; padding: 0; line-height: 1;
+  border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
+}
+.lw-clear:hover { color: var(--bad); }
+
 .val-strip {
   display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 4px; padding: 10px 14px;
   border: 1px solid var(--border); background: rgba(255, 255, 255, .015);

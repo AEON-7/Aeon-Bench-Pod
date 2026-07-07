@@ -2399,7 +2399,7 @@ async function applyLaunchTemplate(i) {
   const p = t.params || {};
   const set = (sel, v) => { const el = $(sel); if (el) el.value = v == null ? "" : v; };
   set("#hfLink", p.hf_link); const hl = $("#hfLink"); if (hl) delete hl.dataset.auto;
-  set("#hfLocal", p.local_dir);
+  setLocalWeights(p.local_dir || "");                 // read-only field: go through the choke point
   set("#hfKey", p.hf_token_name);
   set("#hfPlan", p.preset || "");                     // faithful: a no-preset run replays as text-only
   set("#hfDiff", p.difficulty);
@@ -2648,18 +2648,29 @@ async function scanModels() {
   }
 }
 
+// Single choke point for the (read-only) local-weights path: model selection sets it,
+// the ✕ clears it. Both re-validate + refresh the MLX helper, and toggle the clear button
+// so the field's state is never edited by hand (which used to let a mismatch be "cleared"
+// into a green pass). Empty = launch pulls the repo fresh and hash-verifies on download.
+function setLocalWeights(path) {
+  const el = $("#hfLocal"); if (!el) return;
+  el.value = path || "";
+  const clr = $("#hfLocalClear"); if (clr) clr.hidden = !path;
+  updateMlxCmd();
+  scheduleValidate();
+}
+
 function pickScanned(i) {
   const m = RUN.scan && RUN.scan[i]; if (!m) return;
-  $("#hfLocal").value = m.path;
+  setLocalWeights(m.path);
   const link = $("#hfLink");
   // auto-reconciled HF card fills the link ONLY when the field is empty or still auto-filled —
   // a manually-typed link always wins (the user's override)
   if (m.hf_guess && (!link.value.trim() || link.dataset.auto === "1")) {
     link.value = m.hf_guess + (m.hf_revision ? "@" + m.hf_revision : "");
     link.dataset.auto = "1";
+    scheduleValidate();                     // link changed too -> re-validate against it
   }
-  updateMlxCmd();
-  scheduleValidate();                       // reconciliation -> automatic hash check
 }
 
 // server-side browse: the dashboard may be remote/containerized, so the POD lists its own disk
@@ -2778,13 +2789,15 @@ function valRender(st) {
       ` · launch submits <b>attested</b>`;
   } else if (s === "resolved") {
     msg.innerHTML = `<b>SOURCE VALIDATED</b> — <span class="mono">${escH(st.repo)}@${escH(sha)}</span> resolved` +
-      ` (${st.lfs_advertised} signed weight files) · weights hash-verify automatically on pull · launch submits <b>attested</b>` +
+      ` (${st.lfs_advertised} signed weight files) · <b>no local copy selected</b> — launch PULLS the repo fresh` +
+      ` from Hugging Face and hash-verifies every file on download · submits <b>attested</b>` +
       (st.error ? `<span class="val-note">${escH(st.error)}</span>` : "");
   } else if (s === "mismatch") {
     msg.innerHTML = `<b>LOCAL WEIGHTS DO NOT MATCH</b> <span class="mono">${escH(st.repo)}</span>` +
       ` — mismatched: <span class="mono">${escH((st.mismatches || []).join(", ") || "?")}</span>` +
-      `<span class="val-req">▸ to validate: point the HF link at the repo these weights actually came from, ` +
-      `or clear the local path (launching now ignores the local copy and pulls fresh — still attested)</span>`;
+      `<span class="val-req">▸ These on-disk bytes are NOT ${escH(st.repo)}. Point the HF link at the repo they ` +
+      `actually came from — or ✕ the local copy to pull the real ${escH(st.repo)} fresh instead ` +
+      `(that benches the genuine repo, not your local files).</span>`;
   } else if (s === "failed") {
     msg.innerHTML = `<b>NOT VALIDATED</b> — ${escH(st.error || "could not resolve the repo")}` +
       `<span class="val-req">▸ to validate: a real HF repo link (org/model), plus a saved HF token if the repo is gated` +
@@ -2990,7 +3003,10 @@ async function init() {
   // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override
-  vIn("#hfLocal", () => { scheduleValidate(); updateMlxCmd(); });
+  // #hfLocal is READ-ONLY: the exact folder that gets hash-checked is driven by model
+  // selection (scan/browse), never free-typed — so it can't be edited to a path that
+  // sidesteps the check. Clearing it is a DELIBERATE mode switch to "pull the repo fresh".
+  bind("#hfLocalClear", () => setLocalWeights(""));
   vIn("#tuneExtra", updateTuneCount);
   // spec-decode block: drafter card validates like the model; presets arm --speculative-config
   { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }
@@ -3000,7 +3016,7 @@ async function init() {
   bind("#lwBrowse", openBrowse);
   bind("#browseClose", closeBrowse);
   bind("#browseUse", () => {
-    if (BROWSE.path) { $("#hfLocal").value = BROWSE.path; updateMlxCmd(); scheduleValidate(); }
+    if (BROWSE.path) setLocalWeights(BROWSE.path);
     closeBrowse();
   });
   { const ss = $("#scanSel"); if (ss) ss.onchange = () => { if (ss.value !== "") pickScanned(+ss.value); }; }

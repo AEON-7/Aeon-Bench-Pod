@@ -2036,7 +2036,11 @@ async function applyLaunchTemplate(i) {
   set("#veImage", p.engine_image);
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
-  if (p.engine && $("#veEngine")) { $("#veEngine").value = p.engine; engineChanged(); }
+  if (p.engine && $("#veEngine")) {
+    $("#veEngine").value = p.engine;
+    RUN.enginePinned = true;                          // a template IS an explicit engine choice —
+    engineChanged();                                  // validation must never override it
+  }
   applyServeFlags(p.serve_flags || []);               // AFTER engineChanged re-rendered the catalog
   scheduleValidate();                                 // model (+ local copy) re-validates automatically
   if (p.drafter_hf) validateDrafter();
@@ -2079,10 +2083,32 @@ function engineChanged() {
 // the serve command server-side (pod.engines.merge_flags — bench wiring protected) and the final
 // recipe is recorded with the run. This is the optimal-recipe search surface.
 
+function _tuneBodyValues() {
+  const vals = {};
+  $$("#tuneBody [data-flag]").forEach((el) => {
+    vals[el.dataset.flag] = el.dataset.kind === "bool" ? el.checked : el.value;
+  });
+  return vals;
+}
+
+function _restoreTuneBody(vals) {
+  $$("#tuneBody [data-flag]").forEach((el) => {
+    if (!(el.dataset.flag in vals)) return;
+    if (el.dataset.kind === "bool") el.checked = !!vals[el.dataset.flag];
+    else el.value = vals[el.dataset.flag] || "";
+  });
+}
+
 function renderTune(e) {
   const wrap = $("#tuneWrap"), body = $("#tuneBody");
   if (!wrap || !body) return;
   const flags = (e && e.flags) || [];
+  // A SAME-ENGINE re-render (Run-tab re-entry, validation completing, recommendation no-op)
+  // must never destroy configured values — snapshot the body controls and re-apply after the
+  // rebuild. A real engine SWITCH gets the clean slate (another grammar's flags don't carry).
+  const sameEngine = !!e && RUN.tuneEngine === e.id;
+  const keep = sameEngine ? _tuneBodyValues() : null;
+  RUN.tuneEngine = e ? e.id : null;
   wrap.hidden = !flags.length;                         // bare engines (MLX/LM Studio): no knob grammar yet
   if (!flags.length) { body.innerHTML = ""; updateTuneCount(); return; }
   body.innerHTML = flags.map((f) => {
@@ -2109,6 +2135,7 @@ function renderTune(e) {
   body.querySelectorAll("[data-flag]").forEach((el) => {
     el.oninput = updateTuneCount; el.onchange = updateTuneCount;
   });
+  if (keep) _restoreTuneBody(keep);
   updateTuneCount();
 }
 
@@ -2342,7 +2369,10 @@ async function pollValidate(vid) {
     setTimeout(() => pollValidate(vid), 1200);
   } else if (st.recommended_engine && !RUN.enginePinned) {
     const el = $("#veEngine");                          // e.g. GGUF repo -> llama.cpp
-    if (el && [...el.options].some((o) => o.value === st.recommended_engine && !o.disabled)) {
+    // Only act when validation actually CHANGES the engine — re-selecting the same engine
+    // re-rendered the tuning catalog and wiped every configured flag (the template-reset bug).
+    if (el && el.value !== st.recommended_engine
+        && [...el.options].some((o) => o.value === st.recommended_engine && !o.disabled)) {
       el.value = st.recommended_engine; engineChanged();
     }
   }

@@ -1555,6 +1555,19 @@ def pod_jobs(request: Request):
     return {"jobs": jobs.list_jobs()}
 
 
+@app.get("/api/pod/stats")
+def pod_stats(request: Request):
+    """POD-ONLY: live host telemetry (GPU VRAM/util, host RAM, CPU load, serve-container
+    state + CPU/MEM) for the Live view's serve-watch strip — proof that a multi-minute
+    model load is progressing, not stalled. On-demand samples, cached a few seconds."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import hoststats
+    return hoststats.sample()
+
+
 @app.get("/api/pod/launches")
 def pod_launches(request: Request):
     """Prior launch configs as TEMPLATES for the Run form (knobs only; token NAMES, never

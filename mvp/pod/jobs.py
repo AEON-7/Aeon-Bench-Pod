@@ -15,6 +15,7 @@ import collections
 import json as _json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -65,8 +66,23 @@ _STAGES = [
     ("PERF grid", "perf"),
 ]
 
-_PUBLIC = ("id", "kind", "status", "stage", "stages", "model", "hf_link", "base_url",
+_PUBLIC = ("id", "kind", "status", "stage", "stages", "serve_phase", "model", "hf_link", "base_url",
            "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "returncode")
+
+# Engine-startup landmarks (vLLM startup chatter streamed into the job log) -> a live
+# SERVE PHASE, so the 4-5 minute model load is visible instead of a silent 'serving' gap.
+_SERVE_MARKS = (
+    ("Starting to load model", "loading weights"),
+    ("Loading safetensors checkpoint shards", "loading weights"),
+    ("torch.compile", "compiling model"),
+    ("Capturing CUDA graph", "capturing CUDA graphs"),
+    ("GPU KV cache size", "allocating KV cache"),
+    ("Available KV cache memory", "allocating KV cache"),
+    ("init engine", "initializing engine"),
+    ("Application startup complete", "engine up — readiness probe"),
+    ("engine ready; served", "ready"),
+)
+_SHARD_PCT = re.compile(r"checkpoint shards:\s*(\d{1,3})%")
 
 
 def _now():
@@ -196,6 +212,23 @@ def _run_job(jid):
                 stage = st
         if stage:
             _set(j, stage=stage)
+        # engine-startup visibility: vLLM's own startup lines (streamed through the serve
+        # subprocess) become a live serve_phase + a weight-loading % bar, so the multi-minute
+        # model load reads as PROGRESS instead of a silent 'serving' stage.
+        for sub, ph in _SERVE_MARKS:
+            if sub in line:
+                _set(j, serve_phase=ph)
+        m = _SHARD_PCT.search(line)
+        if m:
+            pct = max(0, min(100, int(m.group(1))))
+            with _LOCK:
+                sts = j.setdefault("stages", [])
+                cur = next((s for s in sts if s["name"] == "load-weights"), None)
+                if not cur:
+                    cur = {"name": "load-weights", "done": 0, "total": 100}
+                    sts.append(cur)
+                cur["done"] = max(cur["done"], pct)   # tqdm redraws can repeat lower %s
+                j["updated_at"] = _now()
     proc.wait()
     rc = proc.returncode
     if j.get("status") == "stopped":

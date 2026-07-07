@@ -2158,14 +2158,46 @@ async function pollLive() {
   }
   // A run spends long stretches in NON-STREAMING dimensions (arena / harness / perf) where no
   // db run is live — the active JOB's stage strip keeps Live honest through those phases.
-  let job = null;
+  let job = null, tele = null;
   if (CFG.role === "pod") {
     try {
       const js = await api("/api/pod/jobs", { headers: podHeaders() });
       job = (js.jobs || []).find((x) => x.status === "running") || null;
     } catch (e) { /* jobs API optional — Live still renders db runs */ }
+    // serve-watch telemetry: only while a job runs (idle Live polls stay cheap)
+    if (job) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
   }
-  renderLive(d, job);
+  renderLive(d, job, tele);
+}
+
+// Host serve-watch strip: is the model load PROGRESSING or stalled? VRAM filling = weights
+// are streaming in; the serve-container line answers "has it mysteriously disappeared".
+function teleStrip(t, j) {
+  if (!t) return "";
+  const g = (label, used, total, extra) => {
+    const pct = total ? Math.min(100, Math.round(100 * used / total)) : 0;
+    return `<div class="tele-g"><div class="tele-h"><span>${label}</span><span class="mono note">${used} / ${total} GB${extra || ""}</span></div>
+      <div class="live-bar"><div class="live-bar-fill${pct >= 92 ? " hot" : ""}" style="width:${pct}%"></div></div></div>`;
+  };
+  const gs = [];
+  if (t.gpu) gs.push(g("VRAM", t.gpu.used_gb, t.gpu.total_gb, ` · ${t.gpu.util_pct}% util`));
+  if (t.ram) gs.push(g("RAM", t.ram.used_gb, t.ram.total_gb));
+  if (t.load) {
+    const lp = Math.min(100, Math.round(100 * t.load.load1 / (t.load.ncpu || 1)));
+    gs.push(`<div class="tele-g"><div class="tele-h"><span>CPU LOAD</span><span class="mono note">${t.load.load1} · ${t.load.ncpu} cores</span></div>
+      <div class="live-bar"><div class="live-bar-fill${lp >= 92 ? " hot" : ""}" style="width:${lp}%"></div></div></div>`);
+  }
+  const sv = t.serve || {};
+  // red only when the engine SHOULD be up: it already spoke (serve_phase) or the bench is past it.
+  // 'submitting' excluded — the final submit can outlive a torn-down engine, that's normal.
+  const expectUp = j && (["benchmarking", "vision", "audio", "arena", "harness", "perf"].includes(j.stage)
+    || (j.stage === "serving" && j.serve_phase));
+  const cls = sv.running ? "up" : expectUp ? "down" : "idle";
+  const label = sv.running
+    ? `● aeon-bench-serve up${sv.cpu ? ` · cpu ${escH(sv.cpu)} · ${escH(sv.mem || "?")}` : ""}`
+    : expectUp ? "○ aeon-bench-serve NOT RUNNING — engine exited; check the job log"
+    : "○ aeon-bench-serve not up yet";
+  return `<div class="tele-strip"><span class="tele-serve ${cls}">${label}</span>${gs.join("")}</div>`;
 }
 
 // only genuinely NEW feed cases animate on each poll (innerHTML rebuilds everything).
@@ -2173,15 +2205,17 @@ async function pollLive() {
 // with multiple concurrent runs and with a killed+relaunched run of the same model.
 let LIVE_SEEN_MAP = new Map();
 
-function renderLive(d, job) {
+function renderLive(d, job, tele) {
   const runs = (d && d.running) || [];
   const activeJob = job && job.status === "running" ? job : null;
   const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", runs.length > 0 || !!activeJob);
   const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", runs.length > 0 || !!activeJob);
+  const phaseTag = activeJob && activeJob.serve_phase && activeJob.stage === "serving"
+    ? ` <span class="tag tele-phase">engine: ${escH(activeJob.serve_phase)}</span>` : "";
   const jobStrip = activeJob ? `<div class="live-job">
       <h4 class="live-feed-h">run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}
-        <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span></h4>
-      ${stageStrip(activeJob)}</div>` : "";
+        <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span>${phaseTag}</h4>
+      ${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "";
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
     $("#liveBody").innerHTML = activeJob
@@ -2886,6 +2920,7 @@ function renderJobs(jobs) {
       <span class="job-mk ${cls}"></span>
       <span class="mono job-model">${escH((j.model || "").split("/").pop() || j.model || "?")}</span>
       ${kindB}<span class="job-stage">${escH(stg)}</span>
+      ${j.serve_phase && j.stage === "serving" ? `<span class="tag tele-phase">${escH(j.serve_phase)}</span>` : ""}
       ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
       ${j.difficulty ? `<span class="tag">${escH(j.difficulty)}</span>` : ""}
       ${live}${stop}${stageStrip(j)}${err}</div>`;

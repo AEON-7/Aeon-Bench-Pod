@@ -1869,6 +1869,30 @@ select:focus {
 .jstage.ok b { color: var(--good); }
 .live-job { margin-bottom: 14px; }
 
+/* ---- serve-watch telemetry strip (Live view, while a job runs): VRAM / RAM / CPU gauges
+   + the aeon-bench-serve health line — the "is the model load stalled?" instrument ---- */
+.tele-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px;
+  margin-top: 8px; padding: 9px 12px; border: 1px solid var(--line); background: var(--well);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+.tele-g { flex: 1 1 170px; min-width: 150px; max-width: 300px; }
+.tele-h {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  font-family: var(--mono, monospace); font-size: 10px; letter-spacing: .08em;
+  color: var(--muted); text-transform: uppercase; margin-bottom: 3px;
+}
+.tele-strip .live-bar { height: 6px; }
+.live-bar-fill.hot { background: var(--warn); }
+.tele-serve {
+  flex-basis: 100%; font-family: var(--mono, monospace); font-size: 10.5px; letter-spacing: .06em;
+}
+.tele-serve.up { color: var(--good); }
+.tele-serve.idle { color: var(--muted); }
+.tele-serve.down { color: var(--bad); font-weight: 700; animation: telePulse 1.2s ease-in-out infinite; }
+@keyframes telePulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tag.tele-phase { color: var(--accent); border-color: rgba(0, 240, 255, .4); }
+
 /* ---- SHARE: per-benchmark share button (mcards + perf detail) ---- */
 .share-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;

@@ -1266,7 +1266,8 @@ function renderSubsList(rows) {
   });
   // two ticks -> compare; the bar appears as soon as one is ticked
   const bar = $("#cmpBar"), note = $("#cmpBarNote"), go = $("#cmpGo");
-  const picked = () => $$("#subsList .cmp-sel:checked").map((x) => x.dataset.run);
+  // $$ returns a NodeList (no .map) — spread first, or every handler below dies silently
+  const picked = () => [...$$("#subsList .cmp-sel:checked")].map((x) => x.dataset.run);
   $$("#subsList .cmp-sel").forEach((cb) => cb.onchange = () => {
     const p = picked();
     if (p.length > 2) { cb.checked = false; return; }

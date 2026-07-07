@@ -256,7 +256,7 @@ def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=N
 def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
-                    drafter_hf=None, max_tokens=None):
+                    drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -274,7 +274,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "hf_token_name": hf_token_name, "engine": engine, "port": port,
             "perf_max_conc": perf_max_conc, "concurrency": concurrency, "local_dir": local_dir,
             "engine_image": engine_image, "serve_url": serve_url, "serve_flags": serve_flags,
-            "drafter_hf": drafter_hf, "max_tokens": max_tokens})
+            "drafter_hf": drafter_hf, "max_tokens": max_tokens,
+            "pause_all": pause_all, "restore_paused": restore_paused})
     except Exception:
         pass
     extra = {}
@@ -282,6 +283,12 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
         tok = db.get_secret(hf_token_name)
         extra["HF_TOKEN"] = tok
         extra["HUGGING_FACE_HUB_TOKEN"] = tok
+    # CLEAR-HOST mode: stop every non-pod container before serving (GUI 'stop other
+    # containers'); restore_paused=False leaves them stopped after the bench.
+    if pause_all:
+        extra["AEON_PAUSE_ALL"] = "1"
+    if restore_paused is False:
+        extra["AEON_RESTORE_PAUSED"] = "0"
     # An engine/local-dir/serve-url selection means the user chose a SPECIFIC serve config in the
     # GUI — honor it via the builtin flow even when a host launcher exists (the launcher owns only
     # the host's default serve, e.g. the DGX aeon-vllm-ultimate recipe).

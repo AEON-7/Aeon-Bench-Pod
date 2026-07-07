@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=63" />
+  <link rel="stylesheet" href="/static/styles.css?v=64" />
 </head>
 <body>
   <header>
@@ -197,6 +197,10 @@
             <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <label>Token budget<input id="hfMaxTok" type="number" placeholder="2048 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
             <button id="hfLaunch" class="primary">▶ Launch validated bench</button>
+          </div>
+          <div class="row hostprep-row">
+            <label class="c2-only" title="stop EVERY other running container before serving (the pod, its serve and harness containers are never touched) — a clean GPU and port without visiting the host. Containers listed in AEON_PAUSE_CONTAINERS are always paused regardless."><input type="checkbox" id="hfPauseAll" checked> clear host: stop other containers during the bench</label>
+            <label class="c2-only" title="restart the paused containers automatically when the bench finishes (recommended)"><input type="checkbox" id="hfRestore" checked> restart them after</label>
           </div>
           <p class="note tune-note" style="padding:0">Comprehensive is the full benchmark — one launch populates every board (leaderboard · harnesses · performance · arena). Expect 30–60 min on capable hardware; Text suite only is the quick pass.</p>
         </div>
@@ -500,6 +504,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=63"></script>
+  <script src="/static/app.js?v=64"></script>
 </body>
 </html>

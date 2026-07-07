@@ -803,13 +803,39 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     # stop such containers for the bench window and restore them after — the hands-free DGX flow.
     paused = []
     if serve and not serve_url:
-        for name in (n.strip() for n in (os.environ.get("AEON_PAUSE_CONTAINERS") or "").split(",")):
-            if not name:
-                continue
+        targets = [n.strip() for n in (os.environ.get("AEON_PAUSE_CONTAINERS") or "").split(",")
+                   if n.strip()]
+        # CLEAR-HOST mode (AEON_PAUSE_ALL=1, GUI 'stop other containers'): stop EVERY running
+        # container except the pod itself and bench infrastructure — a clean GPU/port without
+        # visiting the host before each run. The pod recognises itself by its container id
+        # (/etc/hostname inside docker) plus name guards.
+        if os.environ.get("AEON_PAUSE_ALL") == "1":
+            self_id = ""
+            try:
+                with open("/etc/hostname") as f:
+                    self_id = f.read().strip()[:12]
+            except OSError:
+                pass
+            keep_prefixes = ("aeon-pod", "aeon-bench-serve", "aeon-harness", "aeon_")
+            r = subprocess.run(["docker", "ps", "--format", "{{.ID}}|{{.Names}}"],
+                               capture_output=True, text=True, timeout=60)
+            for line in (r.stdout or "").splitlines():
+                cid, _, name = line.partition("|")
+                if not name or (self_id and cid.startswith(self_id)) \
+                        or any(name.startswith(p) for p in keep_prefixes):
+                    continue
+                if name not in targets:
+                    targets.append(name)
+        for name in targets:
             r = subprocess.run(["docker", "stop", name], capture_output=True, text=True, timeout=180)
             if r.returncode == 0:
                 paused.append(name)
-                print(f"[pod] paused container '{name}' for the bench window (auto-restored after)")
+                print(f"[pod] paused container '{name}' for the bench window", flush=True)
+        restore = os.environ.get("AEON_RESTORE_PAUSED", "1") != "0"
+        if paused:
+            print(f"[pod] {len(paused)} container(s) paused — "
+                  + ("auto-restored after the bench" if restore else
+                     "restore DISABLED (they stay stopped; restart manually)"), flush=True)
         import socket
 
         def _port_busy():
@@ -885,10 +911,14 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         if recipe.get("container_name") and serve:   # docker-served: make cleanup unconditional —
             subprocess.run(["docker", "rm", "-f", recipe["container_name"]],   # SIGTERM on the client
                            capture_output=True, timeout=60)                    # can strand the container
-        for name in paused:                          # restore what we paused — ALWAYS (start only)
-            r = subprocess.run(["docker", "start", name], capture_output=True, text=True, timeout=180)
-            print(f"[pod] restored container '{name}'" if r.returncode == 0
-                  else f"[pod] !! could not restart '{name}': {r.stderr.strip()[:200]}")
+        if os.environ.get("AEON_RESTORE_PAUSED", "1") != "0":
+            for name in paused:                      # restore what we paused (start only, never rm)
+                r = subprocess.run(["docker", "start", name], capture_output=True, text=True, timeout=180)
+                print(f"[pod] restored container '{name}'" if r.returncode == 0
+                      else f"[pod] !! could not restart '{name}': {r.stderr.strip()[:200]}")
+        elif paused:
+            print(f"[pod] restore disabled — {len(paused)} paused container(s) left stopped: "
+                  + ", ".join(paused))
         if not keep_weights:
             print(f"[pod] removing weights {local_dir} (use --keep-weights to retain)")
             shutil.rmtree(local_dir, ignore_errors=True)

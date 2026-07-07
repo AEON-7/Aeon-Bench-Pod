@@ -2358,6 +2358,8 @@ async function applyLaunchTemplate(i) {
   set("#hfConc", p.concurrency);
   set("#hfMaxConc", p.perf_max_conc == null ? 32 : p.perf_max_conc);
   set("#hfMaxTok", p.max_tokens);
+  { const pa = $("#hfPauseAll"); if (pa) pa.checked = p.pause_all !== false && p.pause_all != null ? !!p.pause_all : true; }
+  { const rs = $("#hfRestore"); if (rs) rs.checked = p.restore_paused !== false; }
   set("#veImage", p.engine_image);
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
@@ -2820,6 +2822,8 @@ async function runHfVerified() {
       hf_token_name: $("#hfKey").value || null,
       perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
       max_tokens: tokBudgetVal("#hfMaxTok"),
+      pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
+      restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
       ..._validatedExtras() }, "#hfLaunch");
 }
 

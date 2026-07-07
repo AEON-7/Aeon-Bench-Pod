@@ -345,9 +345,11 @@ def _host_path(p: str) -> str:
     models volume and AEON_MODELS_HOST_DIR is where the HOST has it; outside a container
     the path is already a host path. Pure string prefix-swap — the mapping crosses filesystem
     namespaces, so os.path.abspath (which would prepend the local drive/cwd) must not touch it."""
-    inner, host = os.environ.get("AEON_MODELS_DIR"), os.environ.get("AEON_MODELS_HOST_DIR")
     q = p.replace("\\", "/")
-    if inner and host:
+    for inner, host in ((os.environ.get("AEON_MODELS_DIR"), os.environ.get("AEON_MODELS_HOST_DIR")),
+                        ("/host-home", os.environ.get("AEON_HOST_HOME_DIR"))):
+        if not (inner and host):
+            continue
         inner = inner.rstrip("/").replace("\\", "/")
         if q == inner or q.startswith(inner + "/"):
             return host.rstrip("/") + q[len(inner):]

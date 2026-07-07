@@ -2592,6 +2592,11 @@ async function scanModels() {
     `<option value="${i}">${escH(m.name)} — ${fmtGB(m.size_bytes)} · ${escH((m.formats || []).join("/"))} · ${escH(m.source)}${m.hf_guess ? " · ✓ HF-reconciled" : " · no HF match (fill link manually)"}</option>`).join("");
   row.hidden = false;
   if (!RUN.scan.length) runStatus("no models found in the known model homes (HF cache, LM Studio, AEON, ~/models — add roots via AEON_SCAN_DIRS)", "warn");
+  // containerized pod without the opt-in host mount: only the /models volume is visible —
+  // tell the operator the one-time flag that unlocks a FULL host sweep
+  if (d.host_scan === false && CFG.role === "pod") {
+    runStatus("scanned container mounts only — to sweep the WHOLE host (HF cache, LM Studio, model folders), re-run the pod with:  -v \"$HOME:/host-home:ro\" -e AEON_HOST_HOME_DIR=\"$HOME\"  (one-time, read-only)", "warn");
+  }
 }
 
 function pickScanned(i) {

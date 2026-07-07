@@ -48,6 +48,21 @@ def _known_roots() -> list[dict]:
         {"path": os.path.join(home, ".cache", "lm-studio", "models"), "kind": "lmstudio"},
         {"path": os.path.join(home, "models"), "kind": "generic"},
     ]
+    # FULL-HOST scan (opt-in): when the operator mounts their host home read-only at
+    # /host-home (-v $HOME:/host-home:ro -e AEON_HOST_HOME_DIR=$HOME), sweep the same model
+    # homes THERE — HF cache, LM Studio, model folders — so a containerized pod sees every
+    # model on the machine, not just the /models volume. Serving translates back to the
+    # host path via AEON_HOST_HOME_DIR (engines._host_path).
+    if os.path.isdir("/host-home"):
+        hh = "/host-home"
+        roots += [
+            {"path": os.path.join(hh, ".cache", "huggingface", "hub"), "kind": "hf-cache"},
+            {"path": os.path.join(hh, ".lmstudio", "models"), "kind": "lmstudio"},
+            {"path": os.path.join(hh, ".cache", "lm-studio", "models"), "kind": "lmstudio"},
+            {"path": os.path.join(hh, ".aeon", "models"), "kind": "aeon"},
+            {"path": os.path.join(hh, "models"), "kind": "generic"},
+            {"path": os.path.join(hh, "aeon-models"), "kind": "aeon"},
+        ]
     for extra in re.split(r"[;:]", os.environ.get("AEON_SCAN_DIRS", "")):
         if extra.strip():
             roots.append({"path": os.path.expanduser(extra.strip()), "kind": "generic"})
@@ -173,7 +188,9 @@ def scan() -> dict:
             seen.add(key)
             uniq.append(m)
     uniq.sort(key=lambda m: -m["size_bytes"])
-    return {"models": uniq[:_MAX_MODELS], "roots": [r["path"] for r in roots]}
+    return {"models": uniq[:_MAX_MODELS], "roots": [r["path"] for r in roots],
+            # tells the GUI whether the FULL-HOST sweep is active (opt-in /host-home mount)
+            "host_scan": os.path.isdir("/host-home")}
 
 
 def browse(path: str | None = None) -> dict:

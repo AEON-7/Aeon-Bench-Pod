@@ -89,6 +89,19 @@ Your device key, runs and models live in the named volumes — **updating never 
 If :8091 is taken on your host (e.g. a bare-metal dashboard is already running), add
 `-e AEON_PORT=8092` and open :8092 instead.
 
+### Full-host model scan (optional)
+
+By default a containerized pod's **⌕ scan system** only sees its own mounts (`/models`). To
+sweep the WHOLE machine — Hugging Face cache, LM Studio library, `~/models` — add a one-time
+**read-only** mount of your home to the `docker run` line:
+
+```bash
+-v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME"
+```
+
+Found models validate and serve directly from where they live (the serve engine mounts the
+real host path read-only) — nothing is copied or moved, and the pod can never write to it.
+
 > ⚠ `docker run` flags do **not** persist across an update — if your old container had extra
 > `-e` flags, add them to the new run line too. Common ones: `-e AEON_SYSTEM=<hardware-label>`
 > (names your hardware on results) and `-e AEON_PAUSE_CONTAINERS=<name>` (auto-stops a

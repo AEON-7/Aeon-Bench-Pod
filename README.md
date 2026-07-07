@@ -166,4 +166,7 @@ over the full result set; the mothership verifies signature + weight verificatio
 tiers the run (`attested` / `self_reported`). See [`docs/attestation.md`](docs/attestation.md).
 
 ---
-*Private during hardening — see [`PRE-PUBLIC-CHECKLIST.md`](PRE-PUBLIC-CHECKLIST.md) before flipping public.*
+Open source under the [MIT License](LICENSE). This repo ships the **pod distribution**:
+everything needed to run, verify and submit benchmarks. The mothership's server-side
+trust internals (evaluator accounts, moderation, submission acceptance) are deliberately
+not part of it.

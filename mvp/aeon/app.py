@@ -19,7 +19,16 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, admin, arena, attest, db, evaluators, ingest, modelmeta, probe, runner, scoring, vram
+from . import arena, attest, db, evaluators, modelmeta, probe, runner, scoring, vram
+
+# Mothership-only trust surface: evaluator accounts/auth, the admin portal, and the
+# signed-submission ingest gate. These modules are NOT part of the public pod
+# distribution — a pod boots without them and every route that needs them 404s
+# (see _no_trust_stack). The mothership (private repo) always has them.
+try:
+    from . import accounts, admin, ingest
+except ImportError:                                # public pod distribution
+    accounts = admin = ingest = None               # type: ignore[assignment]
 from . import suite as suite_mod
 from . import vision_suite
 from . import agentic_v2
@@ -447,10 +456,19 @@ def _token_of(request: Request):
     return request.headers.get("x-aeon-token")
 
 
+def _no_trust_stack():
+    """404 when the mothership trust stack (accounts/admin/ingest) isn't shipped —
+    i.e. on the public pod distribution, which has no evaluator accounts to serve."""
+    return None if accounts is not None else JSONResponse(
+        {"error": "not available"}, status_code=404)
+
+
 # ---- evaluator accounts (anonymous: username + password, capped per IP) ----
 
 @app.post("/api/auth/signup")
 def auth_signup(body: AuthBody, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     r = accounts.signup(body.username, body.password, accounts.client_ip(request))
     if "error" in r:
         return JSONResponse(r, status_code=429 if "too many" in r["error"] else 400)
@@ -459,6 +477,8 @@ def auth_signup(body: AuthBody, request: Request):
 
 @app.post("/api/auth/login")
 def auth_login(body: AuthBody, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     r = accounts.login(body.username, body.password, accounts.client_ip(request))
     if "error" in r:
         code = 429 if ("too many" in r["error"] or "locked" in r["error"]) else 401
@@ -468,6 +488,8 @@ def auth_login(body: AuthBody, request: Request):
 
 @app.get("/api/auth/me")
 def auth_me(request: Request):
+    if (g := _no_trust_stack()):
+        return g
     u = accounts.user_from_request(request)
     if not u:
         return JSONResponse({"error": "not signed in"}, status_code=401)
@@ -484,6 +506,8 @@ def auth_logout(request: Request):
 
 @app.post("/api/auth/password")
 def auth_change_password(body: PasswordChangeBody, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     u = accounts.user_from_request(request)
     if not u:
         return JSONResponse({"error": "not signed in"}, status_code=401)
@@ -521,6 +545,8 @@ def arena_render(request: Request, match_id: str | None = None, side: str | None
         if not a or a.get("bogus") or not a.get("ok"):
             return JSONResponse({"error": "not found"}, status_code=404)
         return {"html": a["html"]}
+    if (g := _no_trust_stack()):   # match-render needs accounts; gallery mode above doesn't
+        return g
     u = accounts.user_from_request(request)
     if not u:
         return JSONResponse({"error": "sign in"}, status_code=401)
@@ -592,6 +618,8 @@ def arena_download(aid: str):
 
 @app.get("/api/arena/match")
 def arena_match(request: Request, kind: str, prompt_id: str | None = None):
+    if (g := _no_trust_stack()):
+        return g
     u = accounts.user_from_request(request)
     if not u:
         return JSONResponse({"error": "sign in to evaluate"}, status_code=401)
@@ -608,6 +636,8 @@ def arena_match(request: Request, kind: str, prompt_id: str | None = None):
 
 @app.post("/api/arena/vote")
 def arena_vote(body: ArenaVoteBody, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     u = accounts.user_from_request(request)
     if not u:
         return JSONResponse({"error": "sign in to vote"}, status_code=401)
@@ -626,6 +656,8 @@ class AdminArtifactBody(BaseModel):
 
 
 def _require_admin(request: Request):
+    if accounts is None:                 # pod distribution ships no admin surface
+        return None
     u = accounts.user_from_request(request)
     return u if accounts.is_admin(u) else None
 
@@ -1330,11 +1362,15 @@ def _v1_rate_ok(request: Request, bucket: str):
 
 @app.get("/api/v1/enroll/challenge")
 def v1_enroll_challenge():
+    if (g := _no_trust_stack()):   # signed-submission RECEIVER is mothership-only
+        return g
     return {"challenge": ingest.issue_challenge(), "ttl": ingest._CHALLENGE_TTL}
 
 
 @app.post("/api/v1/enroll")
 def v1_enroll(body: EnrollBody, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     if not _v1_rate_ok(request, "enroll"):
         return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.enroll(body.public_key, body.challenge, body.signature)
@@ -1343,6 +1379,8 @@ def v1_enroll(body: EnrollBody, request: Request):
 
 @app.post("/api/v1/runs")
 def v1_open_run(body: OpenRunBody, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     if not _v1_rate_ok(request, "runs"):
         return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.open_run(body.public_key, body.signature, model=body.model,
@@ -1352,6 +1390,8 @@ def v1_open_run(body: OpenRunBody, request: Request):
 
 @app.post("/api/v1/runs/{run_id}/results")
 async def v1_submit_results(run_id: str, request: Request):
+    if (g := _no_trust_stack()):
+        return g
     if not _v1_rate_ok(request, "results"):
         return JSONResponse({"error": "rate limited"}, status_code=429)
     token = request.headers.get("x-aeon-run-token") or ""

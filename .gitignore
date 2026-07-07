@@ -30,3 +30,12 @@ mvp/aeon/assets/audio/*
 
 # suite backups
 mvp/suites/*.bak-*
+
+# Mothership-only trust surface — NEVER part of the public pod distribution.
+# These guards make an accidental repo-sync copy uncommittable.
+mvp/aeon/admin.py
+mvp/aeon/accounts.py
+mvp/aeon/provision_admin.py
+mvp/aeon/ingest.py
+mvp/aeon/arena_trust.py
+PRE-PUBLIC-CHECKLIST.md

@@ -22,14 +22,16 @@ import uuid
 from . import db
 from .targets import MockTarget, OpenAITarget
 
+# Mothership-only integrity internals (honeypot decoys, spot-check policy, voter-trust
+# threshold). NOT part of the public pod distribution: a pod runs a no-honeypot arena
+# (it has no evaluator accounts), and every call site below degrades cleanly.
+try:
+    from . import arena_trust as _trust
+except ImportError:
+    _trust = None
+
 KINDS = ["app", "game", "animation"]
 KIND_LABEL = {"app": "Generated Apps", "game": "Generated Games", "animation": "Generated Animations"}
-
-# A user's votes count only while their lifetime honeypot accuracy is >= this. The
-# decoys are blatantly broken, so a genuine evaluator scores ~100%; the slack absorbs
-# the occasional misclick. A failed honeypot is NOT a permanent ban — accuracy recovers
-# as the user keeps answering honeypots correctly (redemption).
-TRUST_ACCURACY = 0.95
 
 # Minimum number of DISTINCT eligible voters that must weigh in on a (prompt, model-pair)
 # before that matchup's votes are allowed to move Elo. At quorum 2 a lone account's votes
@@ -206,13 +208,14 @@ def generate_artifact(kind, prompt_id, model, target_url, api_key=None, params=N
 def _eligible_votes(kind=None):
     """The trust-filtered vote stream EVERY rating replays — the per-model ranking()
     and the per-artifact gallery rating share this so the gallery can never rank on a
-    weaker filter. Only votes from evaluators whose honeypot accuracy is currently
-    >= TRUST_ACCURACY count, so a user who drops below the bar is excluded until they
-    redeem (and a user who climbs back is re-included automatically)."""
-    acc = db.honeypot_accuracy()
-    eligible = {uid for uid, s in acc.items()
-                if s["adjudicated"] >= 1 and (s["accuracy"] or 0) >= TRUST_ACCURACY}
-    votes = [v for v in db.real_votes(kind) if v.get("user_id") in eligible]
+    weaker filter. Only votes from evaluators whose integrity record currently clears
+    the trust bar count (mothership policy; a pod's local arena has no voters and
+    counts all of its — typically zero — votes)."""
+    if _trust:
+        eligible = _trust.eligible_users(db.honeypot_accuracy())
+        votes = [v for v in db.real_votes(kind) if v.get("user_id") in eligible]
+    else:
+        votes = list(db.real_votes(kind))
     # Cap ballot-stuffing: collapse repeated votes by the same user on the same
     # (prompt, unordered model pair) to a single latest observation, so one account
     # cannot re-vote one pairing to steer the Elo. real_votes is ts-ordered.
@@ -437,86 +440,10 @@ def seed_demo():
 # Human-vote integrity: server-driven random matches + secret honeypots
 # ======================================================================
 #
-# Bogus decoys are intentionally broken/awful single-file pages given PLAUSIBLE
-# weak-model names, so a real evaluator easily picks the working artifact while a
-# careless/malicious clicker fails ~50% of the time. They are camouflaged: a bad
-# generation is normal in this arena (weak models produce bad output), so the
-# decoy is indistinguishable from "a weak model did poorly" — the honeypot stays
-# secret. Decoys live only in is_test matches and never touch the real ranking.
-
-# Each honeypot served mints ONE per-match decoy artifact (prompt_id "_bogus_live") so its
-# served HTML is byte-unique (see _mutate_decoy). Those rows accumulate — one per integrity
-# check — so once a kind's live-decoy pool passes this cap we opportunistically reclaim the
-# ones whose match has resolved (or aged out), keeping arena_artifacts bounded on a busy arena.
-_LIVE_DECOY_CAP = 200
-# A decoy is safe to delete the moment its match resolves; this TTL is a backstop that also
-# reclaims orphans (match row cancelled/deleted). Generous enough to never race a
-# just-served-but-still-unvoted honeypot.
-_LIVE_DECOY_TTL = 6 * 3600
-
-_BOGUS_MODELS = ["tinydraft-0.5b", "scratch-1b", "rough-1b", "nano-stub-0.3b", "sketch-700m"]
-
-_BOGUS_HTML = [
-    "<!DOCTYPE html><html><head><meta charset=utf-8></head><body style='background:#fff'></body></html>",
-    "<!DOCTYPE html><html><head><meta charset=utf-8></head><body style='background:#0b0b14'>"
-    "<script>throw new Error('init failed');document.write('loading')</script></body></html>",
-    "<!DOCTYPE html><html><head><meta charset=utf-8></head><body style='font-family:serif;padding:10px;color:#000'>"
-    + ("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor. " * 45)
-    + "</body></html>",
-    "<!DOCTYPE html><html><head><meta charset=utf-8></head><body style='font-family:Arial;padding:36px;color:#333'>"
-    "<h1>TODO</h1><p>not implemented</p><button>Start</button></body></html>",
-    "<!DOCTYPE html><html><head><meta charset=utf-8></head><body style='background:#181818;color:#0f0;font-family:monospace'>"
-    "<div style='position:absolute;top:46%;left:40%;transform:scale(6);opacity:.25'>undefined</div>"
-    "<div style='position:absolute;top:10%;left:8%'>NaN NaN NaN</div></body></html>",
-]
-
-
 def seed_bogus():
-    """Seed the honeypot decoy pool once (one set per kind). These rows are the BASE
-    templates only — the decoy actually served in a match is a fresh, per-match
-    mutation of one of them (see _mutate_decoy / _build_test_match). Idempotent."""
-    if db.artifact_exists(bogus=True):
-        return
-    for kind in KINDS:
-        for i, html in enumerate(_BOGUS_HTML):
-            db.save_artifact(uuid.uuid4().hex[:10], kind=kind, prompt_id="_bogus",
-                             model=_BOGUS_MODELS[i % len(_BOGUS_MODELS)], html=html,
-                             ok=True, bogus=True)
-
-
-def _mutate_decoy(html, seed=None):
-    """FIX (honeypot decoys are fingerprintable): the 5 _BOGUS_HTML strings are
-    source-visible constants, so a byte-identical /api/arena/render response lets an
-    attacker match against the known set and auto-pass every honeypot. Return a decoy
-    that is byte-UNIQUE per match by randomizing only NON-SEMANTIC bytes — it still
-    looks like the same weak/broken page (that is intended), it just isn't a static
-    constant anymore. Uses python's own randomness (seeded per match) so no two served
-    decoys collide. Deterministic given the seed."""
-    rng = random.Random(seed if seed is not None else secrets.token_hex(16))
-    tok = lambda n=8: "".join(rng.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(n))
-
-    # 1) jitter every literal hex colour by a couple of steps (visually ~identical)
-    def _jit_hex(m):
-        v = int(m.group(1), 16)
-        parts = [(v >> 16) & 255, (v >> 8) & 255, v & 255]
-        parts = [max(0, min(255, c + rng.randint(-3, 3))) for c in parts]
-        return "#%02x%02x%02x" % tuple(parts)
-    html = re.sub(r"#([0-9a-fA-F]{6})\b", _jit_hex, html)
-
-    # 2) jitter bare placeholder numbers in style values (px/%/scale/opacity offsets)
-    def _jit_num(m):
-        n = int(m.group(1))
-        return str(max(0, n + rng.randint(-2, 2))) + m.group(2)
-    html = re.sub(r"\b(\d{1,3})(px|%|em)\b", _jit_num, html)
-
-    # 3) sprinkle unique element ids onto the body so the DOM differs per match
-    html = html.replace("<body", '<body data-r="%s"' % tok(10), 1)
-
-    # 4) randomize indentation/whitespace after some tag boundaries (non-semantic)
-    html = re.sub(r"><", lambda _m: ">" + " " * rng.randint(0, 2) + "<", html, count=rng.randint(1, 4))
-
-    # 5) inject a random-nonce HTML comment (kills any remaining exact-string match)
-    return html.replace("</body>", "<!-- r:%s:%s --></body>" % (tok(16), rng.randint(0, 1 << 30)), 1)
+    """Mothership-only integrity seeding (no-op in the public pod distribution)."""
+    if _trust:
+        _trust.seed_bogus()
 
 
 def _real_by_prompt(kind):
@@ -598,93 +525,27 @@ def _build_normal_match(user, kind, prompt_id=None):
     return _payload(mid, kind, chosen)
 
 
-def _build_test_match(user, kind):
-    reals = [a for a in db.list_artifacts(kind=kind) if a.get("ok")]   # real side must work
-    # BASE templates only (prompt_id "_bogus"); exclude the per-match "_bogus_live" decoys
-    # minted below, so bases never drift into mutations-of-mutations and the selection pool
-    # stays the fixed seeded set rather than growing with every honeypot served.
-    boguses = [b for b in db.list_bogus(kind) if b.get("prompt_id") == "_bogus"]
-    if not reals or not boguses:
-        return None
-    # Opportunistic cleanup: the decoy minted below adds one arena_artifacts row per honeypot
-    # served. Once this kind's live-decoy pool exceeds the cap, reclaim the decoys whose match
-    # has resolved (voted or skip-retired) or aged out — so the table stays bounded. Best
-    # effort: a cleanup failure must NEVER block serving the honeypot. Base templates
-    # ("_bogus") are untouched, so the base selection above is unaffected.
-    try:
-        if db.count_live_decoys(kind) >= _LIVE_DECOY_CAP:
-            db.prune_live_decoys(kind=kind, ttl=_LIVE_DECOY_TTL)
-    except Exception:
-        pass
-    real = random.choice(reals)
-    base = random.choice(boguses)
-    # FIX (fingerprintable decoys): don't reuse the static pre-seeded bogus row (its html
-    # is one of 5 source-visible constants an attacker can match byte-for-byte). Mint a
-    # FRESH per-match decoy artifact whose html is a unique mutation of the base template,
-    # so /api/arena/render never returns a static, known constant. Keeps the base's
-    # plausible weak model name (camouflage) and bogus=True (never touches real ranking).
-    base_art = db.get_artifact(base["id"])
-    bog_id = uuid.uuid4().hex[:10]
-    # prompt_id "_bogus_live" marks a per-match mutated decoy (distinct from the "_bogus"
-    # base templates) so it's excluded from base selection above and from real ranking.
-    db.save_artifact(bog_id, kind=kind, prompt_id="_bogus_live", model=base["model"],
-                     html=_mutate_decoy((base_art or {}).get("html", ""), seed=bog_id),
-                     ok=True, bogus=True)
-    bog = {"id": bog_id}
-    if random.random() < 0.5:
-        a, b, bogus_side = real, bog, "b"
-    else:
-        a, b, bogus_side = bog, real, "a"
-    mid = uuid.uuid4().hex[:14]
-    db.create_match(mid, user_id=user["id"], kind=kind, prompt_id=real["prompt_id"],
-                    a_id=a["id"], b_id=b["id"], is_test=True, bogus_side=bogus_side)
-    return _payload(mid, kind, real["prompt_id"])
-
-
-def _should_test(user, kind):
-    if user["status"] != "active":
-        return False
-    if not db.list_bogus(kind):
-        return False
-    st = db.user_stats(user["id"])
-    # A TIE on a test is neutral and must not consume the guarantee — gate on
-    # ADJUDICATED (passed or failed) tests, not merely served/tied ones.
-    adjudicated = st["passed"] + st["failed"]
-    if adjudicated == 0:
-        # guarantee a honeypot within the user's first 3 votes, at a random position
-        if st["votes"] >= 2:        # the next vote would be their 3rd (or later) -> force
-            return True
-        return random.random() < 0.45
-    # Ongoing spot-checks. Test below-threshold users MORE often so a genuine misclicker
-    # gets frequent chances to redeem (and a real bad actor is re-checked and kept out),
-    # instead of waiting on the sparse default rate.
-    acc = st["passed"] / adjudicated
-    return random.random() < (0.25 if acc < TRUST_ACCURACY else 0.08)
-
-
 def build_match(user, kind, prompt_id=None):
-    """Pick the next comparison for this user (random prompt + random models, or a
-    secret honeypot). Returns a payload or None if there aren't enough artifacts."""
+    """Pick the next comparison for this user. Integrity checks (mothership-only,
+    see arena_trust) are woven in server-side; the payload never distinguishes them.
+    Returns a payload or None if there aren't enough artifacts."""
     if kind not in KINDS:
         return None
-    # An outstanding (unvoted) honeypot is a sticky OBLIGATION: skipping can never
-    # re-roll the user back into a normal match. But re-serving the IDENTICAL pairing
-    # forever reads as "stuck in a loop" (owner report) — so each skip retires the
-    # abandoned test (unadjudicated: zero accuracy impact) and mints a FRESH pairing.
-    # Every skip is still a test, so the check stays inescapable — and because the
-    # pairing now varies like normal matches do, a skipper can no longer infer they
-    # are being tested from the repetition itself (better secrecy than before).
-    pending = db.latest_unvoted_match(user["id"], kind, is_test=True)
-    if pending:
-        fresh = _build_test_match(user, kind)
-        if fresh:
-            db.claim_match(pending["id"])   # retire the abandoned one (a late vote 409s)
-            return fresh
-        return _payload(pending["id"], pending["kind"], pending["prompt_id"])
-    if _should_test(user, kind):
-        m = _build_test_match(user, kind)
-        if m:
-            return m
+    if _trust:
+        # An outstanding (unvoted) integrity check is a sticky obligation: skipping
+        # retires it and mints a fresh one, so the check is inescapable but never
+        # reads as a repeated pairing.
+        pending = db.latest_unvoted_match(user["id"], kind, is_test=True)
+        if pending:
+            fresh = _trust.build_test_match(user, kind)
+            if fresh:
+                db.claim_match(pending["id"])   # retire the abandoned one (a late vote 409s)
+                return _payload(*fresh)
+            return _payload(pending["id"], pending["kind"], pending["prompt_id"])
+        if _trust.should_test(user, kind):
+            m = _trust.build_test_match(user, kind)
+            if m:
+                return _payload(*m)
     return _build_normal_match(user, kind, prompt_id)
 
 
@@ -702,28 +563,17 @@ def submit_vote(user, match_id, winner):
     if not db.claim_match(match_id):   # atomic claim: exactly one vote per match (kills the race)
         return {"error": "this comparison was already voted"}, 409
 
-    test_passed = None
-    if m["is_test"]:
-        if winner == "tie":
-            test_passed = None                    # neutral: no pass, no fail
-        elif winner == m["bogus_side"]:
-            test_passed = 0                        # chose the broken decoy -> a miss
-        else:
-            test_passed = 1                        # chose the real artifact -> a hit
+    # Integrity adjudication is mothership-only (arena_trust); a pod's local arena
+    # has no test matches, so every vote records as a plain observation there.
+    test_passed = _trust.adjudicate(m, winner) if (_trust and m["is_test"]) else None
 
     db.record_vote(uuid.uuid4().hex[:12], kind=m["kind"], prompt_id=m["prompt_id"],
                    a_id=m["a_id"], b_id=m["b_id"], a_model=a["model"], b_model=b["model"],
                    winner=winner, user_id=user["id"], is_test=bool(m["is_test"]),
                    test_passed=test_passed)
 
-    # Accuracy-based trust with redemption (no permanent ban): after recording this
-    # honeypot, if the user's lifetime accuracy is at/above the bar, flip the sticky
-    # 'verified' badge. Dropping below the bar later silently stops their votes from
-    # counting (ranking re-checks live) without ever flagging or alerting them.
-    if m["is_test"] and test_passed is not None:
-        s = db.honeypot_accuracy().get(user["id"])
-        if s and s["adjudicated"] >= 1 and (s["accuracy"] or 0) >= TRUST_ACCURACY:
-            db.set_user_flags(user["id"], trusted=True, ever_verified=True)
+    if _trust and m["is_test"] and test_passed is not None:
+        _trust.update_trust_flags(user["id"])
     # Reveal model names (the decoy's plausible weak name keeps the honeypot hidden).
     return {"ok": True, "a_model": a["model"], "b_model": b["model"], "winner": winner,
             "ranking": ranking(m["kind"]), "you": _self_state(user["id"])}, 200

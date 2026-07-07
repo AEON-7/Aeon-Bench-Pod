@@ -29,9 +29,22 @@ def _gpu():
     if not out:
         return None
     try:
-        used, total, util = [float(x.strip()) for x in out.splitlines()[0].split(",")[:3]]
-        return {"used_gb": round(used / 1024, 1), "total_gb": round(total / 1024, 1),
-                "util_pct": int(util)}
+        parts = [x.strip() for x in out.splitlines()[0].split(",")[:3]]
+
+        def num(s):  # GB10/Jetson-class unified memory reports "[N/A]" for VRAM fields
+            try:
+                return float(s)
+            except ValueError:
+                return None
+        used, total, util = (num(p) for p in parts)
+        d = {}
+        if util is not None:
+            d["util_pct"] = int(util)
+        if used is not None and total:
+            d["used_gb"], d["total_gb"] = round(used / 1024, 1), round(total / 1024, 1)
+        else:
+            d["unified"] = True     # VRAM == system RAM: the RAM gauge IS the VRAM gauge
+        return d or None
     except Exception:
         return None
 

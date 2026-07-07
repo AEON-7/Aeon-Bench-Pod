@@ -2180,8 +2180,14 @@ function teleStrip(t, j) {
       <div class="live-bar"><div class="live-bar-fill${pct >= 92 ? " hot" : ""}" style="width:${pct}%"></div></div></div>`;
   };
   const gs = [];
-  if (t.gpu) gs.push(g("VRAM", t.gpu.used_gb, t.gpu.total_gb, ` · ${t.gpu.util_pct}% util`));
-  if (t.ram) gs.push(g("RAM", t.ram.used_gb, t.ram.total_gb));
+  const unified = !!(t.gpu && t.gpu.unified);   // GB10/Jetson-class: VRAM == system RAM
+  if (t.gpu && t.gpu.used_gb != null) gs.push(g("VRAM", t.gpu.used_gb, t.gpu.total_gb, t.gpu.util_pct != null ? ` · ${t.gpu.util_pct}% util` : ""));
+  else if (t.gpu && t.gpu.util_pct != null) {
+    const up = Math.min(100, t.gpu.util_pct);
+    gs.push(`<div class="tele-g"><div class="tele-h"><span>GPU UTIL</span><span class="mono note">${up}%</span></div>
+      <div class="live-bar"><div class="live-bar-fill" style="width:${up}%"></div></div></div>`);
+  }
+  if (t.ram) gs.push(g(unified ? "UNIFIED MEM" : "RAM", t.ram.used_gb, t.ram.total_gb));
   if (t.load) {
     const lp = Math.min(100, Math.round(100 * t.load.load1 / (t.load.ncpu || 1)));
     gs.push(`<div class="tele-g"><div class="tele-h"><span>CPU LOAD</span><span class="mono note">${t.load.load1} · ${t.load.ncpu} cores</span></div>

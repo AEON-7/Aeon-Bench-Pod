@@ -1295,6 +1295,8 @@ class PodVerifiedRunBody(BaseModel):
     port: int | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
+    max_tokens: int | None = None       # per-answer TOKEN BUDGET (generation cap incl. thinking);
+                                        # None = pod default (2048). Clamped 256..131072
 
 
 def _clamp_conc(v):
@@ -1366,7 +1368,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         engine_image=(body.engine_image or None), local_dir=(body.local_dir or None),
         serve_url=(body.serve_url or None), serve_flags=_clean_serve_flags(body.serve_flags),
         drafter_hf=(body.drafter_hf or "").strip() or None,
-        perf_max_conc=_clamp_conc(body.perf_max_conc), concurrency=_clamp_conc(body.concurrency))
+        perf_max_conc=_clamp_conc(body.perf_max_conc), concurrency=_clamp_conc(body.concurrency),
+        max_tokens=(min(131072, max(256, int(body.max_tokens))) if body.max_tokens else None))
     return {"job_id": jid}
 
 

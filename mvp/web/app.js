@@ -2033,6 +2033,7 @@ async function applyLaunchTemplate(i) {
   set("#hfDiff", p.difficulty);
   set("#hfConc", p.concurrency);
   set("#hfMaxConc", p.perf_max_conc == null ? 32 : p.perf_max_conc);
+  set("#hfMaxTok", p.max_tokens);
   set("#veImage", p.engine_image);
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
@@ -2451,6 +2452,12 @@ function maxConcVal(sel) {
   return Number.isFinite(v) ? Math.min(64, Math.max(1, v)) : null;
 }
 
+function tokBudgetVal(sel) {
+  const el = $(sel); if (!el) return null;
+  const v = parseInt(el.value, 10);
+  return Number.isFinite(v) ? Math.min(131072, Math.max(256, v)) : null;
+}
+
 async function runEndpointBench() {
   const base_url = $("#reBase").value.trim(), model = $("#reModel").value.trim();
   if (!model) { runStatus("model name is required", "err"); return; }
@@ -2488,6 +2495,7 @@ async function runHfVerified() {
       difficulty: plan === "hard-bench" ? null : ($("#hfDiff").value || null),
       hf_token_name: $("#hfKey").value || null,
       perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
+      max_tokens: tokBudgetVal("#hfMaxTok"),
       ..._validatedExtras() }, "#hfLaunch");
 }
 

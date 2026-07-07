@@ -256,7 +256,7 @@ def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=N
 def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
-                    drafter_hf=None):
+                    drafter_hf=None, max_tokens=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -274,7 +274,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "hf_token_name": hf_token_name, "engine": engine, "port": port,
             "perf_max_conc": perf_max_conc, "concurrency": concurrency, "local_dir": local_dir,
             "engine_image": engine_image, "serve_url": serve_url, "serve_flags": serve_flags,
-            "drafter_hf": drafter_hf})
+            "drafter_hf": drafter_hf, "max_tokens": max_tokens})
     except Exception:
         pass
     extra = {}
@@ -320,6 +320,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--perf-max-conc", str(perf_max_conc)]
         if concurrency:                         # unset = aeon_pod's default (--concurrency 0 = auto)
             argv += ["--concurrency", str(concurrency)]
+        if max_tokens:                          # per-answer TOKEN BUDGET (unset = pod default 2048)
+            argv += ["--max-tokens", str(max_tokens)]
         if HARDWARE:
             argv += ["--hardware", HARDWARE]
         if port:

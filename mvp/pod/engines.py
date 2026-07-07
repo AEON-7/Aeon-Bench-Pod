@@ -129,6 +129,10 @@ FLAG_CATALOG = {
          "note": "per-prompt multimodal item caps, e.g. {\"audio\":2,\"image\":4} — some builds "
                  "need this for a declared-audio model to ACCEPT input_audio (the bench warns "
                  "on a declared-vs-served mismatch)"},
+        {"flag": "--reasoning-budget", "kind": "number", "label": "reasoning budget",
+         "note": "cap on <think> tokens per response; empty = engine default (uncapped). "
+                 "Qwen models destabilize above ~16384 — set 16384 or lower there; Gemma4 "
+                 "handles uncapped fine"},
         # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
         # (drafter HF card + preset dropdown), not as a raw catalog knob.
     ],

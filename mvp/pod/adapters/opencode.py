@@ -32,7 +32,7 @@ import os
 import shutil
 import tempfile
 
-from .base import Adapter, AdapterError, run_argv, safe_name, strip_reasoning
+from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
 
 IMAGE = os.environ.get("AEON_OPENCODE_IMAGE", "aeon-harness-opencode")
 _PROVIDER_ID = "dgx"
@@ -168,15 +168,17 @@ class OpenCodeAdapter(Adapter):
         # the CLI reads opencode.json from its cwd (/work) — drop the model-run config in
         shutil.copyfile(self._config_path, os.path.join(workdir, "opencode.json"))
 
-        argv = [
-            "docker", "run", "--rm", "--network", "host",
-            "-v", f"{workdir}:/work", "-w", "/work",
+        # docker-cp I/O (run_container_io): a bind mount of the pod-local workdir breaks when
+        # the pod is containerized (daemon resolves the path on the HOST -> empty /work -> the
+        # CLI never sees opencode.json -> "Unknown model: dgx/<alias>", no seed files).
+        out, err, rc, dur = run_container_io(
             self.IMAGE,
-            "run", "--format", "json", "--auto",
-            "-m", self._model or f"{_PROVIDER_ID}/{served_alias}",
-            task.get("prompt", ""),
-        ]
-        out, err, rc, dur = run_argv(argv, timeout)
+            ["run", "--format", "json", "--auto",
+             "-m", self._model or f"{_PROVIDER_ID}/{served_alias}",
+             task.get("prompt", "")],
+            seed=[(workdir, "/work")],
+            collect=[("/work/.", workdir)],
+            timeout=timeout, name_hint=f"opencode_{served_alias}", workdir="/work")
         parsed = parse_output(out)
         if rc != 0 and not parsed["answer"] and not parsed["steps"]:
             raise AdapterError(f"opencode exited {rc} with no parseable output; "

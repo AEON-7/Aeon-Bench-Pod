@@ -1264,6 +1264,53 @@ function _trajectory(c) {
   }).join("") + `</ol>`;
 }
 
+// ---- INSTRUMENT PANEL: a run's category gauges + difficulty ladder, cockpit-style -------------
+
+function _ipGauge(pct, label) {
+  const r = 25, c = 2 * Math.PI * r;
+  const off = c * (1 - Math.min(100, Math.max(0, pct)) / 100);
+  const band = pct >= 80 ? "pass" : pct >= 40 ? "part" : "fail";
+  return `<div class="ip-gauge ${band}" title="${escA(label)}: ${pct.toFixed(1)}">
+    <svg viewBox="0 0 64 64"><circle class="ip-track" cx="32" cy="32" r="${r}"/>
+      <circle class="ip-arc" cx="32" cy="32" r="${r}" stroke-dasharray="${c.toFixed(1)}"
+        stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 32 32)"/></svg>
+    <span class="ip-val">${Math.round(pct)}</span><span class="ip-lbl">${escH(label)}</span></div>`;
+}
+
+const _DIFF_ORDER = ["easy", "medium", "hard", "expert", "frontier"];
+
+function _instrumentPanel(d) {
+  const scored = (d.cases || []).filter((c) => typeof c.score === "number");
+  if (!scored.length || (d.run || {}).board === "perf") return "";
+  const catAgg = {}, diffAgg = {};
+  scored.forEach((c) => {
+    (catAgg[c.category] = catAgg[c.category] || []).push(c.score);
+    if (c.difficulty) (diffAgg[c.difficulty] = diffAgg[c.difficulty] || []).push(c.score);
+  });
+  const cats = Object.entries(catAgg).map(([k, v]) => [k, 100 * v.reduce((a, b) => a + b, 0) / v.length]);
+  const comp = cats.length ? cats.reduce((a, [, v]) => a + v, 0) / cats.length : 0;
+  const compBand = comp >= 80 ? "pass" : comp >= 40 ? "part" : "fail";
+  const R = 40, C = 2 * Math.PI * R, off = C * (1 - Math.min(100, comp) / 100);
+  const dial = `<div class="ip-dial ${compBand}">
+    <svg viewBox="0 0 100 100"><circle class="ip-track" cx="50" cy="50" r="${R}"/>
+      <circle class="ip-arc" cx="50" cy="50" r="${R}" stroke-dasharray="${C.toFixed(1)}"
+        stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 50 50)"/></svg>
+    <span class="ip-dial-val">${comp.toFixed(1)}</span><span class="ip-dial-lbl">composite</span></div>`;
+  const gauges = cats.map(([k, v]) => _ipGauge(v, k)).join("");
+  const diffs = _DIFF_ORDER.filter((k) => diffAgg[k]);
+  const ladder = diffs.length < 2 ? "" : `<div class="ip-ladder"><span class="ip-sec">difficulty</span>` +
+    diffs.map((k) => {
+      const v = 100 * diffAgg[k].reduce((a, b) => a + b, 0) / diffAgg[k].length;
+      return `<div class="ip-rung"><span class="diff-chip d-${k}">${k}</span>
+        <span class="ip-bar"><i class="db-${k}" style="width:${Math.min(100, v).toFixed(1)}%"></i></span>
+        <span class="ip-pct">${Math.round(v)}</span><span class="ip-n">${diffAgg[k].length}</span></div>`;
+    }).join("") + `</div>`;
+  return `<div class="instrument-panel">
+    ${dial}
+    <div class="ip-gauges"><span class="ip-sec">categories</span><div class="ip-grow">${gauges}</div></div>
+    ${ladder}</div>`;
+}
+
 function renderSubmissionDetail(d) {
   const r = d.run, admin = AUTH.user && AUTH.user.admin;
   const flagBtn = admin ? (r.flagged ? `<button class="ghost" id="subUnflag">un-flag</button>`
@@ -1319,7 +1366,7 @@ function renderSubmissionDetail(d) {
       <div class="sub-a"><b>answered:</b><pre>${escH(c.answer)}</pre></div>
       <div class="sub-r"><b>judgement:</b> ${_rationale(c)}</div></div>`;
   }).join("");
-  $("#subsDetail").innerHTML = meta + repro + `<div class="sub-cases">${cases}</div>`;
+  $("#subsDetail").innerHTML = meta + _instrumentPanel(d) + repro + `<div class="sub-cases">${cases}</div>`;
   const rc = $("#reproCopy");
   if (rc) rc.onclick = async () => {
     try { await navigator.clipboard.writeText(cmdText); } catch (e) { return; }
@@ -1715,7 +1762,8 @@ function renderHarnessMatrix() {
     return `<tr><td class="model"><span class="hmodel">
         <a class="model-creator" data-meta="${escA(mdl)}" target="_blank" rel="noopener noreferrer" title="creator profile">
           <img class="model-avatar" data-meta-avatar="${escA(mdl)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="34" height="34"></a>
-        <span class="hmodel-name">${fmtModel(mdl)}</span></span></td>` + hs.map((h) => {
+        <span class="hmodel-name">${fmtModel(mdl)}</span>
+        <button class="share-btn h3c-btn" data-h3c="${escA(mdl)}" title="one bench pass, all three harnesses side by side — full prompt, tool calls and response per task">⇆ compare</button></span></td>` + hs.map((h) => {
       const c = row[h];
       if (!c || c.score == null) return `<td class="num hcell na">—</td>`;
       const hb = best >= 0 && c.score === best ? " hbest" : "";
@@ -1732,10 +1780,86 @@ function renderHarnessMatrix() {
     td.onclick = open;
     td.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
   });
+  wrap.querySelectorAll(".h3c-btn").forEach((b) => b.onclick = (ev) => {
+    ev.stopPropagation(); openHarnessCompare(b.dataset.h3c);
+  });
   [...new Set(d.models)].forEach((model) => {                 // hydrate creator avatars
     const cached = META.get(model);
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
+}
+
+// ---- 3-HARNESS side-by-side: ONE bench pass, hermes/openclaw/opencode per task -----------------
+
+const H3C = { model: null, passes: [], idx: 0 };
+
+async function openHarnessCompare(model) {
+  const box = $("#harnessCompare"); if (!box) return;
+  box.innerHTML = skel(6, 20);
+  let d;
+  try { d = await api(`/api/harness_passes?model=${encodeURIComponent(model)}`); }
+  catch (e) { box.innerHTML = `<p class="err">failed to load harness passes</p>`; return; }
+  H3C.model = model; H3C.passes = d.passes || []; H3C.idx = 0;
+  if (!H3C.passes.length) { box.innerHTML = `<p class="board-empty">No harness passes for this model yet.</p>`; return; }
+  loadHarnessPass();
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadHarnessPass() {
+  const box = $("#harnessCompare");
+  const p = H3C.passes[H3C.idx]; if (!p) return;
+  const hs = Object.keys(p.runs).sort();
+  box.innerHTML = skel(6, 20);
+  const details = {};
+  await Promise.all(hs.map(async (h) => {
+    try { details[h] = await api("/api/submissions/" + encodeURIComponent(p.runs[h].run_id)); }
+    catch (e) { details[h] = null; }
+  }));
+  renderHarnessCompare(p, hs, details);
+}
+
+function renderHarnessCompare(p, hs, details) {
+  const box = $("#harnessCompare");
+  const picker = H3C.passes.length > 1
+    ? `<label class="note">pass <select id="h3cPass">${H3C.passes.map((x, i) =>
+        `<option value="${i}"${i === H3C.idx ? " selected" : ""}>${fmtDT(x.started_at)} · ${Object.keys(x.runs).length} harnesses · ${escH((Object.values(x.runs)[0] || {}).harness_version ? "" : "")}${escH(x.runs[Object.keys(x.runs)[0]].run_id.slice(0, 6))}…</option>`).join("")}</select></label>` : "";
+  const heads = hs.map((h) => {
+    const r = p.runs[h];
+    const sc = r.mean_score != null ? r.mean_score.toFixed(1) : "—";
+    const cls = r.mean_score == null ? "" : r.mean_score >= 80 ? "pass" : r.mean_score >= 40 ? "part" : "fail";
+    return `<div class="h3c-head"><b>${escH(h)}</b> <span class="mono hver">${escH(fmtHver(r.harness_version))}</span>
+      <span class="sub-score ${cls}">${sc}</span><span class="micro"> ${r.n_cases} tasks · run <span class="mono">${escH(r.run_id)}</span></span></div>`;
+  }).join("");
+  // union of task ids across the pass, in suite order
+  const byH = {};
+  hs.forEach((h) => { byH[h] = new Map(((details[h] || {}).cases || []).map((c) => [c.case_id, c])); });
+  const ids = [...new Set(hs.flatMap((h) => [...byH[h].keys()]))].sort();
+  const cell = (c) => {
+    if (!c) return `<div class="h3c-cell na"><span class="note">not run</span></div>`;
+    const sc = c.score == null ? "—" : (c.score * 100).toFixed(0);
+    const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
+    return `<div class="h3c-cell">
+      <div class="h3c-score"><span class="sub-score ${cls}">${sc}</span></div>
+      <div class="sub-traj"><b class="micro">tool calls</b>${_trajectory(c)}</div>
+      <div class="sub-a"><b class="micro">answered</b><pre>${escH((c.final_answer != null ? c.final_answer : c.answer) || "")}</pre></div>
+      <div class="sub-r"><b class="micro">judgement</b> ${_rationale(c)}</div>
+    </div>`;
+  };
+  const rows = ids.map((id) => {
+    const first = hs.map((h) => byH[h].get(id)).find(Boolean) || {};
+    return `<div class="h3c-case">
+      <div class="sub-case-h"><span class="mono">${escH(id)}</span> <span class="tag">${escH(first.category || "")}</span>${first.difficulty ? ` <span class="diff-chip d-${escA(first.difficulty)}">${escH(first.difficulty)}</span>` : ""}</div>
+      <div class="sub-q"><b>asked:</b> ${escH(first.prompt || "")}</div>
+      <div class="h3c-grid" style="--n:${hs.length}">${hs.map((h) => cell(byH[h].get(id))).join("")}</div>
+    </div>`;
+  }).join("");
+  box.innerHTML = `<div class="h3c-wrap">
+    <div class="lbhead"><h3 class="perf-h3">harness × harness — ${fmtModel(H3C.model)} <span class="micro">one pass, every task, full trajectory</span></h3>${picker}
+      <button class="ghost" id="h3cClose">✕ close</button></div>
+    <div class="h3c-heads" style="--n:${hs.length}">${heads}</div>
+    ${rows}</div>`;
+  const ps = $("#h3cPass"); if (ps) ps.onchange = () => { H3C.idx = +ps.value; loadHarnessPass(); };
+  const cl = $("#h3cClose"); if (cl) cl.onclick = () => { $("#harnessCompare").innerHTML = ""; };
 }
 
 // Drill from a harness-matrix cell into the per-case transparency of its underlying run. A cell

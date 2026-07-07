@@ -32,9 +32,11 @@ stub handlers (each adapter notes how). The success spec is never shown to the m
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
+import uuid
 from typing import Any
 
 from .. import harnesses
@@ -70,6 +72,66 @@ def strip_reasoning(text: str) -> str:
     text = _THINK_RE.sub("", text)
     text = _THINK_OPEN_RE.sub("", text)   # a reasoning trace that opened but got cut off
     return text.strip()
+
+
+def run_container_io(image: str, args: list, *, seed=None, seed_optional=None, collect=None,
+                     timeout: float = 240, name_hint: str = "task", env=None, workdir=None):
+    """Run a one-shot harness container with file I/O that works no matter where the POD
+    itself runs — bare metal OR inside a container. Bind-mounting a pod-local path breaks
+    when the pod is containerized: the docker CLI talks to the HOST daemon, which resolves
+    the path on the HOST filesystem and silently mounts an EMPTY directory (this zeroed
+    harness scores: configs vanished, task seed files vanished). `docker cp` streams bytes
+    through the client instead, so it is placement-independent:
+
+        docker create -> docker cp seeds IN -> docker start -a (stdout+stderr+exit code)
+        -> docker cp outcomes OUT (best-effort) -> docker rm -f
+
+    seed / seed_optional: [(src_path, container_dst)] — optional seeds tolerate failure
+    (e.g. a config whose parent dir may not exist in the image). Directory sources try the
+    contents form (`src/.` -> existing dst) first, then the create-dst form.
+    collect: [(container_src, dst_path)] copied out after the run, never raising.
+    Returns (stdout, stderr, returncode, duration_s)."""
+    cname = f"aeon_{safe_name(name_hint)}_{uuid.uuid4().hex[:10]}"
+    create = ["docker", "create", "--name", cname, "--network", "host"]
+    for k, v in (env or {}).items():
+        create += ["-e", f"{k}={v}"]
+    if workdir:
+        create += ["-w", workdir]
+    create += [image] + [str(a) for a in args]
+
+    def _cp_in(src, dst, required):
+        if os.path.isdir(src):
+            o, e, rc, _ = run_argv(["docker", "cp", src.rstrip("/\\") + "/.", f"{cname}:{dst}"], 120)
+            if rc != 0:                       # dst may not exist in the image -> create-dst form
+                o, e, rc, _ = run_argv(["docker", "cp", src, f"{cname}:{dst}"], 120)
+        else:
+            o, e, rc, _ = run_argv(["docker", "cp", src, f"{cname}:{dst}"], 120)
+        if rc != 0 and required:
+            raise AdapterError(f"docker cp seed failed ({src} -> {dst}): {e[:300]}")
+
+    try:
+        o, e, rc, _ = run_argv(create, 120)
+        if rc != 0:
+            raise AdapterError(f"docker create failed rc={rc}: {e[:300]}")
+        for src, dst in (seed or []):
+            _cp_in(src, dst, required=True)
+        for src, dst in (seed_optional or []):
+            try:
+                _cp_in(src, dst, required=False)
+            except AdapterError:
+                pass
+        out, err, rcode, dur = run_argv(["docker", "start", "-a", cname], timeout)
+        for src, dst in (collect or []):
+            try:
+                run_argv(["docker", "cp", f"{cname}:{src}", dst], 120)
+            except Exception:
+                pass
+        return out, err, rcode, dur
+    finally:
+        try:
+            run_argv(["docker", "rm", "-f", cname], 30)
+        except Exception:
+            pass
 
 
 def run_argv(argv: list[str], timeout: float, cwd: str | None = None):

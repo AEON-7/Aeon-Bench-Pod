@@ -31,7 +31,7 @@ import os
 import shutil
 import tempfile
 
-from .base import Adapter, AdapterError, run_argv, safe_name, strip_reasoning
+from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
 
 IMAGE = os.environ.get("AEON_OPENCLAW_IMAGE", "aeon-harness-openclaw")
 _PROVIDER_ID = "dgx"
@@ -181,18 +181,19 @@ class OpenClawAdapter(Adapter):
             with open(os.path.join(home, "openclaw.json"), "w", encoding="utf-8") as f:
                 json.dump(build_config(model_base_url, served_alias), f, indent=2)
 
-            argv = [
-                "docker", "run", "--rm", "--network", "host",
-                "-v", f"{home}:/root/.openclaw",
+            # docker-cp I/O (run_container_io): a bind mount of this pod-local `home` breaks
+            # when the pod is containerized (daemon resolves the path on the HOST -> empty
+            # /root/.openclaw -> "Unknown model: dgx/<alias>" and no task files).
+            out, err, rc, dur = run_container_io(
                 self.IMAGE,
-                "agent", "--local", "--json", "--agent", "main",
-                "-m", task.get("prompt", ""),
-                "--model", model,
-            ]
-            out, err, rc, dur = run_argv(argv, timeout)
+                ["agent", "--local", "--json", "--agent", "main",
+                 "-m", task.get("prompt", ""), "--model", model],
+                seed=[(home, "/root/.openclaw")],
+                collect=[("/root/.openclaw/workspace/.", ws)],
+                timeout=timeout, name_hint=f"claw_{served_alias}")
             _copy_tree_into(ws, workdir)   # bring the agent's file outcomes back for scoring
         finally:
-            _rm_root_owned(home)           # container writes root-owned files; best-effort
+            _rm_root_owned(home)           # best-effort cleanup (docker-cp output is pod-owned)
 
         parsed = parse_output(out)
         if rc != 0 and not parsed["answer"]:

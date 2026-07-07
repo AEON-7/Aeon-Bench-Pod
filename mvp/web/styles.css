@@ -597,11 +597,14 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .subs-filter { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
 .subs-day { padding: 6px 10px; background: #0d0d18; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line); }
 .subs-row {
-  display: grid; grid-template-columns: 36px 1fr auto auto; gap: 12px; padding: 12px 14px; align-items: center;
+  /* rank · avatar · identity(1fr) · compare-pick · score · time */
+  display: grid; grid-template-columns: auto 36px minmax(0, 1fr) auto auto auto;
+  gap: 10px; padding: 12px 10px; align-items: center;
   border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12px;
   border-left: 2px solid transparent;
   transition: background var(--t-fast), transform var(--t-fast), border-color var(--t-fast);
 }
+.subs-row .subs-m { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
 .subs-row:hover { background: rgba(0, 240, 255, .05); transform: translateX(2px); border-left-color: var(--border-strong); }
 .subs-row.sel { background: rgba(0, 240, 255, .08); box-shadow: inset 3px 0 0 var(--accent); }
 .subs-row.flagged { opacity: .55; }
@@ -1687,6 +1690,60 @@ select:focus {
 .perf-hero-card { margin: 12px 0 16px; }
 .pend { font-size: 11px; font-weight: 700; font-family: var(--mono, monospace); }
 .perf-lg-dash { background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px) !important; }
+
+/* ---- INSTRUMENT PANEL: per-run cockpit (composite dial · category gauges · difficulty ladder) */
+.instrument-panel {
+  display: flex; flex-wrap: wrap; gap: 22px; align-items: center; margin: 12px 0;
+  padding: 16px 18px; border: 1px solid var(--border-strong);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .022), rgba(255, 255, 255, 0) 45%), var(--panel);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+}
+.ip-sec { display: block; font-family: var(--mono, monospace); font-size: 10px; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+.ip-track { fill: none; stroke: var(--line); stroke-width: 6; }
+.ip-arc { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset .6s var(--ease-out); }
+.pass .ip-arc { stroke: var(--good); filter: drop-shadow(0 0 4px rgba(61, 220, 133, .5)); }
+.part .ip-arc { stroke: var(--warn); filter: drop-shadow(0 0 4px rgba(255, 180, 84, .5)); }
+.fail .ip-arc { stroke: var(--bad); filter: drop-shadow(0 0 4px rgba(255, 93, 122, .5)); }
+.ip-dial { position: relative; width: 128px; height: 128px; flex: 0 0 auto; }
+.ip-dial svg { width: 100%; height: 100%; }
+.ip-dial-val { position: absolute; left: 0; right: 0; top: 42px; text-align: center;
+  font-family: var(--mono, monospace); font-size: 26px; font-weight: 700; color: var(--text); }
+.ip-dial-lbl { position: absolute; left: 0; right: 0; top: 76px; text-align: center;
+  font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: var(--faint); }
+.ip-gauges { flex: 1 1 260px; }
+.ip-grow { display: flex; flex-wrap: wrap; gap: 12px; }
+.ip-gauge { position: relative; width: 74px; text-align: center; }
+.ip-gauge svg { width: 64px; height: 64px; }
+.ip-val { position: absolute; left: 0; right: 0; top: 22px; text-align: center;
+  font-family: var(--mono, monospace); font-size: 15px; font-weight: 700; color: var(--text); }
+.ip-lbl { display: block; margin-top: -4px; font-size: 9.5px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-ladder { flex: 1 1 300px; min-width: 260px; }
+.ip-rung { display: grid; grid-template-columns: 76px 1fr 34px 28px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.ip-bar { position: relative; height: 10px; background: var(--well); border: 1px solid var(--line); overflow: hidden; }
+.ip-bar i { position: absolute; left: 0; top: 0; bottom: 0; }
+.ip-bar .db-easy { background: var(--good); } .ip-bar .db-medium { background: #b8d85a; }
+.ip-bar .db-hard { background: var(--warn); } .ip-bar .db-expert { background: var(--bad); }
+.ip-bar .db-frontier { background: var(--accent2); box-shadow: 0 0 8px rgba(255, 46, 151, .5); }
+.ip-pct { font-family: var(--mono, monospace); font-size: 12px; font-weight: 700; text-align: right; }
+.ip-n { font-family: var(--mono, monospace); font-size: 10px; color: var(--faint); text-align: right; }
+
+/* ---- 3-HARNESS side-by-side (one pass, full trajectory per task) ---- */
+.h3c-wrap { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.h3c-wrap .lbhead { display: flex; gap: 14px; align-items: center; }
+.h3c-heads, .h3c-grid { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 10px; }
+.h3c-heads { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 8px 0; }
+.h3c-head { padding: 8px 12px; border: 1px solid var(--border-strong); background: var(--panel);
+  font-family: var(--mono, monospace); font-size: 12px;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.h3c-case { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin-bottom: 12px; }
+.h3c-cell { border: 1px solid var(--line); background: var(--well); padding: 8px; min-width: 0; }
+.h3c-cell.na { display: flex; align-items: center; justify-content: center; opacity: .5; }
+.h3c-cell pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; font-size: 11px; }
+.h3c-cell .traj { max-height: 180px; overflow-y: auto; }
+.h3c-btn { margin-left: 8px; font-size: 9.5px; padding: 3px 9px; }
+@media (max-width: 1000px) { .h3c-heads, .h3c-grid { grid-template-columns: 1fr; } }
 
 /* ---- DIFFICULTY class chips (submission detail + run compare) ---- */
 .diff-chip {

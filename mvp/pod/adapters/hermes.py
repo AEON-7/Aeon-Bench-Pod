@@ -33,7 +33,7 @@ import shutil
 import tempfile
 import uuid
 
-from .base import Adapter, AdapterError, run_argv, safe_name, strip_reasoning
+from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
 
 IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes")
 _API_KEY = "sk-local"
@@ -142,17 +142,10 @@ class HermesAdapter(Adapter):
         before = set(glob.glob(os.path.join(workdir, "sample_*.json")))
         # Hermes resolves its file tools against TERMINAL_CWD (its single source-of-truth for
         # the agent working dir); without it, write_file falls back to "/" and the outputs are
-        # lost. AND: the image ships a baked /work dir, so writes to /work land in the container
-        # overlay and do NOT always propagate back through the bind mount — so we run a NAMED
-        # (not --rm) container and `docker cp` /work back out afterwards, which captures the
-        # agent's file outcomes and the sample reliably regardless of mount propagation.
-        cname = f"aeon_hermes_{safe_name(served_alias)}_{uuid.uuid4().hex[:10]}"
-        argv = [
-            "docker", "run", "--name", cname, "--network", "host",
-            "-e", "TERMINAL_CWD=/work",
-            "-v", f"{self._ensure_cfg()}:/root/.hermes/config.yaml:ro",
-            "-v", f"{workdir}:/work", "-w", "/work",
-            self.IMAGE,
+        # lost. File I/O is docker-cp BOTH ways (run_container_io): bind mounts break when the
+        # pod itself is containerized — the daemon resolves pod-local paths on the HOST and
+        # silently mounts an EMPTY dir (this dropped every task's seed files).
+        args = [
             f"--query={task.get('prompt', '')}",
             f"--base_url={model_base_url}",
             f"--api_key={_API_KEY}",
@@ -161,15 +154,14 @@ class HermesAdapter(Adapter):
             "--save_sample",
         ]
         if self._disabled:
-            argv.append(f"--disabled_toolsets={self._disabled}")
-
-        try:
-            out, err, rc, dur = run_argv(argv, timeout)
-            # Pull everything the agent wrote in /work back into the host workdir so outcome
-            # scoring sees it (harmless re-copy of the seed files; adds result.txt, sample, …).
-            run_argv(["docker", "cp", f"{cname}:/work/.", workdir], 60)
-        finally:
-            run_argv(["docker", "rm", "-f", cname], 30)
+            args.append(f"--disabled_toolsets={self._disabled}")
+        out, err, rc, dur = run_container_io(
+            self.IMAGE, args,
+            seed=[(workdir, "/work")],
+            seed_optional=[(self._ensure_cfg(), "/root/.hermes/config.yaml")],
+            collect=[("/work/.", workdir)],
+            timeout=timeout, name_hint=f"hermes_{served_alias}",
+            env={"TERMINAL_CWD": "/work"}, workdir="/work")
 
         samples = [p for p in glob.glob(os.path.join(workdir, "sample_*.json"))
                    if p not in before]

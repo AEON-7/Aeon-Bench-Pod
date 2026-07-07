@@ -780,6 +780,42 @@ def compare_runs(a: str, b: str):
             "only_a": sorted(set(ca) - set(cb)), "only_b": sorted(set(cb) - set(ca))}
 
 
+@app.get("/api/harness_passes")
+def harness_passes(model: str):
+    """Group one model's harness runs into bench PASSES — the 3-harness sweep of a single
+    comprehensive run — so the UI can compare hermes/openclaw/opencode side by side with the
+    full prompt + tool-call + response log per task. Clustering: runs time-sorted; a >45 min
+    gap or a repeated harness starts a new pass (one pass never runs a harness twice)."""
+    rows = db.all_results_with_runs(board="text")
+    per_run = {}
+    for r in rows:
+        if not r.get("harness"):
+            continue
+        if (r.get("canonical_id") or r.get("model")) != model and r.get("model") != model:
+            continue
+        d = per_run.setdefault(r["run"], {
+            "run_id": r["run"], "harness": r["harness"],
+            "harness_version": r.get("harness_version"),
+            "started_at": r.get("started_at") or 0, "scores": []})
+        if r.get("score") is not None:
+            d["scores"].append(r["score"])
+    runs = sorted(per_run.values(), key=lambda x: x["started_at"])
+    passes, cur = [], None
+    for r in runs:
+        sc = r.pop("scores")
+        r["n_cases"] = len(sc)
+        r["mean_score"] = round(100 * sum(sc) / len(sc), 1) if sc else None
+        if cur is None or r["started_at"] - cur["_last"] > 2700 or r["harness"] in cur["runs"]:
+            cur = {"started_at": r["started_at"], "_last": r["started_at"], "runs": {}}
+            passes.append(cur)
+        cur["runs"][r["harness"]] = r
+        cur["_last"] = r["started_at"]
+    for p in passes:
+        p.pop("_last", None)
+    passes.reverse()
+    return {"model": model, "passes": passes}
+
+
 @app.get("/api/harness_runs")
 def harness_runs(model: str, harness: str, board: str = "text"):
     """Resolve the harness-board cell (model × harness) to its underlying RUN(s) so the matrix can

@@ -1870,6 +1870,17 @@ select:focus {
 .jstage.bad { border-color: rgba(255, 93, 122, .55); color: var(--bad); }
 .jstage.bad i { background: rgba(255, 93, 122, .12); }
 .jstage.bad b { color: var(--bad); }
+
+/* ---- harness provenance chip (Code Gallery: which agent harness drove the generation) ---- */
+.h-chip {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; vertical-align: 1px;
+  font-family: var(--mono, monospace); font-size: 9.5px; letter-spacing: .08em;
+  text-transform: uppercase; border: 1px solid var(--line); color: var(--muted);
+  background: var(--well); border-radius: 3px; white-space: nowrap;
+}
+.h-chip.h-hermes { border-color: rgba(0, 240, 255, .45); color: var(--accent); }
+.h-chip.h-openclaw { border-color: rgba(255, 180, 84, .5); color: var(--warn); }
+.h-chip.h-opencode { border-color: rgba(176, 107, 255, .5); color: #b06bff; }
 .live-job { margin-bottom: 14px; }
 
 /* ---- serve-watch telemetry strip (Live view, while a job runs): VRAM / RAM / CPU gauges

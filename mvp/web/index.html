@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=67" />
+  <link rel="stylesheet" href="/static/styles.css?v=68" />
 </head>
 <body>
   <header>
@@ -196,6 +196,7 @@
             <label>Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
             <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <label>Token budget<input id="hfMaxTok" type="number" placeholder="2048 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
+            <label>Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
             <button id="hfLaunch" class="primary">▶ Launch validated bench</button>
           </div>
           <div class="row hostprep-row">
@@ -248,12 +249,16 @@
 
     <section class="panel" id="audioPanel" hidden>
       <h2>Audio — capability-gated</h2>
-      <p class="lede">Audio input is probed, never assumed — the suite unlocks once transport is confirmed.</p>
+      <p class="lede">Audio input is probed, never assumed — a model earns its place on this board.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note">LM Studio audio input (<code>input_audio</code>) is unconfirmed by design. Pick an audio model above (e.g. <code>qwen3-omni</code>) and probe the endpoint to see if audio transport is accepted. A full ASR / translation / understanding suite is built once transport is confirmed.</p>
+        <p class="note">Every Comprehensive bench sends the served model a real <code>input_audio</code> probe.
+          If the transport is accepted, the audio suite runs automatically — spoken-digit recognition on
+          real recorded speech plus deterministic synthetic stimuli (tones, rhythms, sweeps) — and the
+          attested results land on this board. Models whose config declares no audio skip the suite
+          (correctly, silently). A model that <b>declares</b> audio but whose serve rejects it shows a red
+          <code>audio:BLOCKED</code> chip in the Run-tab stages — usually a recipe/engine issue; the pod
+          auto-grants <code>--limit-mm-per-prompt</code> for declared-audio models on vLLM-family engines.</p>
       </details>
-      <button id="audioProbe" class="primary">▶ Test audio support</button>
-      <div id="audioStatus" class="status"></div>
     </section>
 
     <section class="panel" id="arenaPanel" hidden>
@@ -504,6 +509,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=67"></script>
+  <script src="/static/app.js?v=68"></script>
 </body>
 </html>

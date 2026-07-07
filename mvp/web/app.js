@@ -484,31 +484,9 @@ async function launch() {
   }, 800);
 }
 
-async function probeAudio() {
-  const model = ($("#model") || {}).value || "";   // launch form removed — guard
-  if (!model) { $("#audioStatus").innerHTML = `<span class="err">pick an audio model above (e.g. qwen3-omni)</span>`; return; }
-  $("#audioProbe").disabled = true;
-  $("#audioStatus").innerHTML = `<span class="spin">⟳</span> probing <b>${model}</b> for input_audio transport…`;
-  try {
-    const r = await api("/api/audio/probe", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, target_url: $("#target").value.trim(), api_key: key() || null }) });
-    const t = r.transport;
-    if (r.audio_ok) {
-      $("#audioStatus").innerHTML = `<span class="ok">✓ audio transport ACCEPTED</span> by ${model}. ` +
-        `Reply: "${escH((r.evidence || "").slice(0, 90))}". The audio suite (ASR / translation / understanding) can now be built.`;
-    } else if (t === "model_unavailable") {
-      $("#audioStatus").innerHTML = `<span class="warn">⚠ inconclusive</span> — <b>${model}</b> didn't load, so audio can't be assessed yet. ` +
-        `Load it in LM Studio first (a plain text chat must work), then re-probe. <span class="mono">${escH(r.error || "")}</span>`;
-    } else if (t === "rejected") {
-      $("#audioStatus").innerHTML = `<span class="err">✗ audio NOT supported</span> — ${model} loads, but the endpoint rejected <code>input_audio</code>. ` +
-        `Board stays gated, by design. <span class="mono">${escH(r.error || "")}</span>`;
-    } else {
-      $("#audioStatus").innerHTML = `<span class="err">probe error</span> <span class="mono">${escH(r.error || t || "")}</span>`;
-    }
-  } catch (e) {
-    $("#audioStatus").innerHTML = `<span class="err">probe failed: ${escH(JSON.stringify(e))}</span>`;
-  } finally { $("#audioProbe").disabled = false; }
-}
+// (the manual audio-probe panel is gone: audio transport is probed automatically inside
+//  every bench — see the audioPanel explainer; a blocked declared-audio model shows the
+//  red audio:BLOCKED stage chip on its job card)
 
 // ---- Generated-artifact arena (Apps / Games / Animations + human voting) ----
 
@@ -930,12 +908,16 @@ function renderGallery(d) {
       const stats = a.unrated
         ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
         : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+      const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
+      const hchip = a.harness
+        ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
+        : "";
       return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
         <div class="gal-card-h">
           <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
-          <a class="model-creator gal-ava" data-meta="${escA(a.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-            <img class="model-avatar" data-meta-avatar="${escA(a.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
-          <span class="gal-model" title="${escA(a.model)}">${fmtModel(a.model)}</span>
+          <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+            <img class="model-avatar" data-meta-avatar="${escA(metaModel)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
+          <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
         </div>
         <div class="gal-stats">${stats}</div>
         <div class="gal-acts">
@@ -946,7 +928,7 @@ function renderGallery(d) {
     }).join("") + `</div></div>`).join("");
   $$("#galleryBody .gal-prev").forEach((b) =>
     b.onclick = () => openGalPreview(b.dataset.id, b.dataset.title, b.dataset.model));
-  [...new Set(prompts.flatMap((p) => (p.artifacts || []).map((a) => a.model)))].forEach((model) => {
+  [...new Set(prompts.flatMap((p) => (p.artifacts || []).map((a) => a.model_base || a.model)))].forEach((model) => {
     const cached = META.get(model);                // hydrate creator avatars (same as the board)
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
@@ -2398,6 +2380,7 @@ async function applyLaunchTemplate(i) {
   set("#hfConc", p.concurrency);
   set("#hfMaxConc", p.perf_max_conc == null ? 32 : p.perf_max_conc);
   set("#hfMaxTok", p.max_tokens);
+  set("#hfArenaN", p.arena_per_kind);
   { const pa = $("#hfPauseAll"); if (pa) pa.checked = p.pause_all !== false && p.pause_all != null ? !!p.pause_all : true; }
   { const rs = $("#hfRestore"); if (rs) rs.checked = p.restore_paused !== false; }
   set("#veImage", p.engine_image);
@@ -2867,6 +2850,8 @@ async function runHfVerified() {
       hf_token_name: $("#hfKey").value || null,
       perf_max_conc: maxConcVal("#hfMaxConc"), concurrency: maxConcVal("#hfConc"),
       max_tokens: tokBudgetVal("#hfMaxTok"),
+      arena_per_kind: (() => { const v = parseInt(($("#hfArenaN") || {}).value, 10);
+                               return Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : null; })(),
       pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
       restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
       ..._validatedExtras() }, "#hfLaunch");

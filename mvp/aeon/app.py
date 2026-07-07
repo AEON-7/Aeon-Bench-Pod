@@ -1476,6 +1476,7 @@ class PodVerifiedRunBody(BaseModel):
                                         # None = pod default (2048). Clamped 256..131072
     pause_all: bool | None = None       # CLEAR HOST: stop every non-pod container before serving
     restore_paused: bool | None = None  # restart the paused containers after the bench (default yes)
+    arena_per_kind: int | None = None   # arena sweep breadth (prompts per kind, 0 disables; None = default 6)
 
 
 def _clamp_conc(v):
@@ -1549,7 +1550,9 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         drafter_hf=(body.drafter_hf or "").strip() or None,
         perf_max_conc=_clamp_conc(body.perf_max_conc), concurrency=_clamp_conc(body.concurrency),
         max_tokens=(min(131072, max(256, int(body.max_tokens))) if body.max_tokens else None),
-        pause_all=bool(body.pause_all), restore_paused=body.restore_paused)
+        pause_all=bool(body.pause_all), restore_paused=body.restore_paused,
+        arena_per_kind=(min(12, max(0, int(body.arena_per_kind)))
+                        if body.arena_per_kind is not None else None))
     return {"job_id": jid}
 
 

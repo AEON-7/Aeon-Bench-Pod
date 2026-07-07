@@ -358,6 +358,15 @@ def gallery(kind):
                   "elo": round(r["elo"]) if r else None,
                   "w": r["w"] if r else 0, "l": r["l"] if r else 0,
                   "t": r["t"] if r else 0, "votes": r["votes"] if r else 0}
+            # Agent-arena artifacts carry harness provenance as a '<model> @<harness>'
+            # suffix (set at ingest) — surface it as its own field so the gallery can
+            # badge WHICH harness drove the generation.
+            m = a["model"] or ""
+            if " @" in m:
+                base, _, har = m.rpartition(" @")
+                if re.fullmatch(r"[A-Za-z0-9_.-]{2,24}", har or ""):
+                    it["harness"] = har
+                    it["model_base"] = base
             if not r:
                 it["unrated"] = True
             items.append(it)

@@ -289,7 +289,8 @@ def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=N
 def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
-                    drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None):
+                    drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
+                    arena_per_kind=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -308,7 +309,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "perf_max_conc": perf_max_conc, "concurrency": concurrency, "local_dir": local_dir,
             "engine_image": engine_image, "serve_url": serve_url, "serve_flags": serve_flags,
             "drafter_hf": drafter_hf, "max_tokens": max_tokens,
-            "pause_all": pause_all, "restore_paused": restore_paused})
+            "pause_all": pause_all, "restore_paused": restore_paused,
+            "arena_per_kind": arena_per_kind})
     except Exception:
         pass
     extra = {}
@@ -336,6 +338,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             extra["AEON_PERF_MAX_CONC"] = str(perf_max_conc)
         if concurrency:                         # unset = auto; aeon_pod honors AEON_CONCURRENCY
             extra["AEON_CONCURRENCY"] = str(concurrency)
+        if arena_per_kind is not None:          # arena sweep breadth; aeon_pod honors this env
+            extra["AEON_ARENA_PER_KIND"] = str(arena_per_kind)
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
         if preset:                              # resolved to the underlying knobs in aeon_pod.main()
@@ -362,6 +366,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--concurrency", str(concurrency)]
         if max_tokens:                          # per-answer TOKEN BUDGET (unset = pod default 2048)
             argv += ["--max-tokens", str(max_tokens)]
+        if arena_per_kind is not None:          # arena sweep breadth (prompts per kind; 0 disables)
+            argv += ["--arena", str(arena_per_kind)]
         if HARDWARE:
             argv += ["--hardware", HARDWARE]
         if port:

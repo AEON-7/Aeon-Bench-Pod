@@ -502,6 +502,19 @@ def disputed_cases(limit=200):
         return [dict(x) for x in rows]
 
 
+def run_category_scores():
+    """{run_id: {category: pct}} over scored results — the per-submission category cluster
+    the submissions view renders (one query, no per-run round-trips)."""
+    with connect() as c:
+        rows = c.execute(
+            "SELECT run_id, category, AVG(score) AS m, COUNT(score) AS n FROM results "
+            "WHERE score IS NOT NULL GROUP BY run_id, category").fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["run_id"], {})[r["category"]] = round(100 * (r["m"] or 0), 1)
+    return out
+
+
 def set_run_env(run_id, env):
     """Attach/replace a run's environment (e.g. the pod stamps bench concurrency on its
     LOCAL text run so the local board can compute aggregate throughput like the mothership)."""

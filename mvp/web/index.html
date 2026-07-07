@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=57" />
+  <link rel="stylesheet" href="/static/styles.css?v=58" />
 </head>
 <body>
   <header>
@@ -99,12 +99,17 @@
     </section>
 
     <section class="panel" id="comparePanel" hidden>
-      <div class="lbhead"><h2>Compare by seed</h2></div>
-      <p class="lede">Same seed = identical 20 questions — a true A/B.</p>
+      <div class="lbhead"><h2>Compare</h2></div>
+      <p class="lede">Two runs side by side — two models, or the same model under two recipes. Plus seed A/Bs.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note">A <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>. Pick a seed: every model that ran it answered the <b>identical 20 questions</b>, so this is a true A/B — you can see exactly where each model is stronger, by category and on individual questions.</p>
+        <p class="note"><b>Compare runs</b>: pick any two submissions — the shared suite joins per question, so you see both answers, both scores and both recipes head-to-head (the recipe-tuning A/B view; also reachable from the Submissions list via the ⇆ checkboxes). <b>Compare by seed</b>: a <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>; every model that ran it answered the <b>identical questions</b>.</p>
       </details>
-      <div class="cmp-pick"><label>seed&nbsp;<select id="cmpSeed"></select></label> <span id="cmpBadge" class="cmp-badge"></span></div>
+      <div class="cmp-pick cmp-runs-pick">
+        <label>run A&nbsp;<select id="cmpRunA"></select></label>
+        <label>vs B&nbsp;<select id="cmpRunB"></select></label>
+        <button id="cmpRunsGo" class="ghost">⇆ compare runs</button>
+      </div>
+      <div class="cmp-pick"><label>or seed&nbsp;<select id="cmpSeed"></select></label> <span id="cmpBadge" class="cmp-badge"></span></div>
       <div id="cmpBody"></div>
     </section>
 
@@ -494,6 +499,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=57"></script>
+  <script src="/static/app.js?v=58"></script>
 </body>
 </html>

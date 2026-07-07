@@ -682,6 +682,22 @@ def _prompt_map(board):
     return pm
 
 
+def _difficulty_map():
+    """case_id -> difficulty class (easy/medium/hard/expert/frontier) from every suite that
+    declares one — shown on each prompt in the submission detail explorer."""
+    dm = {}
+    for c in suite_mod.CASES:
+        if c.get("difficulty"):
+            dm[c["id"]] = c["difficulty"]
+    for c in agentic_v2.CASES:
+        if c.get("difficulty"):
+            dm.setdefault(c["id"], c["difficulty"])
+    return dm
+
+
+_DIFF_MAP = _difficulty_map()
+
+
 def _harness_transparency(raw_out):
     """Parse a harness result's stored transcript ({answer, steps:[{tool,args}], raw}) into a
     STRUCTURED transparency object the UI can render: the agent's final answer, its tool-call
@@ -715,10 +731,53 @@ def submissions(board: str | None = None, model: str | None = None, limit: int =
     if not IS_POD:                        # mothership shows only ACCEPTED (succeeded) runs, never in-progress
         rows = [r for r in rows if r.get("status") == "succeeded"]
     means = db.run_mean_scores()
+    cats = db.run_category_scores()
     for r in rows:
         m = means.get(r["id"])
         r["mean_score"] = round(100 * m, 1) if m is not None else None
+        r["categories"] = cats.get(r["id"]) or {}
     return {"submissions": rows}
+
+
+@app.get("/api/compare_runs")
+def compare_runs(a: str, b: str):
+    # NOTE: deliberately NOT /api/compare/runs — the parametric /api/compare/{seed} route
+    # would swallow "runs" as a seed name (registration order made it win).
+    """SIDE-BY-SIDE run comparison: two models — or the same model under two recipes — joined
+    per case. Each row carries both answers, both scores, the case's category + difficulty;
+    the headers carry each run's summary + reproduction so recipe deltas are visible."""
+    da, db_ = submission_detail(a), submission_detail(b)
+    for d, key in ((da, a), (db_, b)):
+        if not isinstance(d, dict):
+            return JSONResponse({"error": f"run {key} not found"}, status_code=404)
+
+    def _slim(d):
+        cats, comp = {}, None
+        by_cat = {}
+        for c in d["cases"]:
+            if isinstance(c.get("score"), (int, float)):
+                by_cat.setdefault(c["category"], []).append(c["score"])
+        cats = {k: round(100 * sum(v) / len(v), 1) for k, v in by_cat.items()}
+        comp = round(sum(cats.values()) / len(cats), 1) if cats else None
+        return {"run": d["run"], "reproduction": d.get("reproduction") or {},
+                "env": d.get("env") or {}, "categories": cats, "composite": comp}
+
+    ca = {c["case_id"]: c for c in da["cases"]}
+    cb = {c["case_id"]: c for c in db_["cases"]}
+    keys = [k for k in ca if k in cb]
+    # stable suite order: category then case id
+    keys.sort(key=lambda k: (ca[k]["category"] or "", k))
+
+    def _side(c):
+        return {"score": c.get("score"), "status": c.get("status"),
+                "answer": c.get("final_answer") if c.get("harness_case") else c.get("answer"),
+                "speed": c.get("speed"), "judged_by": c.get("judged_by")}
+
+    cases = [{"case_id": k, "category": ca[k]["category"], "tier": ca[k]["tier"],
+              "difficulty": ca[k].get("difficulty"), "prompt": ca[k].get("prompt", ""),
+              "a": _side(ca[k]), "b": _side(cb[k])} for k in keys]
+    return {"a": _slim(da), "b": _slim(db_), "cases": cases,
+            "only_a": sorted(set(ca) - set(cb)), "only_b": sorted(set(cb) - set(ca))}
 
 
 @app.get("/api/harness_runs")
@@ -779,6 +838,7 @@ def submission_detail(run_id: str):
         case = {
             "case_id": x["case_id"], "category": x["category"], "tier": x["tier"],
             "status": x["status"], "score": x["score"], "creativity": x.get("creativity"),
+            "difficulty": _DIFF_MAP.get(x["case_id"]),
             "prompt": pm.get(x["case_id"], ""), "answer": raw_out,
             "judged_by": judged_by, "evidence": ev, "speed": x.get("speed"),
             "disputed": bool(x.get("disputed")), "disputed_reason": x.get("disputed_reason"),

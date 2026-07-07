@@ -1688,6 +1688,64 @@ select:focus {
 .pend { font-size: 11px; font-weight: 700; font-family: var(--mono, monospace); }
 .perf-lg-dash { background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px) !important; }
 
+/* ---- DIFFICULTY class chips (submission detail + run compare) ---- */
+.diff-chip {
+  display: inline-block; padding: 1px 8px; font-family: var(--mono, monospace);
+  font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  border: 1px solid currentColor; border-radius: var(--r-pill); opacity: .95;
+}
+.diff-chip.d-easy { color: var(--good); }
+.diff-chip.d-medium { color: #b8d85a; }
+.diff-chip.d-hard { color: var(--warn); }
+.diff-chip.d-expert { color: var(--bad); }
+.diff-chip.d-frontier { color: var(--accent2); text-shadow: 0 0 8px rgba(255, 46, 151, .4); }
+
+/* ---- submission CLUSTER rows: rank + per-category bars + compare picks ---- */
+.subs-rank {
+  min-width: 34px; text-align: center; font-family: var(--mono, monospace); font-size: 12px;
+  font-weight: 700; color: var(--faint);
+}
+.subs-rank.p1 { color: var(--r1); } .subs-rank.p2 { color: var(--r2); } .subs-rank.p3 { color: var(--r3); }
+.subs-cats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.subcat {
+  position: relative; overflow: hidden; display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 1px 7px; font-family: var(--mono, monospace); font-size: 9.5px; letter-spacing: .05em;
+  color: var(--muted); border: 1px solid var(--line); background: var(--well); text-transform: uppercase;
+}
+.subcat i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(0, 240, 255, .13); }
+.subcat .subcat-k, .subcat { z-index: 0; }
+.subcat .subcat-k { position: relative; color: var(--faint); }
+.subs-cmp { display: inline-flex; align-items: center; gap: 3px; color: var(--faint); font-size: 12px; cursor: pointer; padding: 0 4px; }
+.subs-cmp input { accent-color: var(--accent); cursor: pointer; }
+.cmp-bar { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.cmp-bar .ghost:disabled { opacity: .5; }
+
+/* ---- RUN-vs-RUN compare (two models / two recipes, per-case) ---- */
+.cmp2-heads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 12px; }
+.cmp2-head {
+  position: relative; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--panel);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.cmp2-head.win { border-color: rgba(61, 220, 133, .55); box-shadow: 0 0 16px rgba(61, 220, 133, .12); }
+.cmp2-side { position: absolute; right: 12px; top: 8px; font-family: var(--mono, monospace); font-size: 26px; font-weight: 700; color: var(--faint); opacity: .5; }
+.cmp2-model { font-weight: 600; font-size: 15px; margin-bottom: 4px; padding-right: 34px; overflow-wrap: anywhere; }
+.cmp2-comp { font-family: var(--mono, monospace); font-size: 30px; font-weight: 700; }
+.cmp2-comp.pass { color: var(--good); } .cmp2-comp.part { color: var(--warn); } .cmp2-comp.fail { color: var(--bad); }
+.cmp2-cats { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.cmp2-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 6px 0 12px; font-size: 12px; color: var(--muted); }
+.cmp2-filters select { max-width: 160px; }
+.c2-only { display: inline-flex; gap: 5px; align-items: center; }
+.c2-only input { accent-color: var(--accent); }
+.cmp2-case { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin-bottom: 10px; }
+.cmp2-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.cmp2-cell { border: 1px solid var(--line); background: var(--well); padding: 8px; min-width: 0; }
+.cmp2-cell pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font-size: 11.5px; margin-top: 6px; }
+.cmp2-cell:first-child { border-left: 2px solid rgba(0, 240, 255, .35); }
+.cmp2-cell:last-child { border-left: 2px solid rgba(255, 46, 151, .3); }
+.cmp2-edge { font-family: var(--mono, monospace); font-size: 11px; font-weight: 700; }
+.cmp2-edge.a { color: var(--accent); } .cmp2-edge.b { color: var(--accent2); }
+@media (max-width: 900px) { .cmp2-grid, .cmp2-heads { grid-template-columns: 1fr; } }
+
 /* ---- per-DIMENSION progress strip (Run tab job cards + Live view) ---- */
 .jstages { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
 .jstage {

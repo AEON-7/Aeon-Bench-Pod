@@ -1178,6 +1178,10 @@ const _dayKey = (ts) => fmtDate(ts);
 function renderSubsList(rows) {
   const hdr = SUBS.model
     ? `<div class="subs-filter">for <b>${escH(SUBS.model)}</b> · <button class="ghost" id="subsClear">all models</button></div>` : "";
+  // RANK within the current view (a model's expansion ranks ITS submissions) by mean score
+  const ranked = rows.filter((r) => r.mean_score != null && r.status === "succeeded")
+    .sort((x, y) => y.mean_score - x.mean_score);
+  const rankOf = new Map(ranked.map((r, i) => [r.id, i + 1]));
   const groups = {};
   rows.forEach((r) => { (groups[_dayKey(r.started_at)] = groups[_dayKey(r.started_at)] || []).push(r); });
   const body = Object.keys(groups).map((day) =>
@@ -1187,20 +1191,39 @@ function renderSubsList(rows) {
       // score color = verdict band, not always-green: green must MEAN good
       const scls = r.mean_score == null ? "" : r.mean_score >= 80 ? " pass" : r.mean_score >= 40 ? " part" : " fail";
       const t = r.started_at ? fmtClock(r.started_at).slice(0, 5) : "—";
+      const rk = rankOf.get(r.id);
+      const rank = rk ? `<span class="subs-rank${rk <= 3 ? " p" + rk : ""}">#${rk}</span>` : `<span class="subs-rank none">—</span>`;
+      // the submission's CATEGORY CLUSTER: every dimension of this run, scored, together
+      const cats = Object.entries(r.categories || {}).map(([c, v]) =>
+        `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
+      const cmp = r.harness ? "" : `<label class="subs-cmp" title="tick two runs, then ⇆ compare"><input type="checkbox" class="cmp-sel" data-run="${escA(r.id)}">⇆</label>`;
       return `<div class="subs-row${r.flagged ? " flagged" : ""}" data-run="${escA(r.id)}">
+        ${rank}
         <a class="model-creator subs-ava" data-meta="${escA(r.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
           <img class="model-avatar" data-meta-avatar="${escA(r.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="36" height="36"></a>
         <div class="subs-id"><span class="subs-m">${fmtModel(r.model)}</span>
-          <span class="subs-tags"><span class="subs-b">${escH(r.board)}</span><span class="subs-st">${escH(r.status)}</span>${flag}</span></div>
-        <span class="subs-s${scls}">${sc}</span><span class="subs-t">${t}</span></div>`;
+          <span class="subs-tags"><span class="subs-b">${escH(r.board)}</span>${r.harness ? `<span class="subs-b">${escH(r.harness)}</span>` : ""}<span class="subs-st">${escH(r.status)}</span>${flag}</span>
+          ${cats ? `<span class="subs-cats">${cats}</span>` : ""}</div>
+        ${cmp}<span class="subs-s${scls}">${sc}</span><span class="subs-t">${t}</span></div>`;
     }).join("")).join("") || `<p class="note" style="text-align:left">No submissions${SUBS.model ? " for this model" : ""} yet.</p>`;
-  $("#subsList").innerHTML = hdr + body;
+  $("#subsList").innerHTML = hdr + `<div class="cmp-bar" id="cmpBar" hidden><button class="ghost" id="cmpGo">⇆ compare selected</button><span class="note" id="cmpBarNote">tick two runs</span></div>` + body;
   const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
   $$("#subsList .subs-row").forEach((el) => el.onclick = (ev) => {
-    if (ev.target.closest(".subs-ava")) return;                // avatar click = creator link, not open-run
+    if (ev.target.closest(".subs-ava") || ev.target.closest(".subs-cmp")) return;   // avatar/compare ≠ open-run
     $$("#subsList .subs-row").forEach((x) => x.classList.remove("sel")); el.classList.add("sel");
     openSubmission(el.dataset.run);
   });
+  // two ticks -> compare; the bar appears as soon as one is ticked
+  const bar = $("#cmpBar"), note = $("#cmpBarNote"), go = $("#cmpGo");
+  const picked = () => $$("#subsList .cmp-sel:checked").map((x) => x.dataset.run);
+  $$("#subsList .cmp-sel").forEach((cb) => cb.onchange = () => {
+    const p = picked();
+    if (p.length > 2) { cb.checked = false; return; }
+    if (bar) bar.hidden = p.length === 0;
+    if (note) note.textContent = p.length === 2 ? "ready" : `tick ${2 - p.length} more`;
+    if (go) go.disabled = p.length !== 2;
+  });
+  if (go) go.onclick = () => { const p = picked(); if (p.length === 2) openCompareRuns(p[0], p[1]); };
   [...new Set(rows.map((r) => r.model))].forEach((model) => {  // hydrate avatars (same mechanism as the board)
     const cached = META.get(model);
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
@@ -1277,7 +1300,8 @@ function renderSubmissionDetail(d) {
     const sc = c.score == null ? (c.status === "tier1_pending" ? "pending" : "—") : (c.score * 100).toFixed(0);
     const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
     const cr = (c.creativity != null && c.creativity > 0) ? ` <span class="ev-badge ok">+${c.creativity} creativity</span>` : "";
-    const head = `<div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>
+    const df = c.difficulty ? ` <span class="diff-chip d-${escA(c.difficulty)}" title="difficulty class">${escH(c.difficulty)}</span>` : "";
+    const head = `<div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}
         <span class="sub-score ${cls}">${sc}</span>${cr}${c.disputed ? ` <span class="ev-badge disputed" title="${escA(c.disputed_reason || "")}">⚠ agent-judge: likely checker false-negative</span>` : ""}<span class="subs-by">judged by: ${escH(c.judged_by)}</span></div>`;
     if (c.harness_case) {
       // harness transparency: what the agent was ASKED, the TOOL-CALL trajectory it ran, what it
@@ -1741,20 +1765,127 @@ async function setCompare() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const cp = $("#comparePanel"); if (cp) cp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  // RUN pickers: any two submissions compare head-to-head (recipe A/Bs included)
+  await populateRunPickers();
   try { CMP.seeds = (await api("/api/compare/seeds")).seeds || []; } catch (e) { CMP.seeds = []; }
   const sel = $("#cmpSeed");
-  const pick = document.querySelector(".cmp-pick");
+  const pick = document.querySelector(".cmp-pick:not(.cmp-runs-pick)");
+  const pending = CMP.pendingRuns; CMP.pendingRuns = null;
   if (!CMP.seeds.length) {
     if (pick) pick.hidden = true;                 // never show a dead, empty control
     if (sel) sel.innerHTML = "";
     $("#cmpBadge").textContent = "";
-    $("#cmpBody").innerHTML = `<p class="board-empty">No fast-bench seeds yet. Run a <span class="mono">--fast</span> bench (one question per category × difficulty); pass a shared <span class="mono">--seed</span> so every model answers the identical questions, then compare them here.</p>`;
-    return;
+  } else {
+    if (pick) pick.hidden = false;
+    sel.innerHTML = CMP.seeds.map((s) =>
+      `<option value="${escA(s.seed)}">${escH(s.seed)} — ${s.n_models} model${s.n_models === 1 ? "" : "s"}${s.suite_consistent ? "" : " ⚠ mixed suite"}</option>`).join("");
   }
-  if (pick) pick.hidden = false;
-  sel.innerHTML = CMP.seeds.map((s) =>
-    `<option value="${escA(s.seed)}">${escH(s.seed)} — ${s.n_models} model${s.n_models === 1 ? "" : "s"}${s.suite_consistent ? "" : " ⚠ mixed suite"}</option>`).join("");
-  loadCompare(CMP.seeds[0].seed);
+  if (pending) {                                   // arrived via "compare selected" checkboxes
+    const [a, b] = pending;
+    const sa = $("#cmpRunA"), sb = $("#cmpRunB");
+    if (sa) sa.value = a;
+    if (sb) sb.value = b;
+    loadRunCompare(a, b);
+  } else if (CMP.seeds.length) {
+    loadCompare(CMP.seeds[0].seed);
+  } else {
+    $("#cmpBody").innerHTML = `<p class="board-empty">Pick <b>two runs</b> above to compare them side by side — two models, or the same model under two recipes. (Seed A/Bs appear once a <span class="mono">--fast</span> bench with a shared seed has run.)</p>`;
+  }
+}
+
+async function populateRunPickers() {
+  const sa = $("#cmpRunA"), sb = $("#cmpRunB");
+  if (!sa || !sb) return;
+  if (!CMP.runs) {
+    try { CMP.runs = (await api("/api/submissions?limit=150")).submissions || []; }
+    catch (e) { CMP.runs = []; }
+    CMP.runs = CMP.runs.filter((r) => r.status === "succeeded" && !r.harness);
+  }
+  const opt = (r) => {
+    const d = r.started_at ? fmtDate(r.started_at) : "—";
+    const sc = r.mean_score != null ? Math.round(r.mean_score) : "—";
+    return `<option value="${escA(r.id)}">${escH((r.model || "?").split("/").pop().slice(0, 34))} · ${escH(r.board)} · ${d} · ${sc}</option>`;
+  };
+  sa.innerHTML = sb.innerHTML = CMP.runs.map(opt).join("");
+  if (CMP.runs.length > 1) sb.selectedIndex = 1;
+}
+
+function openCompareRuns(a, b) {
+  CMP.pendingRuns = [a, b];
+  setCompare();
+}
+
+// ---- RUN-vs-RUN side-by-side (two models, or one model under two recipes) --------------------
+
+async function loadRunCompare(a, b) {
+  if (!a || !b) return;
+  if (a === b) { $("#cmpBody").innerHTML = `<p class="board-empty">Pick two different runs.</p>`; return; }
+  $("#cmpBody").innerHTML = skel(10);
+  let d;
+  try { d = await api(`/api/compare_runs?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
+  catch (e) { $("#cmpBody").innerHTML = `<p class="err">failed to load comparison</p>`; return; }
+  CMP.runData = d;
+  CMP.runFilters = { cat: "", diff: "", diffsOnly: false };
+  renderRunCompare();
+}
+
+function _cmpHead(side, s, otherComp) {
+  const r = s.run || {}, rp = s.reproduction || {};
+  const comp = s.composite;
+  const win = comp != null && otherComp != null && comp > otherComp;
+  const cats = Object.entries(s.categories || {}).map(([c, v]) =>
+    `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
+  const spec = rp.spec_decode ? ` · spec ${escH(rp.spec_decode)}` : "";
+  return `<div class="cmp2-head${win ? " win" : ""}">
+    <div class="cmp2-side">${side}</div>
+    <div class="cmp2-model">${fmtModel(r.model || "?")}</div>
+    <div class="cmp2-comp ${comp == null ? "" : comp >= 80 ? "pass" : comp >= 40 ? "part" : "fail"}">${comp != null ? comp.toFixed(1) : "—"}</div>
+    <div class="cmp2-cats">${cats}</div>
+    <div class="note" style="text-align:left">run <span class="mono">${escH(r.id || "")}</span> · ${r.started_at ? fmtDT(r.started_at) : "—"}<br>
+      engine <b>${escH(rp.engine || "—")}</b>${spec}${rp.hardware_detected ? ` · ${escH(rp.hardware_detected)}` : ""}</div>
+  </div>`;
+}
+
+function renderRunCompare() {
+  const d = CMP.runData; if (!d) return;
+  const f = CMP.runFilters || { cat: "", diff: "", diffsOnly: false };
+  const cats = [...new Set(d.cases.map((c) => c.category).filter(Boolean))];
+  const diffs = ["easy", "medium", "hard", "expert", "frontier"].filter((x) => d.cases.some((c) => c.difficulty === x));
+  let rows = d.cases;
+  if (f.cat) rows = rows.filter((c) => c.category === f.cat);
+  if (f.diff) rows = rows.filter((c) => c.difficulty === f.diff);
+  if (f.diffsOnly) rows = rows.filter((c) => (c.a.score ?? -1) !== (c.b.score ?? -1));
+  const aWins = d.cases.filter((c) => (c.a.score ?? 0) > (c.b.score ?? 0)).length;
+  const bWins = d.cases.filter((c) => (c.b.score ?? 0) > (c.a.score ?? 0)).length;
+  const filters = `<div class="cmp2-filters">
+    <label>category <select id="c2Cat"><option value="">all</option>${cats.map((c) => `<option${f.cat === c ? " selected" : ""}>${escH(c)}</option>`).join("")}</select></label>
+    <label>difficulty <select id="c2Diff"><option value="">all</option>${diffs.map((x) => `<option${f.diff === x ? " selected" : ""}>${escH(x)}</option>`).join("")}</select></label>
+    <label class="c2-only"><input type="checkbox" id="c2Only"${f.diffsOnly ? " checked" : ""}> differences only</label>
+    <span class="note">A wins ${aWins} · B wins ${bWins} · ${d.cases.length - aWins - bWins} even${(d.only_a.length || d.only_b.length) ? ` · ${d.only_a.length + d.only_b.length} cases not shared (different suites)` : ""}</span>
+  </div>`;
+  const cell = (s) => {
+    const sc = s.score == null ? "—" : (s.score * 100).toFixed(0);
+    const cls = s.score == null ? "" : s.score >= 0.8 ? "pass" : s.score >= 0.4 ? "part" : "fail";
+    const tps = s.speed && s.speed.decode_tps ? `<span class="micro"> · ${Math.round(s.speed.decode_tps)} tok/s</span>` : "";
+    return `<div class="cmp2-cell"><div class="cmp2-score"><span class="sub-score ${cls}">${sc}</span>${tps}</div>
+      <pre>${escH((s.answer || "").slice(0, 4000))}</pre></div>`;
+  };
+  const body = rows.map((c) => {
+    const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(c.difficulty)}</span>` : "";
+    const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
+    const edge = delta > 0 ? `<span class="cmp2-edge a">◄ A</span>` : delta < 0 ? `<span class="cmp2-edge b">B ►</span>` : "";
+    return `<div class="cmp2-case">
+      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}${edge}</div>
+      <div class="sub-q"><b>asked:</b> ${escH((c.prompt || "").slice(0, 700))}</div>
+      <div class="cmp2-grid">${cell(c.a)}${cell(c.b)}</div>
+    </div>`;
+  }).join("") || `<p class="board-empty">No cases match these filters.</p>`;
+  $("#cmpBody").innerHTML =
+    `<div class="cmp2-heads">${_cmpHead("A", d.a, (d.b || {}).composite)}${_cmpHead("B", d.b, (d.a || {}).composite)}</div>` +
+    filters + `<div class="cmp2-cases">${body}</div>`;
+  const cc = $("#c2Cat"); if (cc) cc.onchange = () => { CMP.runFilters.cat = cc.value; renderRunCompare(); };
+  const cd = $("#c2Diff"); if (cd) cd.onchange = () => { CMP.runFilters.diff = cd.value; renderRunCompare(); };
+  const co = $("#c2Only"); if (co) co.onchange = () => { CMP.runFilters.diffsOnly = co.checked; renderRunCompare(); };
 }
 
 async function loadCompare(seed) {
@@ -2643,6 +2774,7 @@ async function init() {
       : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
   });
   { const cs = $("#cmpSeed"); if (cs) cs.onchange = () => loadCompare(cs.value); }
+  { const go = $("#cmpRunsGo"); if (go) go.onclick = () => loadRunCompare($("#cmpRunA").value, $("#cmpRunB").value); }
   $("#subsBoard").onchange = () => { SUBS.board = $("#subsBoard").value; loadSubs(); };
   $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); };
   $("#adminKind").onchange = loadAdminArtifacts;

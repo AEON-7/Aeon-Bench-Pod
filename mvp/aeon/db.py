@@ -553,7 +553,7 @@ def list_submissions(board=None, model=None, limit=300):
     """Run rows for the transparency browser (newest first), optionally per model."""
     cols = ("id, model, board, status, started_at, finished_at, n_cases, judge_model, "
             "judge_is_self, COALESCE(flagged,0) AS flagged, flag_reason, suite_id, suite_hash, "
-            "trust_tier, bench_seed")
+            "trust_tier, bench_seed, harness, harness_version")
     q = f"SELECT {cols} FROM runs WHERE 1=1"
     args = []
     if board:

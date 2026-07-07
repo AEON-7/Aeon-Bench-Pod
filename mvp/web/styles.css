@@ -1729,6 +1729,19 @@ select:focus {
 .ip-pct { font-family: var(--mono, monospace); font-size: 12px; font-weight: 700; text-align: right; }
 .ip-n { font-family: var(--mono, monospace); font-size: 10px; color: var(--faint); text-align: right; }
 
+/* category × difficulty heat matrix inside the instrument panel */
+.ip-matrix { flex-basis: 100%; }
+.ip-matrix table { border-collapse: collapse; font-family: var(--mono, monospace); }
+.ip-matrix th, .ip-matrix td { padding: 4px 10px; text-align: center; font-size: 11.5px; }
+.ip-matrix .ipm-cat { text-align: right; color: var(--muted); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; }
+.ip-matrix td {
+  min-width: 52px; border: 1px solid var(--line); font-weight: 700; color: var(--text);
+  background: rgba(0, 240, 255, calc(var(--s, 0) * .22));
+  text-shadow: 0 0 6px rgba(0, 240, 255, calc(var(--s, 0) * .5));
+}
+.ip-matrix td.ipm-na { background: none; color: var(--faint); font-weight: 400; }
+
 /* ---- 3-HARNESS side-by-side (one pass, full trajectory per task) ---- */
 .h3c-wrap { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
 .h3c-wrap .lbhead { display: flex; gap: 14px; align-items: center; }
@@ -1756,6 +1769,43 @@ select:focus {
 .diff-chip.d-hard { color: var(--warn); }
 .diff-chip.d-expert { color: var(--bad); }
 .diff-chip.d-frontier { color: var(--accent2); text-shadow: 0 0 8px rgba(255, 46, 151, .4); }
+
+/* ---- submission PASS cards: one launch = one card, expandable into components ---- */
+.subs-pass {
+  padding: 10px 12px; border-bottom: 1px solid var(--line); border-left: 2px solid transparent;
+  cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast);
+}
+.subs-pass:hover { background: rgba(0, 240, 255, .05); border-left-color: var(--border-strong); }
+.subs-pass.sel { background: rgba(0, 240, 255, .08); box-shadow: inset 3px 0 0 var(--accent); }
+.subs-pass.flagged { opacity: .55; }
+.sp-head {
+  display: grid; grid-template-columns: auto 34px minmax(0, 1fr) 32px auto auto;
+  gap: 8px; align-items: center;
+}
+/* the app's global form-field width rules must never inflate this tiny checkbox — a wide
+   compare cell starves the 1fr name track to 0px (invisible model names) */
+.subs-cmp { width: 32px; justify-content: center; }
+.subs-cmp input { width: 13px; height: 13px; min-width: 0; margin: 0; flex: none; }
+.sp-name {
+  font-size: 13.5px; color: var(--text); min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal;
+}
+.sp-name .morg { white-space: nowrap; }
+.sp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 0 42px; }
+.pc-chip {
+  display: inline-flex; align-items: baseline; gap: 4px; cursor: pointer;
+  padding: 2px 8px; font-family: var(--mono, monospace); font-size: 9.5px; font-weight: 600;
+  letter-spacing: .08em; color: var(--muted); background: var(--well); border: 1px solid var(--line);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+.pc-chip b { font-size: 11px; }
+.pc-chip.pass { color: var(--good); border-color: rgba(61, 220, 133, .4); }
+.pc-chip.part { color: var(--warn); border-color: rgba(255, 180, 84, .4); }
+.pc-chip.fail { color: var(--bad); border-color: rgba(255, 93, 122, .4); }
+.pc-chip.na { color: var(--faint); }
+.pc-chip:hover { border-color: var(--accent); color: var(--accent); }
+.subs-pass .subs-cats { margin: 6px 0 0 42px; }
 
 /* ---- submission CLUSTER rows: rank + per-category bars + compare picks ---- */
 .subs-rank {

@@ -1175,43 +1175,94 @@ async function loadSubs() {
 const _fmtTime = (ts) => fmtDT(ts);
 const _dayKey = (ts) => fmtDate(ts);
 
+// One left-panel card per BENCH PASS: a single launch's submissions (text · harnesses ·
+// vision · audio · perf) grouped by time proximity, expandable into its components.
+const _PASS_GAP_S = 45 * 60;
+
+function _passComponents(rows) {
+  const byModel = {};
+  [...rows].sort((a, b) => (a.started_at || 0) - (b.started_at || 0))
+    .forEach((r) => (byModel[r.model] = byModel[r.model] || []).push(r));
+  const passes = [];
+  Object.values(byModel).forEach((rs) => {
+    let cur = null;
+    rs.forEach((r) => {
+      if (!cur || (r.started_at || 0) - cur.last > _PASS_GAP_S) {
+        cur = { model: r.model, started_at: r.started_at, last: r.started_at || 0, comps: [] };
+        passes.push(cur);
+      }
+      cur.comps.push(r);
+      cur.last = r.started_at || 0;
+    });
+  });
+  passes.forEach((p) => {
+    p.primary = p.comps.find((c) => c.board === "text" && !c.harness) || p.comps[0];
+    p.flagged = p.comps.some((c) => c.flagged);
+  });
+  passes.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+  return passes;
+}
+
+function _compLabel(c) {
+  if (c.harness) return c.harness.toUpperCase();
+  if (c.board === "text") return "TEXT";
+  return (c.board || "?").toUpperCase();
+}
+
 function renderSubsList(rows) {
   const hdr = SUBS.model
     ? `<div class="subs-filter">for <b>${escH(SUBS.model)}</b> · <button class="ghost" id="subsClear">all models</button></div>` : "";
-  // RANK within the current view (a model's expansion ranks ITS submissions) by mean score
-  const ranked = rows.filter((r) => r.mean_score != null && r.status === "succeeded")
-    .sort((x, y) => y.mean_score - x.mean_score);
-  const rankOf = new Map(ranked.map((r, i) => [r.id, i + 1]));
-  const groups = {};
-  rows.forEach((r) => { (groups[_dayKey(r.started_at)] = groups[_dayKey(r.started_at)] || []).push(r); });
-  const body = Object.keys(groups).map((day) =>
-    `<div class="subs-day">${escH(day)}</div>` + groups[day].map((r) => {
-      const flag = r.flagged ? ` <span class="ev-badge bad">bad</span>` : "";
-      const sc = r.mean_score != null ? Math.round(r.mean_score) : "—";
-      // score color = verdict band, not always-green: green must MEAN good
-      const scls = r.mean_score == null ? "" : r.mean_score >= 80 ? " pass" : r.mean_score >= 40 ? " part" : " fail";
-      const t = r.started_at ? fmtClock(r.started_at).slice(0, 5) : "—";
-      const rk = rankOf.get(r.id);
+  const passes = _passComponents(rows);
+  // RANK passes by their primary (text) score within the current view
+  const ranked = passes.filter((p) => p.primary && p.primary.mean_score != null && p.primary.status === "succeeded")
+    .sort((x, y) => y.primary.mean_score - x.primary.mean_score);
+  const rankOf = new Map(ranked.map((p, i) => [p.primary.id, i + 1]));
+  const days = {};
+  passes.forEach((p) => { (days[_dayKey(p.started_at)] = days[_dayKey(p.started_at)] || []).push(p); });
+  const body = Object.keys(days).map((day) =>
+    `<div class="subs-day">${escH(day)}</div>` + days[day].map((p) => {
+      const pr = p.primary || {};
+      const rk = rankOf.get(pr.id);
       const rank = rk ? `<span class="subs-rank${rk <= 3 ? " p" + rk : ""}">#${rk}</span>` : `<span class="subs-rank none">—</span>`;
-      // the submission's CATEGORY CLUSTER: every dimension of this run, scored, together
-      const cats = Object.entries(r.categories || {}).map(([c, v]) =>
+      const sc = pr.mean_score != null ? Math.round(pr.mean_score) : "—";
+      const scls = pr.mean_score == null ? "" : pr.mean_score >= 80 ? " pass" : pr.mean_score >= 40 ? " part" : " fail";
+      const t = p.started_at ? fmtClock(p.started_at).slice(0, 5) : "—";
+      // component chips: every sub-test of this launch, scored, in one strip
+      const chips = p.comps.map((c) => {
+        const v = c.mean_score;
+        const cls = v == null ? "na" : v >= 80 ? "pass" : v >= 40 ? "part" : "fail";
+        return `<button class="pc-chip ${cls}" data-run="${escA(c.id)}" title="${escA(_compLabel(c))} · ${escA(c.suite_id || c.board)} · ${c.n_cases || "?"} cases — open this component">
+          ${escH(_compLabel(c))}${v != null ? ` <b>${Math.round(v)}</b>` : " ✓"}</button>`;
+      }).join("");
+      const cats = Object.entries(pr.categories || {}).map(([c, v]) =>
         `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
-      const cmp = r.harness ? "" : `<label class="subs-cmp" title="tick two runs, then ⇆ compare"><input type="checkbox" class="cmp-sel" data-run="${escA(r.id)}">⇆</label>`;
-      return `<div class="subs-row${r.flagged ? " flagged" : ""}" data-run="${escA(r.id)}">
-        ${rank}
-        <a class="model-creator subs-ava" data-meta="${escA(r.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-          <img class="model-avatar" data-meta-avatar="${escA(r.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="36" height="36"></a>
-        <div class="subs-id"><span class="subs-m">${fmtModel(r.model)}</span>
-          <span class="subs-tags"><span class="subs-b">${escH(r.board)}</span>${r.harness ? `<span class="subs-b">${escH(r.harness)}</span>` : ""}<span class="subs-st">${escH(r.status)}</span>${flag}</span>
-          ${cats ? `<span class="subs-cats">${cats}</span>` : ""}</div>
-        ${cmp}<span class="subs-s${scls}">${sc}</span><span class="subs-t">${t}</span></div>`;
+      const cmp = pr.id ? `<label class="subs-cmp" title="tick two passes, then ⇆ compare their text runs"><input type="checkbox" class="cmp-sel" data-run="${escA(pr.id)}">⇆</label>` : "";
+      return `<div class="subs-pass${p.flagged ? " flagged" : ""}" data-run="${escA(pr.id)}">
+        <div class="sp-head">
+          ${rank}
+          <a class="model-creator subs-ava" data-meta="${escA(p.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+            <img class="model-avatar" data-meta-avatar="${escA(p.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="34" height="34"></a>
+          <span class="sp-name">${fmtModel(p.model)}</span>
+          ${cmp}<span class="subs-s${scls}">${sc}</span><span class="subs-t">${t}</span>
+        </div>
+        <div class="sp-chips">${chips}${p.flagged ? ` <span class="ev-badge bad">bad</span>` : ""}</div>
+        ${cats ? `<div class="subs-cats">${cats}</div>` : ""}
+      </div>`;
     }).join("")).join("") || `<p class="note" style="text-align:left">No submissions${SUBS.model ? " for this model" : ""} yet.</p>`;
   $("#subsList").innerHTML = hdr + `<div class="cmp-bar" id="cmpBar" hidden><button class="ghost" id="cmpGo">⇆ compare selected</button><span class="note" id="cmpBarNote">tick two runs</span></div>` + body;
   const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
-  $$("#subsList .subs-row").forEach((el) => el.onclick = (ev) => {
-    if (ev.target.closest(".subs-ava") || ev.target.closest(".subs-cmp")) return;   // avatar/compare ≠ open-run
-    $$("#subsList .subs-row").forEach((x) => x.classList.remove("sel")); el.classList.add("sel");
-    openSubmission(el.dataset.run);
+  const select = (el, run) => {
+    $$("#subsList .subs-pass").forEach((x) => x.classList.remove("sel"));
+    el.classList.add("sel");
+    openSubmission(run);
+  };
+  $$("#subsList .subs-pass").forEach((el) => el.onclick = (ev) => {
+    if (ev.target.closest(".subs-ava") || ev.target.closest(".subs-cmp") || ev.target.closest(".pc-chip")) return;
+    if (el.dataset.run) select(el, el.dataset.run);   // card = the pass's text run
+  });
+  $$("#subsList .pc-chip").forEach((b) => b.onclick = (ev) => {
+    ev.stopPropagation();                              // chip = a specific sub-component
+    select(b.closest(".subs-pass"), b.dataset.run);
   });
   // two ticks -> compare; the bar appears as soon as one is ticked
   const bar = $("#cmpBar"), note = $("#cmpBarNote"), go = $("#cmpGo");
@@ -1282,10 +1333,14 @@ const _DIFF_ORDER = ["easy", "medium", "hard", "expert", "frontier"];
 function _instrumentPanel(d) {
   const scored = (d.cases || []).filter((c) => typeof c.score === "number");
   if (!scored.length || (d.run || {}).board === "perf") return "";
-  const catAgg = {}, diffAgg = {};
+  const catAgg = {}, diffAgg = {}, cellAgg = {};
   scored.forEach((c) => {
     (catAgg[c.category] = catAgg[c.category] || []).push(c.score);
-    if (c.difficulty) (diffAgg[c.difficulty] = diffAgg[c.difficulty] || []).push(c.score);
+    if (c.difficulty) {
+      (diffAgg[c.difficulty] = diffAgg[c.difficulty] || []).push(c.score);
+      const k = c.category + " " + c.difficulty;
+      (cellAgg[k] = cellAgg[k] || []).push(c.score);
+    }
   });
   const cats = Object.entries(catAgg).map(([k, v]) => [k, 100 * v.reduce((a, b) => a + b, 0) / v.length]);
   const comp = cats.length ? cats.reduce((a, [, v]) => a + v, 0) / cats.length : 0;
@@ -1305,10 +1360,23 @@ function _instrumentPanel(d) {
         <span class="ip-bar"><i class="db-${k}" style="width:${Math.min(100, v).toFixed(1)}%"></i></span>
         <span class="ip-pct">${Math.round(v)}</span><span class="ip-n">${diffAgg[k].length}</span></div>`;
     }).join("") + `</div>`;
+  // category × difficulty MATRIX: where exactly the run holds up and where it cracks
+  let matrix = "";
+  if (diffs.length >= 2 && cats.length >= 2) {
+    const head = `<tr><th></th>${diffs.map((k) => `<th><span class="diff-chip d-${k}">${k}</span></th>`).join("")}</tr>`;
+    const trs = cats.map(([c]) => `<tr><th class="ipm-cat">${escH(c)}</th>` + diffs.map((k) => {
+      const v = cellAgg[c + " " + k];
+      if (!v) return `<td class="ipm-na">·</td>`;
+      const m = 100 * v.reduce((a, b) => a + b, 0) / v.length;
+      return `<td style="--s:${(m / 100).toFixed(3)}" title="${escA(c)} × ${escA(k)}: ${m.toFixed(1)} (${v.length} case${v.length === 1 ? "" : "s"})">${Math.round(m)}</td>`;
+    }).join("") + `</tr>`).join("");
+    matrix = `<div class="ip-matrix"><span class="ip-sec">category × difficulty</span>
+      <table>${head}${trs}</table></div>`;
+  }
   return `<div class="instrument-panel">
     ${dial}
     <div class="ip-gauges"><span class="ip-sec">categories</span><div class="ip-grow">${gauges}</div></div>
-    ${ladder}</div>`;
+    ${ladder}${matrix}</div>`;
 }
 
 function renderSubmissionDetail(d) {

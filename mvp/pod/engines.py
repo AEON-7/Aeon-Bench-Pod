@@ -104,7 +104,11 @@ FLAG_CATALOG = {
         {"flag": "--quantization", "kind": "enum", "options": ["modelopt", "compressed-tensors", "awq", "gptq", "fp8", "bitsandbytes"],
          "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)"},
         {"flag": "--kv-cache-dtype", "kind": "enum", "options": ["auto", "fp8_e4m3", "fp8_e5m2"],
-         "label": "kv cache dtype", "note": "fp8 KV halves cache memory -> more concurrency at long ctx"},
+         "label": "kv cache dtype",
+         "note": "fp8 KV halves cache memory -> more concurrency at long ctx. CAUTION: crashes "
+                 "Gemma4 (interleaved sliding-window layers) on triton_attn — EngineCore dies at "
+                 "first request with 'Window left is not the same for all layers'. Use auto for "
+                 "gemma4, or pair fp8 KV with --disable-sliding-window (costs KV memory)"},
         {"flag": "--attention-backend", "kind": "enum", "options": ["triton_attn", "flash_attn", "flashinfer", "xformers"],
          "label": "attention backend", "note": "GB10: triton_attn/flash_attn (FlashInfer is broken on GB10)"},
         {"flag": "--dtype", "kind": "enum", "options": ["auto", "bfloat16", "float16"],

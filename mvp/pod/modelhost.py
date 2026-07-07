@@ -84,9 +84,17 @@ def _sha256_file(path: str, chunk: int = 1 << 20) -> str:
 
 
 def verify(local_dir: str, ref: dict) -> dict:
-    """Hash the weight files -> a content-addressed `weights_hash`; compare to HF's LFS
-    sha256 where published. Bytes are already guaranteed to be repo@sha (hub-verified on
-    download); explicit LFS matches add signature confirmation for the big weight files."""
+    """STRICT bit-for-bit verification of a local weight set against HF's manifest.
+
+    Contract: the local WEIGHT SET must EQUAL the repo@revision's weight set — every
+    weight file HF lists exists locally with the exact published sha256, no weight file
+    missing, no weight file the repo doesn't have. A single differing byte fails, and a
+    disjoint file set fails loudly ('missing:'/'extra:' entries) — it can never pass
+    vacuously. (The old behavior compared only same-named files, so pairing a local dir
+    with the WRONG repo 'passed' with zero files checked — found by an owner red-team
+    paste of a Nemotron card against an Ornith dir, 2026-07-07.)"""
+    expected = {n: s for n, s in (ref.get("files") or {}).items()
+                if n.lower().endswith(WEIGHT_EXT)}
     per_file, mismatches, lfs_checked = {}, [], 0
     for root, _, files in os.walk(local_dir):
         for fn in files:
@@ -95,14 +103,38 @@ def verify(local_dir: str, ref: dict) -> dict:
             rel = os.path.relpath(os.path.join(root, fn), local_dir).replace("\\", "/")
             digest = _sha256_file(os.path.join(root, fn))
             per_file[rel] = digest
-            adv = (ref.get("files") or {}).get(rel)
-            if adv:
+            if rel not in expected:
+                mismatches.append(f"extra:{rel}")       # not part of the repo -> adulterated set
+                continue
+            adv = expected[rel]
+            if adv:                                     # hash published (LFS) -> must match exactly
                 lfs_checked += 1
                 if adv != digest:
-                    mismatches.append(rel)
+                    mismatches.append(f"hash:{rel}")
+    # Completeness. Sharded model repos (safetensors/torch) need EVERY weight file — a
+    # missing shard is an unservable, unverifiable set. GGUF repos are collections of
+    # SELF-CONTAINED artifacts (many quantizations of one model; LM Studio downloads just
+    # one) — there, every LOCAL file must be repo-exact (enforced above) but absent sibling
+    # quants are fine, EXCEPT that a split-GGUF group partially present must be whole.
+    gguf_only = bool(expected) and all(n.lower().endswith(".gguf") for n in expected)
+    if gguf_only:
+        split = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
+        for rel in list(per_file):
+            m = split.match(rel)
+            if not m:
+                continue
+            stem, total = m.group(1), int(m.group(3))
+            for i in range(1, total + 1):
+                part = f"{stem}-{i:05d}-of-{total:05d}.gguf"
+                if part not in per_file:
+                    mismatches.append(f"missing:{part}")
+    else:
+        for rel in expected:                            # repo weight files that never appeared
+            if rel not in per_file:
+                mismatches.append(f"missing:{rel}")
     manifest = ";".join(f"{k}:{per_file[k]}" for k in sorted(per_file))
     return {
-        "verified": bool(per_file) and not mismatches,
+        "verified": bool(expected) and bool(per_file) and not mismatches,
         "method": "lfs_sha256+manifest" if lfs_checked else "hub_download+revision+manifest",
         "weights_hash": hashlib.sha256(manifest.encode()).hexdigest(),
         "revision": ref.get("sha"),

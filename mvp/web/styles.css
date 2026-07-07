@@ -1881,6 +1881,19 @@ select:focus {
 .h-chip.h-hermes { border-color: rgba(0, 240, 255, .45); color: var(--accent); }
 .h-chip.h-openclaw { border-color: rgba(255, 180, 84, .5); color: var(--warn); }
 .h-chip.h-opencode { border-color: rgba(176, 107, 255, .5); color: #b06bff; }
+
+/* ---- Live bench queue (pending jobs waiting for turn) ---- */
+.live-queue { margin: 10px 0 14px; }
+.lq-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px; margin-top: 6px;
+  border: 1px dashed var(--line); background: var(--well);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+.lq-pos { color: var(--accent); font-weight: 700; }
+.lq-model { color: var(--text); overflow-wrap: anywhere; }
+.lq-wait { margin-left: auto; font-style: italic; animation: telePulse 2.4s ease-in-out infinite; }
+.lq-stop { padding: 2px 8px; font-size: 11px; }
+.lq-note { text-align: left; margin-top: 6px; }
 .live-job { margin-bottom: 14px; }
 
 /* ---- serve-watch telemetry strip (Live view, while a job runs): VRAM / RAM / CPU gauges

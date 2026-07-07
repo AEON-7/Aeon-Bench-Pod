@@ -828,24 +828,42 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                     continue
                 if name not in targets:
                     targets.append(name)
+        # Only a container that is actually RUNNING gets stopped + recorded: `docker stop`
+        # returns 0 on an already-stopped container too, and recording those would make the
+        # eventual restore resurrect containers the OPERATOR had stopped deliberately.
+        _ps = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
+                             capture_output=True, text=True, timeout=60)
+        _running = set((_ps.stdout or "").split())
         for name in targets:
+            if name not in _running:
+                continue
             r = subprocess.run(["docker", "stop", name], capture_output=True, text=True, timeout=180)
             if r.returncode == 0:
                 paused.append(name)
                 print(f"[pod] paused container '{name}' for the bench window", flush=True)
         restore = os.environ.get("AEON_RESTORE_PAUSED", "1") != "0"
+        queue_managed = os.environ.get("AEON_QUEUE_MANAGED") == "1"
         if paused:
             print(f"[pod] {len(paused)} container(s) paused — "
-                  + ("auto-restored after the bench" if restore else
+                  + ("restored when the job queue drains" if queue_managed else
+                     "auto-restored after the bench" if restore else
                      "restore DISABLED (they stay stopped; restart manually)"), flush=True)
             # Persist what we paused: if this process is killed mid-run (pod restart, crash),
             # the pod's boot reconciler reads this file and restores production containers that
-            # would otherwise stay silently stopped. Removed on the clean-exit path below.
+            # would otherwise stay silently stopped. Queue-managed runs MERGE into the ledger
+            # (it spans every job in the queue — the queue worker consumes it when drained);
+            # standalone runs consume it on their own clean-exit path below.
             try:
                 _pf = os.path.join(os.path.expanduser("~"), ".aeon", "paused.json")
                 os.makedirs(os.path.dirname(_pf), exist_ok=True)
+                prev = []
+                try:
+                    prev = (json.load(open(_pf, encoding="utf-8")) or {}).get("paused") or []
+                except Exception:
+                    pass
                 with open(_pf, "w") as f:
-                    json.dump({"paused": paused, "restore": restore, "at": time.time()}, f)
+                    json.dump({"paused": sorted(set(prev) | set(paused)),
+                               "restore": restore, "at": time.time()}, f)
             except OSError:
                 pass
         import socket
@@ -860,9 +878,10 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
         # A gracefully-stopping server (vLLM after `docker stop`) can hold the port for several
         # seconds AFTER the stop returns — poll for release instead of refusing on the instant
-        # probe. Generous window when we just paused something (its shutdown is in flight);
+        # probe. Generous window when we just paused something (its shutdown is in flight) OR
+        # when queue-managed (the PREVIOUS queued job's serve teardown may still be releasing);
         # short grace otherwise.
-        deadline = time.time() + (60 if paused else 8)
+        deadline = time.time() + (60 if (paused or queue_managed) else 8)
         busy = _port_busy()
         while busy and time.time() < deadline:
             time.sleep(2)
@@ -923,19 +942,28 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         if recipe.get("container_name") and serve:   # docker-served: make cleanup unconditional —
             subprocess.run(["docker", "rm", "-f", recipe["container_name"]],   # SIGTERM on the client
                            capture_output=True, timeout=60)                    # can strand the container
-        if os.environ.get("AEON_RESTORE_PAUSED", "1") != "0":
-            for name in paused:                      # restore what we paused (start only, never rm)
-                r = subprocess.run(["docker", "start", name], capture_output=True, text=True, timeout=180)
-                print(f"[pod] restored container '{name}'" if r.returncode == 0
-                      else f"[pod] !! could not restart '{name}': {r.stderr.strip()[:200]}")
-        elif paused:
-            print(f"[pod] restore disabled — {len(paused)} paused container(s) left stopped: "
-                  + ", ".join(paused))
-        if paused:                                   # clean exit: nothing left for the reconciler
-            try:
-                os.unlink(os.path.join(os.path.expanduser("~"), ".aeon", "paused.json"))
-            except OSError:
-                pass
+        if os.environ.get("AEON_QUEUE_MANAGED") == "1":
+            # Queue-managed: restore is the QUEUE's job, not this run's — the ledger stays so
+            # back-to-back queued benches never reload the production server between runs;
+            # the job worker restores everything in one pass when the queue drains (and the
+            # boot reconciler covers a crash).
+            if paused:
+                print(f"[pod] queue-managed: {len(paused)} paused container(s) stay down until "
+                      f"the job queue drains", flush=True)
+        else:
+            if os.environ.get("AEON_RESTORE_PAUSED", "1") != "0":
+                for name in paused:                  # restore what we paused (start only, never rm)
+                    r = subprocess.run(["docker", "start", name], capture_output=True, text=True, timeout=180)
+                    print(f"[pod] restored container '{name}'" if r.returncode == 0
+                          else f"[pod] !! could not restart '{name}': {r.stderr.strip()[:200]}")
+            elif paused:
+                print(f"[pod] restore disabled — {len(paused)} paused container(s) left stopped: "
+                      + ", ".join(paused))
+            if paused:                               # clean exit: nothing left for the reconciler
+                try:
+                    os.unlink(os.path.join(os.path.expanduser("~"), ".aeon", "paused.json"))
+                except OSError:
+                    pass
         if not keep_weights:
             print(f"[pod] removing weights {local_dir} (use --keep-weights to retain)")
             shutil.rmtree(local_dir, ignore_errors=True)

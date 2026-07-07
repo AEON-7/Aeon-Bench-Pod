@@ -2140,16 +2140,38 @@ async function pollLive() {
   }
   // A run spends long stretches in NON-STREAMING dimensions (arena / harness / perf) where no
   // db run is live — the active JOB's stage strip keeps Live honest through those phases.
-  let job = null, tele = null;
+  let job = null, queued = [], tele = null;
   if (CFG.role === "pod") {
     try {
       const js = await api("/api/pod/jobs", { headers: podHeaders() });
-      job = (js.jobs || []).find((x) => x.status === "running") || null;
+      const all = js.jobs || [];
+      job = all.find((x) => x.status === "running") || null;
+      // the pod runs ONE bench at a time — everything else waits its turn here
+      queued = all.filter((x) => x.status === "queued").reverse();   // list is newest-first; queue runs oldest-first
     } catch (e) { /* jobs API optional — Live still renders db runs */ }
     // serve-watch telemetry: only while a job runs (idle Live polls stay cheap)
     if (job) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
   }
-  renderLive(d, job, tele);
+  renderLive(d, job, queued, tele);
+}
+
+// Pending-bench queue strip: runs execute one at a time; paused host containers are
+// restored only after the WHOLE queue drains (queue-spanning pause — no prod reload
+// between back-to-back benches).
+function queueStrip(queued) {
+  if (!queued.length) return "";
+  return `<div class="live-queue">
+    <h4 class="live-feed-h">bench queue <span class="tag">${queued.length} waiting</span></h4>
+    ${queued.map((q, i) => `<div class="lq-row">
+      <span class="lq-pos mono">#${i + 1}</span>
+      <b class="lq-model">${escH((q.model || "").split("/").pop() || "?")}</b>
+      ${q.preset ? `<span class="tag preset-tag">${escH(q.preset)}</span>` : ""}
+      ${q.difficulty ? `<span class="tag">${escH(q.difficulty)}</span>` : ""}
+      <span class="note lq-wait">waiting for turn</span>
+      <button class="ghost lq-stop" data-id="${escA(q.id)}">✕ remove</button>
+    </div>`).join("")}
+    <p class="note lq-note">One bench at a time — each queued run starts automatically when the active one finishes. Paused host containers come back only after the whole queue drains.</p>
+  </div>`;
 }
 
 // Host serve-watch strip: is the model load PROGRESSING or stalled? VRAM filling = weights
@@ -2193,22 +2215,25 @@ function teleStrip(t, j) {
 // with multiple concurrent runs and with a killed+relaunched run of the same model.
 let LIVE_SEEN_MAP = new Map();
 
-function renderLive(d, job, tele) {
+function renderLive(d, job, queued, tele) {
+  queued = queued || [];
   const runs = (d && d.running) || [];
   const activeJob = job && job.status === "running" ? job : null;
-  const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", runs.length > 0 || !!activeJob);
-  const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", runs.length > 0 || !!activeJob);
+  const live = runs.length > 0 || !!activeJob || queued.length > 0;
+  const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", live);
+  const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", live);
   const phaseTag = activeJob && activeJob.serve_phase && activeJob.stage === "serving"
     ? ` <span class="tag tele-phase">engine: ${escH(activeJob.serve_phase)}</span>` : "";
-  const jobStrip = activeJob ? `<div class="live-job">
+  const jobStrip = (activeJob ? `<div class="live-job">
       <h4 class="live-feed-h">run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}
         <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span>${phaseTag}</h4>
-      ${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "";
+      ${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "") + queueStrip(queued);
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
-    $("#liveBody").innerHTML = activeJob
-      ? jobStrip + `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf). Case-by-case output appears here during the text and vision suites.</p>`
+    $("#liveBody").innerHTML = (activeJob || queued.length)
+      ? jobStrip + (activeJob ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf). Case-by-case output appears here during the text and vision suites.</p>` : "")
       : `<p class="board-empty">No benchmark is running right now. When a controlled pod is mid-run, its per-category progress and the prompts + answers stream here live.</p>`;
+    $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id).then(pollLive));
     return;
   }
   const liveKeys = new Set(runs.map((r) => r.run || r.run_id || r.id || r.model || "?"));
@@ -2255,6 +2280,7 @@ function renderLive(d, job, tele) {
   }).join("");
   [...document.querySelectorAll("#liveBody .live-feed")].forEach((e, i) => { if (_feedScroll[i]) e.scrollTop = _feedScroll[i]; });
   [...document.querySelectorAll("#liveBody .live-a pre")].forEach((e, i) => { if (_preScroll[i]) e.scrollTop = _preScroll[i]; });
+  $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id).then(pollLive));
 }
 
 // ---- POD Run tab: launch benchmarks (endpoint / verified-HF) + manage saved keys (pod-only) ----
@@ -2863,7 +2889,17 @@ async function launchRun(path, body, btnSel) {
   try { r = await api(path, { method: "POST", headers: podHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) }); }
   catch (e) { runStatus("launch failed: " + JSON.stringify(e), "err"); if (btn) btn.disabled = false; return; }
   if (btn) btn.disabled = false;
-  runStatus("launched — job " + r.job_id + ". Progress below; the run streams into ● Live once benchmarking starts.", "ok");
+  // Queue-aware feedback: if a bench is already active, this launch WAITS its turn —
+  // say so (with position) instead of implying it starts now.
+  let ahead = 0;
+  try {
+    const js = await api("/api/pod/jobs", { headers: podHeaders() });
+    ahead = (js.jobs || []).filter((x) => x.id !== r.job_id
+      && (x.status === "running" || x.status === "queued")).length;
+  } catch (e) {}
+  runStatus(ahead
+    ? `queued — #${ahead + 1} in line (job ${r.job_id}). It starts automatically when the active bench finishes; watch the queue in ● Live. Paused host containers restore only after the whole queue drains.`
+    : `launched — job ${r.job_id}. Progress below; the run streams into ● Live once benchmarking starts.`, "ok");
   await pollJobs();
   loadLaunches();                       // the new launch is now the top template
 }

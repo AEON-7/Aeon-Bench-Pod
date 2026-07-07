@@ -166,6 +166,23 @@ def _worker():
                 _set(j, status="error", stage="error", error=str(e))
         finally:
             _Q.task_done()
+            _maybe_restore_after_queue()
+
+
+def _maybe_restore_after_queue():
+    """QUEUE-SPANNING restore: queue-managed benches (AEON_QUEUE_MANAGED) never restart the
+    host containers they paused — the paused.json ledger persists across jobs so back-to-back
+    queued benches don't reload the production server between runs. Once the LAST job finishes
+    (queue drained), restore the host to its original state in one pass. A job enqueued in the
+    tiny race window simply re-pauses — correct either way."""
+    if not _Q.empty():
+        return
+    try:
+        from . import recover
+        for act in recover.restore_paused():
+            print(f"[jobs][queue-drained] {act}", flush=True)
+    except Exception:
+        pass
 
 
 def _run_job(jid):
@@ -324,6 +341,10 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
         extra["AEON_PAUSE_ALL"] = "1"
     if restore_paused is False:
         extra["AEON_RESTORE_PAUSED"] = "0"
+    # QUEUE-MANAGED: the bench itself never restores what it paused — the paused.json
+    # ledger accumulates across queued jobs and _maybe_restore_after_queue() restores the
+    # host in one pass when the queue drains (no prod-server reload between queued runs).
+    extra["AEON_QUEUE_MANAGED"] = "1"
     # An engine/local-dir/serve-url selection means the user chose a SPECIFIC serve config in the
     # GUI — honor it via the builtin flow even when a host launcher exists (the launcher owns only
     # the host's default serve, e.g. the DGX aeon-vllm-ultimate recipe).

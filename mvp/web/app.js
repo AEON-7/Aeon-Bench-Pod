@@ -2948,7 +2948,6 @@ async function init() {
   // The model-endpoint launch form was removed — benchmarks run from the pod, never here.
   // Bind only the controls that still exist.
   const bind = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
-  bind("#audioProbe", probeAudio);
   bind("#reLaunch", runEndpointBench);
   bind("#hfLaunch", runHfVerified);
   { const ts = $("#tplSel"); if (ts) ts.onchange = () => { if (ts.value !== "") applyLaunchTemplate(+ts.value); }; }

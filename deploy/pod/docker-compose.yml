@@ -226,7 +226,7 @@ services:
       AEON_JUDGE:      ${AEON_JUDGE:-}           # FRONTIER judge id, or empty = deterministic-only (never self-judge)
       AEON_JUDGE_URL:  ${AEON_JUDGE_URL:-}
       AEON_JUDGE_KEY:  ${AEON_JUDGE_KEY:-}
-      AEON_MAX_TOKENS: ${AEON_MAX_TOKENS:-2048}  # reasoning models need headroom
+      AEON_MAX_TOKENS: ${AEON_MAX_TOKENS:-32768} # generation cap incl. hidden reasoning tokens
       AEON_LIMIT:      ${AEON_LIMIT:-}           # first N cases only (quick smoke); empty = full suite
       AEON_KEEP_WEIGHTS: ${AEON_KEEP_WEIGHTS:-1} # keep verified weights after the run (volume persists regardless)
       AEON_TARGET_API_KEY: ${AEON_TARGET_API_KEY:-sk-local}

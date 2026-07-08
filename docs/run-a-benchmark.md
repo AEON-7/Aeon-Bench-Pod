@@ -84,7 +84,7 @@ Useful optional vars (full list documented in `deploy/pod/.env.example`):
 - `AEON_HARDWARE` — a label recorded with the run, e.g. `"NVIDIA DGX Spark GB10 128GB"`.
 - `AEON_JUDGE` / `AEON_JUDGE_URL` / `AEON_JUDGE_KEY` — a **frontier** judge for subjective Tier-1
   cases. Leave empty for deterministic-only scoring. **Never** the model under test judging itself.
-- `AEON_MAX_TOKENS` (default 2048) — generation cap; reasoning models need headroom.
+- `AEON_MAX_TOKENS` (default 32768) — generation cap, including hidden reasoning tokens.
 - `AEON_LIMIT` — benchmark only the first N cases for a quick smoke before a full run.
 - `HF_TOKEN` — only for gated/private HF repos.
 

@@ -27,6 +27,7 @@ _QWEN_DFLASH_SCHED = [
     "--max-num-seqs", "64",
     "--max-num-batched-tokens", "32768",
     "--enable-chunked-prefill",
+    "--generation-config", "vllm",
 ]
 
 PRESETS: list[dict] = [

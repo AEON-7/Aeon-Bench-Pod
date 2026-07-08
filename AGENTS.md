@@ -91,7 +91,7 @@ the signed bundle. First `up` builds the three harness images; later runs reuse 
 | `AEON_SYSTEM` | `dgx-spark` to force the `aeon-vllm-ultimate` recipe |
 | `AEON_JUDGE` / `_URL` / `_KEY` | optional frontier judge for Tier-1 (else deterministic-only; never self-judges silently) |
 | `HF_TOKEN` | gated/private HF repos |
-| `AEON_MAX_TOKENS` | generation cap (reasoning models need headroom; default 2048) |
+| `AEON_MAX_TOKENS` | generation cap, including hidden reasoning tokens (default 32768) |
 | `AEON_LIMIT` | first-N cases only (quick smoke) |
 | `AEON_PAUSE_CONTAINERS` | comma list of containers the pod docker-stops during a bench serve and ALWAYS restarts after (e.g. `aeon-vllm` on a DGX that runs a production serve on :8000 — frees the port AND the unified memory) |
 

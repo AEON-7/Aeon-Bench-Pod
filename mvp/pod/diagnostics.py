@@ -125,8 +125,9 @@ def diagnose(log_lines: list[str], custom_flags=None) -> str | None:
     recognizable engine signature. When the matched signature concerns a flag the OPERATOR set
     in their custom recipe, the hint names that exact flag+value as the likely culprit — the
     direct 'which part of my recipe broke' feedback."""
-    # scan the last ~400 lines — the traceback + the real cause live at the tail
-    text = "\n".join(log_lines[-400:])
+    # Scan all retained lines. vLLM can flood the tail with repeated EngineDeadError traces after
+    # the first EngineCore failure, so a small tail window often misses the actual root cause.
+    text = "\n".join(log_lines)
     # highest priority: an engine that rejected a specific flag — name it exactly.
     um = _UNRECOGNIZED.search(text)
     if um:

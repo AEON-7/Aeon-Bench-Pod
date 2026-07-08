@@ -24,6 +24,7 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 

@@ -262,6 +262,8 @@ services:
       # Validated weights live here; sibling engine containers need the HOST path for -v mounts.
       AEON_MODELS_DIR: /models
       AEON_MODELS_HOST_DIR: ${AEON_MODELS_HOST:-${HOME}/aeon-models}
+      # Read-only host-home scan: lets the Run tab find HF cache, LM Studio, ~/models, etc.
+      AEON_HOST_HOME_DIR: ${AEON_HOST_HOME:-${HOME}}
       # Harness image names the Run tab's launches spawn (built by harness-build-* below).
       AEON_HERMES_IMAGE:   aeon-harness-hermes
       AEON_OPENCLAW_IMAGE: aeon-harness-openclaw
@@ -270,6 +272,7 @@ services:
       - pod-state:/root/.aeon            # device key + pod.db (persists across updates)
       - /var/run/docker.sock:/var/run/docker.sock   # spawn engine + per-task harness containers
       - ${AEON_MODELS_HOST:-${HOME}/aeon-models}:/models   # validated weights (host-visible)
+      - ${AEON_HOST_HOME:-${HOME}}:/host-home:ro     # full-host model scan, read-only
     ports:
       - "${AEON_DASH_PORT:-8091}:8091"   # the pod dashboard
     # NVIDIA hosts: give the dashboard GPU visibility (platform detection drives the engine

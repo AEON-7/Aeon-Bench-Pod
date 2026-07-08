@@ -42,6 +42,7 @@ _LOCK = threading.Lock()
 _JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 _Q: "queue.Queue[str]" = queue.Queue()
 _worker_started = False
+_JOB_LOG_LINES = int(os.environ.get("AEON_JOB_LOG_LINES", "8000"))
 
 # (substring in a stdout line -> coarse stage). Scanned in order; the LAST match on a line wins,
 # so later stages override earlier ones when a line contains several markers.
@@ -139,7 +140,7 @@ def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficu
          "_launch_id": launch_id,                        # link the run to its template (best-of ranking)
          "run_id": None, "created_at": _now(), "updated_at": _now(), "error": None,
          "hint": None,
-         "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
+         "returncode": None, "log": collections.deque(maxlen=_JOB_LOG_LINES), "_argv": argv, "_env": env,
          "_proc": None}
     with _LOCK:
         _JOBS[jid] = j

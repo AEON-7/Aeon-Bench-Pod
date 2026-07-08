@@ -26,6 +26,7 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -42,6 +43,7 @@ docker run -d --name aeon-pod -p 8091:8091 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -69,7 +71,8 @@ board, with the inference engine + hardware + full startup recipe shown on every
 The mounts, in one line each: the **docker socket** lets the pod launch engine + harness
 containers; **aeon-pod-state** persists your ed25519 device key + local runs; **/models** (with
 `AEON_MODELS_HOST_DIR` naming its host path) is where validated weights live so sibling engine
-containers can mount them.
+containers can mount them; **/host-home** is a read-only view of your home directory so
+**scan system** can find HF cache, LM Studio, `~/models`, and other existing local model folders.
 
 ## Update an existing install
 
@@ -82,6 +85,7 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -89,18 +93,19 @@ Your device key, runs and models live in the named volumes — **updating never 
 If :8091 is taken on your host (e.g. a bare-metal dashboard is already running), add
 `-e AEON_PORT=8092` and open :8092 instead.
 
-### Full-host model scan (optional)
+### Full-host model scan
 
-By default a containerized pod's **⌕ scan system** only sees its own mounts (`/models`). To
-sweep the WHOLE machine — Hugging Face cache, LM Studio library, `~/models` — add a one-time
-**read-only** mount of your home to the `docker run` line:
+The quickstart includes a **read-only** mount of your home at `/host-home`:
 
 ```bash
 -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME"
 ```
 
-Found models validate and serve directly from where they live (the serve engine mounts the
-real host path read-only) — nothing is copied or moved, and the pod can never write to it.
+That makes **⌕ scan system** sweep the whole machine — Hugging Face cache, LM Studio library,
+`~/models`, and `~/aeon-models` — not just the pod's own `/models` mount. Found models validate
+and serve directly from where they live: the pod translates `/host-home/...` back to the real
+host path and mounts it read-only into the serve engine. Nothing is copied or moved, and the
+pod can never write to the host-home mount.
 
 > ⚠ `docker run` flags do **not** persist across an update — if your old container had extra
 > `-e` flags, add them to the new run line too. Common ones: `-e AEON_SYSTEM=<hardware-label>`

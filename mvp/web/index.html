@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=73" />
+  <link rel="stylesheet" href="/static/styles.css?v=74" />
 </head>
 <body>
   <header>
@@ -150,7 +150,9 @@
             </span>
           </div>
           <div class="row" id="scanRow" hidden>
-            <label class="grow">Models on this system <span class="note" id="scanCount"></span><select id="scanSel"></select></label>
+            <label class="grow">Models on this system <span class="note" id="scanCount"></span>
+              <input id="scanSearch" type="search" placeholder="🔍 filter by name / format / source…" autocomplete="off" spellcheck="false" />
+              <select id="scanSel"></select></label>
           </div>
           <div id="valStrip" class="val-strip idle" aria-live="polite"><span class="val-dot"></span><span class="val-msg">MODEL VALIDATION — paste an HF link to begin</span></div>
           <div class="row">
@@ -177,8 +179,10 @@
               <div class="row" id="specCustomRow" hidden><label class="grow">Custom speculative config (JSON)<input id="specCustom" type="text" spellcheck="false" placeholder='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}' /></label></div>
               <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. The drafter is pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>.</p>
             </div>
-            <div class="row"><label class="grow">Extra flags <span class="note">(anything not listed — appended verbatim)</span><input id="tuneExtra" type="text" placeholder='e.g. --seed 7 --num-scheduler-steps 8' spellcheck="false" /></label></div>
-            <p class="note tune-note">Overrides merge into the engine's serve command — a listed flag replaces the default, new flags append; the bench wiring (served alias · host · port) is protected. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>
+            <div class="row"><label class="grow">Extra flags <span class="note">(any flag not listed above — appended verbatim)</span><input id="tuneExtra" type="text" placeholder="e.g.  --seed 7  --num-scheduler-steps 8  --rope-scaling '{&quot;type&quot;:&quot;yarn&quot;}'" spellcheck="false" /></label></div>
+            <p class="note tune-note"><b>How custom flags work:</b> type them exactly as you'd pass them to the engine, space-separated (<span class="mono">--flag value</span> or a bare <span class="mono">--flag</span> for booleans). Wrap a value containing spaces or JSON in single quotes. These MERGE into the engine's serve command — a flag also set above is replaced by your value; a new flag is appended. The bench wiring (served alias · host · port · 64K floor) is protected and can't be broken. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>
+            <div class="row"><label class="grow">Full serve command override <span class="note">(advanced — paste a complete <span class="mono">docker run …</span> and it REPLACES everything above)</span><textarea id="tuneServeCmd" rows="2" spellcheck="false" placeholder="docker run --rm --name aeon-bench-serve --network host --gpus all -v /path/to/model:/model:ro --entrypoint vllm ghcr.io/aeon-7/aeon-vllm-ultimate:latest serve /model --served-model-name model-under-test --host 0.0.0.0 --port 8000 --max-model-len 65536 …"></textarea></label></div>
+            <p class="note tune-note">Paste a whole startup recipe here for total control (exotic engines, hand-tuned setups). When set, the engine dropdown + every flag above are ignored — the pod runs THIS command verbatim to serve, then still hash-validates the model and benches it. It MUST serve the alias <span class="mono">model-under-test</span> on <span class="mono">:8000</span> (or your chosen port) so the harnesses connect. Recorded with the run exactly like a generated recipe.</p>
           </details>
           <div id="mlxHelp" class="mlx-help" hidden>
             <div class="mlx-h"><span class="repro-t" id="bareTitle">⌘ BARE-METAL SERVE</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
@@ -513,6 +517,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=73"></script>
+  <script src="/static/app.js?v=74"></script>
 </body>
 </html>

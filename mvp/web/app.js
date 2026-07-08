@@ -2417,6 +2417,7 @@ function applyLaunchParams(p, statusMsg) {
   set("#veImage", p.engine_image);
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
+  set("#tuneServeCmd", p.serve_cmd);
   if (p.engine && $("#veEngine")) {
     $("#veEngine").value = p.engine;
     RUN.enginePinned = true;                          // a template IS an explicit engine choice —
@@ -2639,11 +2640,11 @@ async function scanModels() {
   if (btn) { btn.disabled = false; btn.textContent = "⌕ scan system"; }
   if (!d) return;
   RUN.scan = d.models || [];
-  const row = $("#scanRow"), sel = $("#scanSel");
-  if (!row || !sel) return;
+  const row = $("#scanRow");
+  if (!row) return;
   const cnt = $("#scanCount"); if (cnt) cnt.textContent = `(${RUN.scan.length} found · largest first)`;
-  sel.innerHTML = `<option value="">— pick a model found on disk —</option>` + RUN.scan.map((m, i) =>
-    `<option value="${i}">${escH(m.name)} — ${fmtGB(m.size_bytes)} · ${escH((m.formats || []).join("/"))} · ${escH(m.source)}${m.hf_guess ? " · ✓ HF-reconciled" : " · no HF match (fill link manually)"}</option>`).join("");
+  const sr = $("#scanSearch"); if (sr) sr.value = "";
+  renderScanOptions("");                                // fill the dropdown (filterable for 100s of models)
   row.hidden = false;
   if (!RUN.scan.length) runStatus("no models found in the known model homes (HF cache, LM Studio, AEON, ~/models — add roots via AEON_SCAN_DIRS)", "warn");
   // containerized pod without the opt-in host mount: only the /models volume is visible —
@@ -2651,6 +2652,21 @@ async function scanModels() {
   if (d.host_scan === false && CFG.role === "pod") {
     runStatus("scanned container mounts only — to sweep the WHOLE host (HF cache, LM Studio, model folders), re-run the pod with:  -v \"$HOME:/host-home:ro\" -e AEON_HOST_HOME_DIR=\"$HOME\"  (one-time, read-only)", "warn");
   }
+}
+
+// Filterable scan dropdown: with hundreds of local models a raw <select> is unusable, so a
+// search box narrows it by name / format / source / HF guess. Option values stay the ORIGINAL
+// RUN.scan index (pickScanned indexes RUN.scan), so filtering never mismaps a selection.
+function renderScanOptions(q) {
+  const sel = $("#scanSel"); if (!sel) return;
+  const needle = (q || "").trim().toLowerCase();
+  const hay = (m) => `${m.name} ${(m.formats || []).join(" ")} ${m.source} ${m.hf_guess || ""} ${m.path || ""}`.toLowerCase();
+  const shown = RUN.scan.map((m, i) => [m, i]).filter(([m]) => !needle || hay(m).includes(needle));
+  const head = needle
+    ? `<option value="">— ${shown.length} of ${RUN.scan.length} match “${escH(q)}” —</option>`
+    : `<option value="">— pick a model found on disk (${RUN.scan.length}) —</option>`;
+  sel.innerHTML = head + shown.map(([m, i]) =>
+    `<option value="${i}">${escH(m.name)} — ${fmtGB(m.size_bytes)} · ${escH((m.formats || []).join("/"))} · ${escH(m.source)}${m.hf_guess ? " · ✓ HF-reconciled" : " · no HF match (fill link manually)"}</option>`).join("");
 }
 
 // Single choke point for the (read-only) local-weights path: model selection sets it,
@@ -2944,6 +2960,7 @@ function _validatedExtras() {
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
     serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
     drafter_hf: ($("#drafterHf") && $("#drafterHf").value.trim()) || null,  // validated + mounted /drafter
+    serve_cmd: ($("#tuneServeCmd") && $("#tuneServeCmd").value.trim()) || null,  // FULL serve override (verbatim)
   };
 }
 
@@ -3093,6 +3110,7 @@ async function init() {
     closeBrowse();
   });
   { const ss = $("#scanSel"); if (ss) ss.onchange = () => { if (ss.value !== "") pickScanned(+ss.value); }; }
+  { const sq = $("#scanSearch"); if (sq) sq.oninput = () => renderScanOptions(sq.value); }
   { const es = $("#veEngine"); if (es) es.onchange = () => { RUN.enginePinned = true; engineChanged(); }; }
   bind("#mlxCopy", async () => {
     const b = $("#mlxCopy");

@@ -669,7 +669,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
                    drafter_hf=None, retry_max_tokens=None, audio=True, perf=False,
-                   perf_max_conc=None, arena_per_kind=6, harness_only=False):
+                   perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -755,6 +755,25 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
     recipe = modelhost.derive_recipe(local_dir, ref, port=port, engine=engine, image=engine_image,
                                      extra_flags=serve_flags, drafter_dir=ddir)
+    # FULL SERVE-COMMAND OVERRIDE (advanced): the operator pasted a complete startup command
+    # (e.g. a hand-tuned `docker run …`). It REPLACES the generated serve command entirely —
+    # the model is still hash-validated + benched, the alias/port contract still checked, and
+    # the verbatim command is recorded in the recipe for reproducibility.
+    if (serve_cmd or "").strip():
+        import shlex
+        toks = shlex.split(serve_cmd.strip())
+        if not toks:
+            raise SystemExit("[pod] --serve-cmd was empty after parsing")
+        is_docker = toks[0] == "docker"
+        cname = None                                     # for teardown: honor an explicit --name
+        if "--name" in toks and toks.index("--name") + 1 < len(toks):
+            cname = toks[toks.index("--name") + 1]
+        recipe = {**recipe, "command": toks, "serve_mode": "docker" if is_docker else "bare",
+                  "engine": "custom-command", "serve_cmd_override": serve_cmd.strip(),
+                  "docker_run": serve_cmd.strip() if is_docker else None,
+                  "container_name": cname or recipe.get("container_name")}
+        print(f"[pod] FULL SERVE OVERRIDE — running operator command verbatim:\n       {serve_cmd.strip()}",
+              flush=True)
     if ddir:
         if recipe.get("serve_mode") == "bare":       # no /drafter mount on a bare serve — use the real path
             for k in ("command", "flags"):
@@ -1061,6 +1080,10 @@ def main():
         "engine (recipe tuning, e.g. '[\"--gpu-memory-utilization\",\"0.70\"]'); matching flags are "
         "replaced, new ones appended, bench wiring (--served-model-name/--host/--port) protected. "
         "Recorded with the run")
+    ap.add_argument("--serve-cmd", default=None, help="FULL serve-command override (advanced): a "
+        "complete startup command (e.g. a hand-tuned `docker run ...`) that REPLACES the generated "
+        "serve command entirely. The model is still hash-validated + benched and the command is "
+        "recorded verbatim; it MUST serve the alias 'model-under-test' on the chosen --port")
     ap.add_argument("--drafter-hf", default=None, help="DFlash drafter HF card (e.g. "
         "z-lab/<Model>-DFlash): validated exactly like the model (pull + sha256 vs the HF "
         "manifest), placed in the models home, mounted at /drafter for --speculative-config; "
@@ -1178,7 +1201,7 @@ def main():
             concurrency=a.concurrency, local_dir=a.local_dir, serve_url=a.serve_url,
             engine_image=a.engine_image,
             serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None),
-            drafter_hf=a.drafter_hf,
+            drafter_hf=a.drafter_hf, serve_cmd=a.serve_cmd,
             # comprehensive dimensions — previously dropped on the --hf-link (GUI) path
             retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, perf=a.perf,
             perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena, harness_only=a.harness_only)

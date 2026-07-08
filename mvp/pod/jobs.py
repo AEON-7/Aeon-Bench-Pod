@@ -320,7 +320,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
                     drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
-                    arena_per_kind=None):
+                    arena_per_kind=None, serve_cmd=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -341,7 +341,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "engine_image": engine_image, "serve_url": serve_url, "serve_flags": serve_flags,
             "drafter_hf": drafter_hf, "max_tokens": max_tokens,
             "pause_all": pause_all, "restore_paused": restore_paused,
-            "arena_per_kind": arena_per_kind})
+            "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd})
     except Exception:
         pass
     extra = {}
@@ -363,7 +363,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
     # GUI — honor it via the builtin flow even when a host launcher exists (the launcher owns only
     # the host's default serve, e.g. the DGX aeon-vllm-ultimate recipe).
     use_host_launcher = VERIFIED_CMD and not (engine or local_dir or engine_image or serve_url
-                                              or serve_flags or drafter_hf)
+                                              or serve_flags or drafter_hf or serve_cmd)
     if use_host_launcher:                       # host launcher owns serving (recipe = pod config, not argv)
         argv = list(VERIFIED_CMD)               # the launcher reads these from env (not browser argv)
         extra.update({"AEON_HF_LINK": hf_link, "AEON_DIFFICULTY": difficulty or "",
@@ -395,6 +395,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--serve-flags", _json.dumps(serve_flags)]
         if drafter_hf:                          # DFlash drafter card: validated + mounted at /drafter
             argv += ["--drafter-hf", drafter_hf]
+        if serve_cmd:                           # FULL serve-command override (advanced), verbatim
+            argv += ["--serve-cmd", serve_cmd]
         if perf_max_conc:
             argv += ["--perf-max-conc", str(perf_max_conc)]
         if concurrency:                         # unset = aeon_pod's default (--concurrency 0 = auto)

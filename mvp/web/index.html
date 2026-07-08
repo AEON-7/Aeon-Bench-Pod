@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=77" />
+  <link rel="stylesheet" href="/static/styles.css?v=78" />
 </head>
 <body>
   <header>
@@ -207,7 +207,7 @@
             <label>Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
             <label class="temp-label" title="sampling temperature for every scored answer — 0 is greedy/deterministic (reproducible, the bench default); higher = more random. Greedy is recommended for attested, replicable runs.">Temperature
               <span class="temp-ctl">
-                <input id="hfTemp" type="range" min="0" max="2" step="0.05" value="0.7" disabled />
+                <input id="hfTemp" type="range" min="0" max="2" step="0.05" value="1" disabled />
                 <span id="hfTempVal" class="temp-val mono">greedy</span>
               </span>
             </label>
@@ -524,6 +524,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=77"></script>
+  <script src="/static/app.js?v=78"></script>
 </body>
 </html>

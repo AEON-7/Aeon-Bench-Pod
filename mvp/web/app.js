@@ -911,7 +911,7 @@ function galMatches(a, p, q) {
     .filter(Boolean).some((x) => String(x).toLowerCase().includes(q));
 }
 
-function galCard(a, p, i, opts = {}) {
+function galCard(a, p, i) {
   const stats = a.unrated
     ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
     : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
@@ -919,15 +919,13 @@ function galCard(a, p, i, opts = {}) {
   const hchip = a.harness
     ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
     : "";
-  const promptLine = opts.latest ? `<div class="gal-prompt">${escH(p.title || p.id)}</div>` : "";
-  return `<div class="gal-card chamfer-card${i === 0 && !a.unrated && !opts.latest ? " first" : ""}">
+  return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
     <div class="gal-card-h">
       <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
       <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
         <img class="model-avatar" data-meta-avatar="${escA(metaModel)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
       <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
     </div>
-    ${promptLine}
     <div class="gal-stats">${stats}</div>
     <div class="gal-acts">
       <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
@@ -946,10 +944,6 @@ function renderGallery(d) {
   const q = (GAL.filter || "").trim().toLowerCase();
   const filtered = prompts.map((p) => ({ ...p, artifacts: (p.artifacts || []).filter((a) => galMatches(a, p, q)) }))
     .filter((p) => p.artifacts.length);
-  const latest = prompts.flatMap((p) => (p.artifacts || []).map((a) => ({ p, a })))
-    .filter(({ p, a }) => galMatches(a, p, q))
-    .sort((x, y) => (y.a.created_at || 0) - (x.a.created_at || 0))
-    .slice(0, 12);
   const total = prompts.reduce((n, p) => n + (p.artifacts || []).length, 0);
   const shown = filtered.reduce((n, p) => n + p.artifacts.length, 0);
   const cnt = $("#galCount");
@@ -961,10 +955,7 @@ function renderGallery(d) {
   // one section per prompt; a horizontal strip of top-10 cards. Previews are NEVER
   // rendered inline (30 live iframes would be a resource bomb) — only on click, in the
   // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
-  const latestHtml = latest.length ? `<div class="gal-sec gal-latest">
-      <h3 class="gal-title">Latest submissions <span class="note">${escH(d.label || d.kind)}</span></h3>
-      <div class="gal-row">` + latest.map(({ p, a }, i) => galCard(a, p, i, { latest: true })).join("") + `</div></div>` : "";
-  $("#galleryBody").innerHTML = latestHtml + filtered.map((p) =>
+  $("#galleryBody").innerHTML = filtered.map((p) =>
     `<div class="gal-sec">
       <h3 class="gal-title">${escH(p.title)} <span class="note">${escH(p.brief)}</span></h3>
       <div class="gal-row">` + p.artifacts.map((a, i) => galCard(a, p, i)).join("") + `</div></div>`).join("");

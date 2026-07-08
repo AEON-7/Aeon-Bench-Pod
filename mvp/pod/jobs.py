@@ -320,7 +320,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
                     drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
-                    arena_per_kind=None, serve_cmd=None):
+                    arena_per_kind=None, serve_cmd=None, temperature=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -341,7 +341,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "engine_image": engine_image, "serve_url": serve_url, "serve_flags": serve_flags,
             "drafter_hf": drafter_hf, "max_tokens": max_tokens,
             "pause_all": pause_all, "restore_paused": restore_paused,
-            "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd})
+            "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd,
+            "temperature": temperature})
     except Exception:
         pass
     extra = {}
@@ -375,6 +376,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             extra["AEON_CONCURRENCY"] = str(concurrency)
         if arena_per_kind is not None:          # arena sweep breadth; aeon_pod honors this env
             extra["AEON_ARENA_PER_KIND"] = str(arena_per_kind)
+        if temperature is not None:             # sampling temp (0 = greedy); aeon_pod honors this env
+            extra["AEON_TEMPERATURE"] = str(temperature)
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
         if preset:                              # resolved to the underlying knobs in aeon_pod.main()
@@ -397,6 +400,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--drafter-hf", drafter_hf]
         if serve_cmd:                           # FULL serve-command override (advanced), verbatim
             argv += ["--serve-cmd", serve_cmd]
+        if temperature is not None:             # sampling temp (0 = greedy/deterministic)
+            argv += ["--temperature", str(temperature)]
         if perf_max_conc:
             argv += ["--perf-max-conc", str(perf_max_conc)]
         if concurrency:                         # unset = aeon_pod's default (--concurrency 0 = auto)

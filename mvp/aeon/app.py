@@ -1478,6 +1478,7 @@ class PodVerifiedRunBody(BaseModel):
     restore_paused: bool | None = None  # restart the paused containers after the bench (default yes)
     arena_per_kind: int | None = None   # arena sweep breadth (prompts per kind, 0 disables; None = default 6)
     serve_cmd: str | None = None        # FULL serve-command override (advanced): verbatim startup cmd
+    temperature: float | None = None    # sampling temperature (0 = greedy/deterministic; None = pod default 0)
 
 
 def _clamp_conc(v):
@@ -1554,7 +1555,9 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         pause_all=bool(body.pause_all), restore_paused=body.restore_paused,
         arena_per_kind=(min(12, max(0, int(body.arena_per_kind)))
                         if body.arena_per_kind is not None else None),
-        serve_cmd=((body.serve_cmd or "").strip() or None))
+        serve_cmd=((body.serve_cmd or "").strip() or None),
+        temperature=(min(2.0, max(0.0, float(body.temperature)))
+                     if body.temperature is not None else None))
     return {"job_id": jid}
 
 

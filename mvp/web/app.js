@@ -2412,6 +2412,12 @@ function applyLaunchParams(p, statusMsg) {
   set("#hfMaxConc", p.perf_max_conc == null ? 32 : p.perf_max_conc);
   set("#hfMaxTok", p.max_tokens);
   set("#hfArenaN", p.arena_per_kind);
+  // temperature/greedy: temp 0 (or unset) -> greedy; >0 -> sample at that value
+  { const g = $("#hfGreedy"), t = $("#hfTemp");
+    const tv = p.temperature == null ? 0 : Number(p.temperature);
+    if (g) g.checked = !(tv > 0);
+    if (t && tv > 0) t.value = tv;
+    syncTemp(); }
   { const pa = $("#hfPauseAll"); if (pa) pa.checked = p.pause_all !== false && p.pause_all != null ? !!p.pause_all : true; }
   { const rs = $("#hfRestore"); if (rs) rs.checked = p.restore_paused !== false; }
   set("#veImage", p.engine_image);
@@ -2964,6 +2970,20 @@ function _validatedExtras() {
   };
 }
 
+// Greedy ⟺ temperature 0. Greedy checked -> slider disabled, label "greedy"; unchecked -> slider
+// active, label shows the value. `tempValue()` is what the launch sends.
+function syncTemp() {
+  const g = $("#hfGreedy"), t = $("#hfTemp"), lbl = $("#hfTempVal");
+  const greedy = !g || g.checked;
+  if (t) t.disabled = greedy;
+  if (lbl) lbl.textContent = greedy ? "greedy" : Number(t ? t.value : 0).toFixed(2);
+}
+function tempValue() {
+  const g = $("#hfGreedy"), t = $("#hfTemp");
+  if (!g || g.checked) return 0;                        // greedy = deterministic
+  return Math.min(2, Math.max(0, parseFloat(t ? t.value : "0") || 0));
+}
+
 async function runHfVerified() {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
@@ -2978,6 +2998,7 @@ async function runHfVerified() {
       max_tokens: tokBudgetVal("#hfMaxTok"),
       arena_per_kind: (() => { const v = parseInt(($("#hfArenaN") || {}).value, 10);
                                return Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : null; })(),
+      temperature: tempValue(),                          // 0 = greedy/deterministic (default)
       pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
       restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
       ..._validatedExtras() }, "#hfLaunch");
@@ -3111,6 +3132,9 @@ async function init() {
   });
   { const ss = $("#scanSel"); if (ss) ss.onchange = () => { if (ss.value !== "") pickScanned(+ss.value); }; }
   { const sq = $("#scanSearch"); if (sq) sq.oninput = () => renderScanOptions(sq.value); }
+  // temperature slider + greedy checkbox: greedy forces temp 0 (deterministic) and disables the
+  // slider; the value label reads "greedy" at 0, else the numeric temperature.
+  { const g = $("#hfGreedy"), t = $("#hfTemp"); if (g) g.onchange = syncTemp; if (t) t.oninput = syncTemp; syncTemp(); }
   { const es = $("#veEngine"); if (es) es.onchange = () => { RUN.enginePinned = true; engineChanged(); }; }
   bind("#mlxCopy", async () => {
     const b = $("#mlxCopy");

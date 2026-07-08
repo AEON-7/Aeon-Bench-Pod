@@ -1136,7 +1136,10 @@ def main():
         "model (vLLM batches them). 0 = AUTO (default): capacity-aware — high (up to 24) when a capable "
         "GPU is detected, single-stream when none is. Pass an explicit N (e.g. 16 on a Spark) to pin it; "
         "env AEON_CONCURRENCY sets the default (the GUI launcher passes it)")
-    ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument("--temperature", type=float,
+                    default=float(os.environ.get("AEON_TEMPERATURE", "0.0")),
+                    help="sampling temperature (0 = greedy/deterministic, the default); "
+                         "env AEON_TEMPERATURE sets it for the host-launcher flow")
     ap.add_argument("--no-vision", action="store_true", help="skip the VISION suite (default: run it; a "
         "capability probe auto-skips text-only models so this is only needed to force-disable)")
     ap.add_argument("--no-audio", action="store_true", help="skip the AUDIO suite (default: run it, probe-gated)")

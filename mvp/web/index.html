@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=76" />
+  <link rel="stylesheet" href="/static/styles.css?v=77" />
 </head>
 <body>
   <header>
@@ -205,6 +205,13 @@
             <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <label>Token budget<input id="hfMaxTok" type="number" placeholder="2048 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
             <label>Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
+            <label class="temp-label" title="sampling temperature for every scored answer — 0 is greedy/deterministic (reproducible, the bench default); higher = more random. Greedy is recommended for attested, replicable runs.">Temperature
+              <span class="temp-ctl">
+                <input id="hfTemp" type="range" min="0" max="2" step="0.05" value="0.7" disabled />
+                <span id="hfTempVal" class="temp-val mono">greedy</span>
+              </span>
+            </label>
+            <label class="greedy-label" title="greedy / deterministic decoding (temperature 0, argmax) — the default; gives reproducible, attestation-friendly results. Uncheck to sample at the temperature on the left."><input id="hfGreedy" type="checkbox" checked /> greedy</label>
             <button id="hfLaunch" class="primary">▶ Launch validated bench</button>
           </div>
           <div class="row hostprep-row">
@@ -517,6 +524,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=76"></script>
+  <script src="/static/app.js?v=77"></script>
 </body>
 </html>

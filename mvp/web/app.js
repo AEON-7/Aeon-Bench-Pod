@@ -855,7 +855,7 @@ function renderRanking(rows) {
 async function loadRanking() { try { const r = await api("/api/arena/ranking?kind=" + ARENA.kind); renderRanking(r.ranking); } catch (e) {} }
 
 // ---- Code Gallery (public: top-rated artifacts per prompt + full-source download) ----
-const GAL = { kind: "game" };
+const GAL = { kind: "game", filter: "", data: null };
 const GAL_KINDS = [["game", "Games"], ["app", "Apps"], ["animation", "Animations"]];
 
 function setGallery() {
@@ -866,6 +866,7 @@ function setGallery() {
   const gp = $("#galleryPanel"); if (gp) gp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   renderGalKinds();
+  bindGalleryControls();
   loadGallery(GAL.kind);
 }
 
@@ -888,7 +889,51 @@ async function loadGallery(kind) {
     return;
   }
   if (GAL.kind !== kind) return;                   // sub-tab changed while loading — abandon
+  GAL.data = d;
   renderGallery(d);
+}
+
+function bindGalleryControls() {
+  const inp = $("#galFilter");
+  if (!inp) return;
+  inp.value = GAL.filter || "";
+  if (inp.dataset.bound) return;
+  inp.dataset.bound = "1";
+  inp.oninput = () => {
+    GAL.filter = inp.value || "";
+    if (GAL.data) renderGallery(GAL.data);
+  };
+}
+
+function galMatches(a, p, q) {
+  if (!q) return true;
+  return [a.model, a.model_base, a.harness, p.id, p.title, p.brief]
+    .filter(Boolean).some((x) => String(x).toLowerCase().includes(q));
+}
+
+function galCard(a, p, i, opts = {}) {
+  const stats = a.unrated
+    ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
+    : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+  const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
+  const hchip = a.harness
+    ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
+    : "";
+  const promptLine = opts.latest ? `<div class="gal-prompt">${escH(p.title || p.id)}</div>` : "";
+  return `<div class="gal-card chamfer-card${i === 0 && !a.unrated && !opts.latest ? " first" : ""}">
+    <div class="gal-card-h">
+      <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
+      <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+        <img class="model-avatar" data-meta-avatar="${escA(metaModel)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
+      <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
+    </div>
+    ${promptLine}
+    <div class="gal-stats">${stats}</div>
+    <div class="gal-acts">
+      <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
+      <a class="act-btn act-dl gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">Code</a>
+    </div>
+  </div>`;
 }
 
 function renderGallery(d) {
@@ -898,37 +943,34 @@ function renderGallery(d) {
       `artifacts appear here as pods submit generations and evaluators vote in the arena.</p>`;
     return;
   }
+  const q = (GAL.filter || "").trim().toLowerCase();
+  const filtered = prompts.map((p) => ({ ...p, artifacts: (p.artifacts || []).filter((a) => galMatches(a, p, q)) }))
+    .filter((p) => p.artifacts.length);
+  const latest = prompts.flatMap((p) => (p.artifacts || []).map((a) => ({ p, a })))
+    .filter(({ p, a }) => galMatches(a, p, q))
+    .sort((x, y) => (y.a.created_at || 0) - (x.a.created_at || 0))
+    .slice(0, 12);
+  const total = prompts.reduce((n, p) => n + (p.artifacts || []).length, 0);
+  const shown = filtered.reduce((n, p) => n + p.artifacts.length, 0);
+  const cnt = $("#galCount");
+  if (cnt) cnt.textContent = q ? `${shown} match${shown === 1 ? "" : "es"}` : `${total} artifacts`;
+  if (!filtered.length) {
+    $("#galleryBody").innerHTML = `<p class="board-empty">No <b>${escH(d.label || d.kind)}</b> match that filter.</p>`;
+    return;
+  }
   // one section per prompt; a horizontal strip of top-10 cards. Previews are NEVER
   // rendered inline (30 live iframes would be a resource bomb) — only on click, in the
   // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
-  $("#galleryBody").innerHTML = prompts.map((p) =>
+  const latestHtml = latest.length ? `<div class="gal-sec gal-latest">
+      <h3 class="gal-title">Latest submissions <span class="note">${escH(d.label || d.kind)}</span></h3>
+      <div class="gal-row">` + latest.map(({ p, a }, i) => galCard(a, p, i, { latest: true })).join("") + `</div></div>` : "";
+  $("#galleryBody").innerHTML = latestHtml + filtered.map((p) =>
     `<div class="gal-sec">
       <h3 class="gal-title">${escH(p.title)} <span class="note">${escH(p.brief)}</span></h3>
-      <div class="gal-row">` + (p.artifacts || []).map((a, i) => {
-      const stats = a.unrated
-        ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
-        : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
-      const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
-      const hchip = a.harness
-        ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
-        : "";
-      return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
-        <div class="gal-card-h">
-          <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
-          <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-            <img class="model-avatar" data-meta-avatar="${escA(metaModel)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
-          <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
-        </div>
-        <div class="gal-stats">${stats}</div>
-        <div class="gal-acts">
-          <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
-          <a class="act-btn act-dl gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">Code</a>
-        </div>
-      </div>`;
-    }).join("") + `</div></div>`).join("");
+      <div class="gal-row">` + p.artifacts.map((a, i) => galCard(a, p, i)).join("") + `</div></div>`).join("");
   $$("#galleryBody .gal-prev").forEach((b) =>
     b.onclick = () => openGalPreview(b.dataset.id, b.dataset.title, b.dataset.model));
-  [...new Set(prompts.flatMap((p) => (p.artifacts || []).map((a) => a.model_base || a.model)))].forEach((model) => {
+  [...new Set(filtered.flatMap((p) => (p.artifacts || []).map((a) => a.model_base || a.model)))].forEach((model) => {
     const cached = META.get(model);                // hydrate creator avatars (same as the board)
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });

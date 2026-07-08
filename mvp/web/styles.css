@@ -906,8 +906,11 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 
 /* ---------------------------------------------------------------- code gallery */
 .gal-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+.gal-tools { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; flex-wrap: wrap; }
+.gal-tools input { min-width: min(420px, 100%); flex: 1 1 280px; }
 .gal-sec { margin-top: 20px; }
 .gal-sec:first-child { margin-top: 8px; }
+.gal-latest { border-top: 1px solid var(--line); padding-top: 14px; }
 .gal-title { margin: 0 0 8px; font-size: 15px; text-align: left;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gal-title .note { font-weight: 400; font-size: 12px; }
@@ -933,6 +936,7 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 .gal-rank { font-weight: 700; font-size: 13px; color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .gal-ava .model-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
 .gal-model { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.gal-prompt { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gal-stats { display: flex; align-items: baseline; gap: 8px; min-height: 19px; font-size: 12px; }
 .gal-elo { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
 .gal-wlt { color: var(--muted); font-size: 11px; }

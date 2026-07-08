@@ -22,10 +22,11 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine rejected a flag it doesn't recognize (see 'unrecognized arguments: --…' in the "
      "log). Remove that flag from RECIPE TUNING — it isn't supported by this engine build. If it "
      "came from a family preset, clear it there; the model still benches without it."),
-    (re.compile(r"Window left is not the same for all layers", re.I), "--kv-cache-dtype",
-     "Gemma-4's interleaved sliding-window layers crash under fp8 KV cache on triton_attn. "
-     "In RECIPE TUNING set kv-cache-dtype = auto (or add --disable-sliding-window if you must "
-     "keep fp8 KV). The Gemma-4 family preset already does this."),
+    (re.compile(r"Window left is not the same for all layers", re.I), None,
+     "Sliding-window attention metadata failed. For Qwen+DFlash, keep attention-backend = "
+     "triton_attn and include \"attention_backend\":\"TRITON_ATTN\" inside --speculative-config. "
+     "For Gemma-4, use kv-cache-dtype = auto on triton_attn, or add --disable-sliding-window if "
+     "you must keep fp8 KV."),
     (re.compile(r"Please install vllm\[audio\]|vllm\[audio\] for audio", re.I), None,
      "The engine image is missing audio decode deps (av/soxr/librosa). Use the audio-capable "
      "aeon-vllm-ultimate:latest (audio deps baked in), or pick a non-audio engine — a "
@@ -135,6 +136,31 @@ def diagnose(log_lines: list[str], custom_flags=None) -> str | None:
         return (f"The engine rejected `{flag}` — it isn't a supported flag on this engine build. "
                 f"Remove `{flag}` from RECIPE TUNING (if a family preset added it, clear it there); "
                 f"the model still benches without it.")
+    if re.search(r"Window left is not the same for all layers", text, re.I):
+        is_gemma = re.search(r"Gemma|gemma4", text, re.I)
+        is_qwen = re.search(r"Qwen|qwen3", text, re.I)
+        is_dflash = re.search(r"\bdflash\b|speculative-config|speculative_config|/drafter",
+                              text, re.I)
+        is_flashinfer_path = re.search(r"attention/backends/flashinfer|Using FLASHINFER "
+                                       r"attention backend|FlashInferBackend", text, re.I)
+        if is_gemma and not is_qwen:
+            val = _flag_value(custom_flags, "--kv-cache-dtype")
+            hint = ("Gemma-4's interleaved sliding-window layers crash under fp8 KV cache on "
+                    "triton_attn. In RECIPE TUNING set kv-cache-dtype = auto, or add "
+                    "--disable-sliding-window if you must keep fp8 KV. The Gemma-4 family preset "
+                    "already does this.")
+            return f"Your custom recipe flag `--kv-cache-dtype {val}` is the likely culprit. {hint}" \
+                if val is not None else hint
+        if is_qwen or is_dflash or is_flashinfer_path:
+            val = _flag_value(custom_flags, "--speculative-config")
+            hint = ("This is the Qwen+DFlash sliding-window backend mismatch, not a Gemma FP8-KV "
+                    "failure. The outer recipe can say attention-backend = triton_attn, but "
+                    "DFlash also needs its nested JSON set to "
+                    "`\"attention_backend\":\"TRITON_ATTN\"`; otherwise the speculative path can "
+                    "fall back to FlashInfer and crash. Relaunch with the validated Qwen recipe "
+                    "or add that field to --speculative-config.")
+            return f"Your custom recipe flag `--speculative-config {val}` is missing the nested backend. {hint}" \
+                if val and "attention_backend" not in str(val) else hint
     for rx, flag, hint in _SIGNATURES:
         if rx.search(text):
             val = _flag_value(custom_flags, flag) if flag else None

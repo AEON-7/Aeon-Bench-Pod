@@ -367,9 +367,106 @@ def apply_dflash(recipe: dict, drafter_dir: str, drafter_repo: str, nst: int) ->
     """Attach a DFlash drafter to a derived serve recipe. Spec decode is LOSSLESS — the target
     model verifies every draft token, so answers are bit-identical; only speed changes."""
     spec = {"method": "dflash", "model": drafter_dir, "num_speculative_tokens": nst}
+    backend = _recipe_attention_backend(recipe)
+    if backend:
+        spec["attention_backend"] = backend
     recipe.setdefault("command", []).extend(["--speculative-config", json.dumps(spec)])
     recipe.update({"drafter": drafter_dir, "drafter_repo": drafter_repo, "spec_decode": "dflash",
                    "spec_decode_note": "lossless — draft tokens verified by the target model; speed only"})
+    return recipe
+
+
+def _flag_value(seq: list | None, flag: str) -> str | None:
+    if not seq:
+        return None
+    vals = [str(x) for x in seq]
+    for i, tok in enumerate(vals):
+        if tok == flag:
+            return vals[i + 1] if i + 1 < len(vals) and not vals[i + 1].startswith("--") else ""
+        prefix = flag + "="
+        if tok.startswith(prefix):
+            return tok[len(prefix):]
+    return None
+
+
+def _normalize_attention_backend(value: str | None) -> str | None:
+    if not value:
+        return None
+    key = str(value).strip().lower().replace("-", "_")
+    if key in ("triton", "triton_attn"):
+        return "TRITON_ATTN"
+    if key in ("flash_attn", "flashattention", "flash_attention"):
+        return "FLASH_ATTN"
+    if key in ("flashinfer", "flash_infer"):
+        return "FLASHINFER"
+    if key == "xformers":
+        return "XFORMERS"
+    return None
+
+
+def _recipe_attention_backend(recipe: dict) -> str | None:
+    """The recipe attention backend, converted to the enum spelling nested DFlash expects."""
+    for key in ("flags", "command"):
+        backend = _normalize_attention_backend(_flag_value(recipe.get(key), "--attention-backend"))
+        if backend:
+            return backend
+    return None
+
+
+def _inject_spec_backend(seq: list | None, backend: str) -> bool:
+    """Add DFlash's nested attention_backend when --speculative-config omitted it."""
+    if not seq:
+        return False
+    changed = False
+    i = 0
+    while i < len(seq):
+        tok = str(seq[i])
+        value_index = None
+        value = None
+        inline = False
+        if tok == "--speculative-config" and i + 1 < len(seq):
+            value_index = i + 1
+            value = str(seq[i + 1])
+        elif tok.startswith("--speculative-config="):
+            inline = True
+            value_index = i
+            value = tok.split("=", 1)[1]
+        if value is not None and value_index is not None:
+            try:
+                spec = json.loads(value)
+            except Exception:
+                spec = None
+            if isinstance(spec, dict) and str(spec.get("method", "")).lower() == "dflash" \
+                    and not spec.get("attention_backend"):
+                spec["attention_backend"] = backend
+                rendered = json.dumps(spec, separators=(",", ":"))
+                seq[value_index] = f"--speculative-config={rendered}" if inline else rendered
+                changed = True
+        i += 1
+    return changed
+
+
+def normalize_dflash_spec(recipe: dict) -> dict:
+    """Keep DFlash's nested backend aligned with the outer vLLM attention backend.
+
+    vLLM has two backend selectors here: --attention-backend for the target model and the nested
+    speculative-config attention_backend for DFlash. If the nested field is absent, DFlash can
+    fall back to FlashInfer internally and crash on sliding-window metadata even though the outer
+    recipe correctly says triton_attn.
+    """
+    if recipe.get("serve_cmd_override"):
+        return recipe
+    backend = _recipe_attention_backend(recipe)
+    if not backend:
+        return recipe
+    changed = False
+    for key in ("flags", "command"):
+        changed = _inject_spec_backend(recipe.get(key), backend) or changed
+    if changed:
+        recipe["spec_decode_attention_backend"] = backend
+        notes = list(recipe.get("recipe_notes") or [])
+        notes.append(f"DFlash speculative-config normalized with attention_backend={backend}")
+        recipe["recipe_notes"] = notes
     return recipe
 
 

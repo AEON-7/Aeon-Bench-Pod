@@ -827,6 +827,11 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         except Exception as e:
             print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")
 
+    modelhost.normalize_dflash_spec(recipe)
+    if recipe.get("spec_decode_attention_backend"):
+        print(f"[pod] spec-decode attention backend: {recipe['spec_decode_attention_backend']} "
+              "(normalized into DFlash speculative-config)")
+
     # The serve port must be OURS. A production server already on it (e.g. the DGX's live
     # aeon-vllm on :8000) would answer /v1/models and the bench would silently run against the
     # WRONG model until a 404. AEON_PAUSE_CONTAINERS (comma list, host-set env) lets the pod

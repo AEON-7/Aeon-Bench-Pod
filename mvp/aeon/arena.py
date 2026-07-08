@@ -293,8 +293,11 @@ def ranking(kind=None):
 # ---- public Code Gallery (top-rated artifacts per prompt, per kind) ----
 
 GALLERY_TOP_N = 10
-# A young prompt with almost no counted votes still deserves content: pad it with its
-# newest UNRATED artifacts (flagged "unrated") only while it has fewer rated than this.
+# Always surface a handful of fresh unrated submissions too. Otherwise a mature
+# prompt can hide a newly submitted model until humans vote on it.
+GALLERY_RECENT_UNRATED_N = 5
+# A young prompt with almost no counted votes still deserves a fuller strip: pad it
+# with newest UNRATED artifacts (flagged "unrated") while it has fewer rated than this.
 GALLERY_MIN_RATED = 3
 
 
@@ -345,9 +348,12 @@ def gallery(kind):
         arts = by_prompt.get(p["id"]) or []
         rated = sorted((a for a in arts if a["id"] in ratings),
                        key=lambda a: (-ratings[a["id"]]["elo"], -ratings[a["id"]]["votes"]))
+        unrated = [a for a in arts if a["id"] not in ratings]  # created_at DESC from db
         top = rated[:GALLERY_TOP_N]
         if len(rated) < GALLERY_MIN_RATED:     # arts is created_at DESC → newest first
-            top += [a for a in arts if a["id"] not in ratings][:GALLERY_TOP_N - len(top)]
+            top += unrated[:GALLERY_TOP_N - len(top)]
+        elif unrated:
+            top += unrated[:GALLERY_RECENT_UNRATED_N]
         if not top:
             continue
         items = []

@@ -131,11 +131,12 @@ def _set(j, **kw):
 
 
 def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None,
-            preset=None, serve_flags=None):
+            preset=None, serve_flags=None, launch_id=None):
     jid = uuid.uuid4().hex[:12]
     j = {"id": jid, "kind": kind, "status": "queued", "stage": "queued",
          "model": model, "hf_link": hf_link, "base_url": base_url, "difficulty": difficulty,
          "preset": preset, "serve_flags": serve_flags,   # for the failure diagnostician
+         "_launch_id": launch_id,                        # link the run to its template (best-of ranking)
          "run_id": None, "created_at": _now(), "updated_at": _now(), "error": None,
          "hint": None,
          "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
@@ -206,6 +207,9 @@ def _run_job(jid):
             try:
                 rid = line.split("run_id=", 1)[1].strip().split()[0]
                 _set(j, run_id=rid)
+                if j.get("_launch_id"):                  # link template -> run for best-of ranking
+                    from aeon import db
+                    db.link_launch_run(j["_launch_id"], rid)
             except Exception:
                 pass
         # structured per-dimension progress: "[pod][stage] <name> <done>/<total>" lines are
@@ -328,8 +332,9 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
     # Every launch's knobs become a reusable TEMPLATE (token NAME only — never the value), so
     # the Run form can be prefilled from a prior run and relaunched with one tweak. Best-effort:
     # template bookkeeping must never block a launch.
+    launch_id = None
     try:
-        db.save_launch("verified", hf_link, {
+        launch_id = db.save_launch("verified", hf_link, {
             "hf_link": hf_link, "difficulty": difficulty, "category": category, "preset": preset,
             "hf_token_name": hf_token_name, "engine": engine, "port": port,
             "perf_max_conc": perf_max_conc, "concurrency": concurrency, "local_dir": local_dir,
@@ -404,4 +409,4 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--port", str(port)]
     return _mk_job("verified", argv=argv, env=_base_env(extra),
                    model=hf_link, hf_link=hf_link, difficulty=difficulty, preset=preset,
-                   serve_flags=serve_flags)
+                   serve_flags=serve_flags, launch_id=launch_id)

@@ -2396,7 +2396,12 @@ function applyServeFlags(list) {
 
 async function applyLaunchTemplate(i) {
   const t = RUN.launches && RUN.launches[i]; if (!t) return;
-  const p = t.params || {};
+  applyLaunchParams(t.params || {},
+    "template applied — every setting prefilled from that run. Tweak anything, then Launch.");
+}
+
+// Apply a saved param set (from a template OR the best-performing config) into the whole Run form.
+function applyLaunchParams(p, statusMsg) {
   const set = (sel, v) => { const el = $(sel); if (el) el.value = v == null ? "" : v; };
   set("#hfLink", p.hf_link); const hl = $("#hfLink"); if (hl) delete hl.dataset.auto;
   setLocalWeights(p.local_dir || "");                 // read-only field: go through the choke point
@@ -2420,7 +2425,7 @@ async function applyLaunchTemplate(i) {
   applyServeFlags(p.serve_flags || []);               // AFTER engineChanged re-rendered the catalog
   scheduleValidate();                                 // model (+ local copy) re-validates automatically
   if (p.drafter_hf) validateDrafter();
-  runStatus("template applied — every setting prefilled from that run. Tweak anything, then Launch.", "ok");
+  runStatus(statusMsg || "settings prefilled. Tweak anything, then Launch.", "ok");
 }
 
 // ---- engine catalog (the "pick your container" dropdown; hardware-annotated server-side) ----
@@ -2757,6 +2762,8 @@ async function pollValidate(vid) {
   if (vid !== RUN.valId) return;
   RUN.val = st;
   valRender(st);
+  if ((st.state === "validated" || st.state === "resolved") && st.repo)
+    loadBestLaunch(st.repo);                            // offer the top-scoring prior config, if any
   if (st.state === "resolving" || st.state === "hashing") {
     setTimeout(() => pollValidate(vid), 1200);
   } else if (st.recommended_engine && !RUN.enginePinned) {
@@ -2807,6 +2814,39 @@ function valRender(st) {
   // FAMILY BEST-PRACTICE PRESET row: when validation detected a model family, offer a one-click
   // recipe fill (editable afterward). Rendered as its own strip below the validation message.
   renderPresetRow(st.family_preset);
+}
+
+// "Apply best-performing template": if THIS model was benched before on this pod, offer the
+// prior launch config whose run scored highest — one click to reuse the winning recipe.
+async function loadBestLaunch(model) {
+  if (model === RUN.bestFor) return;                   // already queried this model
+  RUN.bestFor = model;
+  let best = null;
+  try {
+    const r = await api("/api/pod/launches/best?model=" + encodeURIComponent(model), { headers: podHeaders() });
+    best = r && r.best;
+  } catch (e) {}
+  if (model !== RUN.val?.repo) return;                 // model changed while we were fetching
+  renderBestRow(best, model);
+}
+
+function renderBestRow(best, model) {
+  const host = $("#valStrip"); if (!host) return;
+  let row = $("#bestRow");
+  if (!best) { if (row) row.remove(); return; }
+  if (!row) {
+    row = document.createElement("div"); row.id = "bestRow"; row.className = "preset-row best-row";
+    (($("#presetRow") || host)).insertAdjacentElement("afterend", row);
+  }
+  const when = best.created_at ? new Date(best.created_at * 1000).toISOString().slice(0, 10) : "";
+  row.innerHTML =
+    `<div class="preset-head"><span class="preset-star best-star">◆</span> <b>Best-performing recipe</b> for ` +
+    `<span class="mono">${escH((model || "").split("/").pop())}</span> on this pod ` +
+    `<span class="preset-conf best-conf">scored ${escH(String(best.mean))}% · ${escH(String(best.n_cases))} cases${when ? " · " + escH(when) : ""}</span>` +
+    `<button id="bestApply" class="ghost preset-apply">apply best →</button></div>`;
+  const btn = $("#bestApply");
+  if (btn) btn.onclick = () => applyLaunchParams(best.params || {},
+    `applied the best-performing recipe for this model (${best.mean}% over ${best.n_cases} cases). Tweak anything, then Launch.`);
 }
 
 function renderPresetRow(fp) {

@@ -1664,6 +1664,18 @@ def pod_launches(request: Request):
     return {"launches": db.list_launches()}
 
 
+@app.get("/api/pod/launches/best")
+def pod_best_launch(request: Request, model: str):
+    """The prior launch config for `model` whose run scored HIGHEST — the 'apply
+    best-performing template'. None until this model has a scored prior run on THIS pod."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from . import db
+    return {"best": db.best_launch((model or "").strip())}
+
+
 @app.get("/api/pod/jobs/{job_id}")
 def pod_job(job_id: str, request: Request):
     if (g := _require_pod()):

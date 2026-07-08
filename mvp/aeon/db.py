@@ -353,6 +353,11 @@ def _ensure_columns(c):
     user_cols = {r["name"] for r in c.execute("PRAGMA table_info(users)")}
     if user_cols and "ever_verified" not in user_cols:
         c.execute("ALTER TABLE users ADD COLUMN ever_verified INTEGER DEFAULT 0")
+    # pod_launches: link a launch template to the run it produced, so we can rank prior configs
+    # for a model by their achieved score ("apply best-performing template").
+    launch_cols = {r["name"] for r in c.execute("PRAGMA table_info(pod_launches)")}
+    if launch_cols and "run_id" not in launch_cols:
+        c.execute("ALTER TABLE pod_launches ADD COLUMN run_id TEXT")
 
 
 def _ensure_columns_pg(c):
@@ -1141,17 +1146,55 @@ def delete_secret(name):
 # ---- pod-LOCAL launch templates (the Run form's knobs; params only, never secret values) ----
 
 def save_launch(kind, model, params):
-    """Record a launch's knobs as a reusable template. An identical param set replaces its
-    older copy (a re-run floats to the top instead of piling up duplicates); the table keeps
-    the newest 40."""
+    """Record a launch's knobs as a reusable template, RETURNING the new row id (so the job can
+    later link the run it produced). An identical param set replaces its older copy (a re-run
+    floats to the top instead of piling up duplicates); the table keeps the newest 40."""
     init_db()
     blob = json.dumps(params, sort_keys=True)
     with connect() as c:
         c.execute("DELETE FROM pod_launches WHERE params_json=?", (blob,))
-        c.execute("INSERT INTO pod_launches (created_at, kind, model, params_json) VALUES (?,?,?,?)",
-                  (time.time(), kind, model, blob))
+        cur = c.execute("INSERT INTO pod_launches (created_at, kind, model, params_json) VALUES (?,?,?,?)",
+                        (time.time(), kind, model, blob))
+        lid = cur.lastrowid
         c.execute("DELETE FROM pod_launches WHERE id NOT IN "
                   "(SELECT id FROM pod_launches ORDER BY created_at DESC LIMIT 40)")
+    return lid
+
+
+def link_launch_run(launch_id, run_id):
+    """Stamp the run a launch produced onto its template row, so best_launch() can rank prior
+    configs by score. Best-effort — a template that was pruned (>40) just isn't linked."""
+    if not launch_id or not run_id:
+        return
+    try:
+        with connect() as c:
+            c.execute("UPDATE pod_launches SET run_id=? WHERE id=?", (run_id, launch_id))
+    except Exception:
+        pass
+
+
+def best_launch(model):
+    """The prior launch template for `model` whose resulting run scored HIGHEST — the
+    'apply best-performing template'. Ranks pod-local runs (this pod's own history) by mean
+    case score; returns {params, mean, n_cases, run_id, created_at} or None if this model has
+    no scored prior run yet."""
+    init_db()
+    with connect() as c:
+        rows = c.execute(
+            "SELECT l.id, l.params_json, l.run_id, l.created_at, "
+            "  (SELECT AVG(score) FROM results r WHERE r.run_id=l.run_id AND r.score IS NOT NULL) AS mean, "
+            "  (SELECT COUNT(*)  FROM results r WHERE r.run_id=l.run_id AND r.score IS NOT NULL) AS n "
+            "FROM pod_launches l "
+            "WHERE l.run_id IS NOT NULL AND lower(l.model)=lower(?)", (model or "",)).fetchall()
+    best = None
+    for r in rows:
+        mean, n = r["mean"], r["n"]
+        if mean is None or not n:
+            continue
+        if best is None or mean > best["mean"]:
+            best = {"params": json.loads(r["params_json"]), "mean": round(mean * 100, 1),
+                    "n_cases": n, "run_id": r["run_id"], "created_at": r["created_at"]}
+    return best
 
 
 def list_launches(limit=20):

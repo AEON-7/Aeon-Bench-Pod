@@ -1961,6 +1961,9 @@ select:focus {
 .preset-apply { margin-left: auto; padding: 3px 11px; font-size: 11px; color: var(--accent); border-color: rgba(0, 240, 255, .4); }
 .preset-flags { margin-top: 6px; font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; line-height: 1.5; }
 .preset-notes { margin-top: 5px; font-size: 11px; color: var(--faint); line-height: 1.5; }
+.best-row { border-color: rgba(232, 194, 104, .45); }
+.best-star { color: var(--r1); }
+.best-conf { color: var(--r1); border-color: rgba(232, 194, 104, .4); }
 
 /* ---- SHARE: per-benchmark share button (mcards + perf detail) ---- */
 .share-btn {

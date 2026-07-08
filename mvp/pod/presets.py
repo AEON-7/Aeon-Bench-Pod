@@ -49,12 +49,11 @@ PRESETS: list[dict] = [
         "name_substr": ["a3b", "a10b", "ornith", "qwen3.6", "qwen3.5"],
         "confidence": "high",
         "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN,
-        "parser_flags": ["--reasoning-parser", "qwen3", "--reasoning-budget", "16384",
+        "parser_flags": ["--reasoning-parser", "qwen3",
                          "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],
         "audio_flags": ["--limit-mm-per-prompt", '{"image":4,"audio":4}'],
-        "notes": "MoE — reasoning budget capped at 16384 (Qwen destabilizes with a longer "
-                 "<think>). fp8 KV cache is SAFE here (unlike Gemma-4) and buys concurrency at "
+        "notes": "MoE — fp8 KV cache is SAFE here (unlike Gemma-4) and buys concurrency at "
                  "64K+ ctx — it's in the recommendation as a perf option, not forced (KV auto "
                  "keeps full precision by default). DFlash speculative decoding pairs well (n=6).",
     },
@@ -66,12 +65,11 @@ PRESETS: list[dict] = [
         "name_substr": ["qwen3", "qwen2"],
         "confidence": "high",
         "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN,
-        "parser_flags": ["--reasoning-parser", "qwen3", "--reasoning-budget", "16384",
+        "parser_flags": ["--reasoning-parser", "qwen3",
                          "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],
         "audio_flags": ["--limit-mm-per-prompt", '{"image":4,"audio":4}'],
-        "notes": "Dense Qwen — reasoning budget 16384 (destabilizes higher); the qwen3_coder tool "
-                 "parser drives the agentic harnesses cleanly. fp8 KV cache is a safe perf option "
+        "notes": "Dense Qwen — the qwen3_coder tool parser drives the agentic harnesses cleanly. fp8 KV cache is a safe perf option "
                  "(recommended, not forced) that frees KV memory for more concurrency.",
     },
     {
@@ -159,7 +157,7 @@ PRESETS: list[dict] = [
         "parser_flags": [],
         "audio_flags": [],
         "notes": "Qwen-derived reasoning model — the qwen3 reasoning parser usually works "
-                 "(verify), with --reasoning-budget 16384. LOW confidence — not benched here.",
+                 "(verify). LOW confidence — not benched here.",
     },
 ]
 

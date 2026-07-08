@@ -15,7 +15,13 @@ import re
 # (compiled regex over the joined log, the RECIPE FLAG this concerns or None, hint). FIRST match
 # wins, so put specific before generic. When the named flag was OPERATOR-SET (a custom recipe
 # value), diagnose() prefixes the hint with exactly which custom flag is the likely culprit.
+_UNRECOGNIZED = re.compile(r"unrecognized arguments?:\s*(--[\w-]+)", re.I)
+
 _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
+    (re.compile(r"unrecognized arguments?:|error: unrecognized", re.I), None,
+     "The engine rejected a flag it doesn't recognize (see 'unrecognized arguments: --…' in the "
+     "log). Remove that flag from RECIPE TUNING — it isn't supported by this engine build. If it "
+     "came from a family preset, clear it there; the model still benches without it."),
     (re.compile(r"Window left is not the same for all layers", re.I), "--kv-cache-dtype",
      "Gemma-4's interleaved sliding-window layers crash under fp8 KV cache on triton_attn. "
      "In RECIPE TUNING set kv-cache-dtype = auto (or add --disable-sliding-window if you must "
@@ -114,6 +120,13 @@ def diagnose(log_lines: list[str], custom_flags=None) -> str | None:
     direct 'which part of my recipe broke' feedback."""
     # scan the last ~400 lines — the traceback + the real cause live at the tail
     text = "\n".join(log_lines[-400:])
+    # highest priority: an engine that rejected a specific flag — name it exactly.
+    um = _UNRECOGNIZED.search(text)
+    if um:
+        flag = um.group(1)
+        return (f"The engine rejected `{flag}` — it isn't a supported flag on this engine build. "
+                f"Remove `{flag}` from RECIPE TUNING (if a family preset added it, clear it there); "
+                f"the model still benches without it.")
     for rx, flag, hint in _SIGNATURES:
         if rx.search(text):
             val = _flag_value(custom_flags, flag) if flag else None

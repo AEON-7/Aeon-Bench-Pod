@@ -467,14 +467,23 @@ def _serve(recipe):
     return subprocess.Popen(cmd)
 
 
-def _wait_ready(base_url, timeout=1200, interval=4):
-    """Poll the OpenAI /models endpoint until the engine is serving; return the served ids."""
+def _wait_ready(base_url, timeout=1200, interval=4, server=None):
+    """Poll the OpenAI /models endpoint until the engine is serving; return the served ids.
+
+    FAIL FAST on serve death: if the serve process (`server`, the Popen from _serve) exits
+    before the endpoint answers, the engine crashed (bad flag, OOM, unsupported quant) — there
+    is nothing to wait for, so raise IMMEDIATELY instead of polling a dead port for the full
+    timeout. The crash reason is already in the job log (the diagnostician reads it)."""
     import time
     import urllib.request
     url = base_url.rstrip("/") + "/models"
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
+        if server is not None and server.poll() is not None:
+            raise SystemExit(f"[pod] the serve process exited (code {server.returncode}) before "
+                             f"the engine came up — it crashed on startup. See the last engine "
+                             f"lines above for the cause (e.g. an unrecognized/unsupported flag).")
         try:
             with urllib.request.urlopen(url, timeout=5) as r:
                 ids = [m.get("id") for m in json.loads(r.read()).get("data", [])]
@@ -918,8 +927,9 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     server = _serve(recipe) if serve else None
     target = serve_url or f"http://127.0.0.1:{port}/v1"
     try:
-        # for an operator-started serve (serve_url) we ALSO wait: the user may still be launching it
-        ids = _wait_ready(target) if (serve or serve_url) else [alias]
+        # for an operator-started serve (serve_url) we ALSO wait: the user may still be launching it.
+        # Pass the serve process so a crash-on-startup fails in seconds, not after the full timeout.
+        ids = _wait_ready(target, server=server) if (serve or serve_url) else [alias]
         if recipe.get("alias_from_server") and ids and alias not in ids:
             # bare-metal servers (MLX / LM Studio) name the model themselves — bench under the id
             # the server ACTUALLY reports rather than an alias it would reject

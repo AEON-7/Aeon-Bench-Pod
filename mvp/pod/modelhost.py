@@ -305,8 +305,8 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
                                              ctx=ctx, quant=quant, image=image, plat=plat,
                                              extra_flags=extra_flags, drafter_dir=drafter_dir)}
     launcher, eng = (ult or "aeon-vllm-ultimate", "aeon-vllm-ultimate") if use_ultimate else ("vllm", "vllm")
-    flags = ["--served-model-name", alias,
-             "--host", "0.0.0.0", "--port", str(port), "--max-model-len", str(ctx)]
+    flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
+             "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.8"]  # 0.8 default; op overrides
     if quant:
         flags += ["--quantization", str(quant)]
     flags, applied = engmod.merge_flags(flags, extra_flags)   # recipe tuning on the bare path too

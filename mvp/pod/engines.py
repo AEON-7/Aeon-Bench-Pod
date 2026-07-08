@@ -98,8 +98,8 @@ FLAG_CATALOG = {
     "vllm": [   # shared grammar: aeon-vllm-ultimate / vLLM / vLLM-ROCm
         {"flag": "--max-model-len", "kind": "number", "default": 65536, "min": 65536,
          "label": "max model len", "note": "served context; 64K is the BENCH FLOOR (Hermes refuses less) — only HIGHER values allowed"},
-        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.90, "step": 0.05,
-         "label": "gpu memory util", "note": "VRAM fraction; unified-memory boxes (DGX Spark GB10) are OOM-safe at 0.70"},
+        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.8, "step": 0.05,
+         "label": "gpu memory util", "note": "VRAM fraction; pod default 0.8 (vLLM's own is 0.9). Unified-memory boxes (DGX Spark GB10) are OOM-safe as low as 0.70"},
         {"flag": "--max-num-seqs", "kind": "number", "default": 32,
          "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)"},
         {"flag": "--quantization", "kind": "enum", "options": ["modelopt", "compressed-tensors", "awq", "gptq", "fp8", "bitsandbytes"],
@@ -449,7 +449,7 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
     applied: list[str] = []
     if e["style"] == "vllm":
         flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
-                 "--max-model-len", str(ctx)]
+                 "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.8"]  # 0.8 default; op overrides
         if quant:
             flags += ["--quantization", str(quant)]
         if _declares_audio(local_dir):

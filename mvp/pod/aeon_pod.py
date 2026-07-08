@@ -826,11 +826,15 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     if serve and not serve_url:
         targets = [n.strip() for n in (os.environ.get("AEON_PAUSE_CONTAINERS") or "").split(",")
                    if n.strip()]
-        # CLEAR-HOST mode (AEON_PAUSE_ALL=1, GUI 'stop other containers'): stop EVERY running
-        # container except the pod itself and bench infrastructure — a clean GPU/port without
-        # visiting the host before each run. The pod recognises itself by its container id
-        # (/etc/hostname inside docker) plus name guards.
-        if os.environ.get("AEON_PAUSE_ALL") == "1":
+        # CLEAR-HOST mode: stop EVERY running container except the pod itself and bench
+        # infrastructure — a clean GPU/port for every run. Triggered by AEON_PAUSE_ALL=1 (GUI
+        # 'stop other containers'), OR ALWAYS in a QUEUE (AEON_QUEUE_MANAGED=1): each queued
+        # job must start from a clean host, because a prior job's paused server can be
+        # resurrected in the gap (e.g. a host watchdog healing a 'dead' :8000). Re-clearing per
+        # job guarantees no leftover container holds the GPU/port. The pod recognises itself by
+        # its container id (/etc/hostname inside docker) plus name guards.
+        _clear_host = os.environ.get("AEON_PAUSE_ALL") == "1" or os.environ.get("AEON_QUEUE_MANAGED") == "1"
+        if _clear_host:
             self_id = ""
             try:
                 with open("/etc/hostname") as f:

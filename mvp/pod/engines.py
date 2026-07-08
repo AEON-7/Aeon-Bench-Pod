@@ -122,10 +122,26 @@ FLAG_CATALOG = {
          "note": "required by repos with custom modeling code"},
         {"flag": "--tensor-parallel-size", "kind": "number", "default": 1,
          "label": "tensor parallel", "note": "multi-GPU: shards the model across N GPUs"},
-        {"flag": "--reasoning-parser", "kind": "enum", "options": ["gemma4", "deepseek_r1", "qwen3"],
-         "label": "reasoning parser", "note": "separates <think> from the answer — WITHOUT it a reasoning model leaks its trace and tanks Instruction/Prose"},
-        {"flag": "--tool-call-parser", "kind": "enum", "options": ["gemma4", "hermes", "llama3_json", "mistral"],
-         "label": "tool-call parser", "note": "pairs with auto tool choice for the agentic harnesses"},
+        {"flag": "--reasoning-parser", "kind": "enum",
+         "options": ["qwen3", "deepseek_r1", "gemma4", "glm45", "granite", "hunyuan_a13b",
+                     "mistral", "step3", "ernie45", "seed_oss", "minimax_m1", "gpt_oss", "qwq"],
+         "label": "reasoning parser",
+         "note": "separates <think> from the answer — WITHOUT it a reasoning model leaks its trace "
+                 "and tanks Instruction/Prose. Pick your family: Qwen 3.x -> qwen3, DeepSeek -> "
+                 "deepseek_r1, Gemma-4 -> gemma4, GLM-4.5 -> glm45, StepFun -> step3. The family "
+                 "preset sets the right one automatically."},
+        {"flag": "--tool-call-parser", "kind": "enum",
+         "options": ["qwen3_coder", "qwen3_xml", "hermes", "deepseek_v3", "deepseek_v31",
+                     "gemma4", "glm45", "kimi_k2", "step3", "llama3_json", "llama4_json",
+                     "llama4_pythonic", "mistral", "internlm", "granite", "granite-20b-fc",
+                     "jamba", "hunyuan_a13b", "phi4_mini_json", "minimax", "xlam", "pythonic",
+                     "seed_oss"],
+         "label": "tool-call parser",
+         "note": "the harness tool-call format for this family — pairs with auto tool choice. "
+                 "Qwen 3.x -> qwen3_coder, DeepSeek -> deepseek_v3 (v3.1 -> deepseek_v31), "
+                 "GLM-4.5 -> glm45, Kimi K2 -> kimi_k2, StepFun -> step3, Gemma-4 -> gemma4, "
+                 "Llama -> llama3_json/llama4_pythonic; hermes is the generic fallback. The "
+                 "family preset picks it for you."},
         {"flag": "--enable-auto-tool-choice", "kind": "bool", "label": "auto tool choice",
          "note": "lets harnesses drive native tool calling"},
         {"flag": "--swap-space", "kind": "number", "default": 4, "label": "swap space (GiB)",

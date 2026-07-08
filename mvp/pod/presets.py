@@ -50,7 +50,7 @@ PRESETS: list[dict] = [
         "confidence": "high",
         "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN,
         "parser_flags": ["--reasoning-parser", "qwen3", "--reasoning-budget", "16384",
-                         "--tool-call-parser", "hermes", "--enable-auto-tool-choice"],
+                         "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],
         "audio_flags": ["--limit-mm-per-prompt", '{"image":4,"audio":4}'],
         "notes": "MoE — reasoning budget capped at 16384 (Qwen destabilizes with a longer "
@@ -67,10 +67,10 @@ PRESETS: list[dict] = [
         "confidence": "high",
         "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN,
         "parser_flags": ["--reasoning-parser", "qwen3", "--reasoning-budget", "16384",
-                         "--tool-call-parser", "hermes", "--enable-auto-tool-choice"],
+                         "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],
         "audio_flags": ["--limit-mm-per-prompt", '{"image":4,"audio":4}'],
-        "notes": "Dense Qwen — reasoning budget 16384 (destabilizes higher); the hermes tool "
+        "notes": "Dense Qwen — reasoning budget 16384 (destabilizes higher); the qwen3_coder tool "
                  "parser drives the agentic harnesses cleanly. fp8 KV cache is a safe perf option "
                  "(recommended, not forced) that frees KV memory for more concurrency.",
     },
@@ -97,7 +97,7 @@ PRESETS: list[dict] = [
         "name_substr": ["glm"],
         "confidence": "medium",
         "safe_flags": ["--kv-cache-dtype", "auto", "--trust-remote-code"] + _GB10_ATTN,
-        "parser_flags": ["--reasoning-parser", "glm4", "--tool-call-parser", "glm4",
+        "parser_flags": ["--reasoning-parser", "glm45", "--tool-call-parser", "glm45",
                          "--enable-auto-tool-choice"],
         "audio_flags": [],
         "notes": "Ships custom modeling code (trust-remote-code on). The glm4 parser names vary by "
@@ -144,8 +144,9 @@ PRESETS: list[dict] = [
         "safe_flags": ["--kv-cache-dtype", "auto", "--trust-remote-code"] + _GB10_ATTN,
         "parser_flags": [],
         "audio_flags": [],
-        "notes": "LOW confidence — not benched on AEON hardware. Safe defaults only; add a "
-                 "reasoning/tool parser once you confirm the names your engine build registers.",
+        "notes": "LOW confidence — not benched on AEON hardware. Safe defaults only. Recommended "
+                 "(verify in your build): --reasoning-parser step3 --tool-call-parser step3 "
+                 "--enable-auto-tool-choice.",
     },
     {
         "id": "mimo",

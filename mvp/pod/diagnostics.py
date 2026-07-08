@@ -57,9 +57,10 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "This repo ships custom modeling code. Enable trust-remote-code in RECIPE TUNING."),
     (re.compile(r"reasoning[_-]parser.*(?:not|unknown|invalid|no such)|"
                 r"unknown reasoning parser|--reasoning-parser.*invalid", re.I), "--reasoning-parser",
-     "The reasoning-parser name isn't supported by this engine build. In RECIPE TUNING pick a "
-     "supported one (gemma4 / qwen3 / deepseek_r1 …) or clear it. The model-family preset picks "
-     "the right one automatically."),
+     "The reasoning-parser name isn't supported by this engine build. In RECIPE TUNING pick your "
+     "family's parser (Qwen -> qwen3, DeepSeek -> deepseek_r1, Gemma-4 -> gemma4, GLM-4.5 -> "
+     "glm45, StepFun -> step3) or clear it. The model-family preset picks the right one "
+     "automatically."),
     (re.compile(r"rope_scaling|rope scaling|position.*embeddings.*exceed|"
                 r"max_position_embeddings.*(?:exceed|larger)", re.I), "--max-model-len",
      "The requested context exceeds the model's native window. Lower max-model-len to the model's "
@@ -67,8 +68,10 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "supports it."),
     (re.compile(r"tool[_-]call[_-]parser|tool call parser.*(?:not|unknown|invalid)", re.I),
      "--tool-call-parser",
-     "The tool-call-parser name isn't supported by this build. In RECIPE TUNING pick a supported "
-     "one (gemma4 / hermes / llama3_json / mistral) or clear it."),
+     "The tool-call-parser name isn't supported by this build. In RECIPE TUNING pick your family's "
+     "parser (Qwen -> qwen3_coder, DeepSeek -> deepseek_v3, GLM-4.5 -> glm45, Kimi K2 -> kimi_k2, "
+     "StepFun -> step3, Gemma-4 -> gemma4, Llama -> llama3_json; hermes is the generic fallback) "
+     "or clear it."),
     (re.compile(r"port.*already (?:in use|serving|bound)|address already in use|"
                 r"refusing to bench whatever", re.I), None,
      "The serve port was still busy. A previous server may not have released :8000 — enable "

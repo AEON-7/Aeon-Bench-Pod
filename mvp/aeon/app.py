@@ -1058,6 +1058,9 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     if not serve:
         return None
     image, port, flags, _ = serve
+    # replicate against the content-pinned image when the run recorded one: a digest
+    # ref is immutable (client-verified on pull), a tag is a mutable pointer
+    image = recipe.get("image_digest") or image
     d = _drafter_info(recipe)
     if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
@@ -1138,6 +1141,21 @@ def _reproduction(r):
 
 # ---- downloadable replication files (serve.sh / docker-compose.yml) --------------------------
 
+def _engine_provenance_lines(r):
+    """Engine lines for the replication header — digest-first (immutable pin) with the tag
+    as fallback; local-only builds surface their image_id (config digest) instead."""
+    try:
+        recipe = json.loads(r.get("recipe") or "null") or {}
+    except Exception:
+        recipe = {}
+    if not recipe.get("image"):
+        return []
+    lines = [f"engine:     {recipe.get('image_digest') or recipe.get('image')}"]
+    if recipe.get("image_id") and not recipe.get("image_digest"):
+        lines.append(f"engine id:  {recipe['image_id']} (local build — not registry-resolvable)")
+    return lines
+
+
 def _replicate_header(r):
     """Shared provenance comment block for the downloadable replication files."""
     env = json.loads(r.get("env_json") or "{}")
@@ -1149,6 +1167,7 @@ def _replicate_header(r):
              f"weights:    sha256 {r.get('weights_hash') or 'n/a'}",
              f"benched on: {hw.get('detected_label') or hw.get('label') or 'unknown'}",
              f"run:        {r.get('id')}",
+             *_engine_provenance_lines(r),
              f"provenance: https://aeon-bench.com/api/runs/{r.get('id')}/manifest (signed)"]
     return "\n".join("# " + l for l in lines)
 

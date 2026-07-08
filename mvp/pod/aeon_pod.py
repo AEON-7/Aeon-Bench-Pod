@@ -966,6 +966,14 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             raise SystemExit(f"[pod] served ids {ids} do not include the bench alias '{alias}' — "
                              f"refusing to bench a different server (something else on :{port}?)")
 
+        if recipe.get("serve_mode") == "docker" and recipe.get("image"):
+            # Content-address the engine now that the image is guaranteed local. Weights are
+            # already hash-verified; this pins the OTHER half of the recipe — which code
+            # served the run — so the signed manifest names it forever (tags are mutable,
+            # digests are not).
+            from pod import engines as _eng
+            recipe.update(_eng.image_digests(recipe["image"]))
+
         deployment_manifest = {
             "build_hash": attest.build_hash(), "recipe": recipe,
             "verification": {k: ver[k] for k in ("verified", "method", "weights_hash",

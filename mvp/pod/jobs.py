@@ -67,7 +67,7 @@ _STAGES = [
 ]
 
 _PUBLIC = ("id", "kind", "status", "stage", "stages", "serve_phase", "model", "hf_link", "base_url",
-           "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "returncode")
+           "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "hint", "returncode")
 
 # Engine-startup landmarks (vLLM startup chatter streamed into the job log) -> a live
 # SERVE PHASE, so the 4-5 minute model load is visible instead of a silent 'serving' gap.
@@ -130,12 +130,14 @@ def _set(j, **kw):
         j["updated_at"] = _now()
 
 
-def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None, preset=None):
+def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None,
+            preset=None, serve_flags=None):
     jid = uuid.uuid4().hex[:12]
     j = {"id": jid, "kind": kind, "status": "queued", "stage": "queued",
          "model": model, "hf_link": hf_link, "base_url": base_url, "difficulty": difficulty,
-         "preset": preset,
+         "preset": preset, "serve_flags": serve_flags,   # for the failure diagnostician
          "run_id": None, "created_at": _now(), "updated_at": _now(), "error": None,
+         "hint": None,
          "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
          "_proc": None}
     with _LOCK:
@@ -252,8 +254,15 @@ def _run_job(jid):
         return
     ok = rc == 0
     final_stage = "done" if ok else (j.get("stage") if j.get("stage") == "verify_failed" else "error")
+    hint = None
+    if not ok:
+        try:
+            from pod import diagnostics
+            hint = diagnostics.diagnose(j.get("log") or [], custom_flags=j.get("serve_flags"))
+        except Exception:
+            hint = None
     _set(j, status="done" if ok else "error", returncode=rc, stage=final_stage,
-         error=None if ok else _tail_error(j, rc))
+         error=None if ok else _tail_error(j, rc), hint=hint)
 
 
 def _tail_error(j, rc):
@@ -394,4 +403,5 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
         if port:
             argv += ["--port", str(port)]
     return _mk_job("verified", argv=argv, env=_base_env(extra),
-                   model=hf_link, hf_link=hf_link, difficulty=difficulty, preset=preset)
+                   model=hf_link, hf_link=hf_link, difficulty=difficulty, preset=preset,
+                   serve_flags=serve_flags)

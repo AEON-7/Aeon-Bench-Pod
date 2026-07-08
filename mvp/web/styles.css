@@ -1934,6 +1934,34 @@ select:focus {
 @keyframes telePulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .tag.tele-phase { color: var(--accent); border-color: rgba(0, 240, 255, .4); }
 
+/* engine-error recipe-fix hint (Run-tab job card + Live): actionable, not a stack trace */
+.job-hint {
+  flex-basis: 100%; margin-top: 6px; padding: 8px 11px; font-size: 11.5px; line-height: 1.5;
+  color: var(--warn); border: 1px solid rgba(255, 180, 84, .4); background: rgba(255, 180, 84, .06);
+  border-left: 3px solid var(--warn); border-radius: 3px;
+}
+.job-hint b { color: var(--warn); font-weight: 700; letter-spacing: .04em; margin-right: 4px; }
+
+/* family best-practice preset row (below the validation strip) */
+.preset-row {
+  margin: 4px 0 8px; padding: 9px 13px; border: 1px solid var(--line); background: var(--well);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.preset-row.conf-high { border-color: rgba(61, 220, 133, .4); }
+.preset-row.conf-medium { border-color: rgba(0, 240, 255, .35); }
+.preset-row.conf-low { border-color: rgba(255, 180, 84, .35); }
+.preset-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.preset-star { color: var(--r1); }
+.preset-conf {
+  font-family: var(--mono, monospace); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line); padding: 1px 6px; border-radius: 3px;
+}
+.conf-high .preset-conf { color: var(--good); border-color: rgba(61, 220, 133, .4); }
+.conf-low .preset-conf { color: var(--warn); border-color: rgba(255, 180, 84, .4); }
+.preset-apply { margin-left: auto; padding: 3px 11px; font-size: 11px; color: var(--accent); border-color: rgba(0, 240, 255, .4); }
+.preset-flags { margin-top: 6px; font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; line-height: 1.5; }
+.preset-notes { margin-top: 5px; font-size: 11px; color: var(--faint); line-height: 1.5; }
+
 /* ---- SHARE: per-benchmark share button (mcards + perf detail) ---- */
 .share-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;

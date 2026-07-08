@@ -2804,6 +2804,36 @@ function valRender(st) {
       `</span><span class="val-req warn-line">⚠ this configuration is LOCAL-ONLY until validation resolves — ` +
       `it will run, but never rank globally</span>`;
   }
+  // FAMILY BEST-PRACTICE PRESET row: when validation detected a model family, offer a one-click
+  // recipe fill (editable afterward). Rendered as its own strip below the validation message.
+  renderPresetRow(st.family_preset);
+}
+
+function renderPresetRow(fp) {
+  const host = $("#valStrip"); if (!host) return;
+  let row = $("#presetRow");
+  if (!fp || fp.id === "generic") { if (row) row.remove(); return; }
+  if (!row) {
+    row = document.createElement("div"); row.id = "presetRow"; row.className = "preset-row";
+    host.insertAdjacentElement("afterend", row);
+  }
+  const conf = { high: "field-proven", medium: "architecture-understood", low: "starting point" }[fp.confidence] || fp.confidence;
+  row.className = "preset-row conf-" + escA(fp.confidence);
+  row.innerHTML =
+    `<div class="preset-head"><span class="preset-star">★</span> <b>${escH(fp.label)}</b> best-practice recipe ` +
+    `<span class="preset-conf">${escH(conf)}</span>` +
+    `<button id="presetApply" class="ghost preset-apply" title="fill Recipe Tuning with these flags — you can edit any of them before launch">apply preset →</button></div>` +
+    `<div class="preset-flags mono">${escH((fp.flags || []).join(" ")) || "(safe defaults)"}</div>` +
+    (fp.notes ? `<div class="preset-notes">${escH(fp.notes)}</div>` : "");
+  const btn = $("#presetApply");
+  if (btn) btn.onclick = () => {
+    const wrap = $("#tuneWrap");
+    if (wrap) wrap.open = true;                            // reveal Recipe Tuning
+    if ($("#tuneBody") && $("#tuneBody").children.length === 0) engineChanged();  // render the catalog first
+    applyServeFlags(fp.flags || []);
+    runStatus(`applied the ${fp.label} best-practice recipe to Recipe Tuning — edit any flag before launch`, "ok");
+    if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ block: "nearest" });
+  };
 }
 
 function renderKeys() {
@@ -2955,6 +2985,9 @@ function renderJobs(jobs) {
     const live = (j.run_id && j.status === "running") ? `<button class="ghost job-live">● Live</button>` : "";
     const stop = (j.status === "running" || j.status === "queued") ? `<button class="ghost job-stop" data-id="${escA(j.id)}">stop</button>` : "";
     const err = j.error ? `<div class="note job-err">${escH(j.error)}</div>` : "";
+    // engine-error DIAGNOSIS: a plain-language "what to change in your recipe" hint parsed from
+    // the failure log (names the exact custom flag when one caused it).
+    const hint = j.hint ? `<div class="job-hint"><b>▸ fix</b> ${escH(j.hint)}</div>` : "";
     const flash = JOB_STAGES[j.id] !== undefined && JOB_STAGES[j.id] !== j.stage ? " stage-flash" : "";
     JOB_STAGES[j.id] = j.stage;
     return `<div class="job-row${flash}">
@@ -2964,7 +2997,7 @@ function renderJobs(jobs) {
       ${j.serve_phase && j.stage === "serving" ? `<span class="tag tele-phase">${escH(j.serve_phase)}</span>` : ""}
       ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
       ${j.difficulty ? `<span class="tag">${escH(j.difficulty)}</span>` : ""}
-      ${live}${stop}${stageStrip(j)}${err}</div>`;
+      ${live}${stop}${stageStrip(j)}${err}${hint}</div>`;
   }).join("");
   $$(".job-live").forEach((b) => b.onclick = () => $("#tabs [data-live]").click());
   $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id));

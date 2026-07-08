@@ -250,9 +250,21 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
         modalities.append("audio")
 
     from pod import engines as engmod
+    from pod import presets as presetmod
+    # FAMILY BEST-PRACTICE PRESET: detect the family from config.json and fold its conservative
+    # recommended flags UNDER the operator's extra_flags — so a headless/GUI run gets known-good
+    # defaults (Gemma-4 -> kv auto + triton + gemma4 parsers; Qwen3.5 -> fp8 KV + qwen3 parser +
+    # 16384 budget; etc.), while any flag the operator set still wins (merge_flags dedups,
+    # operator last). The preset + which flags it contributed travel in the recipe for the card.
+    _preset = presetmod.detect(cfg, name=os.path.basename(local_dir.rstrip("/\\")))
+    _preset_flags = presetmod.apply_flags(_preset, modalities)
+    extra_flags = _preset_flags + [str(t) for t in (extra_flags or [])]
+
     base = {"served_alias": alias, "port": port, "source": "auto",
             "architecture": arch, "context_len": ctx, "quant": quant,
-            "modalities": modalities}
+            "modalities": modalities,
+            "family_preset": {"id": _preset["id"], "label": _preset["label"],
+                              "confidence": _preset["confidence"], "flags": _preset_flags}}
 
     # An explicit catalog engine (Run-tab dropdown / --engine) -> that engine's containerized
     # recipe; a custom `image` rides along and is recorded. MLX serves the LOCAL DIR bare-metal

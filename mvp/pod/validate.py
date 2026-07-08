@@ -31,7 +31,7 @@ _CAP = 50
 _PUBLIC = ("id", "state", "hf_link", "local_path", "repo", "revision", "sha", "n_files",
            "lfs_advertised", "formats", "native_ctx", "weights_hash", "n_weight_files",
            "lfs_checked", "mismatches", "recommended_engine", "no_redownload", "error",
-           "created_at", "updated_at")
+           "family_preset", "modalities", "created_at", "updated_at")
 
 
 def _set(v, **kw):
@@ -60,19 +60,31 @@ def _formats(files: dict) -> list[str]:
 
 
 def _run(v: dict, token: str | None):
-    from pod import engines, modelhost
+    from pod import engines, modelhost, presets
     try:
         repo, rev = modelhost.resolve(v["hf_link"])
         _set(v, state="resolving", repo=repo, revision=rev)
         ref = modelhost.fetch_ref(repo, rev, token=token)
         files = ref.get("files") or {}
         fmts = _formats(files)
-        native_ctx = (ref.get("config") or {}).get("max_position_embeddings")
+        cfg = ref.get("config") or {}
+        native_ctx = cfg.get("max_position_embeddings")
         plat = engines.host_platform()
         rec = engines.recommended_engine(plat, gguf=fmts == ["gguf"])
+        # FAMILY BEST-PRACTICE PRESET: detect from the HF config so the GUI can offer an
+        # "apply preset" chip. Capabilities (vision/audio) come from the same config, so the
+        # recommendation's parser + multimodal allowance line up with what the model declares.
+        modalities = ["text"]
+        if isinstance(cfg.get("vision_config"), dict) or "image_token_id" in cfg:
+            modalities.append("vision")
+        if isinstance(cfg.get("audio_config"), dict) or "audio_token_id" in cfg \
+                or isinstance(cfg.get("speech_config"), dict):
+            modalities.append("audio")
+        preset = presets.detect(cfg, name=repo)
         _set(v, sha=ref.get("sha"), n_files=len(files),
              lfs_advertised=sum(1 for s in files.values() if s),
-             formats=fmts, native_ctx=native_ctx, recommended_engine=rec)
+             formats=fmts, native_ctx=native_ctx, recommended_engine=rec,
+             modalities=modalities, family_preset=presets.summary(preset, modalities))
 
         lp = v.get("local_path")
         if not lp:

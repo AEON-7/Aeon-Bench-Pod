@@ -1497,8 +1497,17 @@ def _clean_serve_flags(flags):
     if not isinstance(flags, list):
         return None
     out = []
+    skip_next = False
     for t in flags[:64]:
+        if skip_next:
+            skip_next = False
+            continue
         t = str(t).strip()
+        if t == "--reasoning-budget":
+            skip_next = True
+            continue
+        if t.startswith("--reasoning-budget="):
+            continue
         if t and len(t) <= 300 and t.isprintable():
             out.append(t)
     return out or None

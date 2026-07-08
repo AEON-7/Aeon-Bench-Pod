@@ -153,10 +153,6 @@ FLAG_CATALOG = {
          "note": "per-prompt multimodal item caps, e.g. {\"audio\":2,\"image\":4} — some builds "
                  "need this for a declared-audio model to ACCEPT input_audio (the bench warns "
                  "on a declared-vs-served mismatch)"},
-        {"flag": "--reasoning-budget", "kind": "number", "label": "reasoning budget",
-         "note": "cap on <think> tokens per response — NOT supported by all engine builds (aeon-vllm-ultimate "
-                 "rejects it; if the serve dies on 'unrecognized arguments', remove this). Empty = "
-                 "engine default (uncapped)"},
         # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
         # (drafter HF card + preset dropdown), not as a raw catalog knob.
     ],

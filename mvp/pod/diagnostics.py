@@ -133,6 +133,11 @@ def diagnose(log_lines: list[str], custom_flags=None) -> str | None:
     um = _UNRECOGNIZED.search(text)
     if um:
         flag = um.group(1)
+        if flag == "--reasoning-budget":
+            return ("The engine rejected `--reasoning-budget`; this vLLM build does not expose a "
+                    "serve-side reasoning budget. Remove it from RECIPE TUNING and use the Run "
+                    "tab's Token budget instead. The pod default is now 32768 tokens, including "
+                    "hidden reasoning.")
         return (f"The engine rejected `{flag}` — it isn't a supported flag on this engine build. "
                 f"Remove `{flag}` from RECIPE TUNING (if a family preset added it, clear it there); "
                 f"the model still benches without it.")

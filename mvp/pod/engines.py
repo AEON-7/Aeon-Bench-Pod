@@ -400,6 +400,30 @@ def _declares_audio(local_dir: str) -> bool:
         return False
 
 
+def image_digests(image: str) -> dict:
+    """Content-address an engine image for the signed recipe. `image_id` is the image config
+    digest (sha256 over config + ordered layer diff_ids) — exists for EVERY image, including
+    local builds, and pins every byte the engine ran. `image_digest` is the registry manifest
+    digest (RepoDigests[0]) — present only when the image was pulled from / pushed to a
+    registry, and is the globally pullable pin (`docker pull repo@sha256:...`). Call AFTER the
+    engine is ready so the image is guaranteed present locally. Best-effort: resolution
+    failure never blocks a run (the recipe simply keeps only the mutable tag, as before)."""
+    try:
+        out = subprocess.run(["docker", "image", "inspect", image,
+                              "--format", "{{.Id}}	{{json .RepoDigests}}"],
+                             capture_output=True, text=True, timeout=30)
+        if out.returncode != 0:
+            return {}
+        image_id, _, repod = out.stdout.strip().partition("	")
+        digests = json.loads(repod or "[]")
+        d = {"image_id": image_id} if image_id else {}
+        if digests:
+            d["image_digest"] = digests[0]
+        return d
+    except Exception:
+        return {}
+
+
 def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: int,
                 quant: str | None = None, image: str | None = None,
                 plat: dict | None = None, extra_flags: list[str] | None = None,

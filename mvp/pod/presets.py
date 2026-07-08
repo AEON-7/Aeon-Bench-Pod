@@ -23,6 +23,11 @@ from __future__ import annotations
 # Parser flags (--reasoning-parser / --tool-call-parser) MUST name a parser the engine build
 # registers — so they're only auto-applied for high/medium-confidence families.
 _GB10_ATTN = ["--attention-backend", "triton_attn"]     # FlashInfer is broken on GB10
+_QWEN_DFLASH_SCHED = [
+    "--max-num-seqs", "64",
+    "--max-num-batched-tokens", "32768",
+    "--enable-chunked-prefill",
+]
 
 PRESETS: list[dict] = [
     {
@@ -48,7 +53,7 @@ PRESETS: list[dict] = [
         "arch_substr": ["Qwen3_5Moe", "Qwen3Moe"],
         "name_substr": ["a3b", "a10b", "ornith", "qwen3.6", "qwen3.5"],
         "confidence": "high",
-        "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN,
+        "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN + _QWEN_DFLASH_SCHED,
         "parser_flags": ["--reasoning-parser", "qwen3",
                          "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],
@@ -64,7 +69,7 @@ PRESETS: list[dict] = [
         "arch_substr": ["Qwen3_5", "Qwen3For", "Qwen2For"],
         "name_substr": ["qwen3", "qwen2"],
         "confidence": "high",
-        "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN,
+        "safe_flags": ["--kv-cache-dtype", "auto"] + _GB10_ATTN + _QWEN_DFLASH_SCHED,
         "parser_flags": ["--reasoning-parser", "qwen3",
                          "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],

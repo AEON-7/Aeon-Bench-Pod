@@ -47,6 +47,13 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "--enable-chunked-prefill",
      "max-model-len exceeds the batched-token budget. Enable chunked prefill "
      "(--enable-chunked-prefill) in RECIPE TUNING, or lower max-model-len."),
+    (re.compile(r"max_num_scheduled_tokens is set to .*based on the speculative decoding settings|"
+                r"does not allow any tokens to be scheduled.*additional draft token slots", re.I),
+     "--max-num-batched-tokens",
+     "Speculative decoding reserved more draft-token slots than vLLM's scheduler budget allows. "
+     "In RECIPE TUNING set max-num-batched-tokens = 32768 and cap max-num-seqs (try 64 for "
+     "64K bench context, or 16 for long-context sidecar profiles), or reduce "
+     "num_speculative_tokens."),
     (re.compile(r"Unknown quantization|Unsupported quantization|quantization method.*not "
                 r"(?:supported|recognized)|No supported quant|does not support.*quantization", re.I),
      "--quantization",

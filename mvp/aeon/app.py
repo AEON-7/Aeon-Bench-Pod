@@ -1156,6 +1156,15 @@ def _engine_provenance_lines(r):
     return lines
 
 
+def _engine_provenance(recipe):
+    """Small, public, signed subset of the engine recipe. Avoid dumping arbitrary custom
+    command text into the manifest; keep the immutable image evidence."""
+    recipe = recipe or {}
+    keys = ("engine", "serve_mode", "image", "image_digest", "image_id", "image_repo_digests",
+            "spec_decode", "drafter_repo", "drafter_revision")
+    return {k: recipe[k] for k in keys if recipe.get(k)}
+
+
 def _replicate_header(r):
     """Shared provenance comment block for the downloadable replication files."""
     env = json.loads(r.get("env_json") or "{}")
@@ -1200,6 +1209,7 @@ def _compose_yaml(r, recipe):
     if not serve:
         return None
     image, port, flags, _ = serve
+    image = recipe.get("image_digest") or image
     d = _drafter_info(recipe)
     if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
@@ -1222,7 +1232,7 @@ def _compose_yaml(r, recipe):
                  f"{dpull}# 2) docker compose up\n")
     return _replicate_header(r) + "\n" + usage + f"""services:
   model:
-    image: {image}
+    image: {_yaml_quote(image)}
     entrypoint: vllm
     command:
 {cmd}
@@ -1355,6 +1365,8 @@ def run_manifest(run_id: str):
     r = db.get_run(run_id)
     if not r:
         return JSONResponse({"error": "not found"}, status_code=404)
+    recipe = json.loads(r.get("recipe") or "null") or {}
+    dm = json.loads(r.get("deployment_manifest") or "null") or {}
     cats = {}
     for x in r.get("results", []):
         if x.get("score") is not None:
@@ -1369,6 +1381,11 @@ def run_manifest(run_id: str):
         "composite": round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0,
         "started_at": r.get("started_at"), "finished_at": r.get("finished_at"),
         "env": json.loads(r.get("env_json") or "{}"),
+        "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
+        "weights_hash": r.get("weights_hash"),
+        "engine": _engine_provenance(recipe),
+        "deployment": {k: dm.get(k) for k in ("build_hash", "verification", "served_model_check")
+                       if dm.get(k) is not None},
     }
     return attest.sign_manifest(manifest)
 

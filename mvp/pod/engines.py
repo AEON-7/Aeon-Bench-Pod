@@ -421,24 +421,46 @@ def _declares_audio(local_dir: str) -> bool:
         return False
 
 
+def _image_repo(ref: str | None) -> str:
+    """Repository portion of an image ref, without tag/digest. Empty for local image IDs."""
+    ref = str(ref or "").strip()
+    if not ref or ref.startswith("sha256:"):
+        return ""
+    ref = ref.split("@", 1)[0]
+    slash = ref.rfind("/")
+    colon = ref.rfind(":")
+    if colon > slash:
+        ref = ref[:colon]
+    return ref
+
+
 def image_digests(image: str) -> dict:
-    """Content-address an engine image for the signed recipe. `image_id` is the image config
-    digest (sha256 over config + ordered layer diff_ids) — exists for EVERY image, including
-    local builds, and pins every byte the engine ran. `image_digest` is the registry manifest
-    digest (RepoDigests[0]) — present only when the image was pulled from / pushed to a
-    registry, and is the globally pullable pin (`docker pull repo@sha256:...`). Call AFTER the
-    engine is ready so the image is guaranteed present locally. Best-effort: resolution
-    failure never blocks a run (the recipe simply keeps only the mutable tag, as before)."""
+    """Content-address an engine image for the signed recipe. `image_id` is Docker's local
+    image config digest and exists for local builds. `image_digest` is a registry-pullable
+    manifest digest (`repo@sha256:...`) and is recorded only when it matches the requested
+    repository or is otherwise unambiguous. Best-effort: failure never blocks a run."""
     try:
         out = subprocess.run(["docker", "image", "inspect", image,
-                              "--format", "{{.Id}}	{{json .RepoDigests}}"],
+                              "--format", "{{json .}}"],
                              capture_output=True, text=True, timeout=30)
         if out.returncode != 0:
             return {}
-        image_id, _, repod = out.stdout.strip().partition("	")
-        digests = json.loads(repod or "[]")
+        meta = json.loads(out.stdout.strip() or "{}")
+        if isinstance(meta, list):
+            meta = meta[0] if meta else {}
+        image_id = meta.get("Id")
+        digests = sorted({str(x) for x in (meta.get("RepoDigests") or []) if x})
         d = {"image_id": image_id} if image_id else {}
         if digests:
+            d["image_repo_digests"] = digests
+        requested_repo = _image_repo(image)
+        if "@sha256:" in str(image):
+            d["image_digest"] = str(image)
+        elif requested_repo:
+            matches = [x for x in digests if _image_repo(x) == requested_repo]
+            if len(matches) == 1:
+                d["image_digest"] = matches[0]
+        elif len(digests) == 1:
             d["image_digest"] = digests[0]
         return d
     except Exception:

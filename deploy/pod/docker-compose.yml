@@ -126,13 +126,18 @@ services:
               ("verified","method","weights_hash","revision","n_weight_files","lfs_checked","mismatches")}), flush=True)
         if not v["verified"]:
             print("[verify] WEIGHTS DID NOT VERIFY — refusing to serve", file=sys.stderr); sys.exit(1)
+        img = os.environ.get("AEON_ENGINE_IMAGE") or os.environ.get("AEON_VLLM_IMAGE") or None
         json.dump({"repo": repo, "revision": ref.get("revision") or rev, "verification": v,
-                   "recipe": mh.derive_recipe("/weights", ref, engine=os.environ.get("AEON_ENGINE") or None)},
+                   "recipe": mh.derive_recipe("/weights", ref,
+                                               engine=os.environ.get("AEON_ENGINE") or None,
+                                               image=img)},
                   open("/weights/.aeon-modelref.json", "w"))
     environment:
       AEON_HF_LINK: ${AEON_HF_LINK:-}   # required for THIS profile; the pull step errors clearly if empty
       AEON_SYSTEM: ${AEON_SYSTEM:-}      # set to dgx-spark to force the aeon-vllm-ultimate recipe
       AEON_ENGINE: ${AEON_ENGINE:-}      # pin engine: vllm | aeon-vllm-ultimate | llama.cpp
+      AEON_ENGINE_IMAGE: ${AEON_ENGINE_IMAGE:-}
+      AEON_VLLM_IMAGE: ${AEON_VLLM_IMAGE:-vllm/vllm-openai:latest}
       HF_HOME: /hf-cache
       HF_TOKEN: ${HF_TOKEN:-}            # needed for gated/private repos
     volumes:

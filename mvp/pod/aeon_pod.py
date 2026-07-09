@@ -528,6 +528,14 @@ def _stop(proc):
             pass
 
 
+def _stamp_engine_digests(recipe):
+    """Best-effort Docker image provenance for any recipe that names a local engine image."""
+    if (recipe or {}).get("serve_mode") == "docker" and recipe.get("image"):
+        from pod import engines as _eng
+        recipe.update(_eng.image_digests(recipe["image"]))
+    return recipe
+
+
 def _stage(name, done, total):
     """Machine-readable progress marker — the GUI job manager parses these lines into the
     per-dimension progress strip (Run tab job cards + the Live view). Callers throttle."""
@@ -966,13 +974,10 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             raise SystemExit(f"[pod] served ids {ids} do not include the bench alias '{alias}' — "
                              f"refusing to bench a different server (something else on :{port}?)")
 
-        if recipe.get("serve_mode") == "docker" and recipe.get("image"):
-            # Content-address the engine now that the image is guaranteed local. Weights are
-            # already hash-verified; this pins the OTHER half of the recipe — which code
-            # served the run — so the signed manifest names it forever (tags are mutable,
-            # digests are not).
-            from pod import engines as _eng
-            recipe.update(_eng.image_digests(recipe["image"]))
+        # Content-address the engine now that the image is guaranteed local. Weights are
+        # already hash-verified; this pins the OTHER half of the recipe — which code served
+        # the run — so provenance names it forever when Docker can resolve it.
+        _stamp_engine_digests(recipe)
 
         deployment_manifest = {
             "build_hash": attest.build_hash(), "recipe": recipe,
@@ -1082,6 +1087,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
     print(f"[pod] attested submit for {repo}@{(rev or '')[:12]} "
           f"(weights_hash {(ver.get('weights_hash') or '')[:16]}…) serving '{alias}' @ {target}")
     harness_ids = _skip_short_ctx_harnesses(harness_ids, recipe)
+    _stamp_engine_digests(recipe)
 
     deployment_manifest = {
         "build_hash": attest.build_hash(), "recipe": recipe,

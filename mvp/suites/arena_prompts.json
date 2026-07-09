@@ -696,5 +696,129 @@
   "brief": "God-mode harness task: a four-faction civilization sim whose six controls must match their own documentation.",
   "prompt": "Agent-arena artifact group: outputs of the av2-god-05-living-atlas harness task.",
   "agent_only": true
- }
+ },
+{
+ "kind": "app",
+ "id": "app.godmode.world_bible_studio",
+ "title": "GOD MODE: World Bible Studio",
+ "brief": "A serious story-world command center: cultures, factions, relics, timelines, arcs, and contradiction checks.",
+ "prompt": "Build an original World Bible Studio as a single self-contained HTML file (all CSS and JS inline, no external resources, runs fully offline). It should feel like a premium creative command center for designing a mythic science-fantasy saga. Include: a left rail of at least 6 editable entities (factions, cities, relics, protagonists, antagonists, mysteries), a timeline lane with draggable or clickable story beats, a relationship graph drawn on canvas or SVG, a consistency inspector that flags contradictions such as impossible dates or duplicate relic ownership, localStorage persistence, import/export JSON buttons, and a beautiful dark industrial/cyber-mystic visual style. The sample world must be original: an ancient desert city under a future sky, a luminous archive below the dunes, and a brave female protagonist tracing a signal from the far future. Do not reference any existing franchises or copyrighted characters. Make the app genuinely useful for writers and game designers."
+},
+{
+ "kind": "app",
+ "id": "app.godmode.agentic_ops_lighthouse",
+ "title": "GOD MODE: Agentic Ops Lighthouse",
+ "brief": "A practical dashboard for orchestrating many short-lived agents, tasks, risk, memory, and cost.",
+ "prompt": "Build an Agentic Ops Lighthouse as a single self-contained HTML file (all CSS and JS inline, no external resources). It is a real utility app for coordinating many local or hosted AI agents. Include a kanban-like mission board, agent cards with status/skills/context budget/risk, a dependency graph, a queue simulator for spawning small subagents and terminating them, a memory/search panel, a timeline of tool calls, and a safety checklist that marks actions as read-only, reversible, or destructive. Provide seeded sample data but make everything editable in the browser. Add localStorage persistence and export/import JSON. The look should match a sophisticated dark command console, not a marketing page."
+},
+{
+ "kind": "app",
+ "id": "app.godmode.one_mind_journal",
+ "title": "GOD MODE: One Mind Journal",
+ "brief": "A reflective knowledge tool that turns dreams, synchronicities, research notes, and symbols into a living map.",
+ "prompt": "Build a One Mind Journal as a single self-contained HTML file (all CSS and JS inline, no external resources). It should be a genuinely useful reflective research tool: entries with tags, mood, symbolic motifs, dreams, books, conversations, and hypotheses; a canvas or SVG constellation map connecting recurring symbols; filters by time/mood/tag; a small insight engine that surfaces repeated motifs and open questions; localStorage persistence; export/import JSON. Use mystical cosmic language sparingly and tastefully: the sample data can allude to the 'transcendental object at the end of time' as a philosophical mystery, not as a literal claim. Make it beautiful, calm, and usable."
+},
+{
+ "kind": "app",
+ "id": "app.godmode.crisis_oracle",
+ "title": "GOD MODE: Crisis Oracle",
+ "brief": "Scenario planning for real-world operations: cascading risks, mitigations, playbooks, and what-if simulation.",
+ "prompt": "Build a Crisis Oracle scenario-planning app as a single self-contained HTML file (all CSS and JS inline, no external resources). It should help a user model a complex real-world incident. Include editable nodes for risks, dependencies, mitigations, owners, severity, probability, and time-to-impact; an interactive dependency graph; a what-if slider that recalculates priority; a playbook generator panel; a timeline of decisions; localStorage persistence; export/import JSON. Seed it with a nonviolent infrastructure scenario such as bandwidth saturation, service outage, and WAF false positives. The app should be genuinely useful and visually compelling in Aeon Bench's dark cybernetic style."
+},
+{
+ "kind": "game",
+ "id": "game.godmode.daughter_of_the_dunes",
+ "title": "GOD MODE: Daughter of the Dunes",
+ "brief": "Original desert action-adventure prototype: acrobatics, ruins, light puzzles, relics, and a heroic explorer.",
+ "prompt": "Build an original action-adventure game prototype called Daughter of the Dunes as a single self-contained HTML file (all CSS and JS inline, no external resources, canvas/WebAudio only). The protagonist is a courageous female explorer in an ancient desert city inspired by Middle Eastern oasis architecture and Madinah-region stone, but the story, characters, symbols, and locations must be fully original and non-infringing. Include keyboard movement, a top-down or pseudo-3D ruin map, acrobatic traversal zones, pressure-plate/light-beam puzzles, collectible relic shards, a compass/minimap, dialogue tablets, gates that unlock when puzzles are solved, hazards that reset the player, a victory state, and synthesized sound. Make it feel like a premium adventure slice with mystery, beauty, and responsive controls."
+},
+{
+ "kind": "game",
+ "id": "game.godmode.neon_relic_fps",
+ "title": "GOD MODE: Neon Relic FPS",
+ "brief": "A raycast sci-fi exploration shooter with scan visor, enemy drones, doors, map, and objectives.",
+ "prompt": "Build a futuristic sci-fi FPS exploration prototype as a single self-contained HTML file (all CSS and JS inline, no external resources). Use a canvas raycaster or equivalent pseudo-3D renderer: WASD movement, mouse or arrow turning, collision, doors, a minimap, enemy drones, a scan visor mode, energy/ammo HUD, objective beacons, and at least two room types with different lighting. The player explores an original derelict research ark where a signal from the end of time has crystallized into strange geometry. Include a complete win objective and restart. Do not use external assets or references to existing franchises."
+},
+{
+ "kind": "game",
+ "id": "game.godmode.sky_relic_rpg",
+ "title": "GOD MODE: Sky Relic RPG",
+ "brief": "Tiny open-world RPG/action adventure with quests, elemental tools, inventory, and day-night atmosphere.",
+ "prompt": "Build an original miniature action RPG called Sky Relic RPG as a single self-contained HTML file (all CSS and JS inline, no external resources). Include a navigable overworld, a beautiful female protagonist sprite or icon, NPC dialogue, at least three quests, inventory, elemental tools that alter the world (light, wind, water, or time), simple combat or avoidance, a day-night cycle, save/reset buttons, and a final shrine puzzle. Use canvas or DOM/SVG, but it must be interactive and playable. The design can be inspired by classic exploration, puzzle, and adventure game principles, but must not copy any named franchise, characters, music, maps, items, or visual identity."
+},
+{
+ "kind": "game",
+ "id": "game.godmode.sandglass_reversal",
+ "title": "GOD MODE: Sandglass Reversal",
+ "brief": "Time-rewind puzzle combat: ghosts replay your past path while you solve a desert temple machine.",
+ "prompt": "Build Sandglass Reversal as a single self-contained HTML file (all CSS and JS inline, no external resources). It is a time-rewind puzzle-action prototype in an original desert temple machine. Include keyboard controls, a player, moving hazards, switches, gates, collectible chronoglyphs, a visible timeline buffer, and a rewind mechanic that replays the last several seconds or creates a ghost of the player's previous path. Include at least 3 puzzle rooms, a clear objective, a win state, and concise in-game instructions. Use canvas/WebAudio only; no external assets. Make it mysterious, elegant, and challenging."
+},
+{
+ "kind": "animation",
+ "id": "anim.godmode.one_mind_cosmogram",
+ "title": "GOD MODE: One Mind Cosmogram",
+ "brief": "Particles become neurons, cities, stars, symbols, and back again: a meditation on collective intelligence.",
+ "prompt": "Create One Mind Cosmogram as a single self-contained HTML file (all CSS and JS inline, no external resources). It should be a full-screen canvas animation where thousands of particles transition through phases: neural web, desert city lights, star map, mandala, and a single luminous horizon. Include mouse interaction that bends the field, a phase label, pause/play, and smooth interpolation. The piece should feel emotionally meaningful, cosmic, and restrained rather than noisy: a meditation on individual minds forming a larger intelligence. Use requestAnimationFrame and no external assets."
+},
+{
+ "kind": "animation",
+ "id": "anim.godmode.transcendental_object",
+ "title": "GOD MODE: Transcendental Object",
+ "brief": "An evolving end-of-time object rendered as a layered geometric myth-machine with user-controlled time.",
+ "prompt": "Create an animation called Transcendental Object as a single self-contained HTML file (all CSS and JS inline, no external resources). Render an evolving object at the end of time: nested geometry, symbolic orbiters, waveform halos, impossible-looking folding surfaces, and a timeline slider that changes its era/state. Use canvas or vanilla WebGL. Include captions that feel poetic but sparse, a speed control, and an interaction where pointer movement reveals hidden layers. It should be beautiful, mysterious, and technically ambitious while remaining performant."
+},
+{
+ "kind": "animation",
+ "id": "anim.godmode.madinah_mirage",
+ "title": "GOD MODE: Madinah Mirage",
+ "brief": "A respectful desert dawn scene of luminous architecture, wind, sand, and a quest beginning.",
+ "prompt": "Create Madinah Mirage as a single self-contained HTML file (all CSS and JS inline, no external resources). It should be a respectful, original animated desert dawn: warm stone, palm silhouettes, distant oasis architecture, wind-carried sand, geometric light patterns, and a lone female adventurer silhouette beginning a quest toward a hidden archive below the dunes. Include parallax layers, daybreak color progression, subtle particle sand, and an optional caption toggle. Avoid depicting sacred spaces directly; keep the setting original and reverent."
+},
+{
+ "kind": "animation",
+ "id": "anim.godmode.webgl_future_city",
+ "title": "GOD MODE: WebGL Future City",
+ "brief": "Vanilla WebGL flythrough of a luminous city with data streams, towers, and living traffic traces.",
+ "prompt": "Create a vanilla WebGL future-city flythrough as a single self-contained HTML file (all CSS and JS inline, no external resources). Do not use Three.js or any external library. Build shader programs manually, create simple geometry buffers for towers/roads/sky planes, animate the camera through a cybernetic city, and overlay 2D HUD labels for districts, signal flow, and system health. Include a fallback canvas message if WebGL is unavailable. It should demonstrate real 3D rendering competence, not just a flat SVG illusion."
+},
+{
+ "kind": "game",
+ "id": "agent.madinah_ruins",
+ "title": "Madinah Ruins (agent-built)",
+ "brief": "GOD MODE harness task: original desert adventure artifact with map, relics, dialogue, and matching world bible.",
+ "prompt": "Agent-arena artifact group: outputs of the av2-god-06-madinah-ruins harness task.",
+ "agent_only": true
+},
+{
+ "kind": "app",
+ "id": "agent.worldforge",
+ "title": "Worldforge Studio (agent-built)",
+ "brief": "GOD MODE harness task: story-world design app whose UI must agree with generated lore files.",
+ "prompt": "Agent-arena artifact group: outputs of the av2-god-07-worldforge-studio harness task.",
+ "agent_only": true
+},
+{
+ "kind": "animation",
+ "id": "agent.endtime_observatory",
+ "title": "Endtime Observatory (agent-built)",
+ "brief": "GOD MODE harness task: cosmic animation plus symbol registry and synchronized phase labels.",
+ "prompt": "Agent-arena artifact group: outputs of the av2-god-08-endtime-observatory harness task.",
+ "agent_only": true
+},
+{
+ "kind": "app",
+ "id": "agent.crisis_oracle",
+ "title": "Crisis Oracle (agent-built)",
+ "brief": "GOD MODE harness task: real operations app that parses incident data and visualizes priorities.",
+ "prompt": "Agent-arena artifact group: outputs of the av2-god-09-crisis-oracle harness task.",
+ "agent_only": true
+},
+{
+ "kind": "game",
+ "id": "agent.neon_ruins_fps",
+ "title": "Neon Ruins FPS (agent-built)",
+ "brief": "GOD MODE harness task: raycast/pseudo-3D sci-fi exploration game with matching level manifest.",
+ "prompt": "Agent-arena artifact group: outputs of the av2-god-10-neon-ruins-fps harness task.",
+ "agent_only": true
+}
 ]

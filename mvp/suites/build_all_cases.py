@@ -11,7 +11,7 @@ single, reproducible path from those files to the cases.json the suite loads:
   1. loads every suites/v3/final_*.json
   2. validates schema, id uniqueness, category/difficulty enums, checker types
   3. enforces the v3 design: 5 categories x (easy 2 / medium 3 / hard 5 / expert 8 /
-     frontier 12) = exactly 150 cases
+     frontier 12 / god_mode 1) = exactly 155 cases
   4. smoke-tests every case through evaluators.evaluate() with a dummy answer
      (no checker may crash on arbitrary input; score just has to come back 0/None-ish)
   5. writes suites/cases.json (sorted by category, difficulty rank, id — stable diffs)
@@ -34,7 +34,7 @@ from aeon import evaluators  # noqa: E402  (the REAL checkers — smoke-test tar
 OUT = os.path.join(HERE, "cases.json")
 SRC = os.path.join(HERE, "v3")
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
-DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12}
+DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12, "god_mode": 1}
 DIFF_RANK = {d: i for i, d in enumerate(DIFF_COUNTS)}
 REQUIRED = ("id", "category", "tier", "prompt", "eval")
 KNOWN_CHECKERS = set(evaluators.CHECKERS)
@@ -96,7 +96,7 @@ def main():
             if got != want:
                 fail(f"cell {cat}/{d}: {got} cases, design wants {want}")
     if len(cases) != sum(DIFF_COUNTS.values()) * len(CATEGORIES):
-        fail(f"total {len(cases)} != 150")
+        fail(f"total {len(cases)} != {sum(DIFF_COUNTS.values()) * len(CATEGORIES)}")
 
     # smoke-test: no checker may crash on arbitrary text (judge=None: subjective
     # tier-1 criteria return pending — that's fine, we only require no exception)

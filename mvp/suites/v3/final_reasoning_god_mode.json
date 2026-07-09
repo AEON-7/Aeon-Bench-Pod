@@ -1,0 +1,20 @@
+[
+ {
+  "id": "v3.reasoning.god_mode.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "A distributed observatory ran a Byzantine-resilient sensor fusion protocol. Exactly one replica is Byzantine and exactly one non-Byzantine replica has a clock-skew fault. Replicas are A, B, C, D, E, F. The Byzantine replica can lie about any comparison involving itself, but all comparisons between non-Byzantine replicas are truthful. The clock-skewed replica is truthful but all of its local timestamps are shifted by a constant, so it appears too early in every truthful comparison that involves it. The audit log gives these derived facts:\n1. Among the truthful non-skewed replicas, the event order is C before A before E before B.\n2. D reports that it is before C, before A, before E, and before B.\n3. F reports that B is before F, F is before E, and F is before A.\n4. A, B, C, and E mutually agree on the chain C before A before E before B.\n5. The Byzantine replica is the only replica whose reports force a directed cycle when combined with the mutually agreed chain.\n6. The clock-skewed replica is the only non-Byzantine replica that can truthfully appear before C without contradicting the mutually agreed chain.\nIdentify the Byzantine replica and the clock-skewed replica. Put ONLY the ordered pair inside \\boxed{} in the form Byzantine=<letter>,ClockSkew=<letter>.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Byzantine\\s*=\\s*F\\s*,\\s*ClockSkew\\s*=\\s*D\\s*\\}",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -100,6 +100,7 @@ def _run_summary(info):
         "category_speed": {c: {"ttft_ms": _avg(b["ttft"]), "decode_tps": _avg(b["tps"]),
                                "e2e_ms": _avg(b["e2e"])} for c, b in cat_sp.items()},
         "n_cases": len(info["results"]),
+        "frontier": info.get("frontier"),
     }
 
 
@@ -149,13 +150,15 @@ def _leaderboard_scoped(suite=None):
                 renv = json.loads(r.get("env_json") or "{}")
             except Exception:
                 renv = {}
+            fmeta = renv.get("frontier") if isinstance(renv, dict) else None
             by_run[r["run"]] = {
                 "run": r["run"], "model": r["model"],
                 "canonical": r.get("canonical_id") or r["model"],
                 "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
                 "trust_tier": r.get("trust_tier") or "self_reported",
                 "bench_seed": r.get("bench_seed"), "suite_hash": r.get("suite_hash"),
-                "started_at": r["started_at"], "environment": renv, "results": []}
+                "started_at": r["started_at"], "environment": renv, "frontier": fmeta,
+                "results": []}
         by_run[r["run"]]["results"].append(r)
 
     runs = [_run_summary(info) for info in by_run.values()]
@@ -210,6 +213,7 @@ def _leaderboard_scoped(suite=None):
             "avg_ttft_ms": _avg([r["avg_ttft_ms"] for r in agg]),
             "avg_decode_tps": _avg([r["avg_decode_tps"] for r in agg]),
             "avg_e2e_ms": _avg([r["avg_e2e_ms"] for r in agg]),
+            "frontier": latest.get("frontier"),
             # concurrent throughput under test load (runs that recorded their concurrency)
             "agg_tps": _avg([r.get("agg_tps") for r in agg]),
             "bench_concurrency": max((r.get("bench_concurrency") or 0 for r in agg), default=0) or None,

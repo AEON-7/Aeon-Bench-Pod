@@ -73,10 +73,11 @@ _BUILTIN = [
 # The corpus (generated + adversarially verified; every gold answer independently
 # re-derived and executed through the real evaluators before admission) lives in
 # suites/cases.json — built by suites/build_all_cases.py from suites/v3/*.json.
-# v3 design: 150 cases, 5 categories x 5 difficulty tiers with an exponential hard
-# skew (easy 2 / medium 3 / hard 5 / expert 8 / frontier 12 per category). easy+medium
-# are CANARIES (is the model configured right / can a weak model score at all); the
-# ranking signal lives in hard->frontier, which is 83% of the suite by count.
+# v3 design: 155 cases, 5 categories x 6 difficulty tiers with an exponential hard
+# skew plus a mandatory GOD MODE sentinel (easy 2 / medium 3 / hard 5 / expert 8 /
+# frontier 12 / god_mode 1 per category). easy+medium are CANARIES (is the model
+# configured right / can a weak model score at all); the ranking signal lives in
+# hard->god_mode, which is most of the suite by count.
 # When the corpus is healthy it IS the whole suite (exactly 150). The tiny _BUILTIN
 # set is a FALLBACK only — a missing/malformed corpus degrades to built-ins so the
 # mock pipeline still works, never a half-merged hybrid.
@@ -111,7 +112,7 @@ CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
 SUITE_ID = "aeon-suite-v3" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
 
 
-DIFFICULTIES = ["easy", "medium", "hard", "expert", "frontier"]
+DIFFICULTIES = ["easy", "medium", "hard", "expert", "frontier", "god_mode"]
 
 
 def _grid():

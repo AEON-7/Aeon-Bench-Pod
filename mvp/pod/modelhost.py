@@ -221,13 +221,12 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
             break
     # Serve at a consistent bench context: the agentic harnesses (Hermes) REQUIRE >=64K, and 64K is
     # ample for every suite prompt while a model's full window (e.g. 256K) needlessly bloats the KV
-    # cache. Do not clamp down to a low config-advertised native window here: many modern repos
-    # under-report the effective long context because rope scaling / multimodal wrapper config lives
-    # elsewhere. If the backend truly cannot serve 64K, it will fail with the engine's real error.
-    ctx = int(os.environ.get("AEON_MAX_MODEL_LEN") or op_ctx or BENCH_MAX_CTX)
+    # cache. Cap at the model's native max when KNOWN; unknown native serves at the bench standard.
+    ctx = int(os.environ.get("AEON_MAX_MODEL_LEN") or op_ctx
+              or (min(native_ctx, BENCH_MAX_CTX) if native_ctx else BENCH_MAX_CTX))
     # HARD floor: Hermes refuses to run below 64K, so a short-context verified serve would burn a
-    # full bench on a doomed harness pass. Refuse only when the operator explicitly requests a
-    # sub-floor context, unless AEON_ALLOW_SHORT_CTX=1 asks to run the smaller non-Hermes bench.
+    # full bench on a doomed harness pass. Refuse up front — but ONLY on a KNOWN-short model with
+    # no operator override; AEON_ALLOW_SHORT_CTX=1 serves at native anyway (hermes then skipped).
     if ctx < BENCH_MAX_CTX and os.environ.get("AEON_ALLOW_SHORT_CTX") != "1":
         raise SystemExit(f"[pod] bench requires --max-model-len >= {BENCH_MAX_CTX} (Hermes harness "
                          f"floor); model native ctx = {native_ctx}. Set AEON_ALLOW_SHORT_CTX=1 to "

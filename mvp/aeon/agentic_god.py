@@ -8,7 +8,7 @@ from __future__ import annotations
 
 GOD_CASES = [
     {"id": "av2-god-01-starship-bridge", "category": "Agentic", "tier": 0,
-     "difficulty": "frontier",
+     "difficulty": "god_mode",
      "artifact": {"file": "bridge.html", "kind": "app", "prompt_id": "agent.starship_bridge"},
      "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
                 "autonomously with your file tools. BUILD A STARSHIP BRIDGE SIMULATOR as a single "
@@ -39,7 +39,7 @@ GOD_CASES = [
          "answer": "BRIDGE ONLINE 4/4"}},
 
     {"id": "av2-god-02-data-observatory", "category": "Agentic", "tier": 0,
-     "difficulty": "frontier",
+     "difficulty": "god_mode",
      "artifact": {"file": "observatory.html", "kind": "app",
                   "prompt_id": "agent.data_observatory"},
      "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
@@ -76,7 +76,7 @@ GOD_CASES = [
          "answer": "OBSERVATORY 6.0 14.0 24.0"}},
 
     {"id": "av2-god-03-rogue-vault", "category": "Agentic", "tier": 0,
-     "difficulty": "frontier",
+     "difficulty": "god_mode",
      "artifact": {"file": "vault.html", "kind": "game", "prompt_id": "agent.rogue_vault"},
      "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
                 "autonomously. BUILD A ROGUELIKE, deterministically: create vault.html - a single "
@@ -101,7 +101,7 @@ GOD_CASES = [
          "answer": "VAULT SEALED 12 1337"}},
 
     {"id": "av2-god-04-generative-symphony", "category": "Agentic", "tier": 0,
-     "difficulty": "frontier",
+     "difficulty": "god_mode",
      "artifact": {"file": "symphony.html", "kind": "animation",
                   "prompt_id": "agent.generative_symphony"},
      "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
@@ -130,7 +130,7 @@ GOD_CASES = [
          "answer": "SYMPHONY 90S 4 SECTIONS"}},
 
     {"id": "av2-god-05-living-atlas", "category": "Agentic", "tier": 0,
-     "difficulty": "frontier",
+     "difficulty": "god_mode",
      "artifact": {"file": "atlas.html", "kind": "game", "prompt_id": "agent.living_atlas"},
      "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
                 "autonomously. BUILD A LIVING WORLD: atlas.html - a single self-contained "
@@ -165,4 +165,169 @@ GOD_CASES = [
          "CONTROLS.md": "pause: stop\nspeed: faster\nseed: reroll\ninspect: detail\n"
                         "export: save\nreset: fresh"},
          "answer": "ATLAS ALIVE 6 CONTROLS"}},
+
+    {"id": "av2-god-06-madinah-ruins", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "desert_relic.html", "kind": "game",
+                  "prompt_id": "agent.madinah_ruins"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. BUILD AN ORIGINAL DESERT ACTION-ADVENTURE PROTOTYPE named "
+                "desert_relic.html as one self-contained HTML file (all CSS/JS inline, no "
+                "external resources). The scene is a respectful, fictional oasis ruin inspired "
+                "by Middle Eastern desert architecture and Madinah-region stone, never a direct "
+                "depiction of sacred spaces and never copied from any existing franchise. Include "
+                "a heroic female explorer, a canvas map, keyboard movement, relic shards, light-"
+                "beam or pressure-plate puzzle gates, a minimap/compass, tablet dialogue, hazards "
+                "that reset the player, and a victory state. ALSO write WORLD_BIBLE.md with "
+                "exactly five headings: # HEROINE, # CITY, # RELIC, # CONFLICT, # ENDING. The "
+                "HTML and WORLD_BIBLE must agree on the heroine name: Amara. "
+                "Answer exactly: GOD MODE DESERT RELIC ONLINE."),
+     "setup_files": {},
+     "success": {
+         "files": {"desert_relic.html": {"contains": ["<canvas", "Amara",
+                                                       "keydown", "relic", "compass",
+                                                       "victory"]},
+                   "WORLD_BIBLE.md": {"contains": ["# HEROINE", "# CITY", "# RELIC",
+                                                   "# CONFLICT", "# ENDING", "Amara"]}},
+         "answer_contains": ["god mode desert relic online"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "desert_relic.html": '<html><canvas id="map"></canvas><div id="compass"></div>'
+                              '<script>const heroine="Amara"; addEventListener("keydown",()=>{});'
+                              'let relic=0; let victory=true;</script></html>',
+         "WORLD_BIBLE.md": "# HEROINE\nAmara\n# CITY\nFictional oasis ruin\n# RELIC\n"
+                           "Luminous archive key\n# CONFLICT\nSealed light gates\n"
+                           "# ENDING\nVictory below the dunes\n"},
+         "answer": "GOD MODE DESERT RELIC ONLINE"}},
+
+    {"id": "av2-god-07-worldforge-studio", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "worldforge.html", "kind": "app",
+                  "prompt_id": "agent.worldforge"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Read seed_lore.json, then build worldforge.html as a single "
+                "self-contained story-world design app (all CSS/JS inline, no external "
+                "resources). It must embed the seed lore inline and provide editable panels for "
+                "factions, places, relics, protagonists, mysteries, and timeline beats; a canvas "
+                "or SVG relationship graph; a contradiction inspector; localStorage save/load; "
+                "and export/import JSON buttons. ALSO write STORY_BIBLE.md summarizing exactly "
+                "the three factions from seed_lore.json and the central mystery. "
+                "Answer exactly: GOD MODE WORLDFORGE READY 3 FACTIONS."),
+     "setup_files": {"seed_lore.json":
+         '{"factions":["Glass Nomads","Archive Choir","Obsidian Senate"],'
+         '"mystery":"a signal arriving backward from the end of time",'
+         '"heroine":"Mira","city":"Qamar Gate"}\n'},
+     "success": {
+         "files": {"worldforge.html": {"contains": ["Glass Nomads", "Archive Choir",
+                                                    "Obsidian Senate", "localStorage",
+                                                    "export", "import", "<canvas"]},
+                   "STORY_BIBLE.md": {"contains": ["Glass Nomads", "Archive Choir",
+                                                   "Obsidian Senate",
+                                                   "signal arriving backward"]}},
+         "answer_contains": ["god mode worldforge ready 3 factions"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "worldforge.html": '<html><canvas id="graph"></canvas><button id="export">export</button>'
+                            '<button id="import">import</button><script>localStorage.setItem("x","y");'
+                            'const factions=["Glass Nomads","Archive Choir","Obsidian Senate"];</script></html>',
+         "STORY_BIBLE.md": "Glass Nomads\nArchive Choir\nObsidian Senate\n"
+                           "central mystery: a signal arriving backward from the end of time\n"},
+         "answer": "GOD MODE WORLDFORGE READY 3 FACTIONS"}},
+
+    {"id": "av2-god-08-endtime-observatory", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "endtime.html", "kind": "animation",
+                  "prompt_id": "agent.endtime_observatory"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build endtime.html as one self-contained cosmic animation (all "
+                "CSS/JS inline, no external resources) visualizing a philosophical "
+                "'transcendental object at the end of time'. It must use requestAnimationFrame, "
+                "a canvas or vanilla WebGL renderer, a time slider with id=\"time-slider\", phase "
+                "labels for exactly four phases (seed, city, mind, object), and pointer movement "
+                "that distorts or reveals hidden layers. ALSO write SYMBOLS.json with keys "
+                "\"phases\" equal to [\"seed\",\"city\",\"mind\",\"object\"] and \"claim\" equal "
+                "to \"metaphor\". Answer exactly: GOD MODE OBSERVATORY FOUR PHASES."),
+     "setup_files": {},
+     "success": {
+         "files": {"endtime.html": {"contains": ["requestAnimationFrame", "<canvas",
+                                                 'id="time-slider"', "seed", "city",
+                                                 "mind", "object"]},
+                   "SYMBOLS.json": {"contains": ['"phases"', '"seed"', '"city"',
+                                                '"mind"', '"object"', '"claim"',
+                                                '"metaphor"']}},
+         "answer_contains": ["god mode observatory four phases"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "endtime.html": '<html><canvas></canvas><input id="time-slider" type="range">'
+                         '<script>const phases=["seed","city","mind","object"];'
+                         'addEventListener("pointermove",()=>{});requestAnimationFrame(()=>{});</script></html>',
+         "SYMBOLS.json": '{"phases":["seed","city","mind","object"],"claim":"metaphor"}'},
+         "answer": "GOD MODE OBSERVATORY FOUR PHASES"}},
+
+    {"id": "av2-god-09-crisis-oracle", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "crisis_oracle.html", "kind": "app",
+                  "prompt_id": "agent.crisis_oracle"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Read incidents.csv and compute a priority score for each row as "
+                "severity * probability * dependency_count. Write PRIORITIES.md sorted from "
+                "highest score to lowest, one line per incident in this exact form: "
+                "<id> score=<score>. Then build crisis_oracle.html as a single self-contained "
+                "operations dashboard that embeds the incident data inline, shows a risk table, "
+                "a dependency graph on canvas or SVG, a mitigation playbook panel, and a what-if "
+                "slider that changes probability. Answer exactly: GOD MODE CRISIS ORACLE READY."),
+     "setup_files": {"incidents.csv":
+         "id,severity,probability,dependency_count\n"
+         "edge-waf-false-positive,5,4,3\n"
+         "gpu-memory-pressure,4,5,2\n"
+         "upload-bandwidth-saturation,3,5,4\n"
+         "stale-api-key,5,2,5\n"},
+     "success": {
+         "files": {"PRIORITIES.md": {"contains": ["edge-waf-false-positive score=60",
+                                                  "upload-bandwidth-saturation score=60",
+                                                  "gpu-memory-pressure score=40",
+                                                  "stale-api-key score=50"]},
+                   "crisis_oracle.html": {"contains": ["edge-waf-false-positive",
+                                                       "what-if", "<canvas",
+                                                       "mitigation", "score"]}},
+         "answer_contains": ["god mode crisis oracle ready"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "PRIORITIES.md": "edge-waf-false-positive score=60\n"
+                          "upload-bandwidth-saturation score=60\n"
+                          "stale-api-key score=50\n"
+                          "gpu-memory-pressure score=40\n",
+         "crisis_oracle.html": '<html><canvas id="graph"></canvas><input id="what-if" type="range">'
+                               '<section>mitigation edge-waf-false-positive score</section></html>'},
+         "answer": "GOD MODE CRISIS ORACLE READY"}},
+
+    {"id": "av2-god-10-neon-ruins-fps", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "neon_ruins.html", "kind": "game",
+                  "prompt_id": "agent.neon_ruins_fps"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build neon_ruins.html as one self-contained pseudo-3D sci-fi "
+                "exploration game (all CSS/JS inline, no external resources). Use a canvas "
+                "raycaster or equivalent pseudo-3D renderer with WASD movement, arrow/mouse "
+                "turning, wall collision, doors, enemy drones, scan visor mode, ammo/energy HUD, "
+                "objective beacons, minimap, and a win state. ALSO write LEVEL.json with keys "
+                "\"rooms\": 4, \"doors\": 3, \"drones\": 5, and \"objective\": \"recover the "
+                "signal prism\". Answer exactly: GOD MODE NEON RUINS COMPLETE."),
+     "setup_files": {},
+     "success": {
+         "files": {"neon_ruins.html": {"contains": ["<canvas", "ray", "WASD",
+                                                    "scan", "minimap", "drone",
+                                                    "objective"]},
+                   "LEVEL.json": {"contains": ['"rooms": 4', '"doors": 3',
+                                               '"drones": 5',
+                                               '"objective": "recover the signal prism"']}},
+         "answer_contains": ["god mode neon ruins complete"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "neon_ruins.html": '<html><canvas></canvas><script>const controls="WASD";'
+                            'const raycaster=true, scan=true, minimap=true, drone=5, '
+                            'objective="recover the signal prism";</script></html>',
+         "LEVEL.json": '{"rooms": 4, "doors": 3, "drones": 5, '
+                       '"objective": "recover the signal prism"}'},
+         "answer": "GOD MODE NEON RUINS COMPLETE"}},
 ]

@@ -16,7 +16,8 @@ Operators can replace or extend the built-ins with AEON_FRONTIER_MODELS_JSON:
     "effort": "high",
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "logo_url": "/static/brand-openai.svg",
+    "logo_url": "https://images.ctfassets.net/kftzwdyauwt9/3hUGLn3ypllZ0oa01qOYVq/28e8188e6f11b84c3e876569d492734f/Blossom_Light.svg",
+    "logo_source_url": "https://openai.com/brand/",
     "request": {"reasoning_effort": "high"}
   }
 }
@@ -31,6 +32,19 @@ from typing import Any
 
 _ID_OK = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 
+_OPENAI_LOGO_URL = (
+    "https://images.ctfassets.net/kftzwdyauwt9/3hUGLn3ypllZ0oa01qOYVq/"
+    "28e8188e6f11b84c3e876569d492734f/Blossom_Light.svg"
+)
+_OPENAI_BRAND_URL = "https://openai.com/brand/"
+_ANTHROPIC_LOGO_URL = (
+    "https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/"
+    "681d52619fec35886a7f1a70_favicon.png"
+)
+_ANTHROPIC_BRAND_URL = "https://www.anthropic.com/"
+_XAI_LOGO_URL = "https://x.ai/favicon.ico"
+_XAI_BRAND_URL = "https://x.ai/legal/brand-guidelines"
+
 _BUILTINS: dict[str, dict[str, Any]] = {
     "openai:gpt-5.5-high": {
         "provider": "openai",
@@ -41,7 +55,8 @@ _BUILTINS: dict[str, dict[str, Any]] = {
         "effort": "high",
         "api_format": "openai",
         "base_url": "https://api.openai.com/v1",
-        "logo_url": "/static/brand-openai.svg",
+        "logo_url": _OPENAI_LOGO_URL,
+        "logo_source_url": _OPENAI_BRAND_URL,
         "website": "https://openai.com/",
         "request": {"reasoning": {"effort": "high"}, "_token_field": "max_completion_tokens",
                     "_omit_temperature": True},
@@ -56,7 +71,8 @@ _BUILTINS: dict[str, dict[str, Any]] = {
         "effort": "high",
         "api_format": "openai",
         "base_url": "https://api.openai.com/v1",
-        "logo_url": "/static/brand-openai.svg",
+        "logo_url": _OPENAI_LOGO_URL,
+        "logo_source_url": _OPENAI_BRAND_URL,
         "website": "https://openai.com/",
         "request": {"reasoning": {"effort": "high"}, "_token_field": "max_completion_tokens",
                     "_omit_temperature": True},
@@ -71,7 +87,8 @@ _BUILTINS: dict[str, dict[str, Any]] = {
         "effort": "high",
         "api_format": "openai",
         "base_url": "https://api.x.ai/v1",
-        "logo_url": "/static/brand-xai.svg",
+        "logo_url": _XAI_LOGO_URL,
+        "logo_source_url": _XAI_BRAND_URL,
         "website": "https://x.ai/api",
         "request": {"reasoning_effort": "high"},
         "max_tokens": 8192,
@@ -85,7 +102,8 @@ _BUILTINS: dict[str, dict[str, Any]] = {
         "effort": "high",
         "api_format": "anthropic",
         "base_url": "https://api.anthropic.com/v1",
-        "logo_url": "/static/brand-anthropic.svg",
+        "logo_url": _ANTHROPIC_LOGO_URL,
+        "logo_source_url": _ANTHROPIC_BRAND_URL,
         "website": "https://www.anthropic.com/claude",
         "request": {"output_config": {"effort": "high"}},
         "max_tokens": 8192,
@@ -99,7 +117,8 @@ _BUILTINS: dict[str, dict[str, Any]] = {
         "effort": "high",
         "api_format": "anthropic",
         "base_url": "https://api.anthropic.com/v1",
-        "logo_url": "/static/brand-anthropic.svg",
+        "logo_url": _ANTHROPIC_LOGO_URL,
+        "logo_source_url": _ANTHROPIC_BRAND_URL,
         "website": "https://www.anthropic.com/claude/fable",
         # Fable uses adaptive thinking; do not send manual thinking budgets or disabled thinking.
         "request": {"output_config": {"effort": "high"}},
@@ -167,6 +186,7 @@ def _normalise(fid: str, d: dict[str, Any]) -> dict[str, Any]:
         "api_format": api_format,
         "base_url": base_url,
         "logo_url": d.get("logo_url") or "/static/generic-avatar.svg",
+        "logo_source_url": d.get("logo_source_url") or d.get("website"),
         "website": d.get("website"),
         "request": d.get("request") if isinstance(d.get("request"), dict) else {},
         "max_tokens": int(d.get("max_tokens") or 8192),
@@ -197,8 +217,8 @@ def get_definition(fid: str) -> dict[str, Any]:
 
 def public_metadata(d: dict[str, Any]) -> dict[str, Any]:
     keys = ("id", "provider", "provider_name", "brand", "model", "version", "effort",
-            "display_name", "api_format", "base_url", "logo_url", "website", "max_tokens",
-            "canonical", "notes")
+            "display_name", "api_format", "base_url", "logo_url", "logo_source_url", "website",
+            "max_tokens", "canonical", "notes")
     return {k: d.get(k) for k in keys if d.get(k) is not None}
 
 

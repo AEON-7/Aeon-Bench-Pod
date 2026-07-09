@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="64" fill="#05070b"/>
-  <circle cx="64" cy="64" r="50" fill="none" stroke="#00f0ff" stroke-width="4"/>
-  <path d="M64 22l34 20v44l-34 20-34-20V42z" fill="none" stroke="#e8fbff" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M42 50l44 28M86 50L42 78M64 22v84" stroke="#9d7bff" stroke-width="5" stroke-linecap="round"/>
-  <text x="64" y="72" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#fff">GPT</text>
-</svg>

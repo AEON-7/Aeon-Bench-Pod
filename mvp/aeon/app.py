@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import arena, attest, db, evaluators, modelmeta, probe, runner, scoring, vram
+from . import arena, attest, db, evaluators, frontier, modelmeta, probe, runner, scoring, vram
 
 # Mothership-only trust surface: evaluator accounts/auth, the admin portal, and the
 # signed-submission ingest gate. These modules are NOT part of the public pod
@@ -1457,6 +1457,22 @@ class PodEndpointRunBody(BaseModel):
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
 
 
+class PodFrontierRunBody(BaseModel):
+    frontier_id: str
+    api_key_name: str
+    difficulty: str | None = None
+    category: str | None = None
+    preset: str | None = None
+    perf_max_conc: int | None = None
+    concurrency: int | None = None
+    max_tokens: int | None = None
+
+
+class PodFrontierValidateBody(BaseModel):
+    frontier_id: str
+    api_key_name: str
+
+
 class PodVerifiedRunBody(BaseModel):
     hf_link: str
     difficulty: str | None = None
@@ -1473,7 +1489,7 @@ class PodVerifiedRunBody(BaseModel):
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
     max_tokens: int | None = None       # per-answer TOKEN BUDGET (generation cap incl. thinking);
-                                        # None = pod default (32768). Clamped 256..131072
+                                        # None = pod default (2048). Clamped 256..131072
     pause_all: bool | None = None       # CLEAR HOST: stop every non-pod container before serving
     restore_paused: bool | None = None  # restart the paused containers after the bench (default yes)
     arena_per_kind: int | None = None   # arena sweep breadth (prompts per kind, 0 disables; None = default 6)
@@ -1497,17 +1513,8 @@ def _clean_serve_flags(flags):
     if not isinstance(flags, list):
         return None
     out = []
-    skip_next = False
     for t in flags[:64]:
-        if skip_next:
-            skip_next = False
-            continue
         t = str(t).strip()
-        if t == "--reasoning-budget":
-            skip_next = True
-            continue
-        if t.startswith("--reasoning-budget="):
-            continue
         if t and len(t) <= 300 and t.isprintable():
             out.append(t)
     return out or None
@@ -1539,6 +1546,49 @@ def pod_run_endpoint(body: PodEndpointRunBody, request: Request):
         preset=(body.preset or None), api_key_name=(body.api_key_name or None),
         engine=(body.engine or None), perf_max_conc=_clamp_conc(body.perf_max_conc),
         concurrency=_clamp_conc(body.concurrency))
+    return {"job_id": jid}
+
+
+@app.get("/api/pod/frontier")
+def pod_frontier_models(request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    return {"models": frontier.public_definitions()}
+
+
+@app.post("/api/pod/frontier/validate")
+def pod_frontier_validate(body: PodFrontierValidateBody, request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    key = db.get_secret((body.api_key_name or "").strip())
+    try:
+        return frontier.validate_api((body.frontier_id or "").strip(), key)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:400]}, status_code=400)
+
+
+@app.post("/api/pod/run/frontier")
+def pod_run_frontier(body: PodFrontierRunBody, request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
+        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
+    from pod import jobs
+    try:
+        jid = jobs.submit_frontier((body.frontier_id or "").strip(),
+            api_key_name=(body.api_key_name or "").strip(),
+            difficulty=(body.difficulty or None), category=(body.category or None),
+            preset=(body.preset or None), perf_max_conc=_clamp_conc(body.perf_max_conc),
+            concurrency=_clamp_conc(body.concurrency),
+            max_tokens=(min(131072, max(256, int(body.max_tokens))) if body.max_tokens else None))
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:400]}, status_code=400)
     return {"job_id": jid}
 
 

@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=80" />
+  <link rel="stylesheet" href="/static/styles.css?v=79" />
 </head>
 <body>
   <header>
@@ -165,25 +165,19 @@
             <summary><span class="tune-t">⚙ RECIPE TUNING</span> <span class="note">startup flags — dial in the optimal recipe for this system</span><span id="tuneCount" class="tune-count" hidden></span></summary>
             <div id="tuneBody" class="tune-body"></div>
             <div class="tune-spec" id="tuneSpec">
-              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE</span><span id="drafterState" class="drafter-state mono"></span></div>
+              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH</span><span id="drafterState" class="drafter-state mono"></span></div>
               <div class="row">
-                <label class="grow">DFlash drafter HF card<input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — only needed for DFlash, mounted at /drafter" spellcheck="false" /></label>
-                <label>Mode<select id="specSel">
+                <label class="grow">Drafter HF card<input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
+                <label>Speculative config<select id="specSel">
                   <option value="">— off —</option>
-                  <option value="dflash">DFlash — external drafter</option>
-                  <option value="mtp">Native MTP — model draft heads</option>
+                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":6}'>DFlash n=6 — concurrent-optimal</option>
+                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":11}'>DFlash n=11 — single-stream (gemma4)</option>
+                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":12}'>DFlash n=12 — single-stream max</option>
                   <option value="custom">custom JSON…</option>
                 </select></label>
-                <label>Spec tokens / blocks<select id="specTokens">
-                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-                  <option value="4">4</option><option value="5">5</option><option value="6">6</option>
-                  <option value="7">7</option><option value="8">8</option><option value="9">9</option>
-                  <option value="10">10</option><option value="11">11</option><option value="12" selected>12</option>
-                  <option value="13">13</option><option value="14">14</option><option value="15">15</option>
-                </select></label>
               </div>
-              <div class="row" id="specCustomRow" hidden><label class="grow">Custom speculative config (JSON)<input id="specCustom" type="text" spellcheck="false" placeholder='{"method":"qwen3_next_mtp","num_speculative_tokens":2}' /></label></div>
-              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes. DFlash supports n=1-15 with an external drafter at <span class="mono">/drafter</span>; native MTP uses the model's own draft heads and usually wants a smaller n. Custom JSON is passed through for model-specific methods.</p>
+              <div class="row" id="specCustomRow" hidden><label class="grow">Custom speculative config (JSON)<input id="specCustom" type="text" spellcheck="false" placeholder='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}' /></label></div>
+              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. The drafter is pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>.</p>
             </div>
             <div class="row"><label class="grow">Extra flags <span class="note">(any flag not listed above — appended verbatim)</span><input id="tuneExtra" type="text" placeholder="e.g.  --seed 7  --num-scheduler-steps 8  --rope-scaling '{&quot;type&quot;:&quot;yarn&quot;}'" spellcheck="false" /></label></div>
             <p class="note tune-note"><b>How custom flags work:</b> type them exactly as you'd pass them to the engine, space-separated (<span class="mono">--flag value</span> or a bare <span class="mono">--flag</span> for booleans). Wrap a value containing spaces or JSON in single quotes. These MERGE into the engine's serve command — a flag also set above is replaced by your value; a new flag is appended. The bench wiring (served alias · host · port · 64K floor) is protected and can't be broken. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>
@@ -206,10 +200,11 @@
               <option value="">Full suite</option><option value="easy">Easy</option>
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
+              <option value="god_mode">GOD MODE</option>
             </select></label>
             <label>Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
             <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
-            <label>Token budget<input id="hfMaxTok" type="number" placeholder="32768 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips); leave empty for the 32K reasoning-model default" /></label>
+            <label>Token budget<input id="hfMaxTok" type="number" placeholder="2048 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
             <label>Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
             <label class="temp-label" title="sampling temperature for every scored answer — 0 is greedy/deterministic (reproducible, the bench default); higher = more random. Greedy is recommended for attested, replicable runs.">Temperature
               <span class="temp-ctl">
@@ -228,8 +223,45 @@
         </div>
 
         <div class="run-card">
-          <h3>▸ Endpoint bench <span class="tag" title="no model validation — stored on this pod only, never globally ranked">local-only</span></h3>
-          <p class="note">An OpenAI-compatible endpoint you're already serving — quick, but unvalidated: scored <span class="tag">self-reported</span> and never globally ranked. Use the validated bench above to count.</p>
+          <h3>◆ Frontier API reference <span class="tag" title="server-approved hosted API result — comparison only, not local-weight attestation">verified API</span></h3>
+          <p class="note">Run approved hosted frontier models through the same benchmark so local systems can be compared against ChatGPT, Grok, Claude, and other curated APIs. The pod validates the selected API/model before queueing, then the mothership records provider, version, effort, and logo metadata.</p>
+          <div class="row">
+            <label class="grow">Approved model<select id="frModel"></select></label>
+            <label>API key<select id="frKey"></select></label>
+            <button id="frValidate" class="ghost">✓ Validate API</button>
+          </div>
+          <details class="inline-keybox">
+            <summary>＋ Save a provider API key here</summary>
+            <div class="row">
+              <label>Name<input id="frKeyName" type="text" placeholder="e.g. anthropic-fable or openai-prod" /></label>
+              <label class="grow">API key<input id="frKeyVal" type="password" placeholder="secret stored only on this pod" autocomplete="off" /></label>
+              <button id="frKeySave" class="ghost">Save &amp; select</button>
+            </div>
+          </details>
+          <div id="frInfo" class="eng-info note"></div>
+          <div class="row">
+            <label>Test plan<select id="frPlan" title="frontier reference runs can populate the same boards as local models">
+              <option value="comprehensive" selected>Comprehensive — full benchmark</option>
+              <option value="">Text suite only</option>
+              <option value="hard-bench">Hard Bench</option>
+            </select></label>
+            <label>Scope<select id="frDiff">
+              <option value="">Full suite</option><option value="easy">Easy</option>
+              <option value="medium">Medium</option><option value="hard">Hard</option>
+              <option value="expert">Expert</option><option value="frontier">Frontier</option>
+              <option value="god_mode">GOD MODE</option>
+            </select></label>
+            <label>Concurrency<input id="frConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto" /></label>
+            <label>Max concurrency<input id="frMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
+            <label>Token budget<input id="frMaxTok" type="number" placeholder="provider default" min="256" max="131072" step="256" /></label>
+            <button id="frLaunch" class="primary">▶ Launch frontier reference</button>
+          </div>
+        </div>
+
+        <div class="run-card">
+          <h3>▸ Endpoint bench <span class="tag" title="no model validation — stays on this pod only">local-only</span></h3>
+          <div class="local-only-callout">LOCAL ONLY · not submitted to the mothership · not globally ranked</div>
+          <p class="note">An OpenAI-compatible endpoint you're already serving — quick, useful for smoke tests and private experiments, but unverified and kept on this pod. Use the validated bench or frontier reference above when the result should appear on Aeon Bench.</p>
           <div class="row">
             <label>Base URL<input id="reBase" type="text" value="http://127.0.0.1:8000/v1" /></label>
             <label>Model name<input id="reModel" type="text" placeholder="as the server reports it" /></label>
@@ -240,11 +272,20 @@
               <option value="">Full suite</option><option value="easy">Easy</option>
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
+              <option value="god_mode">GOD MODE</option>
             </select></label>
             <label>Concurrency<input id="reConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
             <label>Max concurrency<input id="reMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <button id="reLaunch" class="primary">▶ Launch</button>
           </div>
+          <details class="inline-keybox">
+            <summary>＋ Save an endpoint API key here</summary>
+            <div class="row">
+              <label>Name<input id="reKeyName" type="text" placeholder="e.g. lmstudio, openrouter, lab-vllm" /></label>
+              <label class="grow">API key<input id="reKeyVal" type="password" placeholder="secret stored only on this pod" autocomplete="off" /></label>
+              <button id="reKeySave" class="ghost">Save &amp; select</button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -534,6 +575,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=80"></script>
+  <script src="/static/app.js?v=79"></script>
 </body>
 </html>

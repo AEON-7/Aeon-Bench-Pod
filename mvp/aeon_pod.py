@@ -39,17 +39,6 @@ if _MVP not in sys.path:
     sys.path.insert(0, _MVP)
 
 
-def _default_max_tokens():
-    """Default answer budget for benchmark generations, including hidden reasoning tokens."""
-    try:
-        return min(131072, max(256, int(os.environ.get("AEON_MAX_TOKENS", "32768"))))
-    except (TypeError, ValueError):
-        return 32768
-
-
-DEFAULT_MAX_TOKENS = _default_max_tokens()
-
-
 def _gpu_desc(gpu_line):
     """One nvidia-smi csv line -> a human GPU label:
     'NVIDIA GeForce RTX 5090, 32607 MiB, 575.x' -> 'RTX 5090 32GB' (GB10 keeps the Spark name)."""
@@ -125,7 +114,7 @@ def _hardware_profile(label=None):
 
 def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=None,
             board="text", suite_id=None, key_path=None, hf_repo=None, limit=None, difficulty=None,
-            category=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None, judge_key=None,
+            category=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None, judge_key=None,
             concurrency=1):
     # Pod state is LOCAL SQLite (its own job dashboard) — never the mothership DB.
     os.environ.pop("AEON_DB_URL", None)
@@ -271,7 +260,7 @@ def _collect_results(rid):
     } for x in run["results"]]
 
 
-def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0,
+def _bench_and_results(model, target, *, api_key=None, max_tokens=2048, temperature=0.0,
                        judge=None, judge_url=None, judge_key=None, checkpoint=None, checkpoint_every=8,
                        retry_max_tokens=None, concurrency=1,
                        hf_repo=None, trust_tier="self_reported", model_verified=None):
@@ -481,7 +470,7 @@ def _stop(proc):
 
 def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="text",
                    suite_id=None, key_path=None, weights_dir=None, keep_weights=False,
-                   port=8000, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None,
+                   port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
@@ -699,7 +688,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
 
 def run_attested(target, modelref_path, mothership, *, hardware=None, board="text", suite_id=None,
-                 key_path=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None,
+                 key_path=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                  judge_key=None, harness_ids=None, limit=None, difficulty=None, category=None,
                  fast=False, seed=None, per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
                  arena_per_kind=2, audio=True, perf=False, perf_max_conc=None, harness_only=False):
@@ -907,9 +896,7 @@ def main():
         "model the IDENTICAL questions (a true A/B). Omit with --fast to draw + print a fresh seed")
     ap.add_argument("--per-cell", type=int, default=1, help="fast bench: cases drawn per (category x "
         "difficulty) cell (1=20 cases; 5=~100; a thorough-but-feasible balanced sample)")
-    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
-                    help="generation cap, including hidden reasoning tokens (default 32768; "
-                         "override with AEON_MAX_TOKENS)")
+    ap.add_argument("--max-tokens", type=int, default=2048, help="generation cap (reasoning models need headroom)")
     ap.add_argument("--retry-max-tokens", type=int, default=None, help="if a case is CUT OFF mid-reasoning "
         "(finish_reason=length) and has no/incorrect answer, RE-RUN it once at this higher ceiling (e.g. "
         "50000) so the model can finish — a no-answer is usually truncation, not a real miss")

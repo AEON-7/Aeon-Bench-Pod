@@ -117,11 +117,12 @@ def _http_timeout():
 
 
 class OpenAITarget:
-    def __init__(self, base_url, model, api_key=None, timeout=None):
+    def __init__(self, base_url, model, api_key=None, timeout=None, extra_body=None):
         self.base_url = _ipv4(base_url.rstrip("/"))
         self.model = model
         self.api_key = api_key
         self.timeout = timeout or _http_timeout()   # None -> env-scaled default (see above)
+        self.extra_body = extra_body or {}
 
     def _headers(self):
         h = {"Content-Type": "application/json"}
@@ -161,6 +162,21 @@ class OpenAITarget:
         req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
         return urllib.request.urlopen(req, timeout=self.timeout)
 
+    def _apply_extra(self, payload, max_tokens):
+        if not self.extra_body:
+            return payload
+        token_field = self.extra_body.get("_token_field")
+        omit_temperature = bool(self.extra_body.get("_omit_temperature"))
+        for k, v in self.extra_body.items():
+            if not str(k).startswith("_"):
+                payload[k] = v
+        if token_field and token_field != "max_tokens":
+            payload.pop("max_tokens", None)
+            payload[str(token_field)] = max_tokens
+        if omit_temperature:
+            payload.pop("temperature", None)
+        return payload
+
     def _chat_stream(self, messages, temperature, max_tokens):
         payload = {
             "model": self.model,
@@ -170,6 +186,7 @@ class OpenAITarget:
             "max_tokens": max_tokens,
             "stream_options": {"include_usage": True},
         }
+        payload = self._apply_extra(payload, max_tokens)
         t0 = time.perf_counter()
         ttft = None          # time to the FIRST generated token of ANY kind (incl. hidden reasoning)
         chunks = 0           # streamed token-chunks (reasoning + content) — for timing + fallback count
@@ -242,6 +259,7 @@ class OpenAITarget:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        payload = self._apply_extra(payload, max_tokens)
         t0 = time.perf_counter()
         try:
             resp = self._post(payload, stream=False)
@@ -266,6 +284,160 @@ class OpenAITarget:
             "input_tokens_estimated": in_est,
             "finish_reason": finish,
             "truncated": finish == "length",
+            "streamed": False,
+        }
+
+
+class AnthropicTarget:
+    """Anthropic Messages API adapter with the same Target.chat contract."""
+
+    def __init__(self, base_url, model, api_key=None, timeout=None, extra_body=None):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout or _http_timeout()
+        self.extra_body = extra_body or {}
+
+    def _headers(self):
+        h = {
+            "Content-Type": "application/json",
+            "anthropic-version": os.environ.get("AEON_ANTHROPIC_VERSION", "2023-06-01"),
+        }
+        if self.api_key:
+            h["x-api-key"] = self.api_key
+        return h
+
+    def _messages(self, messages):
+        system, out = [], []
+        for m in messages:
+            role = m.get("role") or "user"
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                content = "\n".join(
+                    str(b.get("text", "")) for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+            if role == "system":
+                system.append(str(content))
+            elif role in ("user", "assistant"):
+                out.append({"role": role, "content": str(content)})
+            else:
+                out.append({"role": "user", "content": str(content)})
+        payload = {"messages": out or [{"role": "user", "content": ""}]}
+        if system:
+            payload["system"] = "\n\n".join(system)
+        return payload
+
+    def _base_payload(self, messages, max_tokens, stream):
+        payload = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "stream": stream,
+            **self._messages(_clean(messages)),
+        }
+        if self.extra_body:
+            payload.update(self.extra_body)
+        return payload
+
+    def _post(self, payload):
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self.base_url + "/messages",
+            data=data,
+            headers=self._headers(),
+            method="POST",
+        )
+        return urllib.request.urlopen(req, timeout=self.timeout)
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        try:
+            return self._chat_stream(messages, max_tokens)
+        except TargetError:
+            raise
+        except Exception:
+            return self._chat_once(messages, max_tokens)
+
+    def _chat_stream(self, messages, max_tokens):
+        payload = self._base_payload(messages, max_tokens, True)
+        t0 = time.perf_counter()
+        ttft = None
+        chunks = 0
+        parts = []
+        usage = {}
+        stop_reason = None
+        try:
+            resp = self._post(payload)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise TargetError(f"HTTP {e.code} from {self.base_url}: {body}")
+        with resp as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                typ = obj.get("type")
+                if typ == "content_block_delta":
+                    delta = obj.get("delta") or {}
+                    text = delta.get("text") or delta.get("thinking") or ""
+                    if text and ttft is None:
+                        ttft = time.perf_counter() - t0
+                    if text:
+                        chunks += 1
+                    if delta.get("type") == "text_delta" and delta.get("text"):
+                        parts.append(delta["text"])
+                elif typ == "message_delta":
+                    usage.update(obj.get("usage") or {})
+                    stop_reason = (obj.get("delta") or {}).get("stop_reason") or stop_reason
+                elif typ == "message_stop":
+                    break
+        t_last = time.perf_counter()
+        text = "".join(parts)
+        out_tok = usage.get("output_tokens") or chunks or max(1, len(text) // 4)
+        decode_span = (t_last - t0) - (ttft or 0.0)
+        tps = (out_tok / decode_span) if decode_span > 1e-6 else None
+        return {
+            "text": text,
+            "ttft_ms": round(ttft * 1000, 2) if ttft else None,
+            "decode_tps": round(tps, 2) if tps else None,
+            "e2e_ms": round((t_last - t0) * 1000, 2),
+            "output_tokens": out_tok,
+            "finish_reason": stop_reason,
+            "truncated": stop_reason == "max_tokens",
+            "streamed": True,
+        }
+
+    def _chat_once(self, messages, max_tokens):
+        payload = self._base_payload(messages, max_tokens, False)
+        t0 = time.perf_counter()
+        try:
+            resp = self._post(payload)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise TargetError(f"HTTP {e.code} from {self.base_url}: {body}")
+        with resp as r:
+            obj = json.loads(r.read().decode("utf-8", "replace"))
+        t_last = time.perf_counter()
+        text = "".join(
+            b.get("text", "") for b in obj.get("content", [])
+            if b.get("type") == "text"
+        )
+        out_tok = (obj.get("usage") or {}).get("output_tokens") or max(1, len(text) // 4)
+        stop_reason = obj.get("stop_reason")
+        return {
+            "text": text,
+            "ttft_ms": None,
+            "decode_tps": None,
+            "e2e_ms": round((t_last - t0) * 1000, 2),
+            "output_tokens": out_tok,
+            "finish_reason": stop_reason,
+            "truncated": stop_reason == "max_tokens",
             "streamed": False,
         }
 

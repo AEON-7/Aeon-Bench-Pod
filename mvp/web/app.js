@@ -256,18 +256,25 @@ function renderBoard() {
     const vram = m.vram_est_gb != null
       ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
     const band = m.comp >= 80 ? "pass" : m.comp >= 40 ? "part" : "fail";
+    const fr = m.frontier || null;
+    const ava = fr && fr.logo_url ? fr.logo_url : "/static/generic-avatar.svg";
+    const creatorHref = fr && fr.website ? ` href="${escA(fr.website)}"` : "";
+    const frontierChip = fr
+      ? `<span class="frontier-chip" title="validated hosted frontier API reference">${escH(fr.brand || fr.provider)} · ${escH(fr.version || fr.model)} · effort ${escH(fr.effort || "default")}</span>`
+      : "";
     return `<div class="mcard${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}" data-trust="${m.record_eligible ? "verified" : "local"}" style="--i:${i}">
       <span class="mcard-ghost" aria-hidden="true">${String(i + 1).padStart(2, "0")}</span>
       <label class="mcard-sel"><input type="checkbox" class="rsel" data-model="${escA(m.model)}" ${checked}></label>
       <div class="mcard-rank">${String(i + 1).padStart(2, "0")}</div>
-      <a class="model-creator mcard-ava" data-meta="${escA(m.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-        <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="52" height="52">
+      <a class="model-creator mcard-ava${fr ? " frontier" : ""}" data-meta="${escA(m.model)}"${creatorHref} target="_blank" rel="noopener noreferrer" title="${fr ? "frontier provider" : "creator profile"}">
+        <img class="model-avatar${fr ? " frontier" : ""}" data-meta-avatar="${escA(m.model)}" src="${escA(ava)}" alt="" loading="lazy" width="52" height="52">
       </a>
       <div class="mcard-id">
         <div class="mcard-name">
           <a class="mlink" data-run="${escA(m.run)}" data-model="${escA(m.model)}">${fmtModel(m.model)}</a>
           ${m.record_eligible
             ? `<span class="elig-badge verified" title="verified HF-pull controlled run — globally ranked">✓ verified</span>`
+            : fr ? `<span class="elig-badge frontier" title="validated hosted frontier API reference — comparison only, not a local-weight attestation">frontier API</span>`
             : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`}
           ${vram}
           <span class="mcard-acts">
@@ -275,6 +282,7 @@ function renderBoard() {
             <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
           </span>
         </div>
+        ${frontierChip}
         <div class="mcard-caps">${caps}</div>
       </div>
       <div class="mcard-comp ${band}" style="--pct:${m.comp.toFixed(1)}"><span class="composite">${fmtComp(m.comp)}</span><span class="mcard-complabel">composite</span></div>
@@ -297,7 +305,7 @@ function renderBoard() {
   models.forEach((m) => {
     const cached = META.get(m.model);
     if (cached && cached !== "pending") applyMeta(m.model, cached);
-    else fetchMeta(m.model);
+    else if (!m.frontier) fetchMeta(m.model);
   });
   renderChart();
 }
@@ -893,6 +901,7 @@ async function loadGallery(kind) {
   renderGallery(d);
 }
 
+
 function bindGalleryControls() {
   const inp = $("#galFilter");
   if (!inp) return;
@@ -914,10 +923,10 @@ function galMatches(a, p, q) {
 function galCard(a, p, i) {
   const stats = a.unrated
     ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
-    : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+    : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T ? ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
   const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
   const hchip = a.harness
-    ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
+    ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">? ${escH(a.harness)}</span>`
     : "";
   return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
     <div class="gal-card-h">
@@ -933,7 +942,6 @@ function galCard(a, p, i) {
     </div>
   </div>`;
 }
-
 function renderGallery(d) {
   const prompts = d.prompts || [];
   if (!prompts.length) {
@@ -953,7 +961,7 @@ function renderGallery(d) {
     return;
   }
   // one section per prompt; a horizontal strip of top-10 cards. Previews are NEVER
-  // rendered inline (30 live iframes would be a resource bomb) — only on click, in the
+  // rendered inline (30 live iframes would be a resource bomb) ? only on click, in the
   // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
   $("#galleryBody").innerHTML = filtered.map((p) =>
     `<div class="gal-sec">
@@ -1344,7 +1352,9 @@ function _ipGauge(pct, label) {
     <span class="ip-val">${Math.round(pct)}</span><span class="ip-lbl">${escH(label)}</span></div>`;
 }
 
-const _DIFF_ORDER = ["easy", "medium", "hard", "expert", "frontier"];
+const _DIFF_ORDER = ["easy", "medium", "hard", "expert", "frontier", "god_mode"];
+const _DIFF_LABELS = { god_mode: "GOD MODE" };
+function diffLabel(k) { return _DIFF_LABELS[k] || k || ""; }
 
 function _instrumentPanel(d) {
   const scored = (d.cases || []).filter((c) => typeof c.score === "number");
@@ -1354,7 +1364,7 @@ function _instrumentPanel(d) {
     (catAgg[c.category] = catAgg[c.category] || []).push(c.score);
     if (c.difficulty) {
       (diffAgg[c.difficulty] = diffAgg[c.difficulty] || []).push(c.score);
-      const k = c.category + " " + c.difficulty;
+      const k = c.category + "" + c.difficulty;
       (cellAgg[k] = cellAgg[k] || []).push(c.score);
     }
   });
@@ -1371,17 +1381,18 @@ function _instrumentPanel(d) {
   const diffs = _DIFF_ORDER.filter((k) => diffAgg[k]);
   const ladder = diffs.length < 2 ? "" : `<div class="ip-ladder"><span class="ip-sec">difficulty</span>` +
     diffs.map((k) => {
-      const v = 100 * diffAgg[k].reduce((a, b) => a + b, 0) / diffAgg[k].length;
-      return `<div class="ip-rung"><span class="diff-chip d-${k}">${k}</span>
+      const vals = diffAgg[k];
+      const v = 100 * vals.reduce((a, b) => a + b, 0) / vals.length;
+      return `<div class="ip-rung"><span class="diff-chip d-${k}">${escH(diffLabel(k))}</span>
         <span class="ip-bar"><i class="db-${k}" style="width:${Math.min(100, v).toFixed(1)}%"></i></span>
-        <span class="ip-pct">${Math.round(v)}</span><span class="ip-n">${diffAgg[k].length}</span></div>`;
+        <span class="ip-pct">${Math.round(v)}</span><span class="ip-n">${vals.length}</span></div>`;
     }).join("") + `</div>`;
   // category × difficulty MATRIX: where exactly the run holds up and where it cracks
   let matrix = "";
   if (diffs.length >= 2 && cats.length >= 2) {
-    const head = `<tr><th></th>${diffs.map((k) => `<th><span class="diff-chip d-${k}">${k}</span></th>`).join("")}</tr>`;
+    const head = `<tr><th></th>${diffs.map((k) => `<th><span class="diff-chip d-${k}">${escH(diffLabel(k))}</span></th>`).join("")}</tr>`;
     const trs = cats.map(([c]) => `<tr><th class="ipm-cat">${escH(c)}</th>` + diffs.map((k) => {
-      const v = cellAgg[c + " " + k];
+      const v = cellAgg[c + "" + k];
       if (!v) return `<td class="ipm-na">·</td>`;
       const m = 100 * v.reduce((a, b) => a + b, 0) / v.length;
       return `<td style="--s:${(m / 100).toFixed(3)}" title="${escA(c)} × ${escA(k)}: ${m.toFixed(1)} (${v.length} case${v.length === 1 ? "" : "s"})">${Math.round(m)}</td>`;
@@ -1431,7 +1442,7 @@ function renderSubmissionDetail(d) {
     const sc = c.score == null ? (c.status === "tier1_pending" ? "pending" : "—") : (c.score * 100).toFixed(0);
     const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
     const cr = (c.creativity != null && c.creativity > 0) ? ` <span class="ev-badge ok">+${c.creativity} creativity</span>` : "";
-    const df = c.difficulty ? ` <span class="diff-chip d-${escA(c.difficulty)}" title="difficulty class">${escH(c.difficulty)}</span>` : "";
+    const df = c.difficulty ? ` <span class="diff-chip d-${escA(c.difficulty)}" title="difficulty class">${escH(diffLabel(c.difficulty))}</span>` : "";
     const head = `<div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}
         <span class="sub-score ${cls}">${sc}</span>${cr}${c.disputed ? ` <span class="ev-badge disputed" title="${escA(c.disputed_reason || "")}">⚠ agent-judge: likely checker false-negative</span>` : ""}<span class="subs-by">judged by: ${escH(c.judged_by)}</span></div>`;
     if (c.harness_case) {
@@ -1932,7 +1943,7 @@ function renderHarnessCompare(p, hs, details) {
   const rows = ids.map((id) => {
     const first = hs.map((h) => byH[h].get(id)).find(Boolean) || {};
     return `<div class="h3c-case">
-      <div class="sub-case-h"><span class="mono">${escH(id)}</span> <span class="tag">${escH(first.category || "")}</span>${first.difficulty ? ` <span class="diff-chip d-${escA(first.difficulty)}">${escH(first.difficulty)}</span>` : ""}</div>
+      <div class="sub-case-h"><span class="mono">${escH(id)}</span> <span class="tag">${escH(first.category || "")}</span>${first.difficulty ? ` <span class="diff-chip d-${escA(first.difficulty)}">${escH(diffLabel(first.difficulty))}</span>` : ""}</div>
       <div class="sub-q"><b>asked:</b> ${escH(first.prompt || "")}</div>
       <div class="h3c-grid" style="--n:${hs.length}">${hs.map((h) => cell(byH[h].get(id))).join("")}</div>
     </div>`;
@@ -2058,7 +2069,7 @@ function renderRunCompare() {
   const d = CMP.runData; if (!d) return;
   const f = CMP.runFilters || { cat: "", diff: "", diffsOnly: false };
   const cats = [...new Set(d.cases.map((c) => c.category).filter(Boolean))];
-  const diffs = ["easy", "medium", "hard", "expert", "frontier"].filter((x) => d.cases.some((c) => c.difficulty === x));
+  const diffs = _DIFF_ORDER.filter((x) => d.cases.some((c) => c.difficulty === x));
   let rows = d.cases;
   if (f.cat) rows = rows.filter((c) => c.category === f.cat);
   if (f.diff) rows = rows.filter((c) => c.difficulty === f.diff);
@@ -2067,7 +2078,7 @@ function renderRunCompare() {
   const bWins = d.cases.filter((c) => (c.b.score ?? 0) > (c.a.score ?? 0)).length;
   const filters = `<div class="cmp2-filters">
     <label>category <select id="c2Cat"><option value="">all</option>${cats.map((c) => `<option${f.cat === c ? " selected" : ""}>${escH(c)}</option>`).join("")}</select></label>
-    <label>difficulty <select id="c2Diff"><option value="">all</option>${diffs.map((x) => `<option${f.diff === x ? " selected" : ""}>${escH(x)}</option>`).join("")}</select></label>
+    <label>difficulty <select id="c2Diff"><option value="">all</option>${diffs.map((x) => `<option value="${escA(x)}"${f.diff === x ? " selected" : ""}>${escH(diffLabel(x))}</option>`).join("")}</select></label>
     <label class="c2-only"><input type="checkbox" id="c2Only"${f.diffsOnly ? " checked" : ""}> differences only</label>
     <span class="note">A wins ${aWins} · B wins ${bWins} · ${d.cases.length - aWins - bWins} even${(d.only_a.length || d.only_b.length) ? ` · ${d.only_a.length + d.only_b.length} cases not shared (different suites)` : ""}</span>
   </div>`;
@@ -2079,7 +2090,7 @@ function renderRunCompare() {
       <pre>${escH((s.answer || "").slice(0, 4000))}</pre></div>`;
   };
   const body = rows.map((c) => {
-    const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(c.difficulty)}</span>` : "";
+    const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(diffLabel(c.difficulty))}</span>` : "";
     const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
     const edge = delta > 0 ? `<span class="cmp2-edge a">◄ A</span>` : delta < 0 ? `<span class="cmp2-edge b">B ►</span>` : "";
     return `<div class="cmp2-case">
@@ -2131,7 +2142,7 @@ function renderCompare(d) {
     : `<td class="num cmp-q part">${Math.round(v * 100)}</td>`;   // same 0-100 grammar as every score
   const cHead = `<tr><th>tier</th><th>question</th>` + ms.map((m) => `<th class="num">${escH(m.model.split("/").pop())}</th>`).join("") + `</tr>`;
   const cRows = d.cases.map((c) =>
-    `<tr><td class="cmp-diff t-${escA(c.difficulty || "")}">${escH(c.difficulty || "")}</td>` +
+    `<tr><td class="cmp-diff t-${escA(c.difficulty || "")}">${escH(diffLabel(c.difficulty || ""))}</td>` +
     `<td class="cmp-cid mono" title="${escA(c.category + " · " + c.case_id)}">${escH(c.case_id)}</td>` +
     ms.map((m) => mark(c.scores[m.model])).join("") + `</tr>`).join("");
   const caseTbl = `<table class="cmp-tbl cmp-cases"><thead>${cHead}</thead><tbody>${cRows}</tbody></table>`;
@@ -2199,7 +2210,7 @@ function queueStrip(queued) {
       <span class="lq-pos mono">#${i + 1}</span>
       <b class="lq-model">${escH((q.model || "").split("/").pop() || "?")}</b>
       ${q.preset ? `<span class="tag preset-tag">${escH(q.preset)}</span>` : ""}
-      ${q.difficulty ? `<span class="tag">${escH(q.difficulty)}</span>` : ""}
+      ${q.difficulty ? `<span class="tag">${escH(diffLabel(q.difficulty))}</span>` : ""}
       <span class="note lq-wait">waiting for turn</span>
       <button class="ghost lq-stop" data-id="${escA(q.id)}">✕ remove</button>
     </div>`).join("")}
@@ -2317,7 +2328,7 @@ function renderLive(d, job, queued, tele) {
 }
 
 // ---- POD Run tab: launch benchmarks (endpoint / verified-HF) + manage saved keys (pod-only) ----
-const RUN = { keys: [], jobsTimer: null };
+const RUN = { keys: [], frontier: [], jobsTimer: null };
 
 function podToken() { try { return localStorage.getItem("aeon_pod_token") || ""; } catch (e) { return ""; } }
 function podHeaders(extra) {                         // inject the optional lab token on every pod call
@@ -2338,6 +2349,7 @@ async function setRun() {
   const rp = $("#runPanel"); if (rp) rp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   await loadSavedKeys();
+  await loadFrontierModels();
   await loadEngines();
   await loadLaunches();
   await pollJobs();
@@ -2358,7 +2370,40 @@ async function loadSavedKeys() {
       opts.map((k) => `<option value="${escA(k.name)}">${escH(k.name)} (${escH(k.masked)})</option>`).join("");
   };
   fill("#reKey", RUN.keys.filter((k) => k.kind !== "hf_token"), "— none —");
+  fill("#frKey", RUN.keys.filter((k) => k.kind !== "hf_token"), "— choose API key —");
   fill("#hfKey", RUN.keys.filter((k) => k.kind === "hf_token"), "— public —");
+}
+
+async function loadFrontierModels() {
+  try { RUN.frontier = (await api("/api/pod/frontier", { headers: podHeaders() })).models || []; }
+  catch (e) { RUN.frontier = []; }
+  const sel = $("#frModel");
+  if (!sel) return;
+  sel.innerHTML = RUN.frontier.length
+    ? RUN.frontier.map((m) =>
+        `<option value="${escA(m.id)}">${escH(m.brand || m.provider)} · ${escH(m.version || m.model)} · effort ${escH(m.effort || "default")}</option>`).join("")
+    : `<option value="">— no approved frontier definitions —</option>`;
+  renderFrontierInfo();
+}
+
+function curFrontier() {
+  const id = $("#frModel") && $("#frModel").value;
+  return (RUN.frontier || []).find((m) => m.id === id) || null;
+}
+
+function renderFrontierInfo(msg, cls) {
+  const el = $("#frInfo"); if (!el) return;
+  const m = curFrontier();
+  if (!m) { el.innerHTML = msg ? `<span class="${cls || ""}">${escH(msg)}</span>` : ""; return; }
+  const bits = [
+    `<b>${escH(m.display_name || m.brand || m.model)}</b>`,
+    `<span class="mono">${escH(m.model)}</span>`,
+    `provider ${escH(m.provider_name || m.provider)}`,
+    `effort ${escH(m.effort || "default")}`,
+  ];
+  el.innerHTML = bits.join(" · ") +
+    (msg ? ` <span class="${cls || ""}">· ${escH(msg)}</span>` : "") +
+    `<div class="note">Frontier references are validated hosted API runs for comparison against local models; they are shown on the board but are not local-weight attestations.</div>`;
 }
 
 // ---- LAUNCH TEMPLATES: prior runs as starting points — tweak one knob, relaunch ---------------
@@ -2379,9 +2424,7 @@ async function loadLaunches() {
     if (p.concurrency) bits.push("c" + p.concurrency);
     const nf = (p.serve_flags || []).filter((t) => String(t).startsWith("-")).length;
     if (nf) bits.push(nf + " tuned flags");
-    const sf = (p.serve_flags || []).map(String).join(" ");
-    if (p.drafter_hf || sf.includes('"method":"dflash"') || sf.includes('"method": "dflash"')) bits.push("DFlash");
-    else if (sf.includes("qwen3_next_mtp") || sf.includes('"method":"mtp"') || sf.includes('"method": "mtp"')) bits.push("MTP");
+    if (p.drafter_hf) bits.push("DFlash");
     return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
   }).join("");
 }
@@ -2389,37 +2432,11 @@ async function loadLaunches() {
 // Inverse of collectServeFlags(): push a saved [flag, value, ...] list back INTO the tuning
 // controls (catalog flags -> their control; --speculative-config -> the spec block; anything
 // unrecognized -> the freeform extras field, verbatim).
-function applySpecConfigValue(json) {
-  const sel = $("#specSel");
-  if (!sel) return false;
-  const raw = String(json || "").trim();
-  const spec = parseSpecConfig(raw);
-  const method = String((spec && spec.method) || "").toLowerCase();
-  const n = Number(spec && spec.num_speculative_tokens);
-  if (method === "dflash" && specNeedsDrafter(spec, raw)) {
-    sel.value = "dflash";
-    if ($("#specTokens") && Number.isFinite(n)) $("#specTokens").value = String(clampSpecTokens(n));
-    if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
-    return true;
-  }
-  if (method.includes("mtp")) {
-    sel.value = "mtp";
-    if ($("#specTokens") && Number.isFinite(n)) $("#specTokens").value = String(clampSpecTokens(n));
-    if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
-    return true;
-  }
-  sel.value = "custom";
-  if ($("#specCustom")) $("#specCustom").value = raw;
-  if ($("#specCustomRow")) $("#specCustomRow").hidden = false;
-  return true;
-}
-
 function applyServeFlags(list) {
   $$("#tuneBody [data-flag]").forEach((el) => {
     if (el.dataset.kind === "bool") el.checked = false; else el.value = "";
   });
   if ($("#specSel")) $("#specSel").value = "";
-  if ($("#specTokens")) $("#specTokens").value = "12";
   if ($("#specCustom")) $("#specCustom").value = "";
   if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
   if ($("#tuneExtra")) $("#tuneExtra").value = "";
@@ -2429,11 +2446,14 @@ function applyServeFlags(list) {
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     if (t === "--speculative-config") {
-      applySpecConfigValue(toks[++i] || "");
-      continue;
-    }
-    if (t.startsWith("--speculative-config=")) {
-      applySpecConfigValue(t.slice("--speculative-config=".length));
+      const json = toks[++i] || "", sel = $("#specSel");
+      if (!sel) continue;
+      if (Array.from(sel.options).some((o) => o.value === json)) sel.value = json;
+      else {
+        sel.value = "custom";
+        if ($("#specCustom")) $("#specCustom").value = json;
+        if ($("#specCustomRow")) $("#specCustomRow").hidden = false;
+      }
       continue;
     }
     const el = byFlag[t];
@@ -2449,7 +2469,6 @@ function applyServeFlags(list) {
   }
   if (extras.length && $("#tuneExtra"))
     $("#tuneExtra").value = extras.map((x) => (/\s/.test(x) ? `'${x}'` : x)).join(" ");
-  syncSpecUi(false);
   updateTuneCount();
 }
 
@@ -2616,98 +2635,25 @@ function collectServeFlags() {
   return out.length ? out : null;
 }
 
-function parseSpecConfig(raw) {
-  try { return JSON.parse(raw); } catch (_) { return null; }
-}
-
-function clampSpecTokens(n) {
-  n = Math.round(Number(n));
-  if (!Number.isFinite(n)) n = 1;
-  return Math.max(1, Math.min(15, n));
-}
-
-function specNeedsDrafter(spec, raw) {
-  const method = String((spec && spec.method) || "").toLowerCase();
-  const model = String((spec && spec.model) || "");
-  return method === "dflash" || model.includes("/drafter") || String(raw || "").includes("/drafter");
-}
-
-function selectedSpecNeedsDrafter() {
-  const sel = $("#specSel");
-  if (!sel || !sel.value) return false;
-  if (sel.value === "dflash") return true;
-  if (sel.value !== "custom") return false;
-  const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
-  return specNeedsDrafter(parseSpecConfig(raw), raw);
-}
-
-function specTokenValue(mode) {
-  const el = $("#specTokens");
-  const fallback = mode === "mtp" ? 2 : 12;
-  const n = clampSpecTokens((el && el.value) || fallback);
-  if (el) el.value = String(n);
-  return n;
-}
-
-function syncSpecUi(modeChanged = false) {
-  const sel = $("#specSel");
-  const mode = (sel && sel.value) || "";
-  const row = $("#specCustomRow");
-  const tokens = $("#specTokens");
-  const st = $("#drafterState");
-  if (row) row.hidden = mode !== "custom";
-  if (tokens) tokens.disabled = !mode || mode === "custom";
-  if (modeChanged && tokens) {
-    if (mode === "mtp") tokens.value = "2";
-    else if (mode === "dflash") tokens.value = "12";
-  }
-  if (st && !mode) { st.textContent = ""; st.className = "drafter-state mono"; }
-  else if (st && mode === "mtp") {
-    const n = specTokenValue("mtp");
-    st.textContent = n > 4 ? "native MTP armed; high n may be rejected by some model configs" : "native MTP armed; no drafter card needed";
-    st.className = n > 4 ? "drafter-state mono warn" : "drafter-state mono ok";
-  } else if (st && mode === "dflash" && !($("#drafterHf") && $("#drafterHf").value.trim())) {
-    st.textContent = "▸ paste the drafter HF card to arm DFlash";
-    st.className = "drafter-state mono warn";
-  }
-}
-
-// The SPEC DECODE block: DFlash builds a /drafter config, native MTP uses the
-// target model's draft heads, and custom JSON is passed through when it parses.
+// The SPEC DECODE block: preset templates target the /drafter mount (needs a drafter card);
+// custom JSON is passed through when it parses. Sets the inline drafter state line.
 function specConfigJson() {
   const sel = $("#specSel"); if (!sel || !sel.value) return null;
   const st = $("#drafterState");
   if (sel.value === "custom") {
     const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
     if (!raw) return null;
-    const spec = parseSpecConfig(raw);
-    if (!spec) {
+    try { JSON.parse(raw); } catch (e) {
       if (st) { st.textContent = "✗ custom config is not valid JSON"; st.className = "drafter-state mono bad"; }
-      return null;
-    }
-    if (specNeedsDrafter(spec, raw) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
-      if (st) { st.textContent = "▸ custom config references /drafter; paste the drafter HF card"; st.className = "drafter-state mono warn"; }
       return null;
     }
     return raw;
   }
-  if (sel.value === "mtp") {
-    const n = specTokenValue("mtp");
-    if (st) {
-      st.textContent = n > 4 ? "native MTP armed; high n may be rejected by some model configs" : "native MTP armed; no drafter card needed";
-      st.className = n > 4 ? "drafter-state mono warn" : "drafter-state mono ok";
-    }
-    return JSON.stringify({ method: "qwen3_next_mtp", num_speculative_tokens: n });
+  if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
+    if (st) { st.textContent = "▸ paste the drafter HF card to arm this preset"; st.className = "drafter-state mono warn"; }
+    return null;                                     // preset references /drafter — no card, no flag
   }
-  if (sel.value === "dflash") {
-    const n = specTokenValue("dflash");
-    if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
-      if (st) { st.textContent = "▸ paste the drafter HF card to arm DFlash"; st.className = "drafter-state mono warn"; }
-      return null;                                     // preset references /drafter — no card, no flag
-    }
-    return JSON.stringify({ method: "dflash", model: "/drafter", num_speculative_tokens: n });
-  }
-  return null;
+  return sel.value;
 }
 
 let DRAFTER_VAL_ID = null;
@@ -3053,6 +2999,22 @@ async function addKey() {
   loadSavedKeys();
 }
 
+async function saveInlineApiKey(prefix, targetSel) {
+  const nameEl = $("#" + prefix + "KeyName"), valEl = $("#" + prefix + "KeyVal");
+  const name = (nameEl && nameEl.value.trim()) || "";
+  const value = (valEl && valEl.value) || "";
+  if (!name || !value) { runStatus("API key name and value are required", "err"); return; }
+  try {
+    await api("/api/pod/keys", { method: "POST", headers: podHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, value, kind: "api_key" }) });
+  } catch (e) { runStatus("save failed: " + JSON.stringify(e), "err"); return; }
+  if (valEl) valEl.value = "";
+  runStatus("saved API key '" + name + "' and selected it", "ok");
+  await loadSavedKeys();
+  const sel = $(targetSel);
+  if (sel) sel.value = name;
+}
+
 async function deleteKey(name) {
   try {
     await api("/api/pod/keys/delete", { method: "POST", headers: podHeaders({ "Content-Type": "application/json" }),
@@ -3083,6 +3045,38 @@ async function runEndpointBench() {
       perf_max_conc: maxConcVal("#reMaxConc"), concurrency: maxConcVal("#reConc") }, "#reLaunch");
 }
 
+async function validateFrontierApi() {
+  const m = curFrontier(), key = $("#frKey") && $("#frKey").value;
+  if (!m) { runStatus("choose an approved frontier model", "err"); return; }
+  if (!key) { runStatus("choose a saved API key for " + (m.provider_name || m.provider), "err"); return; }
+  const btn = $("#frValidate"); if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/pod/frontier/validate", {
+      method: "POST",
+      headers: podHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ frontier_id: m.id, api_key_name: key }),
+    });
+    renderFrontierInfo(`validated ${r.model || m.model}`, "ok");
+    runStatus(`validated frontier API: ${m.display_name || m.id}`, "ok");
+  } catch (e) {
+    renderFrontierInfo("validation failed", "err");
+    runStatus("frontier validation failed: " + JSON.stringify(e), "err");
+  }
+  if (btn) btn.disabled = false;
+}
+
+async function runFrontierBench() {
+  const m = curFrontier(), key = $("#frKey") && $("#frKey").value;
+  if (!m) { runStatus("choose an approved frontier model", "err"); return; }
+  if (!key) { runStatus("choose a saved API key for " + (m.provider_name || m.provider), "err"); return; }
+  const plan = ($("#frPlan") && $("#frPlan").value) || null;
+  await launchRun("/api/pod/run/frontier",
+    { frontier_id: m.id, api_key_name: key, preset: plan,
+      difficulty: plan === "hard-bench" ? null : ($("#frDiff").value || null),
+      perf_max_conc: maxConcVal("#frMaxConc"), concurrency: maxConcVal("#frConc"),
+      max_tokens: tokBudgetVal("#frMaxTok") }, "#frLaunch");
+}
+
 // The validated-bench launch payload: engine + custom image always travel; the local dir rides
 // ONLY when it hash-validated (a mismatched local copy is ignored — the pod pulls fresh, which
 // still validates); the serve URL rides only on the MLX bare-metal path.
@@ -3097,7 +3091,7 @@ function _validatedExtras() {
     // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
     serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
-    drafter_hf: selectedSpecNeedsDrafter() ? (($("#drafterHf") && $("#drafterHf").value.trim()) || null) : null,  // DFlash only; Off/MTP do not mount /drafter
+    drafter_hf: ($("#drafterHf") && $("#drafterHf").value.trim()) || null,  // validated + mounted /drafter
     serve_cmd: ($("#tuneServeCmd") && $("#tuneServeCmd").value.trim()) || null,  // FULL serve override (verbatim)
   };
 }
@@ -3206,7 +3200,7 @@ function renderJobs(jobs) {
       ${kindB}<span class="job-stage">${escH(stg)}</span>
       ${j.serve_phase && j.stage === "serving" ? `<span class="tag tele-phase">${escH(j.serve_phase)}</span>` : ""}
       ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
-      ${j.difficulty ? `<span class="tag">${escH(j.difficulty)}</span>` : ""}
+      ${j.difficulty ? `<span class="tag">${escH(diffLabel(j.difficulty))}</span>` : ""}
       ${live}${stop}${stageStrip(j)}${err}${hint}</div>`;
   }).join("");
   $$(".job-live").forEach((b) => b.onclick = () => $("#tabs [data-live]").click());
@@ -3251,12 +3245,10 @@ async function init() {
   // sidesteps the check. Clearing it is a DELIBERATE mode switch to "pull the repo fresh".
   bind("#hfLocalClear", () => setLocalWeights(""));
   vIn("#tuneExtra", updateTuneCount);
-  // spec-decode block: DFlash validates a drafter card; MTP/custom arm --speculative-config directly
+  // spec-decode block: drafter card validates like the model; presets arm --speculative-config
   { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }
-  { const ss = $("#specSel"); if (ss) ss.onchange = () => { syncSpecUi(true); updateTuneCount(); }; }
-  { const st = $("#specTokens"); if (st) st.oninput = st.onchange = () => { syncSpecUi(false); updateTuneCount(); }; }
+  { const ss = $("#specSel"); if (ss) ss.onchange = () => { const cr = $("#specCustomRow"); if (cr) cr.hidden = ss.value !== "custom"; updateTuneCount(); }; }
   vIn("#specCustom", updateTuneCount);
-  syncSpecUi(false);
   bind("#lwScan", scanModels);
   bind("#lwBrowse", openBrowse);
   bind("#browseClose", closeBrowse);
@@ -3358,6 +3350,8 @@ async function init() {
   });
   // Enter submits in every launch/key form (there are no <form> elements, so no native submit)
   [["#reBase", "#reLaunch"], ["#reModel", "#reLaunch"], ["#hfLink", "#hfLaunch"],
+   ["#frMaxTok", "#frLaunch"],
+   ["#frKeyVal", "#frKeySave"], ["#reKeyVal", "#reKeySave"],
    ["#keyVal", "#keyAdd"], ["#podToken", "#podTokenSave"]].forEach(([i, b]) => {
     const el = $(i);
     if (el) el.onkeydown = (e) => {
@@ -3366,6 +3360,11 @@ async function init() {
       const btn = $(b); if (btn && !btn.disabled) btn.click();
     };
   });
+  bind("#frValidate", validateFrontierApi);
+  bind("#frLaunch", runFrontierBench);
+  bind("#frKeySave", () => saveInlineApiKey("fr", "#frKey"));
+  bind("#reKeySave", () => saveInlineApiKey("re", "#reKey"));
+  { const fm = $("#frModel"); if (fm) fm.onchange = () => renderFrontierInfo(); }
   // Enter in the username field advances to the password field
   { const au = $("#authUser"); if (au) au.onkeydown = (e) => { if (e.key === "Enter") $("#authPass").focus(); }; }
   // HUD readouts — both are TRUE data, never decoration:

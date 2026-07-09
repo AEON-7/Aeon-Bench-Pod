@@ -40,17 +40,6 @@ if _MVP not in sys.path:
     sys.path.insert(0, _MVP)
 
 
-def _default_max_tokens():
-    """Default answer budget for benchmark generations, including hidden reasoning tokens."""
-    try:
-        return min(131072, max(256, int(os.environ.get("AEON_MAX_TOKENS", "32768"))))
-    except (TypeError, ValueError):
-        return 32768
-
-
-DEFAULT_MAX_TOKENS = _default_max_tokens()
-
-
 def _gpu_desc(gpu_line):
     """One nvidia-smi csv line -> a human GPU label:
     'NVIDIA GeForce RTX 5090, 32607 MiB, 575.x' -> 'RTX 5090 32GB' (GB10 keeps the Spark name)."""
@@ -126,8 +115,8 @@ def _hardware_profile(label=None):
 
 def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=None,
             board="text", suite_id=None, key_path=None, hf_repo=None, limit=None, difficulty=None,
-            category=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None, judge_key=None,
-            concurrency=1):
+            category=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None, judge_key=None,
+            concurrency=1, frontier_id=None):
     # Pod state is LOCAL SQLite (its own job dashboard) — never the mothership DB.
     os.environ.pop("AEON_DB_URL", None)
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
@@ -136,6 +125,17 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     from aeon import db, runner, scoring
     from aeon import suite as suite_mod
     from pod.aeon_submit import Pod
+
+    frontier_meta = None
+    canonical_id = None
+    if frontier_id:
+        from aeon import frontier
+        fdef = frontier.get_definition(frontier_id)
+        frontier_meta = frontier.bundle_metadata(fdef)
+        model = frontier_meta["display_name"]
+        target = f"frontier://{frontier_id}"
+        engine = engine or "frontier-api"
+        canonical_id = frontier_meta["canonical"]
 
     if difficulty:                             # only the named tiers (e.g. "hard" or "hard,expert")
         want = {d.strip() for d in difficulty.split(",") if d.strip()}
@@ -164,7 +164,10 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     # Judge policy: a frontier model OR deterministic-only (never self-judge). With no --judge,
     # subjective Tier-1 cases are left unscored; deterministic cases always score.
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
-                         judge_model=judge, judge_url=judge_url, judge_key=judge_key)
+                         judge_model=judge, judge_url=judge_url, judge_key=judge_key,
+                         env_extra={"frontier": frontier_meta} if frontier_meta else None,
+                         canonical_id=canonical_id,
+                         model_verified="frontier_api" if frontier_meta else None)
 
     run = db.get_run(rid)
     results = [{
@@ -180,11 +183,16 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
 
     env = {"hardware": _hardware_profile(hardware), "engine": {"name": engine}, "runner": "aeon-pod",
            "concurrency": concurrency}
+    if frontier_meta:
+        env["frontier"] = frontier_meta
     pod = Pod(mothership, key_path or os.path.expanduser("~/.aeon/device_key.pem"))
+    submit_extra = dict(suite_hash=suite_mod.suite_hash(), environment=env,
+                        target_class="remote_api" if frontier_meta else "local_weights",
+                        hf_repo=hf_repo, engine=engine, judge_model=judge)
+    if frontier_meta:
+        submit_extra["frontier"] = frontier_meta
     st, r = pod.run_and_submit(model, suite_id or suite_mod.SUITE_ID, results, board=board,
-                               suite_hash=suite_mod.suite_hash(), environment=env,
-                               target_class="local_weights", hf_repo=hf_repo, engine=engine,
-                               judge_model=judge)   # frontier judge or None — NEVER the model itself
+                               **submit_extra)   # frontier judge or None — NEVER the model itself
     print(f"[pod] submit -> {mothership}: HTTP {st}  {json.dumps(r)[:400]}")
     return st, r
 
@@ -273,7 +281,7 @@ def _collect_results(rid):
     } for x in run["results"]]
 
 
-def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0,
+def _bench_and_results(model, target, *, api_key=None, max_tokens=2048, temperature=0.0,
                        judge=None, judge_url=None, judge_key=None, checkpoint=None, checkpoint_every=8,
                        retry_max_tokens=None, concurrency=1,
                        hf_repo=None, trust_tier="self_reported", model_verified=None):
@@ -684,7 +692,7 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
 
 def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="text",
                    suite_id=None, key_path=None, weights_dir=None, keep_weights=False,
-                   port=8000, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None,
+                   port=8000, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
@@ -837,11 +845,6 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                 print(f"[pod] spec-decode enabled: dflash nst={nst} (lossless; speed only)")
         except Exception as e:
             print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")
-
-    modelhost.normalize_dflash_spec(recipe)
-    if recipe.get("spec_decode_attention_backend"):
-        print(f"[pod] spec-decode attention backend: {recipe['spec_decode_attention_backend']} "
-              "(normalized into DFlash speculative-config)")
 
     # The serve port must be OURS. A production server already on it (e.g. the DGX's live
     # aeon-vllm on :8000) would answer /v1/models and the bench would silently run against the
@@ -1019,7 +1022,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 
 
 def run_attested(target, modelref_path, mothership, *, hardware=None, board="text", suite_id=None,
-                 key_path=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None,
+                 key_path=None, max_tokens=2048, temperature=0.0, judge=None, judge_url=None,
                  judge_key=None, harness_ids=None, limit=None, difficulty=None, category=None,
                  fast=False, seed=None, per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
                  arena_per_kind=6, audio=True, perf=False, perf_max_conc=None, harness_only=False):
@@ -1128,6 +1131,8 @@ def main():
     # local path:
     ap.add_argument("--target", default=None, help="OpenAI base URL for a LOCAL run (not globally ranked)")
     ap.add_argument("--model", default=None, help="model name as the server reports it (LOCAL run)")
+    ap.add_argument("--frontier-id", default=None,
+        help="approved frontier model id from /api/pod/frontier, e.g. xai:grok-4.5-high")
     # shared:
     ap.add_argument("--mothership", required=True, help="mothership base URL, e.g. http://localhost:8090")
     ap.add_argument("--api-key", default=os.environ.get("AEON_API_KEY"))
@@ -1153,9 +1158,7 @@ def main():
         "model the IDENTICAL questions (a true A/B). Omit with --fast to draw + print a fresh seed")
     ap.add_argument("--per-cell", type=int, default=1, help="fast bench: cases drawn per (category x "
         "difficulty) cell (1=20 cases; 5=~100; a thorough-but-feasible balanced sample)")
-    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
-                    help="generation cap, including hidden reasoning tokens (default 32768; "
-                         "override with AEON_MAX_TOKENS)")
+    ap.add_argument("--max-tokens", type=int, default=2048, help="generation cap (reasoning models need headroom)")
     ap.add_argument("--retry-max-tokens", type=int, default=None, help="if a case is CUT OFF mid-reasoning "
         "(finish_reason=length) and has no/incorrect answer, RE-RUN it once at this higher ceiling (e.g. "
         "50000) so the model can finish — a no-answer is usually truncation, not a real miss")
@@ -1240,6 +1243,13 @@ def main():
             # comprehensive dimensions — previously dropped on the --hf-link (GUI) path
             retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, perf=a.perf,
             perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena, harness_only=a.harness_only)
+    elif a.frontier_id:
+        st, _ = run_pod("frontier://" + a.frontier_id, a.frontier_id, a.mothership,
+                        api_key=a.api_key, engine="frontier-api", hardware=a.hardware,
+                        board=a.board, suite_id=a.suite_id, key_path=a.key, limit=a.limit,
+                        difficulty=a.difficulty, category=a.category, max_tokens=a.max_tokens,
+                        temperature=a.temperature, judge=a.judge, judge_url=a.judge_url,
+                        judge_key=a.judge_key, concurrency=a.concurrency, frontier_id=a.frontier_id)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,
@@ -1249,7 +1259,7 @@ def main():
                         concurrency=a.concurrency)
     else:
         ap.error("provide --modelref + --target (split pod), --hf-link (single-process controlled), "
-                 "OR --target + --model (local run)")
+                 "--frontier-id, OR --target + --model (local run)")
     raise SystemExit(0 if st == 200 else 1)
 
 

@@ -1,0 +1,19 @@
+[
+ {
+  "id": "v3.coding.god_mode.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "Write a Python function named min_cut_certificate(n, edges, source, sink). edges is a list of tuples (u, v, capacity) describing a directed network with integer capacities and 0 <= u,v < n. Return a tuple (max_flow, source_side) where max_flow is the exact maximum s-t flow value and source_side is the sorted list of vertices reachable from source in the final residual graph after a correct max-flow computation. Requirements: handle parallel edges, zero-capacity edges, disconnected vertices, and n up to at least 40. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert min_cut_certificate(4, [(0,1,3),(0,2,2),(1,2,1),(1,3,2),(2,3,4)], 0, 3) == (5, [0])\nassert min_cut_certificate(6, [(0,1,10),(0,2,10),(1,3,4),(1,4,8),(1,2,2),(2,4,9),(3,5,10),(4,3,6),(4,5,10)], 0, 5) == (19, [0,2])\nassert min_cut_certificate(5, [(0,1,0),(0,1,5),(1,2,3),(2,4,3),(0,3,2),(3,4,2),(1,4,1)], 0, 4) == (6, [0,1])",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

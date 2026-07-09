@@ -42,7 +42,6 @@ _LOCK = threading.Lock()
 _JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 _Q: "queue.Queue[str]" = queue.Queue()
 _worker_started = False
-_JOB_LOG_LINES = int(os.environ.get("AEON_JOB_LOG_LINES", "8000"))
 
 # (substring in a stdout line -> coarse stage). Scanned in order; the LAST match on a line wins,
 # so later stages override earlier ones when a line contains several markers.
@@ -140,7 +139,7 @@ def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficu
          "_launch_id": launch_id,                        # link the run to its template (best-of ranking)
          "run_id": None, "created_at": _now(), "updated_at": _now(), "error": None,
          "hint": None,
-         "returncode": None, "log": collections.deque(maxlen=_JOB_LOG_LINES), "_argv": argv, "_env": env,
+         "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
          "_proc": None}
     with _LOCK:
         _JOBS[jid] = j
@@ -317,6 +316,45 @@ def submit_endpoint(base_url, model, *, difficulty=None, category=None, preset=N
                    model=model, base_url=base_url, difficulty=difficulty, preset=preset)
 
 
+def submit_frontier(frontier_id, *, api_key_name, difficulty=None, category=None, preset=None,
+                    perf_max_conc=None, concurrency=None, max_tokens=None):
+    """Flow C — approved hosted frontier API reference benchmark.
+
+    The API key name is pod-local; only provider/model/effort metadata is signed
+    upstream. Results are displayed as frontier references and never treated as
+    local-weight attestations.
+    """
+    from aeon import db, frontier
+    fdef = frontier.get_definition(frontier_id)
+    key = db.get_secret(api_key_name) if api_key_name else None
+    if not key:
+        raise ValueError("frontier api_key_name is required and must reference a saved pod secret")
+    check = frontier.validate_api(frontier_id, key)
+    if not check.get("ok"):
+        raise ValueError("frontier API validation failed: "
+                         + str(check.get("error") or check.get("sample") or "unknown"))
+    argv = [sys.executable, "-m", "pod.aeon_pod", "--frontier-id", frontier_id,
+            "--mothership", MOTHERSHIP]
+    if preset:
+        argv += ["--preset", preset]
+    if difficulty:
+        argv += ["--difficulty", difficulty]
+    if category:
+        argv += ["--category", category]
+    if perf_max_conc:
+        argv += ["--perf-max-conc", str(perf_max_conc)]
+    if concurrency:
+        argv += ["--concurrency", str(concurrency)]
+    if max_tokens:
+        argv += ["--max-tokens", str(max_tokens)]
+    if HARDWARE:
+        argv += ["--hardware", HARDWARE]
+    return _mk_job("frontier", argv=argv,
+                   env=_base_env({"AEON_API_KEY": key, "AEON_FRONTIER_ID": frontier_id}),
+                   model=fdef["display_name"], base_url="frontier://" + frontier_id,
+                   difficulty=difficulty, preset=preset)
+
+
 def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
@@ -407,7 +445,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--perf-max-conc", str(perf_max_conc)]
         if concurrency:                         # unset = aeon_pod's default (--concurrency 0 = auto)
             argv += ["--concurrency", str(concurrency)]
-        if max_tokens:                          # per-answer TOKEN BUDGET (unset = pod default 32768)
+        if max_tokens:                          # per-answer TOKEN BUDGET (unset = pod default 2048)
             argv += ["--max-tokens", str(max_tokens)]
         if arena_per_kind is not None:          # arena sweep breadth (prompts per kind; 0 disables)
             argv += ["--arena", str(arena_per_kind)]

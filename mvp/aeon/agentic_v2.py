@@ -40,7 +40,7 @@ from __future__ import annotations
 import os
 import re
 
-SUITE_ID = "aeon-agentic-v2.2"   # v2.2: +5 GOD-MODE frontier tasks (arena-artifact producing)
+SUITE_ID = "aeon-agentic-v2.3"   # v2.3: +5 GOD MODE tasks (distinct god_mode tier)
 
 _WS = re.compile(r"\s+")
 

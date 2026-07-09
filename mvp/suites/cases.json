@@ -480,6 +480,22 @@
   }
  },
  {
+  "id": "v3.math.god_mode.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "A gravitational-wave observatory is tracking a compact binary whose leading-order chirp-mass estimate is M_c = 1.188 solar masses. Use the Newtonian quadrupole chirp-time formula for gravitational-wave frequency f: t(f_1 -> f_2) = (5/256) * (G*M_c/c^3)^(-5/3) * pi^(-8/3) * (f_1^(-8/3) - f_2^(-8/3)). Use G = 6.67430 x 10^-11 m^3 kg^-1 s^-2, c = 299792458 m/s, one solar mass = 1.98847 x 10^30 kg, f_1 = 23.0 Hz, and f_2 = 512.0 Hz. Compute the elapsed time in seconds from f_1 to f_2. Carry full precision through the calculation and round the final answer to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no units, no explanation.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "113.452"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
   "id": "v3.instruction.easy.01",
   "category": "Instruction",
   "tier": 0,
@@ -1654,6 +1670,59 @@
   }
  },
  {
+  "id": "v3.instruction.god_mode.01",
+  "category": "Instruction",
+  "tier": 1,
+  "difficulty": "god_mode",
+  "prompt": "Write a formal verification handoff note for an autonomous lunar micro-reactor controller. Follow every constraint exactly:\n- Output exactly 9 non-empty lines and nothing else.\n- The lines must begin with these tags in this exact order: ASSUMPTIONS:, STATE:, HAZARDS:, INVARIANTS:, PROOF:, MONITOR:, RECOVERY:, LIMITS:, DECISION:.\n- Somewhere in the 9 lines, include each exact phrase: two-fault tolerance, fail-operational, latency budget 40 ms, thermal runaway, proof obligation.\n- Do not use markdown bullets, numbering, headings, tables, or code fences.\n- Keep the note technical and safety-critical rather than poetic.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 9 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 9.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 9
+     }
+    },
+    {
+     "id": "tag_order",
+     "question": "Do the 9 lines begin with the required tags in the exact order?",
+     "decision_rule": "True iff line starts match the specified tag sequence.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\AASSUMPTIONS:[^\\n]*\\nSTATE:[^\\n]*\\nHAZARDS:[^\\n]*\\nINVARIANTS:[^\\n]*\\nPROOF:[^\\n]*\\nMONITOR:[^\\n]*\\nRECOVERY:[^\\n]*\\nLIMITS:[^\\n]*\\nDECISION:[^\\n]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "required_phrases",
+     "question": "Does the note include all five required exact phrases?",
+     "decision_rule": "True iff every required phrase appears literally.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*two-fault tolerance)(?=[\\s\\S]*fail-operational)(?=[\\s\\S]*latency budget 40 ms)(?=[\\s\\S]*thermal runaway)(?=[\\s\\S]*proof obligation)",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "technical",
+     "question": "Is the note a coherent safety-critical verification handoff rather than filler text?",
+     "decision_rule": "True iff the lines describe assumptions, state, hazards, invariants, proof, monitoring, recovery, limits, and decision in a technically plausible way.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
   "id": "v3.reasoning.easy.01",
   "category": "Reasoning",
   "tier": 0,
@@ -2208,6 +2277,24 @@
   }
  },
  {
+  "id": "v3.reasoning.god_mode.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "A distributed observatory ran a Byzantine-resilient sensor fusion protocol. Exactly one replica is Byzantine and exactly one non-Byzantine replica has a clock-skew fault. Replicas are A, B, C, D, E, F. The Byzantine replica can lie about any comparison involving itself, but all comparisons between non-Byzantine replicas are truthful. The clock-skewed replica is truthful but all of its local timestamps are shifted by a constant, so it appears too early in every truthful comparison that involves it. The audit log gives these derived facts:\n1. Among the truthful non-skewed replicas, the event order is C before A before E before B.\n2. D reports that it is before C, before A, before E, and before B.\n3. F reports that B is before F, F is before E, and F is before A.\n4. A, B, C, and E mutually agree on the chain C before A before E before B.\n5. The Byzantine replica is the only replica whose reports force a directed cycle when combined with the mutually agreed chain.\n6. The clock-skewed replica is the only non-Byzantine replica that can truthfully appear before C without contradicting the mutually agreed chain.\nIdentify the Byzantine replica and the clock-skewed replica. Put ONLY the ordered pair inside \\boxed{} in the form Byzantine=<letter>,ClockSkew=<letter>.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Byzantine\\s*=\\s*F\\s*,\\s*ClockSkew\\s*=\\s*D\\s*\\}",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
   "id": "v3.coding.easy.01",
   "category": "Coding",
   "tier": 0,
@@ -2695,6 +2782,23 @@
     {
      "type": "unit_test",
      "test": "def _tl(x):\n    return [tuple(t) for t in tokenize(x)]\ndef _raises(fn):\n    try:\n        fn()\n        return False\n    except ValueError:\n        return True\nassert _tl(\"x = 1\") == [(\"ID\", \"x\"), (\"OP\", \"=\"), (\"NUM\", \"1\")]\nassert _tl(\"1e+5\") == [(\"NUM\", \"1e+5\")]\nassert _tl(\"1e+ 3.14.15\") == [(\"NUM\", \"1\"), (\"ID\", \"e\"), (\"OP\", \"+\"), (\"NUM\", \"3.14\"), (\"OP\", \".\"), (\"NUM\", \"15\")]\nassert _tl(\"1.e3 1e2e3\") == [(\"NUM\", \"1\"), (\"OP\", \".\"), (\"ID\", \"e3\"), (\"NUM\", \"1e2\"), (\"ID\", \"e3\")]\nassert _tl(\"x-->y # arrow\\nz**2\") == [(\"ID\", \"x\"), (\"OP\", \"-\"), (\"OP\", \"->\"), (\"ID\", \"y\"), (\"ID\", \"z\"), (\"OP\", \"**\"), (\"NUM\", \"2\")]\nassert _tl(\"a<==b 1_000\") == [(\"ID\", \"a\"), (\"OP\", \"<=\"), (\"OP\", \"=\"), (\"ID\", \"b\"), (\"NUM\", \"1\"), (\"ID\", \"_000\")]\nassert _tl('s = \"a\\\\\"b\\\\n\"') == [(\"ID\", \"s\"), (\"OP\", \"=\"), (\"STR\", '\"a\\\\\"b\\\\n\"')]\nassert _raises(lambda: tokenize('\"abc'))\nassert _raises(lambda: tokenize('\"a\\\\qb\"'))\nassert _raises(lambda: tokenize(\"a @ b\"))"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.god_mode.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "Write a Python function named min_cut_certificate(n, edges, source, sink). edges is a list of tuples (u, v, capacity) describing a directed network with integer capacities and 0 <= u,v < n. Return a tuple (max_flow, source_side) where max_flow is the exact maximum s-t flow value and source_side is the sorted list of vertices reachable from source in the final residual graph after a correct max-flow computation. Requirements: handle parallel edges, zero-capacity edges, disconnected vertices, and n up to at least 40. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert min_cut_certificate(4, [(0,1,3),(0,2,2),(1,2,1),(1,3,2),(2,3,4)], 0, 3) == (5, [0])\nassert min_cut_certificate(6, [(0,1,10),(0,2,10),(1,3,4),(1,4,8),(1,2,2),(2,4,9),(3,5,10),(4,3,6),(4,5,10)], 0, 5) == (19, [0,2])\nassert min_cut_certificate(5, [(0,1,0),(0,1,5),(1,2,3),(2,4,3),(0,3,2),(3,4,2),(1,4,1)], 0, 4) == (6, [0,1])",
+     "timeout": 10
     }
    ],
    "combine": "all"
@@ -4949,6 +5053,72 @@
      "id": "sense",
      "question": "Is the tautogram coherent and grammatical despite the constraint?",
      "decision_rule": "True iff the four sentences parse as English and describe the sturgeon migration.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.god_mode.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "god_mode",
+  "prompt": "Write a single paragraph of exactly 13 sentences: a sophisticated speculative micro-essay about consciousness, proof, grief, and the deep future. Constraints:\n- The first letters of the 13 sentences, in order, must spell TRANSCENDENCE.\n- Include the exact phrase: transcendental object at the end of time.\n- Include the exact phrase: proof is a lantern.\n- Include the exact phrase: grief is a compass.\n- Do not use markdown, a title, bullet points, numbering, or line breaks.\n- The prose should be dense, elegant, and philosophically serious rather than a list of statements.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "sentences",
+     "question": "Does the paragraph contain exactly 13 sentences?",
+     "decision_rule": "Split on ./!/? terminators; true iff exactly 13 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 13
+     }
+    },
+    {
+     "id": "one_paragraph",
+     "question": "Is the response one paragraph with no blank-line break?",
+     "decision_rule": "Split on blank lines; true iff exactly one block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentence_acrostic",
+     "question": "Do the first letters of the 13 sentences spell TRANSCENDENCE?",
+     "decision_rule": "True iff sentence initials are T R A N S C E N D E N C E.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A\\s*T[^.!?]*[.!?]\\s*R[^.!?]*[.!?]\\s*A[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*S[^.!?]*[.!?]\\s*C[^.!?]*[.!?]\\s*E[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*D[^.!?]*[.!?]\\s*E[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*C[^.!?]*[.!?]\\s*E[^.!?]*[.!?]\\s*\\Z",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "required_phrases",
+     "question": "Does the prose include all three required exact phrases?",
+     "decision_rule": "True iff every required phrase appears literally.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*transcendental object at the end of time)(?=[\\s\\S]*proof is a lantern)(?=[\\s\\S]*grief is a compass)",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "literary_quality",
+     "question": "Is the paragraph coherent, philosophically serious prose rather than a mechanical checklist?",
+     "decision_rule": "True iff it develops a connected meditation about consciousness, proof, grief, and the deep future in polished prose.",
      "required": false,
      "weight": 0.5
     }

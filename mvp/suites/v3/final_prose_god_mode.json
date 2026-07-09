@@ -1,0 +1,68 @@
+[
+ {
+  "id": "v3.prose.god_mode.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "god_mode",
+  "prompt": "Write a single paragraph of exactly 13 sentences: a sophisticated speculative micro-essay about consciousness, proof, grief, and the deep future. Constraints:\n- The first letters of the 13 sentences, in order, must spell TRANSCENDENCE.\n- Include the exact phrase: transcendental object at the end of time.\n- Include the exact phrase: proof is a lantern.\n- Include the exact phrase: grief is a compass.\n- Do not use markdown, a title, bullet points, numbering, or line breaks.\n- The prose should be dense, elegant, and philosophically serious rather than a list of statements.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "sentences",
+     "question": "Does the paragraph contain exactly 13 sentences?",
+     "decision_rule": "Split on ./!/? terminators; true iff exactly 13 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 13
+     }
+    },
+    {
+     "id": "one_paragraph",
+     "question": "Is the response one paragraph with no blank-line break?",
+     "decision_rule": "Split on blank lines; true iff exactly one block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentence_acrostic",
+     "question": "Do the first letters of the 13 sentences spell TRANSCENDENCE?",
+     "decision_rule": "True iff sentence initials are T R A N S C E N D E N C E.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A\\s*T[^.!?]*[.!?]\\s*R[^.!?]*[.!?]\\s*A[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*S[^.!?]*[.!?]\\s*C[^.!?]*[.!?]\\s*E[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*D[^.!?]*[.!?]\\s*E[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*C[^.!?]*[.!?]\\s*E[^.!?]*[.!?]\\s*\\Z",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "required_phrases",
+     "question": "Does the prose include all three required exact phrases?",
+     "decision_rule": "True iff every required phrase appears literally.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*transcendental object at the end of time)(?=[\\s\\S]*proof is a lantern)(?=[\\s\\S]*grief is a compass)",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "literary_quality",
+     "question": "Is the paragraph coherent, philosophically serious prose rather than a mechanical checklist?",
+     "decision_rule": "True iff it develops a connected meditation about consciousness, proof, grief, and the deep future in polished prose.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ }
+]

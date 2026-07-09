@@ -1489,7 +1489,7 @@ class PodVerifiedRunBody(BaseModel):
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
     max_tokens: int | None = None       # per-answer TOKEN BUDGET (generation cap incl. thinking);
-                                        # None = pod default (2048). Clamped 256..131072
+                                        # None = pod default (32768). Clamped 256..131072
     pause_all: bool | None = None       # CLEAR HOST: stop every non-pod container before serving
     restore_paused: bool | None = None  # restart the paused containers after the bench (default yes)
     arena_per_kind: int | None = None   # arena sweep breadth (prompts per kind, 0 disables; None = default 6)

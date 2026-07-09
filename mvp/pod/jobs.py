@@ -445,7 +445,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--perf-max-conc", str(perf_max_conc)]
         if concurrency:                         # unset = aeon_pod's default (--concurrency 0 = auto)
             argv += ["--concurrency", str(concurrency)]
-        if max_tokens:                          # per-answer TOKEN BUDGET (unset = pod default 2048)
+        if max_tokens:                          # per-answer TOKEN BUDGET (unset = pod default 32768)
             argv += ["--max-tokens", str(max_tokens)]
         if arena_per_kind is not None:          # arena sweep breadth (prompts per kind; 0 disables)
             argv += ["--arena", str(arena_per_kind)]

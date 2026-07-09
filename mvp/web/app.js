@@ -2379,7 +2379,9 @@ async function loadLaunches() {
     if (p.concurrency) bits.push("c" + p.concurrency);
     const nf = (p.serve_flags || []).filter((t) => String(t).startsWith("-")).length;
     if (nf) bits.push(nf + " tuned flags");
-    if (p.drafter_hf) bits.push("DFlash");
+    const sf = (p.serve_flags || []).map(String).join(" ");
+    if (p.drafter_hf || sf.includes('"method":"dflash"') || sf.includes('"method": "dflash"')) bits.push("DFlash");
+    else if (sf.includes("qwen3_next_mtp") || sf.includes('"method":"mtp"') || sf.includes('"method": "mtp"')) bits.push("MTP");
     return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
   }).join("");
 }
@@ -2387,11 +2389,37 @@ async function loadLaunches() {
 // Inverse of collectServeFlags(): push a saved [flag, value, ...] list back INTO the tuning
 // controls (catalog flags -> their control; --speculative-config -> the spec block; anything
 // unrecognized -> the freeform extras field, verbatim).
+function applySpecConfigValue(json) {
+  const sel = $("#specSel");
+  if (!sel) return false;
+  const raw = String(json || "").trim();
+  const spec = parseSpecConfig(raw);
+  const method = String((spec && spec.method) || "").toLowerCase();
+  const n = Number(spec && spec.num_speculative_tokens);
+  if (method === "dflash" && specNeedsDrafter(spec, raw)) {
+    sel.value = "dflash";
+    if ($("#specTokens") && Number.isFinite(n)) $("#specTokens").value = String(clampSpecTokens(n));
+    if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
+    return true;
+  }
+  if (method.includes("mtp")) {
+    sel.value = "mtp";
+    if ($("#specTokens") && Number.isFinite(n)) $("#specTokens").value = String(clampSpecTokens(n));
+    if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
+    return true;
+  }
+  sel.value = "custom";
+  if ($("#specCustom")) $("#specCustom").value = raw;
+  if ($("#specCustomRow")) $("#specCustomRow").hidden = false;
+  return true;
+}
+
 function applyServeFlags(list) {
   $$("#tuneBody [data-flag]").forEach((el) => {
     if (el.dataset.kind === "bool") el.checked = false; else el.value = "";
   });
   if ($("#specSel")) $("#specSel").value = "";
+  if ($("#specTokens")) $("#specTokens").value = "12";
   if ($("#specCustom")) $("#specCustom").value = "";
   if ($("#specCustomRow")) $("#specCustomRow").hidden = true;
   if ($("#tuneExtra")) $("#tuneExtra").value = "";
@@ -2401,14 +2429,11 @@ function applyServeFlags(list) {
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     if (t === "--speculative-config") {
-      const json = toks[++i] || "", sel = $("#specSel");
-      if (!sel) continue;
-      if (Array.from(sel.options).some((o) => o.value === json)) sel.value = json;
-      else {
-        sel.value = "custom";
-        if ($("#specCustom")) $("#specCustom").value = json;
-        if ($("#specCustomRow")) $("#specCustomRow").hidden = false;
-      }
+      applySpecConfigValue(toks[++i] || "");
+      continue;
+    }
+    if (t.startsWith("--speculative-config=")) {
+      applySpecConfigValue(t.slice("--speculative-config=".length));
       continue;
     }
     const el = byFlag[t];
@@ -2424,6 +2449,7 @@ function applyServeFlags(list) {
   }
   if (extras.length && $("#tuneExtra"))
     $("#tuneExtra").value = extras.map((x) => (/\s/.test(x) ? `'${x}'` : x)).join(" ");
+  syncSpecUi(false);
   updateTuneCount();
 }
 
@@ -2590,25 +2616,98 @@ function collectServeFlags() {
   return out.length ? out : null;
 }
 
-// The SPEC DECODE block: preset templates target the /drafter mount (needs a drafter card);
-// custom JSON is passed through when it parses. Sets the inline drafter state line.
+function parseSpecConfig(raw) {
+  try { return JSON.parse(raw); } catch (_) { return null; }
+}
+
+function clampSpecTokens(n) {
+  n = Math.round(Number(n));
+  if (!Number.isFinite(n)) n = 1;
+  return Math.max(1, Math.min(15, n));
+}
+
+function specNeedsDrafter(spec, raw) {
+  const method = String((spec && spec.method) || "").toLowerCase();
+  const model = String((spec && spec.model) || "");
+  return method === "dflash" || model.includes("/drafter") || String(raw || "").includes("/drafter");
+}
+
+function selectedSpecNeedsDrafter() {
+  const sel = $("#specSel");
+  if (!sel || !sel.value) return false;
+  if (sel.value === "dflash") return true;
+  if (sel.value !== "custom") return false;
+  const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
+  return specNeedsDrafter(parseSpecConfig(raw), raw);
+}
+
+function specTokenValue(mode) {
+  const el = $("#specTokens");
+  const fallback = mode === "mtp" ? 2 : 12;
+  const n = clampSpecTokens((el && el.value) || fallback);
+  if (el) el.value = String(n);
+  return n;
+}
+
+function syncSpecUi(modeChanged = false) {
+  const sel = $("#specSel");
+  const mode = (sel && sel.value) || "";
+  const row = $("#specCustomRow");
+  const tokens = $("#specTokens");
+  const st = $("#drafterState");
+  if (row) row.hidden = mode !== "custom";
+  if (tokens) tokens.disabled = !mode || mode === "custom";
+  if (modeChanged && tokens) {
+    if (mode === "mtp") tokens.value = "2";
+    else if (mode === "dflash") tokens.value = "12";
+  }
+  if (st && !mode) { st.textContent = ""; st.className = "drafter-state mono"; }
+  else if (st && mode === "mtp") {
+    const n = specTokenValue("mtp");
+    st.textContent = n > 4 ? "native MTP armed; high n may be rejected by some model configs" : "native MTP armed; no drafter card needed";
+    st.className = n > 4 ? "drafter-state mono warn" : "drafter-state mono ok";
+  } else if (st && mode === "dflash" && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+    st.textContent = "▸ paste the drafter HF card to arm DFlash";
+    st.className = "drafter-state mono warn";
+  }
+}
+
+// The SPEC DECODE block: DFlash builds a /drafter config, native MTP uses the
+// target model's draft heads, and custom JSON is passed through when it parses.
 function specConfigJson() {
   const sel = $("#specSel"); if (!sel || !sel.value) return null;
   const st = $("#drafterState");
   if (sel.value === "custom") {
     const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
     if (!raw) return null;
-    try { JSON.parse(raw); } catch (e) {
+    const spec = parseSpecConfig(raw);
+    if (!spec) {
       if (st) { st.textContent = "✗ custom config is not valid JSON"; st.className = "drafter-state mono bad"; }
+      return null;
+    }
+    if (specNeedsDrafter(spec, raw) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+      if (st) { st.textContent = "▸ custom config references /drafter; paste the drafter HF card"; st.className = "drafter-state mono warn"; }
       return null;
     }
     return raw;
   }
-  if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
-    if (st) { st.textContent = "▸ paste the drafter HF card to arm this preset"; st.className = "drafter-state mono warn"; }
-    return null;                                     // preset references /drafter — no card, no flag
+  if (sel.value === "mtp") {
+    const n = specTokenValue("mtp");
+    if (st) {
+      st.textContent = n > 4 ? "native MTP armed; high n may be rejected by some model configs" : "native MTP armed; no drafter card needed";
+      st.className = n > 4 ? "drafter-state mono warn" : "drafter-state mono ok";
+    }
+    return JSON.stringify({ method: "qwen3_next_mtp", num_speculative_tokens: n });
   }
-  return sel.value;
+  if (sel.value === "dflash") {
+    const n = specTokenValue("dflash");
+    if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
+      if (st) { st.textContent = "▸ paste the drafter HF card to arm DFlash"; st.className = "drafter-state mono warn"; }
+      return null;                                     // preset references /drafter — no card, no flag
+    }
+    return JSON.stringify({ method: "dflash", model: "/drafter", num_speculative_tokens: n });
+  }
+  return null;
 }
 
 let DRAFTER_VAL_ID = null;
@@ -2998,7 +3097,7 @@ function _validatedExtras() {
     // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
     serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
-    drafter_hf: ($("#drafterHf") && $("#drafterHf").value.trim()) || null,  // validated + mounted /drafter
+    drafter_hf: selectedSpecNeedsDrafter() ? (($("#drafterHf") && $("#drafterHf").value.trim()) || null) : null,  // DFlash only; Off/MTP do not mount /drafter
     serve_cmd: ($("#tuneServeCmd") && $("#tuneServeCmd").value.trim()) || null,  // FULL serve override (verbatim)
   };
 }
@@ -3152,10 +3251,12 @@ async function init() {
   // sidesteps the check. Clearing it is a DELIBERATE mode switch to "pull the repo fresh".
   bind("#hfLocalClear", () => setLocalWeights(""));
   vIn("#tuneExtra", updateTuneCount);
-  // spec-decode block: drafter card validates like the model; presets arm --speculative-config
+  // spec-decode block: DFlash validates a drafter card; MTP/custom arm --speculative-config directly
   { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }
-  { const ss = $("#specSel"); if (ss) ss.onchange = () => { const cr = $("#specCustomRow"); if (cr) cr.hidden = ss.value !== "custom"; updateTuneCount(); }; }
+  { const ss = $("#specSel"); if (ss) ss.onchange = () => { syncSpecUi(true); updateTuneCount(); }; }
+  { const st = $("#specTokens"); if (st) st.oninput = st.onchange = () => { syncSpecUi(false); updateTuneCount(); }; }
   vIn("#specCustom", updateTuneCount);
+  syncSpecUi(false);
   bind("#lwScan", scanModels);
   bind("#lwBrowse", openBrowse);
   bind("#browseClose", closeBrowse);

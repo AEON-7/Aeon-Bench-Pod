@@ -533,6 +533,16 @@ def finish_run(run_id, status, error=None):
                   (status, error, time.time(), run_id))
 
 
+def fail_run_if_running(run_id, reason):
+    """Close one partial run without racing a completion that already won."""
+    with connect() as c:
+        cur = c.execute(
+            "UPDATE runs SET status='failed', error=?, finished_at=? "
+            "WHERE id=? AND status='running'",
+            (reason, time.time(), run_id))
+        return cur.rowcount == 1
+
+
 def get_run(run_id):
     with connect() as c:
         r = c.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()

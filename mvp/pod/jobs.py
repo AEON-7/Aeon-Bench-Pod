@@ -16,6 +16,7 @@ import json as _json
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -42,6 +43,8 @@ _LOCK = threading.Lock()
 _JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 _Q: "queue.Queue[str]" = queue.Queue()
 _worker_started = False
+_SERVE_CONTAINER = "aeon-bench-serve"
+_STOP_GRACE_S = 10
 
 # (substring in a stdout line -> coarse stage). Scanned in order; the LAST match on a line wins,
 # so later stages override earlier ones when a line contains several markers.
@@ -109,17 +112,100 @@ def get_job(job_id):
         return d
 
 
+def _terminate_process_tree(proc, grace_s=_STOP_GRACE_S):
+    """Stop a runner and its child CLI processes, escalating when needed."""
+    if not proc or proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T"],
+                           capture_output=True, timeout=grace_s)
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=grace_s)
+        return
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        pass
+    except Exception:
+        try:
+            proc.terminate()
+            proc.wait(timeout=grace_s)
+            return
+        except Exception:
+            pass
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, timeout=grace_s)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=grace_s)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _cleanup_owned_runtime(j):
+    """Remove this job's serve container once; queued jobs never own it."""
+    with _LOCK:
+        if not j.get("_started") or not j.get("_owns_serve") or j.get("_runtime_cleaned"):
+            return
+        cleanup_event = j["_runtime_cleanup_event"]
+        wait_for_owner = bool(j.get("_runtime_cleanup_started"))
+        if not wait_for_owner:
+            j["_runtime_cleanup_started"] = True
+    if wait_for_owner:
+        cleanup_event.wait(timeout=130)
+        return
+    detail = None
+    try:
+        r = subprocess.run(["docker", "rm", "-f", _SERVE_CONTAINER],
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode not in (0, 1):
+            detail = (r.stderr or r.stdout or "docker rm failed").strip()[:240]
+    except Exception as e:
+        detail = str(e)[:240]
+    finally:
+        with _LOCK:
+            j["_runtime_cleanup_started"] = False
+            j["_runtime_cleaned"] = True
+            if detail:
+                j["log"].append(f"[jobs] serve cleanup warning: {detail}")
+        cleanup_event.set()
+
+
+def _finish_stopped_run(j):
+    """Atomically evict all of this job's partial board runs from Live views."""
+    with _LOCK:
+        run_ids = list(dict.fromkeys([j.get("run_id"), *(j.get("_run_ids") or [])]))
+    run_ids = [rid for rid in run_ids if rid]
+    if not run_ids:
+        return
+    try:
+        from aeon import db
+        for run_id in run_ids:
+            db.fail_run_if_running(run_id, "stopped by user")
+    except Exception as e:
+        with _LOCK:
+            j["log"].append(f"[jobs] live-run cleanup warning: {str(e)[:240]}")
+
+
 def stop_job(job_id):
     with _LOCK:
         j = _JOBS.get(job_id)
         proc = j.get("_proc") if j else None
+        started = bool(j and j.get("_started"))
+        if j:
+            j["_stop_requested"] = True
     if not j:
         return False
-    if proc and proc.poll() is None:
-        try:
-            proc.terminate()
-        except Exception:
-            pass
+    _set(j, status="stopping", stage="stopping", error=None)
+    if started:
+        _terminate_process_tree(proc)
+        _cleanup_owned_runtime(j)
+        _finish_stopped_run(j)
     _set(j, status="stopped", stage="stopped", error="stopped by user")
     return True
 
@@ -131,16 +217,19 @@ def _set(j, **kw):
 
 
 def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None,
-            preset=None, serve_flags=None, launch_id=None):
+            preset=None, serve_flags=None, launch_id=None, owns_serve=False):
     jid = uuid.uuid4().hex[:12]
     j = {"id": jid, "kind": kind, "status": "queued", "stage": "queued",
          "model": model, "hf_link": hf_link, "base_url": base_url, "difficulty": difficulty,
          "preset": preset, "serve_flags": serve_flags,   # for the failure diagnostician
          "_launch_id": launch_id,                        # link the run to its template (best-of ranking)
-         "run_id": None, "created_at": _now(), "updated_at": _now(), "error": None,
+         "run_id": None, "_run_ids": [],
+         "created_at": _now(), "updated_at": _now(), "error": None,
          "hint": None,
          "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
-         "_proc": None}
+         "_proc": None, "_started": False, "_stop_requested": False,
+         "_owns_serve": bool(owns_serve), "_runtime_cleaned": False,
+         "_runtime_cleanup_started": False, "_runtime_cleanup_event": threading.Event()}
     with _LOCK:
         _JOBS[jid] = j
     _Q.put(jid)
@@ -168,6 +257,14 @@ def _worker():
             if j:
                 _set(j, status="error", stage="error", error=str(e))
         finally:
+            with _LOCK:
+                j = _JOBS.get(jid)
+            if j:
+                _cleanup_owned_runtime(j)
+                if j.get("_stop_requested"):
+                    _finish_stopped_run(j)
+                    _set(j, status="stopped", stage="stopped", error="stopped by user")
+                _set(j, _proc=None)
             _Q.task_done()
             _maybe_restore_after_queue()
 
@@ -193,21 +290,30 @@ def _run_job(jid):
         j = _JOBS[jid]
         argv = j.pop("_argv", None)
         env = j.pop("_env", None)
-    if j.get("status") == "stopped" or not argv:  # stopped before it started
+    if j.get("_stop_requested") or j.get("status") == "stopped" or not argv:
         return
     _set(j, status="running", stage="starting")
+    popen_kw = {"start_new_session": True} if os.name != "nt" else {
+        "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
     proc = subprocess.Popen(argv, cwd=_MVP, env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True, bufsize=1)
-    _set(j, _proc=proc)
+                            stderr=subprocess.STDOUT, text=True, bufsize=1, **popen_kw)
+    _set(j, _proc=proc, _started=True)
+    if j.get("_stop_requested"):
+        _terminate_process_tree(proc)
     for line in proc.stdout:                    # blocks THIS worker thread (one job at a time — intended)
         line = line.rstrip("\n")
         with _LOCK:
             j["log"].append(line)
-        if "run_id=" in line and not j.get("run_id"):
+        if "run_id=" in line:
             try:
                 rid = line.split("run_id=", 1)[1].strip().split()[0]
-                _set(j, run_id=rid)
-                if j.get("_launch_id"):                  # link template -> run for best-of ranking
+                with _LOCK:
+                    if rid not in j["_run_ids"]:
+                        j["_run_ids"].append(rid)
+                    first_run = not j.get("run_id")
+                if first_run:
+                    _set(j, run_id=rid)
+                if first_run and j.get("_launch_id"):
                     from aeon import db
                     db.link_launch_run(j["_launch_id"], rid)
             except Exception:
@@ -254,7 +360,7 @@ def _run_job(jid):
                 j["updated_at"] = _now()
     proc.wait()
     rc = proc.returncode
-    if j.get("status") == "stopped":
+    if j.get("_stop_requested") or j.get("status") == "stopped":
         return
     ok = rc == 0
     final_stage = "done" if ok else (j.get("stage") if j.get("stage") == "verify_failed" else "error")
@@ -455,4 +561,5 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--port", str(port)]
     return _mk_job("verified", argv=argv, env=_base_env(extra),
                    model=hf_link, hf_link=hf_link, difficulty=difficulty, preset=preset,
-                   serve_flags=serve_flags, launch_id=launch_id)
+                   serve_flags=serve_flags, launch_id=launch_id,
+                   owns_serve=not bool(serve_url))

@@ -22,11 +22,17 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine rejected a flag it doesn't recognize (see 'unrecognized arguments: --…' in the "
      "log). Remove that flag from RECIPE TUNING — it isn't supported by this engine build. If it "
      "came from a family preset, clear it there; the model still benches without it."),
-    (re.compile(r"Window left is not the same for all layers", re.I), None,
-     "Sliding-window attention metadata failed. For Qwen+DFlash, keep attention-backend = "
-     "triton_attn and include \"attention_backend\":\"TRITON_ATTN\" inside --speculative-config. "
-     "For Gemma-4, use kv-cache-dtype = auto on triton_attn, or add --disable-sliding-window if "
-     "you must keep fp8 KV."),
+    (re.compile(r"Loading drafter model|self\.drafter\.load|qwen3_dflash|markov_head|"
+                r"drafter.*load_weights|EngineCore failed to start[\s\S]{0,400}?draft", re.I), None,
+     "The DFlash / speculative-decode DRAFTER failed to load — its weights don't match this "
+     "engine build's drafter loader (e.g. a missing key like 'markov_head.markov_w1.weight'). "
+     "Switch to a drafter built for this engine (z-lab/<Model>-DFlash worked here), or clear the "
+     "DFlash drafter to bench without speculative decoding (the model itself is fine)."),
+    (re.compile(r"Window left is not the same for all layers", re.I), "--kv-cache-dtype",
+     "Sliding-window attention metadata failed. Gemma-4: interleaved sliding-window layers crash "
+     "under fp8 KV cache on triton_attn — set kv-cache-dtype = auto (or --disable-sliding-window "
+     "to keep fp8 KV); the Gemma-4 preset does this. Qwen+DFlash: keep attention-backend = "
+     "triton_attn and include \"attention_backend\":\"TRITON_ATTN\" inside --speculative-config."),
     (re.compile(r"Please install vllm\[audio\]|vllm\[audio\] for audio", re.I), None,
      "The engine image is missing audio decode deps (av/soxr/librosa). Use the audio-capable "
      "aeon-vllm-ultimate:latest (audio deps baked in), or pick a non-audio engine — a "

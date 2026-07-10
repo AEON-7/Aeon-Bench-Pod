@@ -813,6 +813,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                         seq[i] = t.replace("/drafter", ddir)
         recipe.update({"drafter": ddir, "drafter_repo": drepo_id, "drafter_revision": drev,
                        "spec_decode": "dflash"})
+    recipe = modelhost.normalize_dflash_spec(recipe)
     alias = recipe["served_alias"]
     print(f"[pod] recipe: {recipe['engine']} ({recipe.get('serve_mode', 'bare')}, "
           f"ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
@@ -844,6 +845,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                 modelhost.pull(drepo, "main", ddir)
                 nst = modelhost.dflash_nst(repo, recipe.get("architecture"))
                 modelhost.apply_dflash(recipe, ddir, drepo, nst)
+                modelhost.normalize_dflash_spec(recipe)
                 print(f"[pod] spec-decode enabled: dflash nst={nst} (lossless; speed only)")
         except Exception as e:
             print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")

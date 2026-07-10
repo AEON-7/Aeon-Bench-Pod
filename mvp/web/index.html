@@ -165,19 +165,43 @@
             <summary><span class="tune-t">⚙ RECIPE TUNING</span> <span class="note">startup flags — dial in the optimal recipe for this system</span><span id="tuneCount" class="tune-count" hidden></span></summary>
             <div id="tuneBody" class="tune-body"></div>
             <div class="tune-spec" id="tuneSpec">
-              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH</span><span id="drafterState" class="drafter-state mono"></span></div>
+              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH / MTP</span><span id="drafterState" class="drafter-state mono"></span></div>
               <div class="row">
-                <label class="grow">Drafter HF card<input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
+                <label class="grow">Drafter HF card <span class="note">(DFlash only)</span><input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
                 <label>Speculative config<select id="specSel">
                   <option value="">— off —</option>
-                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":6}'>DFlash n=6 — concurrent-optimal</option>
-                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":11}'>DFlash n=11 — single-stream (gemma4)</option>
-                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":12}'>DFlash n=12 — single-stream max</option>
+                  <optgroup label="DFlash drafter (/drafter), n=1-15">
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":1}'>DFlash n=1</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":2}'>DFlash n=2</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":3}'>DFlash n=3</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":4}'>DFlash n=4</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":5}'>DFlash n=5</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":6}'>DFlash n=6 — concurrent baseline</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":7}'>DFlash n=7</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}'>DFlash n=8</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":9}'>DFlash n=9</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":10}'>DFlash n=10</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":11}'>DFlash n=11</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":12}'>DFlash n=12</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":13}'>DFlash n=13</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":14}'>DFlash n=14</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":15}'>DFlash n=15 — deepest</option>
+                  </optgroup>
+                  <optgroup label="Native MTP, no drafter card">
+                    <option value='{"method":"mtp","num_speculative_tokens":1}'>MTP n=1 — generic</option>
+                    <option value='{"method":"mtp","num_speculative_tokens":2}'>MTP n=2 — generic</option>
+                    <option value='{"method":"mtp","num_speculative_tokens":3}'>MTP n=3 — generic</option>
+                    <option value='{"method":"mtp","num_speculative_tokens":4}'>MTP n=4 — generic</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":1}'>Qwen MTP n=1</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":2}'>Qwen MTP n=2</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":3}'>Qwen MTP n=3</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":4}'>Qwen MTP n=4</option>
+                  </optgroup>
                   <option value="custom">custom JSON…</option>
                 </select></label>
               </div>
               <div class="row" id="specCustomRow" hidden><label class="grow">Custom speculative config (JSON)<input id="specCustom" type="text" spellcheck="false" placeholder='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}' /></label></div>
-              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. The drafter is pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>.</p>
+              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes. DFlash presets require a drafter card and support n=1-15. Native MTP presets use the model's built-in MTP head and do not need a drafter; start small, then tune upward per model.</p>
             </div>
             <div class="row"><label class="grow">Extra flags <span class="note">(any flag not listed above — appended verbatim)</span><input id="tuneExtra" type="text" placeholder="e.g.  --seed 7  --num-scheduler-steps 8  --rope-scaling '{&quot;type&quot;:&quot;yarn&quot;}'" spellcheck="false" /></label></div>
             <p class="note tune-note"><b>How custom flags work:</b> type them exactly as you'd pass them to the engine, space-separated (<span class="mono">--flag value</span> or a bare <span class="mono">--flag</span> for booleans). Wrap a value containing spaces or JSON in single quotes. These MERGE into the engine's serve command — a flag also set above is replaced by your value; a new flag is appended. The bench wiring (served alias · host · port · 64K floor) is protected and can't be broken. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>

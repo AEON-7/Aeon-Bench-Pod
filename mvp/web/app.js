@@ -1772,7 +1772,16 @@ function _perfRecipe(m) {
   const cmd = rp.docker_run_assembled || rp.bare_cmd;   // bare-metal (MLX) reports the same way
   if (!cmd) return "";
   const d = rp.drafter;
-  const draft = d ? `<br>DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — pulled + mounted at /drafter in the command)</span>` : "";
+  const draft = d ? (() => {
+    const method = String(d.method || "dflash").toLowerCase();
+    const head = method === "dflash"
+      ? `DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}`
+      : method.includes("mtp")
+        ? `Native MTP spec-decode: <b>${escH(d.method || "mtp")}</b>`
+        : `Spec-decode: <b>${escH(d.method || method)}</b>`;
+    const note = d.uses_drafter ? "pulled + mounted at /drafter in the command" : "no drafter mount";
+    return `<br>${head}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — ${note})</span>`;
+  })() : "";
   return `<div class="sub-repro perf-repro">
     <div class="repro-h"><span class="repro-t">⚙ the recipe behind these numbers</span>
       <span style="display:flex;gap:6px;align-items:center">
@@ -2635,23 +2644,44 @@ function collectServeFlags() {
   return out.length ? out : null;
 }
 
-// The SPEC DECODE block: preset templates target the /drafter mount (needs a drafter card);
-// custom JSON is passed through when it parses. Sets the inline drafter state line.
+function parsedSpecConfig(raw) {
+  try { return JSON.parse(raw || ""); } catch (e) { return null; }
+}
+
+function specUsesDrafter(cfg) {
+  return cfg && String(cfg.method || "").toLowerCase() === "dflash"
+    && String(cfg.model || "").includes("/drafter");
+}
+
+// The SPEC DECODE block: DFlash preset templates target the /drafter mount and need a drafter
+// card; native MTP presets use the target model's built-in MTP head and need no drafter.
+// Custom JSON is passed through when it parses. Sets the inline drafter state line.
 function specConfigJson() {
   const sel = $("#specSel"); if (!sel || !sel.value) return null;
   const st = $("#drafterState");
   if (sel.value === "custom") {
     const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
     if (!raw) return null;
-    try { JSON.parse(raw); } catch (e) {
+    const cfg = parsedSpecConfig(raw);
+    if (!cfg) {
       if (st) { st.textContent = "✗ custom config is not valid JSON"; st.className = "drafter-state mono bad"; }
+      return null;
+    }
+    if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+      if (st) { st.textContent = "▸ DFlash custom config references /drafter; paste the drafter HF card"; st.className = "drafter-state mono warn"; }
       return null;
     }
     return raw;
   }
-  if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
-    if (st) { st.textContent = "▸ paste the drafter HF card to arm this preset"; st.className = "drafter-state mono warn"; }
+  const cfg = parsedSpecConfig(sel.value);
+  if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+    if (st) { st.textContent = "▸ paste the drafter HF card to arm this DFlash preset"; st.className = "drafter-state mono warn"; }
     return null;                                     // preset references /drafter — no card, no flag
+  }
+  if (cfg && String(cfg.method || "").toLowerCase().includes("mtp") && st) {
+    const n = cfg.num_speculative_tokens || "?";
+    st.textContent = `native MTP armed (n=${n}; no drafter card needed)`;
+    st.className = "drafter-state mono ok";
   }
   return sel.value;
 }

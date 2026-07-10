@@ -446,6 +446,58 @@ def _inject_spec_backend(seq: list | None, backend: str) -> bool:
     return changed
 
 
+def _speculative_config_from(seq: list | None):
+    if not seq:
+        return None
+    i = 0
+    while i < len(seq):
+        tok = str(seq[i])
+        val = None
+        if tok == "--speculative-config" and i + 1 < len(seq):
+            val = str(seq[i + 1])
+        elif tok.startswith("--speculative-config="):
+            val = tok.split("=", 1)[1]
+        if val is not None:
+            try:
+                cfg = json.loads(val)
+            except Exception:
+                return None
+            return cfg if isinstance(cfg, dict) else None
+        i += 1
+    return None
+
+
+def annotate_spec_decode(recipe: dict) -> dict:
+    """Record the selected speculative-decoding method from the final serve flags.
+
+    This is purely disclosure/provenance: it does not alter the vLLM command. DFlash gets
+    additional drafter metadata elsewhere; MTP has no drafter, so parsing the final flags is the
+    only way to show a run was native-MTP accelerated instead of plain decode.
+    """
+    if not recipe:
+        return recipe
+    cfg = None
+    for key in ("flags", "command"):
+        cfg = _speculative_config_from(recipe.get(key))
+        if cfg:
+            break
+    if not cfg:
+        return recipe
+    method = str(cfg.get("method") or "").strip()
+    if method:
+        recipe["spec_decode"] = method
+        recipe["spec_decode_method"] = method
+    nst = cfg.get("num_speculative_tokens")
+    if nst is not None:
+        recipe["spec_decode_n"] = nst
+        recipe["drafter_nst"] = nst
+    if method.lower() == "dflash":
+        recipe.setdefault("spec_decode_note", "lossless — draft tokens verified by the target model; speed only")
+    elif "mtp" in method.lower():
+        recipe["spec_decode_note"] = "native MTP — target-model multi-token prediction head; speed only"
+    return recipe
+
+
 def normalize_dflash_spec(recipe: dict) -> dict:
     """Keep DFlash's nested backend aligned with the outer vLLM attention backend.
 
@@ -455,10 +507,10 @@ def normalize_dflash_spec(recipe: dict) -> dict:
     recipe correctly says triton_attn.
     """
     if recipe.get("serve_cmd_override"):
-        return recipe
+        return annotate_spec_decode(recipe)
     backend = _recipe_attention_backend(recipe)
     if not backend:
-        return recipe
+        return annotate_spec_decode(recipe)
     changed = False
     for key in ("flags", "command"):
         changed = _inject_spec_backend(recipe.get(key), backend) or changed
@@ -467,7 +519,7 @@ def normalize_dflash_spec(recipe: dict) -> dict:
         notes = list(recipe.get("recipe_notes") or [])
         notes.append(f"DFlash speculative-config normalized with attention_backend={backend}")
         recipe["recipe_notes"] = notes
-    return recipe
+    return annotate_spec_decode(recipe)
 
 
 import urllib.parse   # noqa: E402  (used by fetch_ref)

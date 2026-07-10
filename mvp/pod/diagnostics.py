@@ -37,6 +37,12 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine image is missing audio decode deps (av/soxr/librosa). Use the audio-capable "
      "aeon-vllm-ultimate:latest (audio deps baked in), or pick a non-audio engine — a "
      "text/vision bench is unaffected."),
+    (re.compile(r"Invalid repository ID or local directory specified: ['\"]?/model|"
+                r"ensure the presence of a ['\"]config\.json['\"]", re.I), None,
+     "The serve container could not read the mounted model directory. If the model came from the "
+     "Hugging Face cache, its snapshot files may be symlinks into ../../blobs; mount the whole "
+     "repo cache root, or use the updated pod which serves HF snapshots from "
+     "`/model/snapshots/<revision>` so those symlinks resolve."),
     (re.compile(r"No available memory for the cache|not enough (?:KV cache )?memory|"
                 r"KV cache.*(?:too small|insufficient)|Available KV cache memory.*is (?:0|negative)", re.I),
      "--gpu-memory-utilization",
@@ -72,7 +78,7 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "--attention-backend",
      "FlashInfer is broken on the GB10. In RECIPE TUNING set attention-backend = triton_attn "
      "(or flash_attn)."),
-    (re.compile(r"trust_remote_code|requires.*remote code|custom.*modeling.*code|"
+    (re.compile(r"requires.*remote code|custom.*modeling.*code|"
                 r"Loading this model requires you to (?:execute|trust)", re.I), "--trust-remote-code",
      "This repo ships custom modeling code. Enable trust-remote-code in RECIPE TUNING."),
     (re.compile(r"reasoning[_-]parser.*(?:not|unknown|invalid|no such)|"

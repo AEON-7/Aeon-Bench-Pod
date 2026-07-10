@@ -37,6 +37,12 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine image is missing audio decode deps (av/soxr/librosa). Use the audio-capable "
      "aeon-vllm-ultimate:latest (audio deps baked in), or pick a non-audio engine — a "
      "text/vision bench is unaffected."),
+    (re.compile(r"KeyError:\s*['\"]markov_head\.markov_w\d+\.weight['\"]|"
+                r"markov_head\.markov_w\d+\.weight", re.I), "--speculative-config",
+     "The selected DFlash drafter is incompatible with this vLLM build. Older Markov-head "
+     "Qwen drafters expose markov_head.* weights that the current DFlash loader does not "
+     "instantiate. Use the matching current drafter card, e.g. z-lab/Qwen3.6-27B-DFlash for "
+     "Qwen3.6-27B, or disable DFlash / use native MTP for this run."),
     (re.compile(r"Invalid repository ID or local directory specified: ['\"]?/model|"
                 r"ensure the presence of a ['\"]config\.json['\"]", re.I), None,
      "The serve container could not read the mounted model directory. If the model came from the "
@@ -74,7 +80,8 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "config.json (NVFP4 -> modelopt, GGUF -> none). Clear the quantization override in RECIPE "
      "TUNING to use the derived one, or set the correct method (modelopt / compressed-tensors / "
      "awq / gptq / fp8)."),
-    (re.compile(r"FlashInfer|flashinfer.*(?:not|unsupported|failed to|no kernel)", re.I),
+    (re.compile(r"FlashInfer.*(?:error|unsupported|failed|no kernel|crash|exception)|"
+                r"flashinfer.*(?:not supported|unsupported|failed to|no kernel)", re.I),
      "--attention-backend",
      "FlashInfer is broken on the GB10. In RECIPE TUNING set attention-backend = triton_attn "
      "(or flash_attn)."),

@@ -2319,7 +2319,7 @@ function renderLive(d, job, queued, tele) {
     $("#liveBody").innerHTML = (activeJob || queued.length)
       ? jobStrip + (activeJob ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf). Case-by-case output appears here during the text and vision suites.</p>` : "")
       : `<p class="board-empty">No benchmark is running right now. When a controlled pod is mid-run, its per-category progress and the prompts + answers stream here live.</p>`;
-    $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id).then(pollLive));
+    $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
     return;
   }
   const liveKeys = new Set(runs.map((r) => r.run || r.run_id || r.id || r.model || "?"));
@@ -2366,7 +2366,7 @@ function renderLive(d, job, queued, tele) {
   }).join("");
   [...document.querySelectorAll("#liveBody .live-feed")].forEach((e, i) => { if (_feedScroll[i]) e.scrollTop = _feedScroll[i]; });
   [...document.querySelectorAll("#liveBody .live-a pre")].forEach((e, i) => { if (_preScroll[i]) e.scrollTop = _preScroll[i]; });
-  $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id).then(pollLive));
+  $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
 }
 
 // ---- POD Run tab: launch benchmarks (endpoint / verified-HF) + manage saved keys (pod-only) ----
@@ -3196,7 +3196,7 @@ async function launchRun(path, body, btnSel) {
 const JOB_STAGE = { queued: "queued", starting: "starting", resolving: "resolving HF ref",
   pulling: "pulling weights", verifying: "verifying signature", verify_failed: "✗ verification FAILED",
   serving: "serving model", benchmarking: "benchmarking", submitting: "submitting",
-  done: "done", error: "error", stopped: "stopped" };
+  stopping: "stopping + cleaning up", done: "done", error: "error", stopped: "stopped" };
 
 async function pollJobs() {
   let d; try { d = await api("/api/pod/jobs", { headers: podHeaders() }); } catch (e) { return; }
@@ -3246,12 +3246,24 @@ function renderJobs(jobs) {
       ${live}${stop}${stageStrip(j)}${err}${hint}</div>`;
   }).join("");
   $$(".job-live").forEach((b) => b.onclick = () => $("#tabs [data-live]").click());
-  $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id));
+  $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b));
 }
 
-async function stopJob(id) {
-  try { await api("/api/pod/jobs/" + encodeURIComponent(id) + "/stop", { method: "POST", headers: podHeaders() }); } catch (e) {}
-  pollJobs();
+async function stopJob(id, button = null) {
+  if (button) { button.disabled = true; button.textContent = "stopping…"; }
+  try {
+    const r = await api("/api/pod/jobs/" + encodeURIComponent(id) + "/stop",
+      { method: "POST", headers: podHeaders() });
+    if (!r || !r.ok) throw new Error("the pod did not confirm the stop request");
+  } catch (e) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "stop failed";
+      button.title = String(e && e.message || e);
+    }
+    return;
+  }
+  await pollJobs();
 }
 
 let CFG = { role: "mothership", live: false };

@@ -325,10 +325,17 @@ def _ensure_columns(c):
                      ("deployment_manifest", "TEXT"), ("bench_seed", "TEXT"),
                      # pod-minted job identity (sha256 of started_ts|model|hardware|suite):
                      # the mothership dedups re-submitted jobs on it; the pod resumes by it
-                     ("job_sig", "TEXT")):
+                     ("job_sig", "TEXT"),
+                     # pod-minted JOB GROUP (sha256 of started_ts|model|hardware — no suite
+                     # scope): every bundle of one comprehensive job shares it, so the
+                     # unified benchmark cards can group text/agentic/vision/audio/video/perf
+                     # runs into ONE card. Absent (NULL) on old pods' runs — those cluster
+                     # by time instead (cards.LEGACY_JOB_GAP_S).
+                     ("job_group", "TEXT")):
         if col not in runs_cols:
             c.execute(f"ALTER TABLE runs ADD COLUMN {col} {ddl}")
     c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_sig ON runs(job_sig)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_group ON runs(job_group)")
     res_cols = {r["name"] for r in c.execute("PRAGMA table_info(results)")}
     if "board" not in res_cols:
         c.execute("ALTER TABLE results ADD COLUMN board TEXT DEFAULT 'text'")
@@ -374,7 +381,7 @@ def _ensure_columns_pg(c):
         ("runs", "harness", "TEXT"), ("runs", "harness_version", "TEXT"),
         ("runs", "weights_hash", "TEXT"), ("runs", "recipe", "TEXT"),
         ("runs", "deployment_manifest", "TEXT"), ("runs", "bench_seed", "TEXT"),
-        ("runs", "job_sig", "TEXT"),
+        ("runs", "job_sig", "TEXT"), ("runs", "job_group", "TEXT"),
         ("results", "board", "TEXT DEFAULT 'text'"), ("results", "creativity", "DOUBLE PRECISION"),
         ("results", "raw_output_ref", "TEXT"), ("results", "raw_output_hash", "TEXT"),
         ("results", "disputed", "INTEGER DEFAULT 0"), ("results", "disputed_reason", "TEXT"),
@@ -386,6 +393,7 @@ def _ensure_columns_pg(c):
     for t, col, typ in adds:
         c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS {col} {typ}")
     c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_sig ON runs(job_sig)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_group ON runs(job_group)")
 
 
 def init_db():
@@ -426,7 +434,7 @@ def create_run(run_id, *, model, target_url, judge_model, judge_is_self,
                hf_repo=None, hf_revision=None, model_verified=None, canonical_id=None,
                harness=None, harness_version=None,
                trust_tier="self_reported", weights_hash=None, recipe=None,
-               deployment_manifest=None, bench_seed=None, job_sig=None):
+               deployment_manifest=None, bench_seed=None, job_sig=None, job_group=None):
     init_db()
     canonical_id = canonical_id or canonical_model_id(model, hf_repo)
     model_verified = model_verified or ("claim" if hf_repo else "declared")
@@ -438,13 +446,14 @@ def create_run(run_id, *, model, target_url, judge_model, judge_is_self,
                  suite_id, suite_hash, board, vision_probe_json, status, n_cases,
                  params_json, env_json, started_at,
                  hf_repo, hf_revision, model_verified, canonical_id, harness, harness_version,
-                 trust_tier, weights_hash, recipe, deployment_manifest, bench_seed, job_sig)
-               VALUES (?,?,?,?,?,?,?,?,?, 'running', ?, ?, ?, ?, ?,?,?,?,?,?, ?,?,?,?,?,?)""",
+                 trust_tier, weights_hash, recipe, deployment_manifest, bench_seed, job_sig,
+                 job_group)
+               VALUES (?,?,?,?,?,?,?,?,?, 'running', ?, ?, ?, ?, ?,?,?,?,?,?, ?,?,?,?,?,?,?)""",
             (run_id, model, target_url, judge_model, 1 if judge_is_self else 0,
              suite_id, suite_hash, board, vision_probe_json, n_cases,
              json.dumps(params), json.dumps(env), time.time(),
              hf_repo, hf_revision, model_verified, canonical_id, harness, harness_version,
-             trust_tier, weights_hash, recipe_json, dm_json, bench_seed, job_sig),
+             trust_tier, weights_hash, recipe_json, dm_json, bench_seed, job_sig, job_group),
         )
 
 
@@ -666,6 +675,28 @@ def run_mean_scores():
     with connect() as c:
         return {row[0]: row[1] for row in c.execute(
             "SELECT run_id, AVG(score) FROM results WHERE score IS NOT NULL GROUP BY run_id")}
+
+
+def runs_for_cards(limit=4000):
+    """Succeeded run rows (newest first) with the identity/provenance columns the unified
+    benchmark cards group on. FLAGGED runs are INCLUDED — a card discloses the flag rather
+    than hiding the run (ranked boards still exclude them via all_results_with_runs)."""
+    cols = ("id, model, board, status, started_at, finished_at, n_cases, suite_id, suite_hash, "
+            "trust_tier, bench_seed, harness, harness_version, hf_repo, model_verified, "
+            "COALESCE(canonical_id, model) AS canonical_id, COALESCE(flagged,0) AS flagged, "
+            "flag_reason, env_json, recipe, job_group")
+    with connect() as c:
+        return [dict(x) for x in c.execute(
+            f"SELECT {cols} FROM runs WHERE status='succeeded' "
+            "ORDER BY started_at DESC LIMIT ?", (int(limit),)).fetchall()]
+
+
+def run_case_counts():
+    """{run_id: {'rows': result rows, 'scored': non-null scores}} in one aggregate query —
+    the cards view's cheap per-run sizes (COUNT(score) skips NULLs on both backends)."""
+    with connect() as c:
+        return {r[0]: {"rows": r[1], "scored": r[2]} for r in c.execute(
+            "SELECT run_id, COUNT(*), COUNT(score) FROM results GROUP BY run_id")}
 
 
 def flag_run(run_id, flagged, reason=None):

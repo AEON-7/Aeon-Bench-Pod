@@ -1179,7 +1179,9 @@ async function loadAdminArtifacts() {
 }
 
 // ---- Submissions transparency browser (every run fully inspectable) ----
-const SUBS = { board: "", model: null };
+// view: "cards" = unified benchmark cards (one plate per bench JOB, default) ·
+//       "runs"  = the flat per-run pass list (the old view, kept behind the toggle)
+const SUBS = { board: "", model: null, view: "cards", cards: null };
 
 function setSubs(model) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
@@ -1191,6 +1193,7 @@ function setSubs(model) {
 function openSubmissionsFor(model) { setSubs(model); }
 
 async function loadSubs() {
+  if (SUBS.view === "cards") return loadBenchCards();
   const q = [];
   if (SUBS.board) q.push("board=" + SUBS.board);
   if (SUBS.model) q.push("model=" + encodeURIComponent(SUBS.model));
@@ -1203,6 +1206,126 @@ async function loadSubs() {
     return;
   }
   renderSubsList(d.submissions || []);
+}
+
+// ---- UNIFIED BENCHMARK CARDS (default Submissions view): one chamfered plate per bench JOB —
+// a header (model · trust · hardware · date · engine) plus one chip per BOARD the job produced
+// (TEXT 84.5 · HERMES 71 · … · PERF 517 tok/s · ARENA 12 assets). Chips open the existing
+// run-detail pane for that board's run. Data: GET /api/submissions/cards (jg:/lg: card ids).
+function _subsViewBar() {
+  return `<div class="subs-viewbar">
+    <button class="vb-btn${SUBS.view === "cards" ? " on" : ""}" data-view="cards" title="one card per benchmark job — all boards it produced">▦ benchmark cards</button>
+    <button class="vb-btn${SUBS.view === "runs" ? " on" : ""}" data-view="runs" title="the flat per-run list">☰ runs view</button>
+  </div>`;
+}
+function _bindViewBar() {
+  $$("#subsList .vb-btn").forEach((b) => b.onclick = () => {
+    if (SUBS.view === b.dataset.view) return;
+    SUBS.view = b.dataset.view;
+    loadSubs();
+  });
+}
+
+async function loadBenchCards() {
+  $("#subsList").innerHTML = _subsViewBar() + skel(6, 46);
+  _bindViewBar();
+  let d;
+  try { d = await api("/api/submissions/cards?limit=100"); }
+  catch (e) {
+    $("#subsList").innerHTML = _subsViewBar() + `<p class="board-empty"><b class="err">✗ link down</b> — could not load benchmark cards. <button class="ghost" id="sRetry">↻ retry</button></p>`;
+    _bindViewBar();
+    const rb = $("#sRetry"); if (rb) rb.onclick = loadSubs;
+    return;
+  }
+  SUBS.cards = d.cards || [];
+  renderBenchCards();
+}
+
+// which run a whole-card click opens: text first, then the first board that has a run id
+function _cardPrimaryRun(c) {
+  const b = c.boards || {};
+  for (const k of ["text", "vision", "audio", "video", "perf"]) if (b[k] && b[k].run != null) return b[k].run;
+  if ((b.agentic || []).length && b.agentic[0].run != null) return b.agentic[0].run;
+  return (c.run_ids || [])[0];
+}
+
+function _trustChip(tier, verified) {
+  if (!tier) return `<span class="cmp2-trust-chip">local-only</span>`;
+  const t = verified ? ` title="verified: ${escA(verified)}"` : "";
+  return `<span class="cmp2-trust-chip t-${escA(tier)}"${t}>${tier === "attested" ? "✓ " : ""}${escH(tier)}</span>`;
+}
+
+// board-chip row: every section this job produced, scored, in one strip. Absent boards get NO chip.
+function _cardChips(c) {
+  const b = c.boards || {}, out = [];
+  const flag = (f) => f ? `<span class="chip-flag" title="this run is flagged">⚑</span>` : "";
+  const band = (v) => v == null ? "na" : v >= 80 ? "pass" : v >= 40 ? "part" : "fail";
+  const chip = (label, val, run, flagged, title, cls) =>
+    out.push(`<button class="pc-chip ${cls}"${run != null ? ` data-run="${escA(run)}"` : ""} title="${escA(title)}">${flag(flagged)}${escH(label)}${val != null ? ` <b>${escH(val)}</b>` : ""}</button>`);
+  const qual = (key, s) => { if (s) chip(key.toUpperCase(), s.composite != null ? fmtComp(s.composite) : "—", s.run, s.flagged,
+    `${key} · ${s.suite_id || "?"} · ${s.n_cases} cases — open this run`, band(s.composite)); };
+  qual("text", b.text);
+  (b.agentic || []).forEach((h) => chip((h.harness || "?").toUpperCase(), h.score != null ? String(Math.round(h.score)) : "—",
+    h.run, h.flagged, `agentic · ${h.harness || "?"}${h.harness_version ? " " + fmtHver(h.harness_version) : ""} · ${h.n_cases} tasks — open this run`, band(h.score)));
+  qual("vision", b.vision); qual("audio", b.audio); qual("video", b.video);
+  if (b.perf) chip("PERF", b.perf.peak_agg_tps != null ? fmtTps(b.perf.peak_agg_tps) + " tok/s" : "—", b.perf.run, b.perf.flagged,
+    `performance grid · peak aggregate tok/s · conc ${(b.perf.conc_levels || []).map((x) => "c" + x).join(" ") || "?"} — open this run`, "info");
+  if (b.arena) out.push(`<span class="pc-chip info arena-chip" title="${escA(Object.entries(b.arena.kinds || {}).map(([k, n]) => n + " " + k).join(" · ") || "arena artifacts")}">ARENA <b>${b.arena.n_artifacts}</b> assets</span>`);
+  return out.join("");
+}
+
+function _benchCard(c) {
+  const b = c.boards || {};
+  const comp = b.text && b.text.composite != null ? b.text.composite : null;
+  const scls = comp == null ? "" : comp >= 80 ? " pass" : comp >= 40 ? " part" : " fail";
+  const prim = _cardPrimaryRun(c);
+  const nRuns = (c.run_ids || []).length;
+  const meta = [fmtDate(c.started_at), c.hardware, c.engine, nRuns ? nRuns + " run" + (nRuns === 1 ? "" : "s") : null]
+    .filter(Boolean).map(escH).join(" · ");
+  return `<div class="bench-card chamfer-card${c.flagged_any ? " flagged-any" : ""}" data-card="${escA(c.card_id)}"${prim != null ? ` data-run="${escA(prim)}"` : ""} tabindex="0">
+    <div class="bc-head">
+      <a class="model-creator subs-ava" data-meta="${escA(c.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+        <img class="model-avatar" data-meta-avatar="${escA(c.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="30" height="30"></a>
+      <span class="bc-name">${fmtModel(c.model)}</span>
+      ${c.flagged_any ? `<span class="bc-flag" title="one or more runs in this benchmark are flagged">⚑</span>` : ""}
+      <span class="bc-score subs-s${scls}">${comp != null ? fmtComp(comp) : "—"}</span>
+    </div>
+    <div class="bc-meta">${_trustChip(c.trust_tier, c.verified)}<span class="bc-info">${meta}</span></div>
+    <div class="bc-chips">${_cardChips(c)}</div>
+  </div>`;
+}
+
+function renderBenchCards() {
+  let cards = [...(SUBS.cards || [])].sort((x, y) => (y.started_at || 0) - (x.started_at || 0));
+  if (SUBS.model) cards = cards.filter((c) => c.model === SUBS.model || c.canonical === SUBS.model);
+  if (SUBS.board) cards = cards.filter((c) => (c.boards || {})[SUBS.board]);
+  const hdr = SUBS.model
+    ? `<div class="subs-filter">for <b>${escH(SUBS.model)}</b> · <button class="ghost" id="subsClear">all models</button></div>` : "";
+  const days = {};
+  cards.forEach((c) => { (days[_dayKey(c.started_at)] = days[_dayKey(c.started_at)] || []).push(c); });
+  const body = Object.keys(days).map((day) =>
+    `<div class="subs-day">${escH(day)}</div>` + days[day].map(_benchCard).join("")).join("")
+    || `<p class="note" style="text-align:left">No benchmarks${SUBS.model ? " for this model" : ""} yet.</p>`;
+  $("#subsList").innerHTML = _subsViewBar() + hdr + body;
+  _bindViewBar();
+  const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
+  const select = (el, run) => {
+    $$("#subsList .bench-card").forEach((x) => x.classList.remove("sel"));
+    el.classList.add("sel");
+    openSubmission(run);
+  };
+  $$("#subsList .bench-card").forEach((el) => el.onclick = (ev) => {
+    if (ev.target.closest(".subs-ava") || ev.target.closest(".pc-chip")) return;
+    if (el.dataset.run) select(el, el.dataset.run);       // card = the job's primary (text) run
+  });
+  $$("#subsList .bench-card .pc-chip[data-run]").forEach((b) => b.onclick = (ev) => {
+    ev.stopPropagation();                                  // chip = that specific board's run
+    select(b.closest(".bench-card"), b.dataset.run);
+  });
+  [...new Set(cards.map((c) => c.model))].forEach((model) => {   // hydrate avatars like the board
+    const cached = META.get(model);
+    if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
+  });
 }
 
 // one time grammar, instrument-style: 2026-07-02 for days, 24h clocks for rows
@@ -1283,7 +1406,8 @@ function renderSubsList(rows) {
         ${cats ? `<div class="subs-cats">${cats}</div>` : ""}
       </div>`;
     }).join("")).join("") || `<p class="note" style="text-align:left">No submissions${SUBS.model ? " for this model" : ""} yet.</p>`;
-  $("#subsList").innerHTML = hdr + `<div class="cmp-bar" id="cmpBar" hidden><button class="ghost" id="cmpGo">⇆ compare selected</button><span class="note" id="cmpBarNote">tick two runs</span></div>` + body;
+  $("#subsList").innerHTML = _subsViewBar() + hdr + `<div class="cmp-bar" id="cmpBar" hidden><button class="ghost" id="cmpGo">⇆ compare selected</button><span class="note" id="cmpBarNote">tick two runs</span></div>` + body;
+  _bindViewBar();
   const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
   const select = (el, run) => {
     $$("#subsList .subs-pass").forEach((x) => x.classList.remove("sel"));
@@ -1995,12 +2119,16 @@ async function setCompare() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const cp = $("#comparePanel"); if (cp) cp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
-  // RUN pickers: any two submissions compare head-to-head (recipe A/Bs included)
+  // PRIMARY: whole-benchmark cards; secondary: run pickers (any two submissions) + seed A/Bs
+  await populateCardPickers();
   await populateRunPickers();
   try { CMP.seeds = (await api("/api/compare/seeds")).seeds || []; } catch (e) { CMP.seeds = []; }
   const sel = $("#cmpSeed");
-  const pick = document.querySelector(".cmp-pick:not(.cmp-runs-pick)");
+  const pick = document.querySelector(".cmp-seed-pick");
   const pending = CMP.pendingRuns; CMP.pendingRuns = null;
+  // deep link (or a still-set #compare= hash) restores the card compare — but an explicit
+  // "compare selected runs" request wins over a leftover hash (loadRunCompare then clears it)
+  const pendingCards = CC.pending || (pending ? null : parseCompareHash()); CC.pending = null;
   if (!CMP.seeds.length) {
     if (pick) pick.hidden = true;                 // never show a dead, empty control
     if (sel) sel.innerHTML = "";
@@ -2010,12 +2138,21 @@ async function setCompare() {
     sel.innerHTML = CMP.seeds.map((s) =>
       `<option value="${escA(s.seed)}">${escH(s.seed)} — ${s.n_models} model${s.n_models === 1 ? "" : "s"}${s.suite_consistent ? "" : " ⚠ mixed suite"}</option>`).join("");
   }
-  if (pending) {                                   // arrived via "compare selected" checkboxes
+  if (pendingCards) {                              // arrived via the #compare= deep link
+    const [a, b] = pendingCards;
+    const sa = $("#cmpCardA"), sb = $("#cmpCardB");
+    if (sa) sa.value = a;
+    if (sb) sb.value = b;
+    loadCardCompare(a, b, false);
+  } else if (pending) {                            // arrived via "compare selected" checkboxes
+    const det = $("#cmpSecondary"); if (det) det.open = true;
     const [a, b] = pending;
     const sa = $("#cmpRunA"), sb = $("#cmpRunB");
     if (sa) sa.value = a;
     if (sb) sb.value = b;
     loadRunCompare(a, b);
+  } else if ((CC.cards || []).length >= 2) {
+    $("#cmpBody").innerHTML = `<p class="board-empty">Pick <b>two benchmarks</b> above and hit <b>⇆ compare benchmarks</b> — every board (text · harnesses · vision · audio · video · perf · arena · recipe) renders side by side, with parity plates where one side has no results. Single-run and seed tools live in the fold above.</p>`;
   } else if (CMP.seeds.length) {
     loadCompare(CMP.seeds[0].seed);
   } else {
@@ -2050,6 +2187,7 @@ function openCompareRuns(a, b) {
 async function loadRunCompare(a, b) {
   if (!a || !b) return;
   if (a === b) { $("#cmpBody").innerHTML = `<p class="board-empty">Pick two different runs.</p>`; return; }
+  clearCompareHash();                               // cmpBody no longer shows the deep-linked card compare
   $("#cmpBody").innerHTML = skel(10);
   let d;
   try { d = await api(`/api/compare_runs?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
@@ -2109,6 +2247,38 @@ function _cmpButterfly(d) {
     ${rows}</div>`;
 }
 
+// ONE per-case compare grammar for run-vs-run AND the job-level sections: A cell | delta
+// spine | B cell. Sides may be null (case not in that run — suite drift): the missing cell
+// says so and the spine stays neutral instead of faking a win.
+function _cmpCaseCell(s, side) {
+  if (!s) return `<div class="cmp2-cell cc-nocase solo-${side}"><span class="note">not in this run</span></div>`;
+  const sc = s.score == null ? "—" : (s.score * 100).toFixed(0);
+  const cls = s.score == null ? "" : s.score >= 0.8 ? "pass" : s.score >= 0.4 ? "part" : "fail";
+  const tps = s.speed && s.speed.decode_tps ? `<span class="micro"> · ${Math.round(s.speed.decode_tps)} tok/s</span>` : "";
+  return `<div class="cmp2-cell"><div class="cmp2-score"><span class="sub-score ${cls}">${sc}</span>${tps}</div>
+    <pre>${escH((s.answer || "").slice(0, 4000))}</pre></div>`;
+}
+function _cmpCaseRow(c) {
+  const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(diffLabel(c.difficulty))}</span>` : "";
+  // per-case delta SPINE: the score gap as a centered badge between the two cells,
+  // pointing at (and tinted in) the winner's hue — not just an edge marker.
+  let spine;
+  if (!c.a || !c.b) spine = `<span class="cmp2-delta even" title="not shared — case ran on one side only">·</span>`;
+  else {
+    const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
+    const dv = Math.round(Math.abs(delta) * 100);
+    spine = delta > 0 ? `<span class="cmp2-delta a" title="A leads by ${dv}">◄ +${dv}</span>`
+      : delta < 0 ? `<span class="cmp2-delta b" title="B leads by ${dv}">+${dv} ►</span>`
+      : `<span class="cmp2-delta even" title="even">=</span>`;
+  }
+  const tier = c.tier != null ? ` · T${escH(c.tier)}` : "";
+  return `<div class="cmp2-case">
+    <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category || "?")}${tier}</span>${df}</div>
+    ${c.prompt != null ? `<div class="sub-q"><b>asked:</b> ${escH((c.prompt || "").slice(0, 700))}</div>` : ""}
+    <div class="cmp2-grid">${_cmpCaseCell(c.a, "a")}<div class="cmp2-spine">${spine}</div>${_cmpCaseCell(c.b, "b")}</div>
+  </div>`;
+}
+
 function renderRunCompare() {
   const d = CMP.runData; if (!d) return;
   const f = CMP.runFilters || { cat: "", diff: "", diffsOnly: false };
@@ -2126,28 +2296,7 @@ function renderRunCompare() {
     <label class="c2-only"><input type="checkbox" id="c2Only"${f.diffsOnly ? " checked" : ""}> differences only</label>
     <span class="note">A wins ${aWins} · B wins ${bWins} · ${d.cases.length - aWins - bWins} even${(d.only_a.length || d.only_b.length) ? ` · ${d.only_a.length + d.only_b.length} cases not shared (different suites)` : ""}</span>
   </div>`;
-  const cell = (s) => {
-    const sc = s.score == null ? "—" : (s.score * 100).toFixed(0);
-    const cls = s.score == null ? "" : s.score >= 0.8 ? "pass" : s.score >= 0.4 ? "part" : "fail";
-    const tps = s.speed && s.speed.decode_tps ? `<span class="micro"> · ${Math.round(s.speed.decode_tps)} tok/s</span>` : "";
-    return `<div class="cmp2-cell"><div class="cmp2-score"><span class="sub-score ${cls}">${sc}</span>${tps}</div>
-      <pre>${escH((s.answer || "").slice(0, 4000))}</pre></div>`;
-  };
-  const body = rows.map((c) => {
-    const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(diffLabel(c.difficulty))}</span>` : "";
-    // per-case delta SPINE: the score gap as a centered badge between the two cells,
-    // pointing at (and tinted in) the winner's hue — not just an edge marker.
-    const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
-    const dv = Math.round(Math.abs(delta) * 100);
-    const spine = delta > 0 ? `<span class="cmp2-delta a" title="A leads by ${dv}">◄ +${dv}</span>`
-      : delta < 0 ? `<span class="cmp2-delta b" title="B leads by ${dv}">+${dv} ►</span>`
-      : `<span class="cmp2-delta even" title="even">=</span>`;
-    return `<div class="cmp2-case">
-      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}</div>
-      <div class="sub-q"><b>asked:</b> ${escH((c.prompt || "").slice(0, 700))}</div>
-      <div class="cmp2-grid">${cell(c.a)}<div class="cmp2-spine">${spine}</div>${cell(c.b)}</div>
-    </div>`;
-  }).join("") || `<p class="board-empty">No cases match these filters.</p>`;
+  const body = rows.map(_cmpCaseRow).join("") || `<p class="board-empty">No cases match these filters.</p>`;
   $("#cmpBody").innerHTML =
     `<div class="cmp2-heads">${_cmpHead("A", d.a, (d.b || {}).composite)}${_cmpHead("B", d.b, (d.a || {}).composite)}</div>` +
     _cmpButterfly(d) +
@@ -2157,7 +2306,350 @@ function renderRunCompare() {
   const co = $("#c2Only"); if (co) co.onchange = () => { CMP.runFilters.diffsOnly = co.checked; renderRunCompare(); };
 }
 
+// ---- JOB-LEVEL COMPARE: two whole benchmark cards, EVERY section side by side --------------
+// Fixed section order; a side a card lacks renders the PARITY FILLER plate ("no <section>
+// results for this run") so the gap is explicit. Data: GET /api/compare_cards?a=&b=.
+const CC = { cards: null, data: null, a: null, b: null, sec: {}, pending: null };
+const CC_SECTIONS = [
+  ["text", "Text"], ["agentic", "Agentic harnesses"], ["vision", "Vision"], ["audio", "Audio"],
+  ["video", "Video"], ["perf", "Performance"], ["arena", "Arena assets"], ["recipe", "Recipe"],
+];
+
+// compact board fingerprint for picker option labels: T·H3·V·A·VID·P·AR
+function _cardBoardInitials(c) {
+  const b = (c && c.boards) || {}, parts = [];
+  if (b.text) parts.push("T");
+  if ((b.agentic || []).length) parts.push("H" + b.agentic.length);
+  if (b.vision) parts.push("V");
+  if (b.audio) parts.push("A");
+  if (b.video) parts.push("VID");
+  if (b.perf) parts.push("P");
+  if (b.arena) parts.push("AR");
+  return parts.join("·");
+}
+function cardOptLabel(c) {
+  const model = (c.model || "?").split("/").pop().slice(0, 30);
+  return `${model} · ${fmtDate(c.started_at)} · ${c.hardware || "unknown hw"} · [${_cardBoardInitials(c) || "—"}]`;
+}
+
+async function populateCardPickers() {
+  const sa = $("#cmpCardA"), sb = $("#cmpCardB");
+  if (!sa || !sb) return;
+  if (!CC.cards) {
+    try { CC.cards = (await api("/api/submissions/cards?limit=100")).cards || []; }
+    catch (e) { CC.cards = []; }
+  }
+  const bar = document.querySelector(".cmp-cards-bar");
+  if (bar) bar.hidden = !CC.cards.length;          // never show a dead, empty control
+  sa.innerHTML = sb.innerHTML = CC.cards.map((c) =>
+    `<option value="${escA(c.card_id)}">${escH(cardOptLabel(c))}</option>`).join("");
+  if (CC.cards.length > 1) sb.selectedIndex = 1;
+}
+
+// ---- minimal hash deep-link (#compare=cardA,cardB) — the SPA has no hash routing; this is
+// scoped to the job compare only so a comparison is shareable. replaceState: no history spam.
+function setCompareHash(a, b) {
+  const h = "#compare=" + encodeURIComponent(a) + "," + encodeURIComponent(b);
+  if (location.hash !== h) try { history.replaceState(null, "", h); } catch (e) {}
+}
+function clearCompareHash() {
+  if ((location.hash || "").startsWith("#compare="))
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+}
+function parseCompareHash() {
+  const m = /^#compare=([^,]+),(.+)$/.exec(location.hash || "");
+  return m ? [decodeURIComponent(m[1]), decodeURIComponent(m[2])] : null;
+}
+
+async function loadCardCompare(a, b, push = true) {
+  if (!a || !b) return;
+  if (a === b) { $("#cmpBody").innerHTML = `<p class="board-empty">Pick two different benchmarks.</p>`; return; }
+  $("#cmpBody").innerHTML = skel(10);
+  let d;
+  try { d = await api(`/api/compare_cards?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
+  catch (e) { $("#cmpBody").innerHTML = `<p class="err">failed to load benchmark comparison</p>`; return; }
+  CC.data = d; CC.a = a; CC.b = b; CC.sec = {};
+  if (push) setCompareHash(a, b);
+  renderCardCompare();
+}
+
+// A/B card head plates: same fixed-row symmetry as the run-compare heads
+function _ccHead(side, card, other) {
+  const c = card || {}, b = c.boards || {};
+  const comp = b.text && b.text.composite != null ? b.text.composite : null;
+  const oComp = other && other.boards && other.boards.text ? other.boards.text.composite : null;
+  const win = comp != null && oComp != null && comp > oComp;
+  const nRuns = (c.run_ids || []).length;
+  return `<div class="cmp2-head side-${side === "A" ? "a" : "b"}${win ? " win" : ""}">
+    <div class="cmp2-side">${side}</div>
+    <div class="cmp2-model">${fmtModel(c.model || "?")}</div>
+    <div class="cmp2-comp ${comp == null ? "" : comp >= 80 ? "pass" : comp >= 40 ? "part" : "fail"}">${comp != null ? comp.toFixed(1) : "—"}</div>
+    <div class="cmp2-trust">${_trustChip(c.trust_tier, c.verified)}${c.flagged_any ? ` <span class="bc-flag" title="one or more runs in this benchmark are flagged">⚑</span>` : ""}</div>
+    <div class="cmp2-cats"><span class="bc-info">[${escH(_cardBoardInitials(c) || "—")}]</span></div>
+    <div class="cmp2-meta note">card <span class="mono">${escH(c.card_id || "")}</span> · ${c.started_at ? fmtDT(c.started_at) : "—"} · ${nRuns} run${nRuns === 1 ? "" : "s"}<br>
+      engine <b>${escH(c.engine || "—")}</b>${c.hardware ? ` · ${escH(c.hardware)}` : ""}</div>
+  </div>`;
+}
+
+// full-width section block: centered engraved header + body
+function _ccSection(key, label, body) {
+  return `<section class="cc-sec cc-sec-${key}"><h3 class="cc-sec-h">${escH(label)}</h3>${body}</section>`;
+}
+// THE parity filler — the owner's explicit ask: an absent side is a visible, labelled gap
+function _ccFiller(section) {
+  return `<div class="cc-filler">no ${escH(section)} results for this run</div>`;
+}
+const _ccBothNone = (label) => `<div class="cc-none">no ${escH(label.toLowerCase())} results on either side</div>`;
+
+// join two per-side case lists on case_id (order: A's order, then B-only appended)
+function _joinCases(aCases, bCases) {
+  const am = new Map((aCases || []).map((c) => [c.case_id, c]));
+  const bm = new Map((bCases || []).map((c) => [c.case_id, c]));
+  const ids = [...new Set([...(aCases || []).map((c) => c.case_id), ...(bCases || []).map((c) => c.case_id)])];
+  return ids.map((id) => {
+    const a = am.get(id) || null, b = bm.get(id) || null;
+    return { case_id: id, category: (a || b || {}).category, tier: (a || b || {}).tier, a, b };
+  });
+}
+
+// quality sections (text / vision / audio / video — same shape): butterfly + per-case grid
+// when both present; content | filler columns when one side is missing.
+function _ccQualSolo(S, side) {
+  const comp = S.composite != null ? `<div class="cc-qual-vs"><span class="cc-qv side-${side}">${S.composite.toFixed(1)}</span><span class="cc-qv-vs">composite</span></div>` : "";
+  const cats = Object.entries(S.categories || {}).map(([c, v]) =>
+    `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
+  const cases = (S.cases || []).map((c) => {
+    const sc = c.score == null ? "—" : (c.score * 100).toFixed(0);
+    const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
+    return `<div class="cmp2-case">
+      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category || "?")}${c.tier != null ? ` · T${escH(c.tier)}` : ""}</span>
+        <span class="sub-score ${cls}">${sc}</span></div>
+      <div class="cmp2-cell solo-${side}"><pre>${escH((c.answer || "").slice(0, 4000))}</pre></div>
+    </div>`;
+  }).join("");
+  return `${comp}${cats ? `<div class="subs-cats">${cats}</div>` : ""}<div class="cc-sub">suite ${escH(S.suite_id || "?")}${S.suite_hash ? ` <span class="mono">${escH(S.suite_hash)}</span>` : ""}</div>${cases}`;
+}
+function _ccQualSection(key, label, sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone(label);
+  if (!A || !B) {
+    const side = A ? "a" : "b", S = A || B;
+    const solo = _ccQualSolo(S, side);
+    const filler = _ccFiller(label.toLowerCase());
+    return `<div class="cc-cols"><div class="cc-col">${side === "a" ? solo : filler}</div><div class="cc-col">${side === "a" ? filler : solo}</div></div>`;
+  }
+  const st = CC.sec[key] = CC.sec[key] || { diffsOnly: false };
+  const aWinComp = A.composite != null && B.composite != null && A.composite > B.composite;
+  const bWinComp = A.composite != null && B.composite != null && B.composite > A.composite;
+  const head = `<div class="cc-qual-vs">
+    <span class="cc-qv side-a${aWinComp ? " win" : ""}">${A.composite != null ? A.composite.toFixed(1) : "—"}</span>
+    <span class="cc-qv-vs">composite</span>
+    <span class="cc-qv side-b${bWinComp ? " win" : ""}">${B.composite != null ? B.composite.toFixed(1) : "—"}</span>
+  </div>`;
+  const suite = A.suite_hash && B.suite_hash && A.suite_hash !== B.suite_hash
+    ? `<p class="cc-none"><span class="cmp-ab warn">⚠ different suite versions — not a clean A/B</span></p>`
+    : "";
+  const joined = _joinCases(A.cases, B.cases);
+  let rows = joined;
+  if (st.diffsOnly) rows = rows.filter((c) => ((c.a && c.a.score) ?? -1) !== ((c.b && c.b.score) ?? -1));
+  const aWins = joined.filter((c) => c.a && c.b && (c.a.score ?? 0) > (c.b.score ?? 0)).length;
+  const bWins = joined.filter((c) => c.a && c.b && (c.b.score ?? 0) > (c.a.score ?? 0)).length;
+  const controls = `<div class="cmp2-filters">
+    <label class="c2-only"><input type="checkbox" data-ccsec="${escA(key)}"${st.diffsOnly ? " checked" : ""}> differences only</label>
+    <span class="note">A wins ${aWins} · B wins ${bWins} · ${joined.length - aWins - bWins} even</span>
+  </div>`;
+  return head + suite + _cmpButterfly({ a: { categories: A.categories }, b: { categories: B.categories } })
+    + controls + (rows.map(_cmpCaseRow).join("") || `<p class="board-empty">No differences — both sides scored every case identically.</p>`);
+}
+
+// agentic: per-harness sub-rows — score A vs B, version labels, per-task ✓/✗ aligned on case ids
+function _ccTaskMark(t) {
+  if (!t) return `<span class="cc-task" title="not run">·</span>`;
+  const v = t.score;
+  const cls = v == null ? "" : v >= 0.999 ? "pass" : v <= 0.001 ? "fail" : "part";
+  const txt = v == null ? "…" : v >= 0.999 ? "✓" : v <= 0.001 ? "✗" : Math.round(v * 100);
+  return `<span class="cc-task ${cls}" title="${escA(t.case_id)}: ${v == null ? "pending" : (v * 100).toFixed(0)}">${txt}</span>`;
+}
+function _ccAgenticSolo(S, side) {
+  const hs = Object.keys((S && S.harnesses) || {}).sort();
+  if (!hs.length) return `<p class="cc-none">no harness tasks recorded</p>`;
+  return hs.map((h) => {
+    const r = S.harnesses[h];
+    const tasks = [...(r.tasks || [])].sort((x, y) => String(x.case_id).localeCompare(String(y.case_id)));
+    return `<div class="cc-h-row">
+      <div class="cc-h-head"><b class="cc-h-name">${escH(h.toUpperCase())}</b>
+        <span class="cc-h-score side-${side}">${r.score != null ? r.score.toFixed(1) : "—"}<span class="hver">${escH(fmtHver(r.version))}</span></span></div>
+      <div class="cc-tasks" style="--n:${tasks.length}">
+        <span class="cc-task-side ${side}">${side.toUpperCase()}</span>${tasks.map(_ccTaskMark).join("")}
+      </div></div>`;
+  }).join("");
+}
+function _ccAgenticSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("agentic harness");
+  if (!A || !B) {
+    const side = A ? "a" : "b", solo = _ccAgenticSolo(A || B, side), filler = _ccFiller("agentic harness");
+    return `<div class="cc-cols"><div class="cc-col">${side === "a" ? solo : filler}</div><div class="cc-col">${side === "a" ? filler : solo}</div></div>`;
+  }
+  const ah = A.harnesses || {}, bh = B.harnesses || {};
+  const hs = [...new Set([...Object.keys(ah), ...Object.keys(bh)])].sort();
+  if (!hs.length) return _ccBothNone("agentic harness");
+  return hs.map((h) => {
+    const ra = ah[h], rb = bh[h];
+    const at = new Map(((ra && ra.tasks) || []).map((t) => [t.case_id, t]));
+    const bt = new Map(((rb && rb.tasks) || []).map((t) => [t.case_id, t]));
+    const ids = [...new Set([...at.keys(), ...bt.keys()])].sort((x, y) => String(x).localeCompare(String(y)));
+    const sa = ra && ra.score != null ? ra.score : null, sb = rb && rb.score != null ? rb.score : null;
+    const aWin = sa != null && sb != null && sa > sb, bWin = sa != null && sb != null && sb > sa;
+    const score = (v, r, side, win) => r
+      ? `<span class="cc-h-score side-${side}${win ? " win" : ""}">${v != null ? v.toFixed(1) : "—"}<span class="hver">${escH(fmtHver(r.version))}</span></span>`
+      : `<span class="cc-h-score side-${side}"><span class="note">not run</span></span>`;
+    return `<div class="cc-h-row">
+      <div class="cc-h-head"><b class="cc-h-name">${escH(h.toUpperCase())}</b>
+        ${score(sa, ra, "a", aWin)}<span class="cc-h-vs">vs</span>${score(sb, rb, "b", bWin)}
+        <span class="micro">${ids.length} tasks</span></div>
+      <div class="cc-tasks" style="--n:${ids.length}">
+        <span class="cc-task-side a">A</span>${ids.map((id) => _ccTaskMark(at.get(id))).join("")}
+        <span class="cc-task-side b">B</span>${ids.map((id) => _ccTaskMark(bt.get(id))).join("")}
+      </div></div>`;
+  }).join("");
+}
+
+// perf: aligned table over the UNION of conc levels (overall scope) — a level only one side
+// swept shows "—" on the other; better cell subtly lit (lower TTFT/TPOT, higher tok/s).
+const _CC_PERF_METRICS = [
+  ["ttft_ms", "TTFT", "low"], ["tpot_ms", "TPOT", "low"],
+  ["decode_tps", "decode tok/s", "high"], ["agg_decode_tps", "agg tok/s", "high"],
+];
+function _ccPerfTableData(A, B) {
+  const concs = [...new Set([...((A && A.conc_levels) || []), ...((B && B.conc_levels) || [])])].sort((x, y) => x - y);
+  const cellOf = (S, c) => (S && S.direct && S.direct[c] && S.direct[c].overall) || null;
+  return concs.map((c) => {
+    const ca = cellOf(A, c), cb = cellOf(B, c);
+    return { conc: c, cells: _CC_PERF_METRICS.map(([k, label, dir]) => {
+      const av = ca ? ca[k] : null, bv = cb ? cb[k] : null;
+      let win = null;
+      if (av != null && bv != null && av !== bv) win = (dir === "low" ? av < bv : av > bv) ? "a" : "b";
+      return { k, av, bv, win };
+    }) };
+  });
+}
+const _ccPerfFmt = (k, v) => v == null ? "—" : /_ms$/.test(k) ? fmtDur(v) : fmtTps(v);
+function _ccPerfTable(A, B) {
+  const rows = _ccPerfTableData(A, B);
+  if (!rows.length) return "";
+  const head = `<tr><th>conc</th>${_CC_PERF_METRICS.map(([, label]) =>
+    `<th class="num cc-ma">${escH(label)} <span class="fly-side a">A</span></th><th class="num">${escH(label)} <span class="fly-side b">B</span></th>`).join("")}</tr>`;
+  const body = rows.map((r) => `<tr><td class="mono">c${r.conc}</td>` + r.cells.map((c) =>
+    `<td class="num cc-ca${c.win === "a" ? " cc-best" : ""}">${_ccPerfFmt(c.k, c.av)}</td>` +
+    `<td class="num${c.win === "b" ? " cc-best" : ""}">${_ccPerfFmt(c.k, c.bv)}</td>`).join("") + `</tr>`).join("");
+  return `<div class="cc-perf-wrap"><table class="cmp-tbl cc-perf"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+function _ccPeak(S, side, win) {
+  const pc = S && S.peak_cell;
+  const at = pc ? ` <span class="micro">${pc.conc != null ? "@ c" + escH(pc.conc) : ""}${pc.category ? " · " + escH(pc.category) : ""}</span>` : "";
+  return `<div class="cc-peak side-${side}${win ? " win" : ""}"><span class="cc-peak-lbl">peak aggregate tok/s — ${side.toUpperCase()}</span>
+    <b>${S && S.peak_agg_tps != null ? fmtTps(S.peak_agg_tps) : "—"}</b>${at}</div>`;
+}
+function _ccPerfSolo(S, side) {
+  const rows = _ccPerfTableData(side === "a" ? S : null, side === "a" ? null : S);
+  const body = rows.map((r) => {
+    const cells = r.cells.map((c) => `<td class="num">${_ccPerfFmt(c.k, side === "a" ? c.av : c.bv)}</td>`).join("");
+    return `<tr><td class="mono">c${r.conc}</td>${cells}</tr>`;
+  }).join("");
+  const head = `<tr><th>conc</th>${_CC_PERF_METRICS.map(([, label]) => `<th class="num">${escH(label)}</th>`).join("")}</tr>`;
+  return _ccPeak(S, side, false) + (rows.length
+    ? `<div class="cc-perf-wrap"><table class="cmp-tbl cc-perf"><thead>${head}</thead><tbody>${body}</tbody></table></div>` : "");
+}
+function _ccPerfSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("performance");
+  if (!A || !B) {
+    const side = A ? "a" : "b", solo = _ccPerfSolo(A || B, side), filler = _ccFiller("performance");
+    return `<div class="cc-cols"><div class="cc-col">${side === "a" ? solo : filler}</div><div class="cc-col">${side === "a" ? filler : solo}</div></div>`;
+  }
+  const pa = A.peak_agg_tps, pb = B.peak_agg_tps;
+  const peaks = `<div class="cc-peaks">${_ccPeak(A, "a", pa != null && pb != null && pa > pb)}${_ccPeak(B, "b", pa != null && pb != null && pb > pa)}</div>`;
+  return peaks + _ccPerfTable(A, B);
+}
+
+// arena: artifact chips per side (kind · prompt_id, ok/✗) — click opens the gallery preview
+function _ccArts(S, side) {
+  const arts = (S && S.artifacts) || [];
+  if (!arts.length) return `<p class="cc-none">no artifacts recorded</p>`;
+  return `<div class="cc-arts">` + arts.map((a) =>
+    `<button class="cc-art" data-aid="${escA(a.aid)}" data-side="${side}" data-title="${escA((a.kind || "?") + " · " + (a.prompt_id || "?"))}"
+      title="open this artifact in the gallery preview"><span class="${a.ok ? "ok" : "bad"}">${a.ok ? "✓" : "✗"}</span> ${escH(a.kind || "?")} · ${escH(a.prompt_id || "?")}</button>`).join("") + `</div>`;
+}
+function _ccArenaSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("arena asset");
+  const colA = A ? _ccArts(A, "a") : _ccFiller("arena assets");
+  const colB = B ? _ccArts(B, "b") : _ccFiller("arena assets");
+  return `<div class="cc-cols"><div class="cc-col">${colA}</div><div class="cc-col">${colB}</div></div>`;
+}
+
+// recipe: engine/image/digest/spec lines + serve_flags as two ALIGNED mono lists.
+// Set-diff: a flag only one side carries is lit in that side's hue; shared flags stay muted.
+function _flagAlign(aFlags, bFlags) {
+  const as = aFlags || [], bs = bFlags || [];
+  const aset = new Set(as), bset = new Set(bs);
+  const rows = as.map((f) => ({ a: f, b: bset.has(f) ? f : null }));
+  bs.forEach((f) => { if (!aset.has(f)) rows.push({ a: null, b: f }); });
+  return rows;
+}
+function _ccRecipePlate(S, side, flagRows) {
+  if (!S) return _ccFiller("recipe");
+  const line = (k, v, mono) => v ? `<div class="cc-rline"><span class="catk">${k}</span>${mono ? `<span class="mono">${escH(v)}</span>` : escH(v)}</div>` : "";
+  let spec = "";
+  if (S.spec_decode) { try { spec = typeof S.spec_decode === "string" ? S.spec_decode : JSON.stringify(S.spec_decode); } catch (e) { spec = String(S.spec_decode); } }
+  const flags = flagRows.map((r) => {
+    const f = side === "a" ? r.a : r.b;
+    if (f == null) return `<div class="cc-flag gap">·</div>`;
+    const other = side === "a" ? r.b : r.a;
+    return `<div class="cc-flag${other == null ? " diff-" + side : ""}">${escH(f)}</div>`;
+  }).join("");
+  return `<div class="cc-recipe side-${side}">
+    ${line("engine", S.engine)}${line("image", S.image, true)}${line("digest", S.image_digest, true)}${line("spec decode", spec, true)}
+    ${flagRows.length ? `<div class="cc-flags">${flags}</div>` : `<p class="cc-none">no serve flags recorded</p>`}
+  </div>`;
+}
+function _ccRecipeSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("recipe");
+  const flagRows = _flagAlign(A && A.serve_flags, B && B.serve_flags);
+  return `<div class="cc-cols"><div class="cc-col">${_ccRecipePlate(A, "a", A ? flagRows : [])}</div><div class="cc-col">${_ccRecipePlate(B, "b", B ? flagRows : [])}</div></div>`;
+}
+
+function renderCardCompare(data) {
+  const d = data || CC.data; if (!d) return;
+  const S = d.sections || {};
+  const heads = `<div class="cmp2-heads">${_ccHead("A", d.a, d.b)}${_ccHead("B", d.b, d.a)}</div>`;
+  const secs = CC_SECTIONS.map(([key, label]) => {
+    const sec = S[key];
+    let body;
+    if (key === "agentic") body = _ccAgenticSection(sec);
+    else if (key === "perf") body = _ccPerfSection(sec);
+    else if (key === "arena") body = _ccArenaSection(sec);
+    else if (key === "recipe") body = _ccRecipeSection(sec);
+    else body = _ccQualSection(key, label, sec);
+    return _ccSection(key, label, body);
+  }).join("");
+  $("#cmpBody").innerHTML = heads + secs;
+  // per-section "differences only" toggles re-render in place
+  $$("#cmpBody [data-ccsec]").forEach((cb) => cb.onchange = () => {
+    (CC.sec[cb.dataset.ccsec] = CC.sec[cb.dataset.ccsec] || {}).diffsOnly = cb.checked;
+    renderCardCompare();
+  });
+  // arena chips open the EXISTING gallery preview overlay (sandboxed iframe render path)
+  $$("#cmpBody .cc-art").forEach((btn) => btn.onclick = () => {
+    const card = btn.dataset.side === "a" ? d.a : d.b;
+    openGalPreview(btn.dataset.aid, btn.dataset.title || "artifact", (card && card.model) || "");
+  });
+}
+
 async function loadCompare(seed) {
+  clearCompareHash();                               // cmpBody no longer shows the deep-linked card compare
   $("#cmpBody").innerHTML = skel(10);
   let d; try { d = await api("/api/compare/" + encodeURIComponent(seed)); }
   catch (e) { $("#cmpBody").innerHTML = `<p class="err">failed to load</p>`; return; }
@@ -3736,6 +4228,7 @@ async function init() {
   $$("#tabs .tab").forEach((t) => t.onclick = () => {
     // hide ALL aux panels first — each setter then reveals its own (fixes panel stacking)
     ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#perfPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+    if (!t.dataset.compare) clearCompareHash();     // deep link only describes a visible comparison
     return t.dataset.admin ? setAdmin() : t.dataset.subs ? setSubs(null)
       : t.dataset.harness ? setHarness()
       : t.dataset.compare ? setCompare()
@@ -3747,6 +4240,12 @@ async function init() {
   });
   { const cs = $("#cmpSeed"); if (cs) cs.onchange = () => loadCompare(cs.value); }
   { const go = $("#cmpRunsGo"); if (go) go.onclick = () => loadRunCompare($("#cmpRunA").value, $("#cmpRunB").value); }
+  { const go = $("#cmpCardsGo"); if (go) go.onclick = () => loadCardCompare($("#cmpCardA").value, $("#cmpCardB").value); }
+  // minimal #compare=cardA,cardB deep-link support (the SPA has no other hash routing)
+  window.addEventListener("hashchange", () => {
+    const ch = parseCompareHash();
+    if (ch && (active !== "compare" || CC.a !== ch[0] || CC.b !== ch[1])) { CC.pending = ch; setCompare(); }
+  });
   $("#subsBoard").onchange = () => { SUBS.board = $("#subsBoard").value; loadSubs(); };
   $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); };
   $("#adminKind").onchange = loadAdminArtifacts;
@@ -3848,5 +4347,8 @@ async function init() {
     setInterval(() => { if (active !== "live") pollLive(); }, 15000);
   }
   await loadBoard();                        // no loadModels(): the launch form is gone
+  // arrived on a shared #compare=cardA,cardB link — open the comparison directly
+  const ch = parseCompareHash();
+  if (ch) { CC.pending = ch; setCompare(); }
 }
 init();

@@ -2394,6 +2394,147 @@ select:focus {
 .perf-heat tbody tr:hover { background: rgba(0, 240, 255, .045); }
 .chip.met.on { box-shadow: 0 0 14px rgba(0, 240, 255, .35), inset 0 0 8px rgba(0, 0, 0, .25); }
 
+/* ---- UNIFIED BENCHMARK CARDS (Submissions default view): one machined plate per bench JOB.
+   Rides the shared .chamfer-card grammar; amber is spent ONLY on the flag (verdict role). ---- */
+/* not sticky — the .subs-day headers own top:0; two stacked stickies would collide */
+.subs-viewbar { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--well); }
+.vb-btn {
+  cursor: pointer; padding: 3px 10px; font-family: var(--mono, monospace); font-size: 10px;
+  font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); background: var(--chip); border: 1px solid var(--line);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.vb-btn:hover { color: var(--accent); border-color: rgba(0, 240, 255, .5); }
+.vb-btn.on { color: var(--accent); border-color: rgba(0, 240, 255, .55); background: rgba(0, 240, 255, .07); }
+.bench-card { margin: 8px; padding: 10px 12px; cursor: pointer; }
+/* clip-path eats outer shadows — selection is an inset cyan ring (same rule as .pcard focus) */
+.bench-card.sel { border-color: rgba(0, 240, 255, .5); box-shadow: inset 0 0 0 1px rgba(0, 240, 255, .45), inset 0 0 24px rgba(0, 240, 255, .05); }
+.bench-card:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+/* flagged JOB: amber edge on the plate (verdict hue — the card stays readable, not dimmed) */
+.bench-card.flagged-any { border-color: rgba(255, 180, 84, .5); box-shadow: inset 3px 0 0 var(--warn); }
+.bench-card.flagged-any.sel { box-shadow: inset 3px 0 0 var(--warn), inset 0 0 0 1px rgba(0, 240, 255, .45); }
+.bc-head { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.bc-name { font-size: 13.5px; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bc-flag { color: var(--warn); font-size: 13px; text-shadow: 0 0 8px rgba(255, 180, 84, .5); }
+.bc-score { font-weight: 700; font-size: 18px; color: var(--muted); text-align: right; font-family: var(--mono, monospace); }
+.bc-score.pass { color: var(--good); } .bc-score.part { color: var(--warn); } .bc-score.fail { color: var(--bad); }
+.bc-meta { display: flex; align-items: center; gap: 8px; margin: 6px 0 0 42px; min-width: 0; flex-wrap: wrap; }
+.bc-info { font-family: var(--mono, monospace); font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
+.bc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 0 42px; }
+.pc-chip.info { color: var(--text); }
+.pc-chip .chip-flag { color: var(--warn); margin-right: 2px; text-shadow: 0 0 6px rgba(255, 180, 84, .5); }
+.arena-chip { cursor: default; }
+
+/* ---- JOB-LEVEL COMPARE (Compare tab primary): every section side by side, A cyan / B magenta.
+   PARITY FILLER: a side with no results renders a muted dashed chamfer plate — the gap is
+   explicit, never silently collapsed. ---- */
+.cmp-secondary { margin: 0 0 14px; }
+.cmp-secondary > summary {
+  cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--faint);
+}
+.cmp-secondary[open] > summary { color: var(--muted); margin-bottom: 10px; }
+.cc-sec { margin: 24px 0; }
+/* centered engraved section header between hairline rules (the .cmp-plate-t grammar, full width) */
+.cc-sec-h {
+  display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0 0 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--faint); white-space: nowrap;
+}
+.cc-sec-h::before, .cc-sec-h::after { content: ""; flex: 1 1 20px; height: 1px; background: var(--line); }
+.cc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; }
+.cc-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cc-filler {
+  display: flex; align-items: center; justify-content: center; min-height: 120px; height: 100%;
+  padding: 18px; border: 1px dashed var(--line); color: var(--faint);
+  font-family: var(--sans); font-size: 12px; text-align: center;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background: repeating-linear-gradient(135deg, transparent 0 12px, rgba(255, 255, 255, .015) 12px 24px), var(--well);
+}
+.cc-none { text-align: center; color: var(--faint); font-family: var(--sans); font-size: 12px; padding: 4px 0 2px; }
+/* section summary strip: A vs B composites in side hues, winner ringed in verdict green */
+.cc-qual-vs { display: flex; align-items: baseline; justify-content: center; gap: 14px; margin: 0 0 10px; }
+.cc-qv { font-family: var(--mono, monospace); font-size: 22px; font-weight: 700; padding: 1px 10px; }
+.cc-qv.side-a { color: var(--accent); }
+.cc-qv.side-b { color: var(--accent2); }
+.cc-qv.win { box-shadow: inset 0 0 0 1px rgba(61, 220, 133, .45); }
+.cc-qv-vs { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.cc-sub { font-family: var(--mono, monospace); font-size: 10px; color: var(--faint); }
+/* solo (one-sided) case cells keep their side's edge key even without a partner column —
+   both borders set explicitly so the base :first/:last-child edge rules can't mis-key them */
+.cmp2-cell.solo-a { border-left: 2px solid rgba(0, 240, 255, .35); border-right: 1px solid var(--line); }
+.cmp2-cell.solo-b { border-right: 2px solid rgba(255, 46, 151, .3); border-left: 1px solid var(--line); }
+.cc-nocase { display: flex; align-items: center; justify-content: center; border-style: dashed; }
+/* agentic: per-harness sub-rows + the aligned per-task verdict grid on shared case ids */
+.cc-h-row { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin-bottom: 10px; }
+.cc-h-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cc-h-name { font-family: var(--mono, monospace); font-size: 12px; letter-spacing: .1em; }
+.cc-h-score { font-family: var(--mono, monospace); font-size: 15px; font-weight: 700; }
+.cc-h-score.side-a { color: var(--accent); }
+.cc-h-score.side-b { color: var(--accent2); }
+.cc-h-score .hver { font-size: 10px; font-weight: 400; color: var(--faint); margin-left: 4px; }
+.cc-h-vs { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+.cc-tasks { display: grid; grid-template-columns: 20px repeat(var(--n), minmax(16px, 22px)); gap: 2px; margin-top: 8px; overflow-x: auto; padding-bottom: 2px; }
+.cc-task-side { font-family: var(--mono, monospace); font-size: 10px; font-weight: 700; align-self: center; }
+.cc-task-side.a { color: var(--accent); }
+.cc-task-side.b { color: var(--accent2); }
+.cc-task {
+  display: inline-flex; align-items: center; justify-content: center; height: 18px;
+  font-family: var(--mono, monospace); font-size: 10px; font-weight: 700;
+  border: 1px solid var(--line); background: var(--well); color: var(--faint);
+}
+.cc-task.pass { color: var(--good); border-color: rgba(61, 220, 133, .4); background: rgba(61, 220, 133, .07); }
+.cc-task.fail { color: var(--bad); border-color: rgba(255, 93, 122, .4); background: rgba(255, 93, 122, .06); }
+.cc-task.part { color: var(--warn); border-color: rgba(255, 180, 84, .4); }
+/* perf: peak headline pair + the aligned concurrency table (better cell subtly lit) */
+.cc-peaks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+.cc-peak {
+  padding: 10px 12px; border: 1px solid var(--line); background: var(--panel); min-width: 0;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.cc-peak.side-a { border-left: 2px solid rgba(0, 240, 255, .35); }
+.cc-peak.side-b { border-right: 2px solid rgba(255, 46, 151, .3); }
+.cc-peak b { display: block; font-family: var(--mono, monospace); font-size: 24px; line-height: 1.2; }
+.cc-peak.side-a b { color: var(--accent); }
+.cc-peak.side-b b { color: var(--accent2); }
+.cc-peak.win { border-color: rgba(61, 220, 133, .5); box-shadow: inset 0 0 0 1px rgba(61, 220, 133, .3); }
+.cc-peak-lbl { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.cc-perf-wrap { overflow-x: auto; }
+.cc-perf th:first-child { width: 56px; }
+.cc-perf th.cc-ma, .cc-perf td.cc-ca { border-left: 1px solid var(--line); }
+.cc-perf th { white-space: nowrap; }
+.cc-perf .cc-best { color: var(--good); font-weight: 700; background: rgba(61, 220, 133, .10); }
+/* arena: artifact chips per side; ok/✗ is a verdict, the column key stays side-hued */
+.cc-arts { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.cc-art {
+  display: inline-flex; align-items: baseline; gap: 5px; cursor: pointer;
+  padding: 3px 9px; font-family: var(--mono, monospace); font-size: 10px; letter-spacing: .05em;
+  color: var(--muted); background: var(--well); border: 1px solid var(--line);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+.cc-art:hover { border-color: var(--accent); color: var(--accent); }
+.cc-art .ok { color: var(--good); } .cc-art .bad { color: var(--bad); }
+/* recipe: aligned mono flag lists — a flag only ONE side carries is lit in that side's hue */
+.cc-recipe { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; min-width: 0; }
+.cc-recipe.side-a { border-left: 2px solid rgba(0, 240, 255, .35); }
+.cc-recipe.side-b { border-right: 2px solid rgba(255, 46, 151, .3); }
+.cc-rline { font-family: var(--mono, monospace); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; margin-bottom: 3px; }
+.cc-rline .catk { margin-right: 6px; }
+.cc-flags { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.cc-flag {
+  font-family: var(--mono, monospace); font-size: 10.5px; color: var(--muted);
+  padding: 1px 6px; overflow-wrap: anywhere; min-height: 18px;
+}
+.cc-flag.gap { color: var(--faint); }
+.cc-flag.diff-a { color: var(--accent); background: rgba(0, 240, 255, .07); box-shadow: inset 2px 0 0 rgba(0, 240, 255, .45); }
+.cc-flag.diff-b { color: var(--accent2); background: rgba(255, 46, 151, .07); box-shadow: inset -2px 0 0 rgba(255, 46, 151, .45); }
+@media (max-width: 900px) {
+  .cc-cols, .cc-peaks { grid-template-columns: 1fr; }
+  .cc-filler { min-height: 72px; }
+}
+
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

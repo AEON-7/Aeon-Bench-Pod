@@ -302,6 +302,36 @@ def _lowest_conc_metric(c_lo, metric, agg):
     return agg(vals) if vals else None
 
 
+def perf_direct_grid(results):
+    """Per-run DIRECT-grid extraction — perf.direct.<scope>.c<N> result rows (case_id +
+    parsed evidence) -> (direct[conc][scope] metric cells, sorted conc levels). Shared by
+    perf_board and the unified benchmark cards so the two can never disagree about what a
+    perf run demonstrated. Malformed case ids / evidence are skipped, never raised."""
+    direct, concs = {}, set()
+    for x in results:
+        cid, ev = x.get("case_id") or "", x.get("evidence") or {}
+        parts = str(cid).split(".")
+        if len(parts) != 4 or parts[0] != "perf" or parts[1] != "direct" \
+                or not parts[3].startswith("c"):
+            continue
+        try:
+            conc = int(parts[3][1:])
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            ev = {}
+        concs.add(conc)
+        direct.setdefault(conc, {})[parts[2]] = {
+            "ttft_ms": ev.get("ttft_ms_mean"), "ttft_p95": ev.get("ttft_ms_p95"),
+            "tpot_ms": ev.get("tpot_ms_mean"),
+            "decode_tps": ev.get("decode_tps_mean"),
+            "agg_decode_tps": ev.get("agg_decode_tps"),
+            "prefill_tps": ev.get("prefill_tps_mean"),
+            "n_errors": ev.get("n_errors"),
+        }
+    return direct, sorted(concs)
+
+
 def perf_board():
     """PERFORMANCE board: one row per canonical model = its LATEST perf run (suite
     aeon-perf-v1), unpacked into two grids the dashboard can chart directly:
@@ -328,34 +358,26 @@ def perf_board():
     qidx = _quality_index()                          # (canonical, hw) -> best v3 quality composite
     models = []
     for c, info in latest.items():
-        direct, harness, concs = {}, {}, set()
+        direct, dconcs = perf_direct_grid(info["results"])
+        harness, concs = {}, set(dconcs)
         for x in info["results"]:
             cid, ev = x.get("case_id") or "", x.get("evidence") or {}
             parts = cid.split(".")
-            # perf.direct.<scope>.c<N>  |  perf.harness.<hid>[.<scope>].c<N>
-            if len(parts) < 4 or parts[0] != "perf" or not parts[-1].startswith("c"):
+            # perf.harness.<hid>[.<scope>].c<N> (the direct cells are parsed above)
+            if len(parts) < 4 or parts[0] != "perf" or parts[1] != "harness" \
+                    or not parts[-1].startswith("c"):
                 continue
             try:
                 conc = int(parts[-1][1:])
             except ValueError:
                 continue
             concs.add(conc)
-            if parts[1] == "direct" and len(parts) == 4:
-                direct.setdefault(conc, {})[parts[2]] = {
-                    "ttft_ms": ev.get("ttft_ms_mean"), "ttft_p95": ev.get("ttft_ms_p95"),
-                    "tpot_ms": ev.get("tpot_ms_mean"),
-                    "decode_tps": ev.get("decode_tps_mean"),
-                    "agg_decode_tps": ev.get("agg_decode_tps"),
-                    "prefill_tps": ev.get("prefill_tps_mean"),
-                    "n_errors": ev.get("n_errors"),
-                }
-            elif parts[1] == "harness":
-                hid = parts[2]
-                scope = parts[3] if len(parts) == 5 else "overall"
-                harness.setdefault(hid, {}).setdefault(conc, {})[scope] = {
-                    "mean_task_s": ev.get("mean_task_s"), "p95_task_s": ev.get("p95_task_s"),
-                    "tasks_per_min": ev.get("tasks_per_min"), "failures": ev.get("failures"),
-                }
+            hid = parts[2]
+            scope = parts[3] if len(parts) == 5 else "overall"
+            harness.setdefault(hid, {}).setdefault(conc, {})[scope] = {
+                "mean_task_s": ev.get("mean_task_s"), "p95_task_s": ev.get("p95_task_s"),
+                "tasks_per_min": ev.get("tasks_per_min"), "failures": ev.get("failures"),
+            }
         if not direct and not harness:
             continue
         # The level SUMMARY is recomputed here as the ARITHMETIC MEAN across the per-category

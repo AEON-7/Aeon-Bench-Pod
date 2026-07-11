@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=83" />
+  <link rel="stylesheet" href="/static/styles.css?v=84" />
 </head>
 <body>
   <header>
@@ -102,29 +102,44 @@
 
     <section class="panel" id="comparePanel" hidden>
       <div class="lbhead"><h2>Compare</h2></div>
-      <p class="lede">Two runs side by side — two models, or the same model under two recipes. Plus seed A/Bs.</p>
+      <p class="lede">Two whole benchmarks side by side — every board (text · harnesses · vision · audio · video · perf · arena · recipe), parity gaps called out. Single-run and seed A/Bs below.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note"><b>Compare runs</b>: pick any two submissions — the shared suite joins per question, so you see both answers, both scores and both recipes head-to-head (the recipe-tuning A/B view; also reachable from the Submissions list via the ⇆ checkboxes). <b>Compare by seed</b>: a <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>; every model that ran it answered the <b>identical questions</b>.</p>
+        <p class="note"><b>Compare benchmarks</b>: pick two benchmark jobs — every section renders side by side in a fixed order; a board only one side ran shows an explicit parity plate ("no … results for this run") so gaps are visible, never silently skipped. <b>Compare runs</b>: pick any two submissions — the shared suite joins per question, so you see both answers, both scores and both recipes head-to-head (the recipe-tuning A/B view; also reachable from the Submissions list via the ⇆ checkboxes). <b>Compare by seed</b>: a <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>; every model that ran it answered the <b>identical questions</b>.</p>
       </details>
-      <!-- symmetric picker bar: two balanced chamfered plates — run-vs-run · seed A/B -->
-      <div class="cmp-pickbar">
-        <div class="cmp-pick cmp-runs-pick cmp-plate">
-          <span class="cmp-plate-t">run A <span class="cmp-vs">vs</span> run B</span>
+      <!-- PRIMARY picker: whole-benchmark (job-level) A/B — one plate, full width -->
+      <div class="cmp-pickbar cmp-cards-bar">
+        <div class="cmp-pick cmp-cards-pick cmp-plate">
+          <span class="cmp-plate-t">benchmark A <span class="cmp-vs">vs</span> benchmark B</span>
           <div class="cmp-plate-body">
-            <label class="cmp-side-l cmp-side-a"><span class="cmp-key a">A</span><select id="cmpRunA"></select></label>
+            <label class="cmp-side-l cmp-side-a"><span class="cmp-key a">A</span><select id="cmpCardA"></select></label>
             <span class="cmp-vs-mark">⇆</span>
-            <label class="cmp-side-l cmp-side-b"><span class="cmp-key b">B</span><select id="cmpRunB"></select></label>
-            <button id="cmpRunsGo" class="ghost">⇆ compare runs</button>
-          </div>
-        </div>
-        <div class="cmp-pick cmp-plate">
-          <span class="cmp-plate-t">or seed</span>
-          <div class="cmp-plate-body">
-            <label class="cmp-side-l"><span class="cmp-key">◈</span><select id="cmpSeed"></select></label>
-            <span id="cmpBadge" class="cmp-badge"></span>
+            <label class="cmp-side-l cmp-side-b"><span class="cmp-key b">B</span><select id="cmpCardB"></select></label>
+            <button id="cmpCardsGo" class="ghost">⇆ compare benchmarks</button>
           </div>
         </div>
       </div>
+      <!-- secondary tools: run-vs-run · seed A/B (collapsed by default — the job compare above is primary) -->
+      <details class="cmp-secondary" id="cmpSecondary">
+        <summary>single-run + seed tools</summary>
+        <div class="cmp-pickbar">
+          <div class="cmp-pick cmp-runs-pick cmp-plate">
+            <span class="cmp-plate-t">run A <span class="cmp-vs">vs</span> run B</span>
+            <div class="cmp-plate-body">
+              <label class="cmp-side-l cmp-side-a"><span class="cmp-key a">A</span><select id="cmpRunA"></select></label>
+              <span class="cmp-vs-mark">⇆</span>
+              <label class="cmp-side-l cmp-side-b"><span class="cmp-key b">B</span><select id="cmpRunB"></select></label>
+              <button id="cmpRunsGo" class="ghost">⇆ compare runs</button>
+            </div>
+          </div>
+          <div class="cmp-pick cmp-seed-pick cmp-plate">
+            <span class="cmp-plate-t">or seed</span>
+            <div class="cmp-plate-body">
+              <label class="cmp-side-l"><span class="cmp-key">◈</span><select id="cmpSeed"></select></label>
+              <span id="cmpBadge" class="cmp-badge"></span>
+            </div>
+          </div>
+        </div>
+      </details>
       <div id="cmpBody"></div>
     </section>
 
@@ -605,6 +620,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=83"></script>
+  <script src="/static/app.js?v=84"></script>
 </body>
 </html>

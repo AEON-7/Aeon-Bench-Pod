@@ -73,6 +73,25 @@ def _apple_label():
     return f"{chip}{gb}".strip() or None                  # 'Apple M4 48GB' fallback
 
 
+def _pci_nvidia_gpus():
+    """NVIDIA display-class devices visible on the PCI bus (sysfs is host-shared even in a
+    container launched without --gpus). Vendor 0x10de AND class 0x03xxxx only — GB10 boards
+    carry NVIDIA bridges/NICs too, which must never count as GPUs."""
+    n = 0
+    try:
+        import glob
+        for dev in glob.glob("/sys/bus/pci/devices/*/vendor"):
+            with open(dev) as f:
+                if f.read().strip().lower() != "0x10de":
+                    continue
+            with open(os.path.join(os.path.dirname(dev), "class")) as f:
+                if f.read().strip().lower().startswith("0x03"):
+                    n += 1
+    except Exception:
+        pass
+    return n
+
+
 def _detect_label(prof):
     """Canonical human hardware label from the DETECTED profile (never the operator's claim)."""
     gpus = prof.get("gpus") or []
@@ -86,12 +105,19 @@ def _detect_label(prof):
             mult = {1: "single", 2: "dual", 3: "triple", 4: "quad"}.get(n, f"{n}x")
             return f"{mult} {d}"
         return d if n == 1 else f"{n}× {d}"               # identical GPUs -> '2× RTX 5090 32GB'
+    if (os.environ.get("AEON_SYSTEM") or "").strip().lower() == "dgx-spark":
+        return "single DGX Spark (GB10)"                  # explicit host declaration
     if "aarch64" in (prof.get("machine") or "") and os.path.exists("/etc/nv_tegra_release"):
         return "single DGX Spark (GB10)"
     if platform.system() == "Darwin" and (prof.get("machine") or "").startswith("arm"):
         lbl = _apple_label()
         if lbl:
             return lbl
+    npci = prof.get("pci_nvidia_gpus") or 0
+    if npci:
+        # GPUs exist on the bus but this process can't name them (pod container launched
+        # without --gpus all). Never mislabel a GPU rig as CPU — state what we know, honestly.
+        return f"NVIDIA GPU ×{npci} (unidentified)"
     m = prof.get("machine") or "unknown"
     return f"{m} (CPU)"                                   # no accelerator found
 
@@ -107,6 +133,28 @@ def _hardware_profile(label=None):
             prof["gpus"] = [l.strip() for l in out.stdout.strip().splitlines() if l.strip()]
     except Exception:
         pass
+    if not prof.get("gpus"):
+        # GPU-blind container (no --gpus): the daemon can still name the host's GPUs — the
+        # nvidia container runtime injects nvidia-smi into ANY --gpus run, and the pod's own
+        # image is guaranteed local. Best-effort with a hard timeout; never blocks a bench.
+        try:
+            img = os.environ.get("AEON_POD_IMAGE", "ghcr.io/aeon-7/aeon-pod:latest")
+            out = subprocess.run(
+                ["docker", "run", "--rm", "--gpus", "all", "--entrypoint", "nvidia-smi", img,
+                 "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=25)
+            if out.returncode == 0:
+                gpus = [l.strip() for l in out.stdout.strip().splitlines() if l.strip()]
+                if gpus:
+                    prof["gpus"] = gpus
+                    prof["gpu_probe"] = "docker-daemon"
+        except Exception:
+            pass
+    if not prof.get("gpus"):
+        prof["pci_nvidia_gpus"] = _pci_nvidia_gpus()
+        if prof["pci_nvidia_gpus"]:
+            print("[pod] !! GPU detected on the PCI bus but not visible to this process — "
+                  "run the pod container with --gpus all for exact hardware labeling", flush=True)
     # DETECTED canonical hardware label — pulled from the machine the bench actually ran on (not
     # the operator's claim), so viewers see "single DGX Spark" / "RTX 5090 32GB" / "Apple M4 48GB".
     try:                                       # detection must NEVER crash a bench
@@ -129,11 +177,17 @@ def detected_hardware_label():
 
 def _job_ctx(model, hw_profile, started=None):
     """Job identity context, fixed at JOB START: launch timestamp (UTC ISO) + canonical model
-    + the DETECTED hardware label. Every bundle this job submits derives its job_sig from it."""
-    return {"started": started or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "model": model,
-            "hw": ((hw_profile or {}).get("detected_label")
-                   or (hw_profile or {}).get("label") or "unknown")}
+    + the DETECTED hardware label. Every bundle this job submits derives its job_sig from it.
+    Also mints the job GROUP — sha256(started|model|hw)[:24], the SAME for every bundle of
+    this job (no per-bundle suite scope) — which rides each bundle as bundle["job_group"] so
+    the mothership can group the job's per-board runs into ONE unified benchmark card."""
+    ctx = {"started": started or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "model": model,
+           "hw": ((hw_profile or {}).get("detected_label")
+                  or (hw_profile or {}).get("label") or "unknown")}
+    ctx["group"] = hashlib.sha256(
+        f"{ctx['started']}|{ctx['model']}|{ctx['hw']}".encode("utf-8")).hexdigest()[:24]
+    return ctx
 
 
 def _job_sig(ctx, suite_scope):
@@ -235,7 +289,8 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     pod = Pod(mothership, key_path or os.path.expanduser("~/.aeon/device_key.pem"))
     submit_extra = dict(suite_hash=suite_mod.suite_hash(), environment=env,
                         target_class="remote_api" if frontier_meta else "local_weights",
-                        hf_repo=hf_repo, engine=engine, judge_model=judge)
+                        hf_repo=hf_repo, engine=engine, judge_model=judge,
+                        job_group=job_ctx.get("group"))
     if frontier_meta:
         submit_extra["frontier"] = frontier_meta
     # Submission session UP FRONT (persisted even when the mothership is down): checkpoints
@@ -412,6 +467,10 @@ def _session_submit(pod, *, job_ctx, model, suite_id, board, results, local_rid=
     from pod import pending
     jsig = _job_sig(job_ctx, sig_scope or suite_id)
     print(f"[pod] job_sig={jsig}", flush=True)
+    # The shared JOB GROUP rides every bundle of this job (inside the persisted session's
+    # extra, so a deferred submit keeps it) — the mothership groups the job's per-board
+    # runs into ONE unified benchmark card by it.
+    extra.setdefault("job_group", job_ctx.get("group"))
     ses = pending.open_session(pod, job_sig=jsig, model=model, suite_id=suite_id, board=board,
                                local_rid=local_rid, extra=extra)
     return pending.finalize(pod, ses, results)
@@ -754,7 +813,8 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
         jsig = jsig or _job_sig(job_ctx, sid)
         print(f"[pod] job_sig={jsig}", flush=True)
         submit_extra = dict(suite_hash=suite_mod.suite_hash(), environment=env,
-                            target_class="hf_pull_controlled", judge_model=judge, **provenance)
+                            target_class="hf_pull_controlled", judge_model=judge,
+                            job_group=job_ctx.get("group"), **provenance)
         # Submission session UP FRONT (persisted even when the mothership is down): the bench
         # streams cumulative checkpoints (final=False) over it, and a failed final submit stays
         # recoverable behind the pod dashboard's SUBMIT TO MOTHERSHIP button. A resumed job

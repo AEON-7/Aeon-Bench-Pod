@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import arena, attest, db, evaluators, frontier, modelmeta, probe, runner, scoring, vram
+from . import arena, attest, cards, db, evaluators, frontier, modelmeta, probe, runner, scoring, vram
 
 # Mothership-only trust surface: evaluator accounts/auth, the admin portal, and the
 # signed-submission ingest gate. These modules are NOT part of the public pod
@@ -833,6 +833,26 @@ def submissions(board: str | None = None, model: str | None = None, limit: int =
         r["mean_score"] = round(100 * m, 1) if m is not None else None
         r["categories"] = cats.get(r["id"]) or {}
     return {"submissions": rows}
+
+
+# NOTE: registered BEFORE /api/submissions/{run_id} (declaration order wins in Starlette),
+# or the parametric route would swallow "cards" as a run id.
+@app.get("/api/submissions/cards")
+def submissions_cards(limit: int = 100):
+    """UNIFIED BENCHMARK CARDS: one card per pod JOB (all its per-board runs grouped by the
+    pod-minted job_group, or by time-cluster for legacy runs). Contract in aeon/cards.py."""
+    return cards.submission_cards(limit=limit)
+
+
+@app.get("/api/compare_cards")
+def compare_cards(a: str, b: str):
+    """FULL-PARITY side-by-side of two benchmark cards (jg:/lg: ids from
+    /api/submissions/cards): every section key always present, a side without that
+    section is null so the frontend renders the parity filler."""
+    out = cards.compare_cards(a, b)
+    if out.get("error"):
+        return JSONResponse(out, status_code=404)
+    return out
 
 
 @app.get("/api/compare_runs")
@@ -1874,14 +1894,16 @@ def _fetch_champions(base_url: str, hardware: str | None):
     """GET the mothership's /api/recipes/champions (5s budget). Split out so tests stub it —
     the champion pull must never make the Run tab depend on the network."""
     from urllib.parse import urlencode
-    from urllib.request import urlopen
+    from urllib.request import Request, urlopen
     url = (base_url or "").rstrip("/")
     if not url.startswith(("http://", "https://")):
         raise ValueError("mothership URL must be http(s)")
     url += "/api/recipes/champions"
     if hardware:
         url += "?" + urlencode({"hardware": hardware})
-    with urlopen(url, timeout=5) as r:
+    # a real UA is load-bearing: the mothership WAF's CRS treats Python-urllib/* as a scanner
+    req = Request(url, headers={"User-Agent": "aeon-pod/1.0 (+https://aeon-bench.com)"})
+    with urlopen(req, timeout=5) as r:
         return json.loads(r.read().decode("utf-8"))
 
 

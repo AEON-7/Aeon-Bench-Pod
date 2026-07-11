@@ -154,11 +154,38 @@ def test_gb10_regression_exact_flags():
     got = presets.apply_flags(presets._GENERIC, ["text"], hardware=gb10)
     assert got == ["--attention-backend", "triton_attn"], got
 
-    # full_flags (GUI chip) for qwen3_5: safe + attn + parsers + fp8 perf override, deduped
+    # full_flags (GUI chip) for qwen3_5: safe (incl. the spec-decode scheduler budgets restored
+    # from the pre-sync pod presets — _QWEN_DFLASH_SCHED) + attn + parsers + fp8 perf override,
+    # deduped. NOTE: the composed ORDER differs from the pre-split presets (family sched flags
+    # now precede the hardware attention pin instead of following it) — flag order is
+    # semantically irrelevant to the engine; the values are the contract.
     got = presets.full_flags(by_id["qwen3_5"], ["text"], hardware=gb10)
-    assert got == ["--kv-cache-dtype", "fp8_e4m3", "--attention-backend", "triton_attn",
+    assert got == ["--kv-cache-dtype", "fp8_e4m3",
+                   "--max-num-seqs", "64", "--max-num-batched-tokens", "32768",
+                   "--enable-chunked-prefill", "--generation-config", "vllm",
+                   "--attention-backend", "triton_attn",
                    "--reasoning-parser", "qwen3", "--tool-call-parser", "qwen3_coder",
                    "--enable-auto-tool-choice"], got
+
+
+def test_qwen_sched_flags_restored():
+    """The pre-sync pod presets carried _QWEN_DFLASH_SCHED (spec-decode scheduler budgets) on
+    BOTH Qwen families' safe flags — restored here at the FAMILY layer (they're model-intrinsic
+    scheduling behavior, not a host pin), so every host composes them by default, exactly the
+    families the pre-split file gave them to (and no others)."""
+    sched = ["--max-num-seqs", "64", "--max-num-batched-tokens", "32768",
+             "--enable-chunked-prefill", "--generation-config", "vllm"]
+    assert presets._QWEN_DFLASH_SCHED == sched, presets._QWEN_DFLASH_SCHED
+    by_id = {p["id"]: p for p in presets.PRESETS}
+    for pid in ("qwen3_5_moe", "qwen3_5"):
+        got = presets.apply_flags(by_id[pid], ["text"],
+                                  hardware=presets.hardware_preset({"accel": "cuda"}))
+        assert got[:2] + got[2:2 + len(sched)] == ["--kv-cache-dtype", "auto"] + sched, (pid, got)
+    for p in presets.PRESETS:
+        if p["id"] in ("qwen3_5_moe", "qwen3_5"):
+            continue
+        assert "--max-num-batched-tokens" not in (p.get("safe_flags") or []), \
+            f"{p['id']}: sched budgets leaked beyond the Qwen families"
 
 
 def test_non_gb10_hosts_drop_the_attention_pin():
@@ -183,10 +210,12 @@ def main():
     test_family_flags_are_hardware_free()
     test_hardware_preset_selection()
     test_gb10_regression_exact_flags()
+    test_qwen_sched_flags_restored()
     test_non_gb10_hosts_drop_the_attention_pin()
     test_summary_payload_shape()
     print("OK  preset matrix: parsers cataloged, all families detected, "
-          "family flags hardware-free, GB10 composition regression-exact")
+          "family flags hardware-free, GB10 composition regression-exact, "
+          "Qwen spec-decode scheduler budgets restored")
 
 
 if __name__ == "__main__":

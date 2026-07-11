@@ -1047,25 +1047,46 @@ def _recipe_serve(recipe):
 
 
 def _drafter_info(recipe):
-    """DFlash speculative-decode drafter disclosure for a stored recipe, or None for plain decode.
-    The recipe pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) is what
-    lets others replicate. `n` (num_speculative_tokens) comes from the top-level field if recorded,
-    else parsed out of the --speculative-config JSON in the serve flags."""
+    """Speculative-decode disclosure for a stored recipe, or None for plain decode.
+
+    DFlash pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) lets others
+    replicate. Native MTP has no drafter, so the method/n are parsed from --speculative-config
+    (both the "--speculative-config JSON" and "--speculative-config=JSON" forms).
+    """
     if not recipe:
         return None
-    if not (recipe.get("drafter") or recipe.get("drafter_repo") or recipe.get("spec_decode")):
+    n = recipe.get("spec_decode_n") or recipe.get("drafter_n") or recipe.get("drafter_nst")
+    method = recipe.get("spec_decode_method") or recipe.get("spec_decode")
+    spec_model = None
+    for seq in (recipe.get("flags") or [], recipe.get("command") or []):
+        for i, f in enumerate(seq):
+            if f == "--speculative-config" and i + 1 < len(seq):
+                try:
+                    cfg = json.loads(seq[i + 1])
+                    method = method or cfg.get("method")
+                    n = n or cfg.get("num_speculative_tokens")
+                    spec_model = cfg.get("model")
+                except Exception:
+                    pass
+                break
+            if isinstance(f, str) and f.startswith("--speculative-config="):
+                try:
+                    cfg = json.loads(f.split("=", 1)[1])
+                    method = method or cfg.get("method")
+                    n = n or cfg.get("num_speculative_tokens")
+                    spec_model = cfg.get("model")
+                except Exception:
+                    pass
+                break
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or method):
         return None
-    n = recipe.get("drafter_n") or recipe.get("drafter_nst")
-    for i, f in enumerate(recipe.get("flags") or []):
-        if f == "--speculative-config" and i + 1 < len(recipe["flags"]):
-            try:
-                n = n or json.loads(recipe["flags"][i + 1]).get("num_speculative_tokens")
-            except Exception:
-                pass
-            break
-    return {"method": recipe.get("spec_decode") or "dflash",
+    method = method or "dflash"
+    uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
+                        (str(method).lower() == "dflash" and str(spec_model or "").startswith("/drafter")))
+    return {"method": method,
             "repo": recipe.get("drafter_repo"),          # e.g. z-lab/gemma-4-26B-A4B-it-DFlash
-            "revision": recipe.get("drafter_revision"), "n": n}
+            "revision": recipe.get("drafter_revision"), "n": n,
+            "uses_drafter": uses_drafter}
 
 
 def _portable_speculative(flags):
@@ -1112,7 +1133,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     # ref is immutable (client-verified on pull), a tag is a mutable pointer
     image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
-    if d:
+    if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     lines = []
     if hf_repo:
@@ -1125,7 +1146,13 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
         lines += [f"# 1b) pull the z-lab DFlash drafter — lossless speculative decode (speed only{ncmt})",
                   f"hf download {d['repo']}{drev} --local-dir ./drafter", ""]
     if d:
-        disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
+        method = str(d.get("method") or "dflash")
+        if method.lower() == "dflash":
+            disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
+        elif "mtp" in method.lower():
+            disc = f"Native MTP spec-decode: {method}"
+        else:
+            disc = f"Spec-decode: {method}"
         if d.get("revision"):
             disc += f"@{str(d['revision'])[:12]}"
         if d.get("n"):
@@ -1134,7 +1161,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     lines.append("# 2) serve with the exact flags from this run")
     lines.append("docker run --rm --gpus all --name replica \\")
     lines.append("  -v ./weights:/model \\")
-    if d:
+    if d and d.get("uses_drafter"):
         lines.append("  -v ./drafter:/drafter \\"
                      + (f"  # {d['repo']}" if d.get("repo") else "  # z-lab DFlash drafter weights"))
     lines.append(f"  -p {port}:{port} \\")
@@ -1265,11 +1292,11 @@ def _compose_yaml(r, recipe):
     image, port, flags, _ = serve
     image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
-    if d:
+    if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     cmd = "\n".join("      - " + _yaml_quote(t) for t in ["serve", "/model"] + flags)
     vols = "      - ./weights:/model"
-    if d:
+    if d and d.get("uses_drafter"):
         vols += ("\n      - ./drafter:/drafter"
                  + (f"   # {d['repo']}" if d.get("repo") else "   # z-lab DFlash drafter weights"))
     usage = ""

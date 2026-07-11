@@ -34,6 +34,18 @@ from __future__ import annotations
 # an unverified parser is a NOTE, never a flag.
 _GB10_ATTN = ["--attention-backend", "triton_attn"]     # FlashInfer is broken on GB10
 
+# Qwen scheduler budgets that pair with speculative decode (DFlash drafter / native MTP): a
+# spec-decode step verifies several draft tokens per sequence per pass, so the batched-token
+# budget must be sized well above the sequence cap or the scheduler starves the drafter.
+# FAMILY-level (not hardware): the budgets are model-intrinsic scheduling behavior, carry no
+# host-specific pins, and applied on every host exactly as the pre-split presets did.
+_QWEN_DFLASH_SCHED = [
+    "--max-num-seqs", "64",
+    "--max-num-batched-tokens", "32768",
+    "--enable-chunked-prefill",
+    "--generation-config", "vllm",
+]
+
 # ---- HARDWARE presets: what the HOST needs, independent of model family -----------------------
 # Composes with the family preset in apply_flags/full_flags (family ⊕ hardware). Selected from
 # engines.host_platform() by hardware_preset(); flags append AFTER the family's safe flags —
@@ -105,7 +117,7 @@ PRESETS: list[dict] = [
         "arch_substr": ["Qwen3_5Moe", "Qwen3Moe"],
         "name_substr": ["a3b", "a10b", "ornith", "qwen3.6", "qwen3.5"],
         "confidence": "high",
-        "safe_flags": ["--kv-cache-dtype", "auto"],
+        "safe_flags": ["--kv-cache-dtype", "auto"] + _QWEN_DFLASH_SCHED,
         "parser_flags": ["--reasoning-parser", "qwen3",
                          "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],
@@ -121,7 +133,7 @@ PRESETS: list[dict] = [
         "arch_substr": ["Qwen3_5", "Qwen3For", "Qwen2For"],
         "name_substr": ["qwen3", "qwen2"],
         "confidence": "high",
-        "safe_flags": ["--kv-cache-dtype", "auto"],
+        "safe_flags": ["--kv-cache-dtype", "auto"] + _QWEN_DFLASH_SCHED,
         "parser_flags": ["--reasoning-parser", "qwen3",
                          "--tool-call-parser", "qwen3_coder", "--enable-auto-tool-choice"],
         "perf_flags": ["--kv-cache-dtype", "fp8_e4m3"],

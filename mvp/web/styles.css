@@ -1936,6 +1936,12 @@ select:focus {
 .drafter-state.ok { color: var(--good); }
 .drafter-state.warn { color: var(--warn); }
 .drafter-state.bad { color: var(--bad); }
+/* method card (DFlash vs native MTP): tune-card desc + pros/cons grammar inside the spec block */
+.spec-method-card { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 2px; }
+.spec-method-card[hidden] { display: none; }        /* [hidden] must beat display:flex */
+.spec-method-card .tune-pc { margin-top: 0; }
+/* native MTP hides the drafter fields — [hidden] must beat the global label display:flex */
+#drafterField[hidden] { display: none; }
 
 /* MLX bare-metal helper: the ONE non-container path, reported like a docker recipe */
 .mlx-help { margin: 10px 0 2px; padding: 12px 14px; border: 1px solid var(--border);

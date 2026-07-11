@@ -521,21 +521,42 @@ def _champion_flags(recipe):
 
 
 def _champion_drafter(recipe):
-    """DFlash drafter disclosure for a champion (repo + revision + n), or None (plain decode)."""
-    if not (recipe.get("drafter") or recipe.get("drafter_repo") or recipe.get("spec_decode")):
-        return None
-    n = recipe.get("drafter_n") or recipe.get("drafter_nst")
+    """Speculative-decode disclosure for a champion, or None (plain decode). Method-aware like
+    app._drafter_info: DFlash names its z-lab drafter repo (+ revision + n); native MTP has NO
+    drafter, so an mtp champion never advertises one (uses_drafter=False). Method/n come from the
+    recorded top-level fields, else from --speculative-config (both flag forms)."""
+    n = recipe.get("spec_decode_n") or recipe.get("drafter_n") or recipe.get("drafter_nst")
+    method = recipe.get("spec_decode_method") or recipe.get("spec_decode")
+    spec_model = None
     flags = recipe.get("flags") if isinstance(recipe.get("flags"), list) else []
     for i, f in enumerate(flags):
+        cfg = None
         if f == "--speculative-config" and i + 1 < len(flags):
             try:
-                n = n or json.loads(flags[i + 1]).get("num_speculative_tokens")
+                cfg = json.loads(flags[i + 1])
             except Exception:
                 pass
-            break
-    return {"method": recipe.get("spec_decode") or "dflash",
+        elif isinstance(f, str) and f.startswith("--speculative-config="):
+            try:
+                cfg = json.loads(f.split("=", 1)[1])
+            except Exception:
+                pass
+        else:
+            continue
+        if isinstance(cfg, dict):
+            method = method or cfg.get("method")
+            n = n or cfg.get("num_speculative_tokens")
+            spec_model = cfg.get("model")
+        break
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or method):
+        return None
+    method = method or "dflash"
+    uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
+                        (str(method).lower() == "dflash" and str(spec_model or "").startswith("/drafter")))
+    return {"method": method,
             "repo": recipe.get("drafter_repo"),
-            "revision": recipe.get("drafter_revision"), "n": n}
+            "revision": recipe.get("drafter_revision"), "n": n,
+            "uses_drafter": uses_drafter}
 
 
 def _peak_agg_cell(results):

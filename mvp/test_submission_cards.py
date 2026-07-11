@@ -224,6 +224,8 @@ ok("--served-model-name" not in rc["serve_flags"] and "--gpu-memory-utilization"
    "recipe serve_flags are the SANITIZED champion flags (bench wiring stripped)")
 ok(rc["spec_decode"] and rc["spec_decode"]["repo"] == "z-lab/Uni-DFlash"
    and rc["spec_decode"]["n"] == 4, "spec_decode is the drafter disclosure object")
+ok(rc["spec_decode"]["method"] == "dflash" and rc["spec_decode"]["uses_drafter"] is True,
+   "spec_decode disclosure is method-aware (dflash-with-drafter here)")
 ok(cards.compare_cards("jg:" + G, "lg:nonexistent").get("error"), "unknown lg card -> error")
 ok(cards.compare_cards("jg:nope", "jg:" + G).get("error"), "unknown jg card -> error")
 ok(cards.compare_cards("jg:" + G, "lg:" + rid_lg).get("error"),

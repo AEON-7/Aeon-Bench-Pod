@@ -124,7 +124,7 @@ def main():
     spec = json.loads(sf[sf.index("--speculative-config") + 1])
     assert spec["model"] == "/drafter", spec
     assert champ["drafter"] == {"method": "dflash", "repo": "z-lab/model-one-DFlash",
-                                "revision": None, "n": 6}, champ["drafter"]
+                                "revision": None, "n": 6, "uses_drafter": True}, champ["drafter"]
 
     # NO token-shaped strings anywhere in the public payload
     blob = json.dumps(d)
@@ -146,8 +146,55 @@ def main():
     m = scoring.champion_recipes(model=M2)
     assert m["champions"] and all(c["canonical"] == M2 for c in m["champions"])
 
-    # ---- pod proxy route: stubbed mothership fetch (never the network) ------------------------
+    # ---- method-aware speculative disclosure (_drafter_info / _champion_drafter) --------------
     from aeon import app as app_mod
+    # native MTP parsed from --speculative-config: no drafter to pull, mount, or advertise
+    mtp = app_mod._drafter_info({"flags": [
+        "--speculative-config", '{"method":"mtp","num_speculative_tokens":2}']})
+    assert mtp == {"method": "mtp", "repo": None, "revision": None, "n": 2,
+                   "uses_drafter": False}, mtp
+    # inline '--speculative-config=JSON' form on the recorded command parses too
+    qmtp = app_mod._drafter_info({"command": [
+        '--speculative-config={"method":"qwen3_next_mtp","num_speculative_tokens":3}']})
+    assert qmtp["method"] == "qwen3_next_mtp" and qmtp["n"] == 3 \
+        and qmtp["uses_drafter"] is False, qmtp
+    # DFlash targeting the /drafter mount uses a drafter even without top-level recipe fields
+    dfl = app_mod._drafter_info({"flags": [
+        "--speculative-config", '{"method":"dflash","model":"/drafter","num_speculative_tokens":6}']})
+    assert dfl["method"] == "dflash" and dfl["n"] == 6 and dfl["uses_drafter"] is True, dfl
+    # no speculative config anywhere -> plain decode, no disclosure
+    assert app_mod._drafter_info({"flags": ["--port", "8000"]}) is None
+    assert app_mod._drafter_info(None) is None
+    # replication command: MTP names the method honestly and never mounts /drafter …
+    mtp_cmd = app_mod._docker_cmd({"engine": "vllm", "flags": [
+        "--max-model-len", "65536",
+        "--speculative-config", '{"method":"mtp","num_speculative_tokens":2}']}, "org/model", None)
+    assert "Native MTP spec-decode: mtp" in mtp_cmd and "n=2" in mtp_cmd, mtp_cmd
+    assert "/drafter" not in mtp_cmd, mtp_cmd
+    # … while DFlash keeps the drafter pull + /drafter mount + repo disclosure
+    dfl_cmd = app_mod._docker_cmd({"engine": "vllm", "spec_decode": "dflash",
+                                   "drafter_repo": "z-lab/model-one-DFlash", "flags": [
+        "--speculative-config",
+        '{"method":"dflash","model":"/home/aeon/drafters/m1","num_speculative_tokens":6}']},
+        "org/model", None)
+    assert "-v ./drafter:/drafter" in dfl_cmd, dfl_cmd
+    assert "DFlash spec-decode: z-lab/model-one-DFlash" in dfl_cmd, dfl_cmd
+    assert "/home/aeon/drafters/m1" not in dfl_cmd, dfl_cmd     # local path never leaks
+    # _champion_drafter mirrors: an mtp champion must not advertise a drafter repo
+    cd = scoring._champion_drafter({"flags": [
+        "--speculative-config", '{"method":"mtp","num_speculative_tokens":4}']})
+    assert cd == {"method": "mtp", "repo": None, "revision": None, "n": 4,
+                  "uses_drafter": False}, cd
+    # …and the pod-side producer records the method into the recipe from the FINAL flags
+    from pod import modelhost
+    rec = modelhost.normalize_dflash_spec({"flags": [
+        "--speculative-config", '{"method":"qwen3_next_mtp","num_speculative_tokens":2}']})
+    assert rec["spec_decode"] == "qwen3_next_mtp" and rec["spec_decode_method"] == "qwen3_next_mtp"
+    assert rec["spec_decode_n"] == 2 and "native MTP" in rec["spec_decode_note"], rec
+    assert app_mod._drafter_info(rec)["uses_drafter"] is False
+    assert "spec_decode" not in modelhost.normalize_dflash_spec({"flags": ["--port", "8000"]})
+
+    # ---- pod proxy route: stubbed mothership fetch (never the network) ------------------------
     calls = {}
 
     def _stub(base, hw):

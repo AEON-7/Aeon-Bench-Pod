@@ -37,8 +37,7 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine image is missing audio decode deps (av/soxr/librosa). Use the audio-capable "
      "aeon-vllm-ultimate:latest (audio deps baked in), or pick a non-audio engine — a "
      "text/vision bench is unaffected."),
-    (re.compile(r"KeyError:\s*['\"]markov_head\.markov_w\d+\.weight['\"]|"
-                r"markov_head\.markov_w\d+\.weight", re.I), "--speculative-config",
+    (re.compile(r"markov_head\.markov_w\d+\.weight", re.I), "--speculative-config",
      "The selected DFlash drafter is incompatible with this vLLM build. Older Markov-head "
      "Qwen drafters expose markov_head.* weights that the current DFlash loader does not "
      "instantiate. Use the matching current drafter card, e.g. z-lab/Qwen3.6-27B-DFlash for "
@@ -80,13 +79,18 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "config.json (NVFP4 -> modelopt, GGUF -> none). Clear the quantization override in RECIPE "
      "TUNING to use the derived one, or set the correct method (modelopt / compressed-tensors / "
      "awq / gptq / fp8)."),
-    (re.compile(r"FlashInfer.*(?:error|unsupported|failed|no kernel|crash|exception)|"
-                r"flashinfer.*(?:not supported|unsupported|failed to|no kernel)", re.I),
+    (re.compile(r"flashinfer.*(?:error|unsupported|not supported|not installed|failed|requires|"
+                r"no kernel|crash|exception)", re.I),
      "--attention-backend",
      "FlashInfer is broken on the GB10. In RECIPE TUNING set attention-backend = triton_attn "
      "(or flash_attn)."),
-    (re.compile(r"requires.*remote code|custom.*modeling.*code|"
-                r"Loading this model requires you to (?:execute|trust)", re.I), "--trust-remote-code",
+    # Anchored on phrases that appear in the REAL transformers/vLLM errors but never in a vLLM
+    # config dump line (which prints trust_remote_code=False for every run).
+    (re.compile(r"pass the argument .{0,3}trust_remote_code=True|"
+                r"consider setting .{0,3}trust_remote_code=True|"
+                r"contains custom code which must be executed|"
+                r"requires you to execute the (?:configuration|modeling) file", re.I),
+     "--trust-remote-code",
      "This repo ships custom modeling code. Enable trust-remote-code in RECIPE TUNING."),
     (re.compile(r"reasoning[_-]parser.*(?:not|unknown|invalid|no such)|"
                 r"unknown reasoning parser|--reasoning-parser.*invalid", re.I), "--reasoning-parser",

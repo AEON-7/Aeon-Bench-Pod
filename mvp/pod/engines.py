@@ -379,6 +379,10 @@ def _model_mount(local_dir: str) -> tuple[str, str]:
     directory. Mounting only `.../snapshots/<revision>` at /model breaks those symlinks inside
     Docker, so vLLM sees `/model` as missing config.json. For HF cache snapshots, mount the
     whole repo cache root at /model and serve `/model/snapshots/<revision>` instead.
+
+    Caveat: only RELATIVE cache symlinks (modern huggingface_hub) resolve under the repo-root
+    mount; caches written with ABSOLUTE symlinks (ancient hub versions / cross-drive Windows
+    fallbacks) still dangle in-container — the diagnostics hint catches that case.
     """
     host = _host_path(local_dir).replace("\\", "/").rstrip("/")
     marker = "/snapshots/"

@@ -1732,6 +1732,36 @@ select:focus {
 .perf-repro { margin: 2px 0 18px; }                   /* recipe card = same machined plate as .sub-repro */
 @media (max-width: 720px) { .pcard.perf4 .perf4-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* ---- hardware clustering (v85): canonical bucket chips + engraved per-rig sections ---- */
+/* Spark presets with no data stay on the bar but read as unenergized sockets */
+.chip.hwf.off { opacity: .35; cursor: not-allowed; border-style: dashed; }
+.chip.hwf.off:hover { color: var(--muted); border-color: var(--line); transform: none; }
+.chip.hwf.dim { opacity: .35; }                       /* live search: bucket has no match */
+.perf-hw-search {
+  flex: 1 1 150px; min-width: 120px; max-width: 230px; margin-left: auto;
+  padding: 6px 10px; font-size: 12px;
+}
+.perf-sec { margin: 0 0 26px; }
+/* engraved centered section header between hairline rules — the .tune-sec-h grammar */
+.perf-sec-h {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin: 4px 0 12px; font-size: 10px; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--faint); white-space: nowrap; min-width: 0;
+}
+.perf-sec-h::before, .perf-sec-h::after { content: ""; flex: 1 1 24px; height: 1px; background: var(--line); }
+.perf-sec-t { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.perf-sec-m { letter-spacing: .1em; overflow: hidden; text-overflow: ellipsis; }
+.perf-sec-m b { color: var(--accent); font-variant-numeric: tabular-nums; }
+/* per-card hardware identity: an engraved micro-label chip — EVERY pcard carries one */
+.pcard-hw {
+  display: inline-flex; align-items: center; max-width: 100%;
+  font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); background: var(--well); border: 1px solid var(--line);
+  padding: 2px 7px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+@media (max-width: 720px) { .perf-hw-search { flex-basis: 100%; max-width: none; margin-left: 0; } }
+
 /* ---- VALIDATED BENCH (Run tab): model-validation strip · engine picker · MLX bare-metal ---- */
 /* The hero card carries the validated flow (its 1.618fr width + stronger plate say so);
    the endpoint card is the demoted local-only path. Depth stays inset (clip-path). */

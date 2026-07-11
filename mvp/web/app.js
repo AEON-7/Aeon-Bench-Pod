@@ -923,10 +923,10 @@ function galMatches(a, p, q) {
 function galCard(a, p, i) {
   const stats = a.unrated
     ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
-    : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T ? ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+    : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
   const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
   const hchip = a.harness
-    ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">? ${escH(a.harness)}</span>`
+    ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
     : "";
   return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
     <div class="gal-card-h">

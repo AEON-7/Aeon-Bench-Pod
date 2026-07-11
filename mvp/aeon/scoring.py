@@ -10,6 +10,7 @@ import re
 
 from . import capabilities
 from . import db
+from . import hwnorm
 from . import suite as suite_mod
 from . import vram
 
@@ -333,12 +334,17 @@ def perf_direct_grid(results):
 
 
 def perf_board():
-    """PERFORMANCE board: one row per canonical model = its LATEST perf run (suite
-    aeon-perf-v1), unpacked into two grids the dashboard can chart directly:
+    """PERFORMANCE board: one row per (canonical model × hardware BUCKET) = that pairing's
+    LATEST perf run (suite aeon-perf-v1) — a model benched on a Spark AND a 5090 holds a row
+    on each rig, so per-hardware clustering never hides a result. Rows unpack into two grids
+    the dashboard can chart directly:
       direct[conc][scope]   = {ttft_ms, ttft_p95, tpot_ms, decode_tps, agg_decode_tps, prefill_tps}
       harness[hid][conc][scope] = {mean_task_s, p95_task_s, tasks_per_min, failures}
     scope = a prompt category (Math/Coding/...) or 'overall'. Older runs that predate a
-    metric (e.g. TPOT) simply carry null there — the frontend renders gaps honestly."""
+    metric (e.g. TPOT) simply carry null there — the frontend renders gaps honestly.
+    Buckets come from hwnorm (Spark counts / RTX by model / Apple chip / Unlabeled); the
+    payload adds hw_bucket/hw_family/spark_count per row plus an ordered hardware_groups
+    summary — every pre-existing field (flat 'hardwares' list included) is unchanged."""
     rows = db.perf_results()
     by_run = {}
     for r in rows:
@@ -351,13 +357,15 @@ def perf_board():
             "env": r.get("env") or {},
             "started_at": r["started_at"], "results": []})["results"].append(r)
     latest = {}
-    for info in by_run.values():                     # newest perf run per canonical model
-        c = info["canonical"]
-        if c not in latest or (info["started_at"] or 0) > (latest[c]["started_at"] or 0):
-            latest[c] = info
+    for info in by_run.values():           # newest perf run per (canonical model, hw bucket)
+        info["_hw_label"] = _hw_label(info.get("env") or {})
+        info["_hw"] = hwnorm.normalize_label(info["_hw_label"])
+        k = (info["canonical"], info["_hw"]["bucket"])
+        if k not in latest or (info["started_at"] or 0) > (latest[k]["started_at"] or 0):
+            latest[k] = info
     qidx = _quality_index()                          # (canonical, hw) -> best v3 quality composite
     models = []
-    for c, info in latest.items():
+    for (c, _bucket), info in latest.items():
         direct, dconcs = perf_direct_grid(info["results"])
         harness, concs = {}, set(dconcs)
         for x in info["results"]:
@@ -411,8 +419,7 @@ def perf_board():
                 a = cell.get("agg_decode_tps")
                 if isinstance(a, (int, float)) and (peak_agg is None or a > peak_agg):
                     peak_agg, peak_cell = a, {"category": cat, "conc": conc_lvl}
-        hw = (info.get("env") or {}).get("hardware") or {}
-        hwlabel = hw.get("detected_label") or hw.get("label")
+        hwlabel, hwn = info["_hw_label"], info["_hw"]
         c_lo = (direct.get(min(concs)) if concs else {}) or {}    # single-stream = lowest concurrency
         q = qidx.get((c, hwlabel)) or qidx.get((c, None))         # v3 quality composite for this model+hw
         try:
@@ -427,6 +434,9 @@ def perf_board():
             "started_at": info["started_at"],
             # hardware AS DETECTED on the bench machine; the operator's claim is the fallback
             "hardware": hwlabel,
+            # canonical cluster identity (hwnorm): the section this row competes in
+            "hw_bucket": hwn["bucket"], "hw_family": hwn["family"],
+            "spark_count": hwn["spark_count"],
             "conc_levels": sorted(concs),
             # the four axes the recipe-discovery tool ranks on (per model, filterable by hardware):
             "peak_agg_tps": peak_agg,                     # best real cohort (category × conc cell)
@@ -442,7 +452,24 @@ def perf_board():
         })
     models.sort(key=lambda m: -(m["peak_agg_tps"] or 0))
     hardwares = sorted({m["hardware"] for m in models if m["hardware"]})
-    return {"categories": suite_mod.CATEGORIES, "models": models, "hardwares": hardwares}
+    # Ordered per-bucket summary for the clustered board: Spark buckets first (ascending node
+    # count), then every other rig by its best demonstrated peak, Unlabeled always last.
+    groups = {}
+    for m in models:                       # models are peak-sorted, so first hit = bucket best
+        g = groups.setdefault(m["hw_bucket"], {
+            "bucket": m["hw_bucket"], "family": m["hw_family"], "label": m["hw_bucket"],
+            "spark_count": m["spark_count"], "n_models": 0,
+            "best": {"model": m["model"], "peak_agg_tps": m["peak_agg_tps"]}})
+        g["n_models"] += 1
+    def _gorder(g):
+        if g["family"] == hwnorm.FAMILY_SPARK:
+            return (0, g["spark_count"] or 0, 0.0, g["bucket"])
+        if g["family"] == hwnorm.FAMILY_UNLABELED:
+            return (2, 0, 0.0, g["bucket"])
+        return (1, 0, -(g["best"]["peak_agg_tps"] or 0), g["bucket"])
+    hardware_groups = sorted(groups.values(), key=_gorder)
+    return {"categories": suite_mod.CATEGORIES, "models": models,
+            "hardwares": hardwares, "hardware_groups": hardware_groups}
 
 
 # ---- CHAMPION recipes: the winning serve recipe per (hardware × model) ------------------------
@@ -536,11 +563,13 @@ def champion_recipes(hardware=None, model=None):
     pairing (fast AND answers well; the same quality join the perf board uses). Pods pull this
     filtered to their own detected hardware and offer each champion as an applyable template.
 
-    `hardware` matches the stored label exactly OR by loose case-insensitive containment either
-    way ('dgx spark' matches 'single DGX Spark (GB10)'). `model` matches canonical/hf_repo
-    (case-insensitive). Champions per hardware come back sorted best-tok/s-first, so the list IS
-    the per-hardware top list. Defensive by contract: a malformed stored recipe/env skips that
-    run — this endpoint never 500s over bad data."""
+    `hardware` matches the canonical hwnorm BUCKET first ('Single DGX Spark', 'NVIDIA RTX 5090'
+    — and a free query like 'dgx spark' or '2x dgx spark' normalizes to its bucket), with the
+    original exact-label / loose case-insensitive containment kept as the fallback ('dgx spark'
+    still matches 'single DGX Spark (GB10)' by containment). `model` matches canonical/hf_repo
+    (case-insensitive). Each champion carries its `hw_bucket`. Champions per hardware come back
+    sorted best-tok/s-first, so the list IS the per-hardware top list. Defensive by contract: a
+    malformed stored recipe/env skips that run — this endpoint never 500s over bad data."""
     rows = db.perf_results()
     by_run = {}
     for r in rows:
@@ -579,6 +608,7 @@ def champion_recipes(hardware=None, model=None):
                 continue
             best[(hw, c)] = {
                 "hardware": hw,
+                "hw_bucket": hwnorm.normalize_label(hw)["bucket"],
                 "model": info["hf_repo"] or info["model"], "canonical": c,
                 "hf_repo": info["hf_repo"], "hf_revision": info.get("hf_revision"),
                 "engine": recipe.get("engine"), "image": recipe.get("image"),
@@ -597,9 +627,18 @@ def champion_recipes(hardware=None, model=None):
     hardwares = sorted({ch["hardware"] for ch in champions})
     if hardware:
         hl = str(hardware).strip().lower()
-        champions = [ch for ch in champions
-                     if hl == ch["hardware"].lower() or hl in ch["hardware"].lower()
-                     or ch["hardware"].lower() in hl]
+        qn = hwnorm.normalize_label(hardware)     # 'dgx spark'/'2x dgx spark' -> its bucket
+
+        def _hw_hit(ch):
+            raw, bkt = ch["hardware"].lower(), (ch.get("hw_bucket") or "").lower()
+            if hl == raw or hl in raw or raw in hl:            # legacy loose containment
+                return True
+            if bkt and (hl == bkt or hl in bkt or bkt in hl):  # bucket name, exact or loose
+                return True
+            # normalized-query equality — never through the Unlabeled catch-all (a junk
+            # query like 'TPU v7' must not sweep up every unlabeled champion)
+            return qn["family"] != hwnorm.FAMILY_UNLABELED and qn["bucket"].lower() == bkt
+        champions = [ch for ch in champions if _hw_hit(ch)]
     if model:
         ml = str(model).strip().lower()
         champions = [ch for ch in champions

@@ -1632,7 +1632,10 @@ let PERF = null;
 // model=null → the ranked list; a set model → its drill-down. The METRIC survives
 // drill/back/drill so the operator's chosen lens is never reset under them.
 let PERF_SEL = { model: null, metric: "agg_decode_tps" };
-let PERF_HW = null;               // hardware filter for the recipe-discovery board (null = all platforms)
+let PERF_HW = null;               // hardware-BUCKET filter for the recipe-discovery board (null = every rig)
+let PERF_HWQ = "";                // live hardware search text (narrows buckets/labels)
+// canonical Spark presets — ALWAYS shown on the filter bar; empty ones render disabled
+const PERF_SPARKS = ["Single DGX Spark", "2× DGX Spark", "3× DGX Spark", "4× DGX Spark"];
 const PERF_METRICS = [
   ["agg_decode_tps", "tok/s aggregate", "higher", "total generated tokens per second across all concurrent streams"],
   ["decode_tps", "tok/s per stream", "higher", "mean single-stream decode speed"],
@@ -1834,70 +1837,127 @@ function _perfSpark(m) {
 }
 
 function renderPerf() {
-  const m = PERF_SEL.model ? PERF.models.find((x) => x.canonical === PERF_SEL.model) : null;
+  // rows key per (model × hardware bucket) so the run id is the row identity; canonical
+  // stays as a fallback for anything that still deep-links by model name
+  const m = PERF_SEL.model
+    ? (PERF.models.find((x) => x.run === PERF_SEL.model)
+       || PERF.models.find((x) => x.canonical === PERF_SEL.model))
+    : null;
   if (m) renderPerfDetail(m); else renderPerfList();
 }
 
-// (a) default view: one compact ranked card per model, leaderboard-style. Everything is
-// drawn from the single /api/perf/board payload — no per-card fetches — so the list
-// scales to hundreds of submissions; avatars hydrate through the shared META cache.
+// (a) default view: the board clusters into one engraved section per HARDWARE BUCKET
+// (hwnorm server-side: Spark counts / RTX by model / Apple chip / Unlabeled), cards ranked
+// by peak aggregate tok/s inside their section — the best model+recipe per rig reads at a
+// glance. Everything still draws from the single /api/perf/board payload — no per-card
+// fetches — so the list scales to hundreds of submissions; avatars hydrate via META.
+const _hwBucketOf = (x) => x.hw_bucket || x.hardware || "Unlabeled";
+const _hwHay = (x) => `${x.hw_bucket || ""} ${x.hw_family || ""} ${x.hardware || "unlabeled"}`.toLowerCase();
+// bucket groups in server order (Sparks ascending, other rigs by best peak, Unlabeled last);
+// falls back to row-derived buckets if the payload predates hardware_groups
+function _perfGroups() {
+  if (PERF.hardware_groups && PERF.hardware_groups.length) return PERF.hardware_groups;
+  return [...new Set(PERF.models.map(_hwBucketOf))].map((b) => ({ bucket: b, family: "", label: b }));
+}
+
 function renderPerfList() {
-  // Recipe-discovery board: every model shows all four axes — peak single-stream, peak aggregate,
-  // lowest latency, quality — and the whole board filters by the hardware it was benched on. With a
-  // hardware selected, the throughput / single-stream / latency / quality CHAMPIONS (each an optimal
-  // recipe for that axis) are crowned inline.
-  const hws = (PERF.hardwares && PERF.hardwares.length)
-    ? PERF.hardwares : [...new Set(PERF.models.map((x) => x.hardware).filter(Boolean))];
-  if (PERF_HW && !hws.includes(PERF_HW)) PERF_HW = null;
-  const ms = [...PERF.models]
-    .filter((x) => !PERF_HW || x.hardware === PERF_HW)
-    .sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
-  const champ = (val, lower) => {                     // the winning recipe on one axis within the filter
-    let best = null, bv = null;
-    ms.forEach((x) => { const v = val(x); if (v == null) return; if (bv == null || (lower ? v < bv : v > bv)) { bv = v; best = x; } });
-    return best;
-  };
-  const cAgg = champ((x) => x.peak_agg_tps), cSingle = champ((x) => x.peak_single_tps),
-        cLat = champ((x) => (x.latency || {}).ttft_ms, true), cQual = champ((x) => x.quality);
-  const filterBar = hws.length ? `<div class="perf-filter">
-      <span class="perf-filter-lbl">optimal recipe for</span>
-      <button class="chip hwf${!PERF_HW ? " on" : ""}" data-hw="">all platforms</button>
-      ${hws.map((h) => `<button class="chip hwf${PERF_HW === h ? " on" : ""}" data-hw="${escA(h)}">${escH(h)}</button>`).join("")}
-    </div>` : "";
-  $("#perfBody").innerHTML = filterBar + `<div class="perf-list">` + ms.map((x, i) => {
-    const lat = x.latency || {}, concs = (x.conc_levels || []).filter((c) => x.direct[c]);
-    const crowns = [
-      x === cAgg ? `<span class="pcrown c-agg" title="fastest aggregate throughput here">⚡ throughput</span>` : "",
-      x === cSingle ? `<span class="pcrown c-single" title="fastest single stream here">▸ single-stream</span>` : "",
-      x === cLat ? `<span class="pcrown c-lat" title="lowest latency (TTFT) here">◔ latency</span>` : "",
-      x === cQual ? `<span class="pcrown c-qual" title="highest quality score here">◆ quality</span>` : "",
-    ].filter(Boolean).join("");
-    return `<div class="pcard perf4 chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
-      <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
-      <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-        <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
-      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span>
-        ${x.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(x.hardware)}</span>` : ""}
-        ${crowns ? `<span class="pcrowns">${crowns}</span>` : ""}</div>
-      <div class="pcard-stats perf4-stats">
-        <div class="spdchip pcard-hero${x === cAgg ? " win" : ""}" title="best real concurrent cohort in the ladder — one category at one concurrency, all streams live"><span class="catk">peak agg tok/s${x.peak_agg_cell ? ` <span class="catx">· ${escH(x.peak_agg_cell.category)} @ c${x.peak_agg_cell.conc}</span>` : ""}</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
-        <div class="spdchip${x === cSingle ? " win" : ""}"><span class="catk">single-stream tok/s</span><span class="catv">${fmtTps(x.peak_single_tps)}</span></div>
-        <div class="spdchip${x === cLat ? " win" : ""}"><span class="catk">latency ttft · tpot</span><span class="catv">${fmtDur(lat.ttft_ms)}<span class="catx"> · ${fmtDur(lat.tpot_ms)}</span></span></div>
-        <div class="spdchip qchip${x === cQual ? " win" : ""}"><span class="catk">quality</span><span class="catv">${x.quality != null ? x.quality.toFixed(1) : "—"}</span></div>
-      </div>
-      <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] + " · recipe ▸" : "recipe ▸ click"}</span></div>
-    </div>`;
-  }).join("") + `</div>`;
-  $$("#perfBody .hwf").forEach((b) => b.onclick = () => { PERF_HW = b.dataset.hw || null; renderPerf(); });
-  $$("#perfBody .pcard").forEach((el) => {
+  const groups = _perfGroups();
+  const have = new Set(groups.map((g) => g.bucket));
+  if (PERF_HW && !have.has(PERF_HW)) PERF_HW = null;
+  const chip = (bucket, label) => `<button class="chip hwf${PERF_HW === bucket ? " on" : ""}" data-hw="${escA(bucket)}">${escH(label || bucket)}</button>`;
+  // the four Spark presets are ALWAYS on the bar — an empty one is a visible invitation
+  const sparkChips = PERF_SPARKS.map((b) => have.has(b) ? chip(b)
+    : `<button class="chip hwf off" disabled aria-disabled="true" title="no submissions yet">${escH(b)}</button>`).join("");
+  const autoChips = groups.filter((g) => !PERF_SPARKS.includes(g.bucket))
+    .map((g) => chip(g.bucket, g.label)).join("");
+  $("#perfBody").innerHTML = `<div class="perf-filter" role="group" aria-label="hardware filter">
+      <span class="perf-filter-lbl">hardware</span>
+      <button class="chip hwf${!PERF_HW ? " on" : ""}" data-hw="">all</button>
+      ${sparkChips}${autoChips}
+      <input id="perfHwSearch" class="perf-hw-search" type="search" placeholder="search hardware…"
+             value="${escA(PERF_HWQ)}" aria-label="search hardware buckets and labels" spellcheck="false">
+    </div><div id="perfSections"></div>`;
+  $$("#perfBody .hwf[data-hw]").forEach((b) => b.onclick = () => { PERF_HW = b.dataset.hw || null; renderPerfList(); });
+  const inp = $("#perfHwSearch");   // sections re-render on input; the field itself never does (focus survives)
+  inp.oninput = () => { PERF_HWQ = inp.value; renderPerfSections(); };
+  renderPerfSections();
+}
+
+function renderPerfSections() {
+  const q = PERF_HWQ.trim().toLowerCase();
+  const secs = [];
+  _perfGroups().forEach((g) => {
+    if (PERF_HW && g.bucket !== PERF_HW) return;
+    let rows = PERF.models.filter((x) => _hwBucketOf(x) === g.bucket);
+    if (q && !g.bucket.toLowerCase().includes(q)) rows = rows.filter((x) => _hwHay(x).includes(q));
+    if (rows.length) secs.push(_perfSection(g, rows));
+  });
+  // chips mirror the live search: a bucket with no match dims (stays clickable to clear into)
+  $$("#perfBody .hwf[data-hw]").forEach((b) => {
+    const bk = b.dataset.hw;
+    if (!bk) return;
+    const hit = !q || bk.toLowerCase().includes(q) ||
+      PERF.models.some((x) => _hwBucketOf(x) === bk && _hwHay(x).includes(q));
+    b.classList.toggle("dim", !hit);
+  });
+  $("#perfSections").innerHTML = secs.join("") ||
+    `<p class="note" style="text-align:left">no hardware matches${q ? ` “${escH(PERF_HWQ.trim())}”` : " this filter"} — clear the search to see every rig</p>`;
+  $$("#perfSections .pcard").forEach((el) => {
     const open = () => { PERF_SEL.model = el.dataset.pm; renderPerf(); };
     el.onclick = (ev) => { if (ev.target.closest(".model-creator")) return; open(); };   // avatar = creator link
     el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
   });
-  [...new Set(ms.map((x) => x.model))].forEach((model) => {   // hydrate avatars (same mechanism as the board)
+  [...new Set(PERF.models.map((x) => x.model))].forEach((model) => {   // hydrate avatars (same mechanism as the board)
     const cached = META.get(model);
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
+}
+
+// one hardware cluster: engraved centered header ("SINGLE DGX SPARK — 7 models · best 517
+// tok/s") + its cards. Champion crowns are scoped to THIS bucket, so every rig names its
+// own optimal throughput / single-stream / latency / quality recipes.
+function _perfSection(g, rows) {
+  rows = [...rows].sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
+  const champ = (val, lower) => {
+    let best = null, bv = null;
+    rows.forEach((x) => { const v = val(x); if (v == null) return; if (bv == null || (lower ? v < bv : v > bv)) { bv = v; best = x; } });
+    return best;
+  };
+  const c = { agg: champ((x) => x.peak_agg_tps), single: champ((x) => x.peak_single_tps),
+              lat: champ((x) => (x.latency || {}).ttft_ms, true), qual: champ((x) => x.quality) };
+  const best = rows.find((x) => x.peak_agg_tps != null);
+  const meta = `${rows.length} model${rows.length === 1 ? "" : "s"}` +
+    (best ? ` · best <b>${fmtTps(best.peak_agg_tps)}</b> tok/s` : "");
+  return `<section class="perf-sec">
+    <h3 class="perf-sec-h"><span class="perf-sec-t">${escH(g.bucket)}</span><span class="perf-sec-m">${meta}</span></h3>
+    <div class="perf-list">${rows.map((x, i) => _pcardRow(x, i, c)).join("")}</div></section>`;
+}
+
+function _pcardRow(x, i, c) {
+  const lat = x.latency || {}, concs = (x.conc_levels || []).filter((cc) => x.direct[cc]);
+  const crowns = [
+    x === c.agg ? `<span class="pcrown c-agg" title="fastest aggregate throughput on this hardware">⚡ throughput</span>` : "",
+    x === c.single ? `<span class="pcrown c-single" title="fastest single stream on this hardware">▸ single-stream</span>` : "",
+    x === c.lat ? `<span class="pcrown c-lat" title="lowest latency (TTFT) on this hardware">◔ latency</span>` : "",
+    x === c.qual ? `<span class="pcrown c-qual" title="highest quality score on this hardware">◆ quality</span>` : "",
+  ].filter(Boolean).join("");
+  // data-pm = the RUN id: rows key per (model × hardware bucket), so the model name alone
+  // no longer identifies a row
+  return `<div class="pcard perf4 chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.run)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)} on ${escA(x.hardware || "unlabeled hardware")}">
+    <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
+    <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+      <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
+    <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}
+        <span class="pcard-hw" title="hardware detected on the bench machine">${escH(x.hardware || "unlabeled hardware")}</span></span>
+      ${crowns ? `<span class="pcrowns">${crowns}</span>` : ""}</div>
+    <div class="pcard-stats perf4-stats">
+      <div class="spdchip pcard-hero${x === c.agg ? " win" : ""}" title="best real concurrent cohort in the ladder — one category at one concurrency, all streams live"><span class="catk">peak agg tok/s${x.peak_agg_cell ? ` <span class="catx">· ${escH(x.peak_agg_cell.category)} @ c${x.peak_agg_cell.conc}</span>` : ""}</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
+      <div class="spdchip${x === c.single ? " win" : ""}"><span class="catk">single-stream tok/s</span><span class="catv">${fmtTps(x.peak_single_tps)}</span></div>
+      <div class="spdchip${x === c.lat ? " win" : ""}"><span class="catk">latency ttft · tpot</span><span class="catv">${fmtDur(lat.ttft_ms)}<span class="catx"> · ${fmtDur(lat.tpot_ms)}</span></span></div>
+      <div class="spdchip qchip${x === c.qual ? " win" : ""}"><span class="catk">quality</span><span class="catv">${x.quality != null ? x.quality.toFixed(1) : "—"}</span></div>
+    </div>
+    <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] + " · recipe ▸" : "recipe ▸ click"}</span></div>
+  </div>`;
 }
 
 // The exact attested serve recipe behind a model's perf numbers — same grammar as the run-detail
@@ -1932,7 +1992,7 @@ function renderPerfDetail(m) {
          <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="34" height="34"></a>
        <span class="perf-head-name">${fmtModel(m.model)}</span>
        ${_perfTrust(m.trust_tier)}
-       ${m.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(m.hardware)}</span>` : ""}
+       <span class="pcard-hw" title="hardware detected on the bench machine">${escH(m.hardware || "unlabeled hardware")}</span>
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
        <button class="share-btn" id="perfShare" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
      </div>

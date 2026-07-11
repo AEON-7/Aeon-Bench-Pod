@@ -533,6 +533,9 @@ def _stamp_engine_digests(recipe):
     if (recipe or {}).get("serve_mode") == "docker" and recipe.get("image"):
         from pod import engines as _eng
         recipe.update(_eng.image_digests(recipe["image"]))
+        if not recipe.get("image_digest"):
+            print("[pod] engine digest unresolved — provenance records the tag only",
+                  file=sys.stderr, flush=True)
     return recipe
 
 

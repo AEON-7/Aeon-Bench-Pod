@@ -1047,6 +1047,19 @@ def _portable_speculative(flags):
     return out
 
 
+# A digest ref safe to substitute VERBATIM into downloadable shell/compose files:
+# repo path + @sha256:<64 hex>. Recipes arrive from pods (and self-reported bundles) without
+# field-level sanitization, so a hostile image_digest could otherwise smuggle shell
+# metacharacters into a file explicitly marketed as safe-to-replicate.
+_DIGEST_REF_RE = re.compile(r"^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$")
+
+
+def _pinned_image(recipe, image):
+    """The recipe's image_digest when it is a well-formed digest ref, else the tag."""
+    dig = (recipe or {}).get("image_digest")
+    return dig if isinstance(dig, str) and _DIGEST_REF_RE.match(dig) else image
+
+
 def _docker_cmd(recipe, hf_repo, hf_revision):
     """Assemble the copy-pasteable replication command for a run's stored serve recipe.
     Flags are VERBATIM — identical serve settings, minus the bench itself. Host-specific paths
@@ -1060,7 +1073,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     image, port, flags, _ = serve
     # replicate against the content-pinned image when the run recorded one: a digest
     # ref is immutable (client-verified on pull), a tag is a mutable pointer
-    image = recipe.get("image_digest") or image
+    image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
     if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
@@ -1115,6 +1128,10 @@ def _reproduction(r):
     hw = (env.get("hardware") or {}) if isinstance(env, dict) else {}
     return {
         "image": (recipe or {}).get("image") if recipe else None,
+        # immutable pins, surfaced where viewers look for provenance (not only inside
+        # the assembled docker_run string)
+        "image_digest": (recipe or {}).get("image_digest") if recipe else None,
+        "image_id": (recipe or {}).get("image_id") if recipe else None,
         "engine": (recipe or {}).get("engine") if recipe else None,
         "engine_version": (recipe or {}).get("engine_version") if recipe else None,
         "docker_run": (recipe or {}).get("docker_run") if recipe else None,
@@ -1150,9 +1167,15 @@ def _engine_provenance_lines(r):
         recipe = {}
     if not recipe.get("image"):
         return []
-    lines = [f"engine:     {recipe.get('image_digest') or recipe.get('image')}"]
-    if recipe.get("image_id") and not recipe.get("image_digest"):
-        lines.append(f"engine id:  {recipe['image_id']} (local build — not registry-resolvable)")
+    # same format gate as the substitution points: these lines land verbatim in downloadable
+    # files, and a hostile digest with an embedded newline could escape the comment block
+    digest = _pinned_image(recipe, None)
+    image_id = recipe.get("image_id")
+    if not (isinstance(image_id, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)):
+        image_id = None
+    lines = [f"engine:     {digest or recipe.get('image')}"]
+    if image_id and not digest:
+        lines.append(f"engine id:  {image_id} (local build — not registry-resolvable)")
     return lines
 
 
@@ -1209,7 +1232,7 @@ def _compose_yaml(r, recipe):
     if not serve:
         return None
     image, port, flags, _ = serve
-    image = recipe.get("image_digest") or image
+    image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
     if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
@@ -1365,8 +1388,14 @@ def run_manifest(run_id: str):
     r = db.get_run(run_id)
     if not r:
         return JSONResponse({"error": "not found"}, status_code=404)
-    recipe = json.loads(r.get("recipe") or "null") or {}
-    dm = json.loads(r.get("deployment_manifest") or "null") or {}
+    try:
+        recipe = json.loads(r.get("recipe") or "null") or {}
+    except Exception:
+        recipe = {}
+    try:
+        dm = json.loads(r.get("deployment_manifest") or "null") or {}
+    except Exception:
+        dm = {}
     cats = {}
     for x in r.get("results", []):
         if x.get("score") is not None:

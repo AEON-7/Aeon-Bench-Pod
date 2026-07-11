@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import platform as _platform
+import re
 import shutil
 import subprocess
 
@@ -422,7 +423,10 @@ def _declares_audio(local_dir: str) -> bool:
 
 
 def _image_repo(ref: str | None) -> str:
-    """Repository portion of an image ref, without tag/digest. Empty for local image IDs."""
+    """Repository portion of an image ref, without tag/digest, NORMALIZED so podman's
+    fully-qualified RepoDigests (docker.io/vllm/vllm-openai@...) match docker-familiar
+    catalog names (vllm/vllm-openai) and vice versa. Empty for local image IDs —
+    including bare all-hex short IDs (docker accepts `3f2a9bce41` without sha256:)."""
     ref = str(ref or "").strip()
     if not ref or ref.startswith("sha256:"):
         return ""
@@ -431,7 +435,19 @@ def _image_repo(ref: str | None) -> str:
     colon = ref.rfind(":")
     if colon > slash:
         ref = ref[:colon]
+    if slash < 0 and re.fullmatch(r"[0-9a-f]{10,64}", ref.lower()):
+        return ""                                  # bare image ID, not a repository name
+    for reg in ("docker.io/", "registry-1.docker.io/", "index.docker.io/"):
+        if ref.startswith(reg):
+            ref = ref[len(reg):]
+            break
+    if ref.startswith("library/") and ref.count("/") == 1:
+        ref = ref[len("library/"):]                # official images: library/python == python
     return ref
+
+
+# repo path + @sha256:<64 hex> — the only shape safe to substitute into replication files
+_DIGEST_REF_RE = re.compile(r"^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$")
 
 
 def image_digests(image: str) -> dict:
@@ -462,6 +478,10 @@ def image_digests(image: str) -> dict:
                 d["image_digest"] = matches[0]
         elif len(digests) == 1:
             d["image_digest"] = digests[0]
+        # only ever record a WELL-FORMED digest ref — this value is substituted into
+        # downloadable replication files (the mothership re-validates, but stamp clean)
+        if d.get("image_digest") and not _DIGEST_REF_RE.match(str(d["image_digest"])):
+            d.pop("image_digest", None)
         return d
     except Exception:
         return {}

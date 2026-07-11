@@ -136,8 +136,13 @@ services:
       AEON_HF_LINK: ${AEON_HF_LINK:-}   # required for THIS profile; the pull step errors clearly if empty
       AEON_SYSTEM: ${AEON_SYSTEM:-}      # set to dgx-spark to force the aeon-vllm-ultimate recipe
       AEON_ENGINE: ${AEON_ENGINE:-}      # pin engine: vllm | aeon-vllm-ultimate | llama.cpp
-      AEON_ENGINE_IMAGE: ${AEON_ENGINE_IMAGE:-}
-      AEON_VLLM_IMAGE: ${AEON_VLLM_IMAGE:-vllm/vllm-openai:latest}
+      AEON_ENGINE_IMAGE: ${AEON_ENGINE_IMAGE:-}  # explicit any-engine image override (recorded AND served)
+      # NO default here: an always-set image would override the engine catalog's image in the
+      # derived recipe (build_serve: img = image or catalog), recording — and SIGNING —
+      # vllm/vllm-openai:latest as engine provenance even when the real engine is
+      # aeon-vllm-ultimate or llama.cpp. Empty collapses to None in the sidecar (`or` chain),
+      # so the catalog image is recorded unless the operator explicitly overrides.
+      AEON_VLLM_IMAGE: ${AEON_VLLM_IMAGE:-}
       HF_HOME: /hf-cache
       HF_TOKEN: ${HF_TOKEN:-}            # needed for gated/private repos
     volumes:

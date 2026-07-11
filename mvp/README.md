@@ -39,6 +39,17 @@ python -m aeon.runner mock-sloppy mock      # canned weak-model mistakes
 ```
 …then open the dashboard to see the leaderboard.
 
+### The Run tab (pod role)
+
+Run as a pod (`AEON_ROLE=pod` — see `docs/pod-quickstart.md`) the same dashboard grows a
+**Run tab** that launches validated benches from the browser: **★ CHAMPION RECIPES**
+(the mothership's winning recipe per model on hardware like yours) and the detected
+**★ family best-practice preset** as applyable, editable templates (`pod/presets.py`);
+annotated flag cards with live conflict warnings (`pod/engines.py`); modality toggles that
+override the auto-detected vision/audio/video capabilities; **⟲ RESUME** for interrupted
+runs; and **⬆ SUBMIT TO MOTHERSHIP** for completed results the mothership hasn't received
+(idempotent — a duplicate submit can never land twice, `pod/pending.py`).
+
 ## The suite (`aeon/suite.py`)
 
 11 cases across **Math, Instruction-following, Reasoning, Coding, Prose**.

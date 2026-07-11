@@ -6,6 +6,7 @@ Speed is reported separately, never folded into the quality rank (DESIGN §14).
 from __future__ import annotations
 
 import json
+import re
 
 from . import capabilities
 from . import db
@@ -15,6 +16,12 @@ from . import vram
 # Trust tiers ranked on the GLOBAL leaderboard. Mirrors ingest.ELIGIBLE_TIERS — a run earns
 # 'attested' ONLY through the controlled HF-pull flow (verified weights + recipe + signature).
 ELIGIBLE_TIERS = {"attested"}
+
+# A run RANKS on the leaderboard only if it actually covered its suite. Full passes land a
+# few short of the corpus (capability-gated cases, judge errors) — 90% absorbs that without
+# letting a genuinely partial pass (crashed mid-suite yet committed as succeeded) stand in
+# for a comprehensive score.
+MIN_SUITE_COVERAGE = 0.9
 
 
 def _avg(xs):
@@ -100,6 +107,9 @@ def _run_summary(info):
         "category_speed": {c: {"ttft_ms": _avg(b["ttft"]), "decode_tps": _avg(b["tps"]),
                                "e2e_ms": _avg(b["e2e"])} for c, b in cat_sp.items()},
         "n_cases": len(info["results"]),
+        # healthy passes score every submitted row (verified in prod 2026-07-11); nulls mean
+        # error/killed cases, so coverage gates count SCORED cases, not rows
+        "n_scored": sum(1 for r in info["results"] if r["score"] is not None),
         "frontier": info.get("frontier"),
     }
 
@@ -143,6 +153,8 @@ def _leaderboard_scoped(suite=None):
     for r in rows:
         if r.get("harness"):                 # harness-tagged runs belong to the AI-Harness board
             continue
+        if r.get("bench_seed"):              # fast-bench draw: a ~25-case subsample, not the
+            continue                         # comprehensive suite — compare-by-seed only
         if not _in_scope(r.get("suite_id")):
             continue
         if r["run"] not in by_run:
@@ -162,6 +174,15 @@ def _leaderboard_scoped(suite=None):
         by_run[r["run"]]["results"].append(r)
 
     runs = [_run_summary(info) for info in by_run.values()]
+
+    # Coverage floor: the corpus size is authoritative for the current suite; for legacy/tier
+    # scopes (whose corpora are no longer shipped) the largest committed pass calibrates it.
+    scope = suite or COMPREHENSIVE
+    if scope == COMPREHENSIVE:
+        expected = len(suite_mod.CASES)
+    else:
+        expected = max((r["n_scored"] for r in runs), default=0)
+    runs = [r for r in runs if r["n_scored"] >= MIN_SUITE_COVERAGE * expected]
 
     by_model = {}
     for rs in runs:
@@ -246,13 +267,18 @@ def _quality_index():
     for r in rows:
         if r.get("harness") or (r.get("suite_id") or suite_mod.SUITE_ID) != suite_mod.SUITE_ID:
             continue
+        if r.get("bench_seed"):    # fast-bench subsample — never a model's quality-of-record
+            continue
         by_run.setdefault(r["run"], {
             "run": r["run"], "model": r["model"], "canonical": r.get("canonical_id") or r["model"],
             "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
             "trust_tier": r.get("trust_tier") or "self_reported", "started_at": r["started_at"],
             "env_json": r.get("env_json"), "results": []})["results"].append(r)
     idx = {}
+    floor = MIN_SUITE_COVERAGE * len(suite_mod.CASES)
     for info in by_run.values():
+        if sum(1 for r in info["results"] if r["score"] is not None) < floor:
+            continue
         comp = _run_summary(info)["composite"]
         try:
             label = _hw_label(json.loads(info.get("env_json") or "{}"))
@@ -397,6 +423,169 @@ def perf_board():
     return {"categories": suite_mod.CATEGORIES, "models": models, "hardwares": hardwares}
 
 
+# ---- CHAMPION recipes: the winning serve recipe per (hardware × model) ------------------------
+
+# Bench wiring the pod's launcher always re-adds itself (mirrors pod.engines.PROTECTED_FLAGS —
+# scoring must not import pod modules on the mothership), stripped from champion payloads so a
+# template never carries another lab's alias/host/port.
+_WIRING_FLAGS = {"--served-model-name", "--host", "--port", "--alias", "--model-path", "-m"}
+# Defense in depth: recipes must never contain credentials, but a champion payload is PUBLIC —
+# drop any flag pair that is credential-named or whose value looks like a token.
+_SECRET_FLAGS = {"--api-key", "--hf-token", "--huggingface-token", "--token"}
+_TOKENISH = re.compile(r"\b(hf_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,})")
+
+
+def _champion_flags(recipe):
+    """The applyable serve-flag list from a stored recipe: bench wiring stripped, any
+    --speculative-config drafter path normalised to the portable /drafter mount, anything
+    credential-shaped dropped. None when the recipe carries no usable flags (not a template)."""
+    flags = recipe.get("flags")
+    if not isinstance(flags, list) or not flags:
+        return None
+    toks = [str(f) for f in flags]
+    out, i = [], 0
+    while i < len(toks):
+        f = toks[i]
+        val = toks[i + 1] if i + 1 < len(toks) and not toks[i + 1].startswith("-") else None
+        step = 2 if val is not None else 1
+        if not f.startswith("-"):                       # stray positional token — never applyable
+            i += 1
+            continue
+        if f in _WIRING_FLAGS or f.lower() in _SECRET_FLAGS or (val and _TOKENISH.search(val)):
+            i += step
+            continue
+        if f == "--speculative-config" and val:
+            try:
+                cfg = json.loads(val)
+                if isinstance(cfg, dict) and cfg.get("model"):
+                    cfg["model"] = "/drafter"           # never leak a bench-host-local path
+                    # compact separators: byte-identical to the Run tab's spec-preset option
+                    # values, so applying a champion re-selects the matching dropdown preset
+                    val = json.dumps(cfg, separators=(",", ":"))
+            except Exception:
+                pass
+        out.append(f)
+        if val is not None:
+            out.append(val)
+        i += step
+    return out or None
+
+
+def _champion_drafter(recipe):
+    """DFlash drafter disclosure for a champion (repo + revision + n), or None (plain decode)."""
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or recipe.get("spec_decode")):
+        return None
+    n = recipe.get("drafter_n") or recipe.get("drafter_nst")
+    flags = recipe.get("flags") if isinstance(recipe.get("flags"), list) else []
+    for i, f in enumerate(flags):
+        if f == "--speculative-config" and i + 1 < len(flags):
+            try:
+                n = n or json.loads(flags[i + 1]).get("num_speculative_tokens")
+            except Exception:
+                pass
+            break
+    return {"method": recipe.get("spec_decode") or "dflash",
+            "repo": recipe.get("drafter_repo"),
+            "revision": recipe.get("drafter_revision"), "n": n}
+
+
+def _peak_agg_cell(results):
+    """Best REAL cohort in a perf run's ladder: max agg_decode_tps over the
+    perf.direct.<category>.c<N> cells (never the cross-category mean — see perf_board)."""
+    peak, cell = None, None
+    for x in results:
+        parts = str(x.get("case_id") or "").split(".")
+        if (len(parts) != 4 or parts[0] != "perf" or parts[1] != "direct"
+                or parts[2] == "overall" or not parts[3].startswith("c")):
+            continue
+        try:
+            conc = int(parts[3][1:])
+        except ValueError:
+            continue
+        a = (x.get("evidence") or {}).get("agg_decode_tps")
+        if isinstance(a, (int, float)) and (peak is None or a > peak):
+            peak, cell = a, {"category": parts[2], "conc": conc}
+    return peak, cell
+
+
+def champion_recipes(hardware=None, model=None):
+    """CHAMPION recipes — per (detected hardware label × canonical model), the perf run with the
+    best demonstrated peak aggregate throughput whose model ALSO has a quality composite for that
+    pairing (fast AND answers well; the same quality join the perf board uses). Pods pull this
+    filtered to their own detected hardware and offer each champion as an applyable template.
+
+    `hardware` matches the stored label exactly OR by loose case-insensitive containment either
+    way ('dgx spark' matches 'single DGX Spark (GB10)'). `model` matches canonical/hf_repo
+    (case-insensitive). Champions per hardware come back sorted best-tok/s-first, so the list IS
+    the per-hardware top list. Defensive by contract: a malformed stored recipe/env skips that
+    run — this endpoint never 500s over bad data."""
+    rows = db.perf_results()
+    by_run = {}
+    for r in rows:
+        by_run.setdefault(r["run"], {
+            "run": r["run"], "model": r["model"],
+            "canonical": r.get("canonical_id") or r["model"],
+            "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
+            "recipe": r.get("recipe"), "trust_tier": r.get("trust_tier") or "self_reported",
+            "env": r.get("env") or {},
+            "started_at": r["started_at"], "results": []})["results"].append(r)
+    qidx = _quality_index()                      # (canonical, hw) -> best v3 quality composite
+    best = {}
+    for info in by_run.values():
+        try:
+            hw = _hw_label(info.get("env") or {})
+            if not hw:
+                continue                          # no hardware identity — can't be a champion
+            peak, cell = _peak_agg_cell(info["results"])
+            if peak is None:
+                continue
+            try:
+                recipe = json.loads(info.get("recipe") or "null")
+            except Exception:
+                recipe = None
+            if not isinstance(recipe, dict):
+                continue
+            serve_flags = _champion_flags(recipe)
+            if not serve_flags:
+                continue                          # nothing applyable — not a template
+            c = info["canonical"]
+            q = qidx.get((c, hw)) or qidx.get((c, None))
+            if not q:
+                continue                          # champions must answer WELL, not just fast
+            cur = best.get((hw, c))
+            if cur is not None and (cur["peak_agg_tps"] or 0) >= peak:
+                continue
+            best[(hw, c)] = {
+                "hardware": hw,
+                "model": info["hf_repo"] or info["model"], "canonical": c,
+                "hf_repo": info["hf_repo"], "hf_revision": info.get("hf_revision"),
+                "engine": recipe.get("engine"), "image": recipe.get("image"),
+                "serve_flags": serve_flags,
+                "spec_decode": recipe.get("spec_decode"),
+                "drafter": _champion_drafter(recipe),
+                "peak_agg_tps": peak, "peak_agg_cell": cell,
+                "quality": q.get("composite"), "quality_run": q.get("run"),
+                "trust_tier": info.get("trust_tier"),
+                "run": info["run"], "started_at": info.get("started_at"),
+            }
+        except Exception:
+            continue                              # weird stored data: skip the run, never 500
+    champions = sorted(best.values(),
+                       key=lambda ch: (ch["hardware"].lower(), -(ch["peak_agg_tps"] or 0)))
+    hardwares = sorted({ch["hardware"] for ch in champions})
+    if hardware:
+        hl = str(hardware).strip().lower()
+        champions = [ch for ch in champions
+                     if hl == ch["hardware"].lower() or hl in ch["hardware"].lower()
+                     or ch["hardware"].lower() in hl]
+    if model:
+        ml = str(model).strip().lower()
+        champions = [ch for ch in champions
+                     if ml == (ch["canonical"] or "").lower()
+                     or ml == (ch["hf_repo"] or "").lower()]
+    return {"hardwares": hardwares, "champions": champions}
+
+
 def seed_index(board="text"):
     """Fast-bench seeds seen on this board, each with the models that ran it — drives the
     compare-by-seed picker. A seed run by >=2 models (same suite_hash) is a ready A/B."""
@@ -506,3 +695,46 @@ def vision_leaderboard():
         })
     board.sort(key=lambda x: -x["composite"])
     return {"categories": vs.CATEGORIES_VISION, "models": board}
+
+
+def video_leaderboard():
+    """Separate VIDEO board — mirrors vision_leaderboard (board='video'). Only models
+    whose latest video run was capability-probed OK appear here (capability_absent runs
+    are excluded by the succeeded-status filter). Never merged into other boards."""
+    from . import video_suite as vids
+
+    rows = db.all_results_with_runs(board="video")
+    by_run = {}
+    for r in rows:
+        by_run.setdefault(
+            r["run"], {"model": r["model"], "started_at": r["started_at"], "results": []}
+        )["results"].append(r)
+
+    latest = {}
+    for run_id, info in by_run.items():
+        m = info["model"]
+        if m not in latest or info["started_at"] > latest[m]["started_at"]:
+            latest[m] = {"run": run_id, **info}
+
+    total_cats = len(vids.CATEGORIES_VIDEO)
+    board = []
+    for model, info in latest.items():
+        cats, ttfts, tpss = {}, [], []
+        for r in info["results"]:
+            sp = r.get("speed") or {}
+            ttfts.append(sp.get("ttft_after_video_ms"))
+            tpss.append(sp.get("decode_tps"))
+            if r["score"] is not None:
+                cats.setdefault(r["category"], []).append(r["score"])
+        cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
+        composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
+        board.append({
+            "model": model, "run": info["run"], "composite": composite,
+            "categories": cat_scores, "coverage": f"{len(cat_scores)}/{total_cats}",
+            "avg_ttft_after_video_ms": _avg(ttfts), "avg_decode_tps": _avg(tpss),
+            "n_cases": len(info["results"]),
+            "vram_est_gb": vram.estimate_gb(model),
+            "tags": capabilities.model_tags(model, cat_scores, "video"),
+        })
+    board.sort(key=lambda x: -x["composite"])
+    return {"categories": vids.CATEGORIES_VIDEO, "models": board}

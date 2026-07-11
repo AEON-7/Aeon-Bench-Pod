@@ -8,7 +8,8 @@ excluded from the vision board with zero effect on the text board.
 from __future__ import annotations
 
 from . import imagegen
-from .targets import MockAudioTarget, MockVisionTarget, TargetError, image_block, text_block
+from .targets import (MockAudioTarget, MockVideoTarget, MockVisionTarget, TargetError,
+                      image_block, text_block, video_block)
 
 
 def _ask(target, blocks, cid="_probe"):
@@ -52,6 +53,38 @@ def probe_vision(target):
             "evidence": with_img[:80]}
 
 
+def probe_video(target):
+    """{video_ok, transport, evidence[, error]} — a CONTROL PAIR like probe_vision (same
+    question with and without a tiny clip of a moving RED square; the modality is reached
+    only when the answer changes AND names the color), with probe_audio's transport
+    classification on rejection (HTTP 400/415 -> video_url unsupported ≠ model missing)."""
+    if isinstance(target, MockVideoTarget):
+        return {"video_ok": True, "transport": "mock", "evidence": "mock"}
+    if isinstance(target, (MockVisionTarget, MockAudioTarget)):
+        return {"video_ok": False, "transport": "mock", "evidence": "mock target has no video"}
+    from . import videogen
+    try:
+        _, clip, _ = videogen.probe_clip()
+    except RuntimeError as e:                # encoder dep missing — inconclusive, not a rejection
+        return {"video_ok": False, "transport": "unavailable", "error": str(e)[:200]}
+
+    q = "A short video clip is attached. What single color is the moving square? Answer with one word."
+    try:
+        with_vid = _ask(target, [text_block(q), video_block(clip)], cid="_vprobe")
+        without = _ask(target, [text_block(q)], cid="_vprobe_ctl")
+    except TargetError as e:
+        err = str(e)
+        # a model-load failure is inconclusive, NOT a video_url rejection
+        if "load model" in err.lower() or "failed to load" in err.lower():
+            return {"video_ok": False, "transport": "model_unavailable", "error": err[:200]}
+        return {"video_ok": False, "transport": "rejected", "error": err[:200]}
+    except Exception as e:
+        return {"video_ok": False, "transport": "error", "error": str(e)[:200]}
+
+    reached = ("red" in with_vid) and (with_vid.strip() != without.strip())
+    return {"video_ok": reached, "transport": "accepted", "evidence": with_vid[:80]}
+
+
 def probe_audio(target):
     """Real transport probe (DESIGN §6c.6): send a tiny WAV as an `input_audio`
     block and classify by whether the endpoint ACCEPTS it (HTTP 2xx) vs rejects
@@ -60,7 +93,7 @@ def probe_audio(target):
     not that the model understood the audio — the full audio suite is the next step."""
     if isinstance(target, MockAudioTarget):
         return {"audio_ok": True, "transport": "mock", "evidence": "mock"}
-    if isinstance(target, MockVisionTarget):
+    if isinstance(target, (MockVisionTarget, MockVideoTarget)):
         return {"audio_ok": False, "transport": "mock", "evidence": "mock target has no audio"}
     from . import audiogen
     from .targets import audio_block

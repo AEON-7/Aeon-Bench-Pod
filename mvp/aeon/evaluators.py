@@ -227,6 +227,118 @@ CHECKERS.update({
 })
 
 
+# ---- flexible keyword checkers (vision/video scene + temporal questions) ----
+# Deterministic and judge-free like the slot-strict family, but FLEXIBLE about phrasing:
+# each required "group" is a list of acceptable synonyms (e.g. [["car","vehicle"],["red"]])
+# and a group matches when ANY synonym appears as a whole word. Matching is NFKC-normalized,
+# lowercased, word-boundary (so "cart" never matches "car"; multi-word synonyms allowed).
+# LIMITATION (by design, documented): matching is PRESENCE-ONLY — negation is NOT handled
+# ("not red" still matches "red") and attribute binding is not checked ("blue house, red car"
+# satisfies [["red"],["car"]]). Write questions that don't invite negated or cross-bound
+# answers (ask "describe X" / "list in order", never "which colors are absent?").
+
+_KW_RE_CACHE: dict = {}
+
+
+def _kw_regex(kw):
+    pat = _KW_RE_CACHE.get(kw)
+    if pat is None:
+        body = re.escape(kw.lower()).replace("\\ ", " ").replace(" ", r"\s+")
+        pat = re.compile(r"(?<!\w)" + body + r"(?!\w)")
+        _KW_RE_CACHE[kw] = pat
+    return pat
+
+
+def _kw_text(candidate, p):
+    """Text the keywords are matched against: a fenced slot (strict, on_missing=fail —
+    default slot 'answer') unless scan:'text' opts into the whole reply. Returns the
+    NFKC-normalized, lowercased, whitespace-collapsed text, or None when the slot is missing."""
+    if p.get("scan") == "text":
+        src = candidate
+    else:
+        src = extract_slot(candidate, p.get("slot", "answer"))
+        if src is None:
+            return None
+    return _norm_text(src, "ocr_lower_collapse")
+
+
+def _group_pos(text, group):
+    """Earliest match position of ANY synonym in the group, or None when absent."""
+    best = None
+    for kw in group:
+        m = _kw_regex(str(kw)).search(text)
+        if m is not None and (best is None or m.start() < best):
+            best = m.start()
+    return best
+
+
+def _no_slot(p):
+    return False, f"no <{p.get('slot', 'answer')}> slot"
+
+
+def chk_keyword_all(candidate, p):
+    """EVERY keyword group must match (all-or-nothing). groups=[[synonym,...],...]."""
+    text = _kw_text(candidate, p)
+    if text is None:
+        return _no_slot(p)
+    missing = [g[0] for g in p["groups"] if _group_pos(text, g) is None]
+    if missing:
+        return False, f"missing keyword groups: {missing}"
+    return True, f"all {len(p['groups'])} keyword groups present"
+
+
+def chk_keyword_any(candidate, p):
+    """At least ONE keyword matches. `keywords` is a flat synonym list (or pass `groups`,
+    which is flattened). Combine several of these with the case-level combine:'fraction'
+    for graded partial credit — one group per checker."""
+    text = _kw_text(candidate, p)
+    if text is None:
+        return _no_slot(p)
+    kws = p.get("keywords") or [kw for g in p["groups"] for kw in g]
+    hit = next((kw for kw in kws if _kw_regex(str(kw)).search(text)), None)
+    if hit is None:
+        return False, f"none of {list(kws)[:8]} present"
+    return True, f"matched {hit!r}"
+
+
+def chk_keyword_set(candidate, p):
+    """FRACTIONAL keyword coverage inside one checker: satisfied when
+    matched_groups/total >= min_ratio (default 1.0 == keyword_all). The evidence always
+    carries the exact fraction so a near-miss is auditable."""
+    text = _kw_text(candidate, p)
+    if text is None:
+        return _no_slot(p)
+    groups = p["groups"]
+    hits = [g for g in groups if _group_pos(text, g) is not None]
+    ratio = len(hits) / max(1, len(groups))
+    need = float(p.get("min_ratio", 1.0))
+    return ratio >= need, f"{len(hits)}/{len(groups)} groups matched ({ratio:.2f}, need >= {need})"
+
+
+def chk_ordered_keywords(candidate, p):
+    """keyword_all + ORDER: every group must match AND their earliest occurrences must
+    appear in group order (strictly increasing positions) — for temporal/video ordering
+    questions ('which flashed first?', 'list the colors in order')."""
+    text = _kw_text(candidate, p)
+    if text is None:
+        return _no_slot(p)
+    pos = [(g[0], _group_pos(text, g)) for g in p["groups"]]
+    missing = [name for name, x in pos if x is None]
+    if missing:
+        return False, f"missing keyword groups: {missing}"
+    order_ok = all(pos[i][1] < pos[i + 1][1] for i in range(len(pos) - 1))
+    seq = [name for name, _ in sorted(pos, key=lambda t: t[1])]
+    return order_ok, (f"in order: {[n for n, _ in pos]}" if order_ok else f"out of order — reply has {seq}")
+
+
+CHECKERS.update({
+    "keyword_all": chk_keyword_all,
+    "keyword_any": chk_keyword_any,
+    "keyword_set": chk_keyword_set,
+    "ordered_keywords": chk_ordered_keywords,
+})
+
+
 def run_checker(spec, candidate):
     fn = CHECKERS[spec["type"]]
     try:

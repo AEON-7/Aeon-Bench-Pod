@@ -95,37 +95,95 @@ ENGINES = {
 # what we've learned (DGX GB10: gpu-util 0.70 is OOM-safe on unified memory; FlashInfer is
 # broken on GB10 — use triton_attn/flash_attn; 64K ctx is the Hermes harness floor; DFlash
 # spec-decode is lossless and n trades single-stream vs concurrent speed).
+#
+# Per-flag schema (all optional beyond flag/kind/label; "note" kept for backward compat):
+#   desc      one-line human description of what the feature enables (card body)
+#   pros      "+ …" one-line upside          cons  "− …" one-line downside/risk
+#   conflicts list of {targeting key, why[, value_re]} the GUI surfaces LIVE as an amber
+#             warning strip on the flag's card (never a hard-disable — operator freedom):
+#               model_re   regex tested against the VALIDATED model name (HF repo)
+#               engine_re  regex tested against the selected engine id
+#               platform   key in the host_platform() dict that must be truthy (e.g.
+#                          "dgx_spark"), or an accel/os value ("cuda" / "rocm" / "macos")
+#               value_re   optional gate: the warning only fires when the control's CURRENT
+#                          value also matches (omit = fires whenever the target matches)
+#               why        one sentence: what breaks and what to do instead
 FLAG_CATALOG = {
     "vllm": [   # shared grammar: aeon-vllm-ultimate / vLLM / vLLM-ROCm
         {"flag": "--max-model-len", "kind": "number", "default": 65536, "min": 65536,
-         "label": "max model len", "note": "served context; 64K is the BENCH FLOOR (Hermes refuses less) — only HIGHER values allowed"},
+         "label": "max model len", "note": "served context; 64K is the BENCH FLOOR (Hermes refuses less) — only HIGHER values allowed",
+         "desc": "The context window the serve actually offers — prompt plus generation per request.",
+         "pros": "+ headroom for long agentic trajectories and long-prefill perf cases",
+         "cons": "− KV cache grows with it; past the model's native window the serve fails at startup (rope_scaling)"},
         {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.8, "step": 0.05,
-         "label": "gpu memory util", "note": "VRAM fraction; pod default 0.8 (vLLM's own is 0.9). Unified-memory boxes (DGX Spark GB10) are OOM-safe as low as 0.70"},
+         "label": "gpu memory util", "note": "VRAM fraction; pod default 0.8 (vLLM's own is 0.9). Unified-memory boxes (DGX Spark GB10) are OOM-safe as low as 0.70",
+         "desc": "Fraction of GPU memory the engine claims for weights plus KV cache.",
+         "pros": "+ higher = bigger KV pool, more concurrent sequences",
+         "cons": "− too high OOMs the serve; 0.70 is the proven-safe setting on unified-memory GB10",
+         "conflicts": [
+            {"platform": "dgx_spark",
+             "why": "unified memory on the GB10: the 0.8 default can OOM — 0.70 is the field-proven "
+                    "safe setting here (leave headroom for the OS + harness containers)"}]},
         {"flag": "--max-num-seqs", "kind": "number", "default": 32,
-         "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)"},
+         "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)",
+         "desc": "Hard cap on how many sequences the scheduler runs concurrently.",
+         "pros": "+ more streams = higher aggregate tok/s on the concurrency ladder",
+         "cons": "− each stream reserves KV at 64K ctx; too high starves the cache (GB10 sweet spot 16-24)"},
         {"flag": "--quantization", "kind": "enum", "options": ["modelopt", "compressed-tensors", "awq", "gptq", "fp8", "bitsandbytes"],
-         "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)"},
+         "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)",
+         "desc": "Weight-quantization scheme override; normally auto-derived from config.json.",
+         "pros": "+ fixes a mis-detected checkpoint (NVFP4 repos -> modelopt)",
+         "cons": "− a method that doesn't match the weights refuses to load — clear it to use the derived one"},
         {"flag": "--kv-cache-dtype", "kind": "enum", "options": ["auto", "fp8_e4m3", "fp8_e5m2"],
          "label": "kv cache dtype",
          "note": "fp8 KV halves cache memory -> more concurrency at long ctx. CAUTION: crashes "
                  "Gemma4 (interleaved sliding-window layers) on triton_attn — EngineCore dies at "
                  "first request with 'Window left is not the same for all layers'. Use auto for "
-                 "gemma4, or pair fp8 KV with --disable-sliding-window (costs KV memory)"},
+                 "gemma4, or pair fp8 KV with --disable-sliding-window (costs KV memory)",
+         "desc": "Precision of the KV cache; fp8 halves cache memory.",
+         "pros": "+ roughly 2x KV capacity — more concurrency at long context",
+         "cons": "− crashes Gemma-4 sliding-window on triton_attn; finicky with MLA models (DeepSeek)",
+         "conflicts": [
+            {"model_re": r"gemma[-_ .]?4", "value_re": r"^fp8",
+             "why": "fp8 KV cache crashes Gemma-4's interleaved sliding-window layers at the first "
+                    "request ('Window left is not the same for all layers') — use auto, or add "
+                    "--disable-sliding-window if you must keep fp8"},
+            {"model_re": r"deepseek", "value_re": r"^fp8",
+             "why": "fp8 KV with DeepSeek's MLA attention is finicky — the family preset keeps KV auto"}]},
         {"flag": "--attention-backend", "kind": "enum", "options": ["triton_attn", "flash_attn", "flashinfer", "xformers"],
-         "label": "attention backend", "note": "GB10: triton_attn/flash_attn (FlashInfer is broken on GB10)"},
+         "label": "attention backend", "note": "GB10: triton_attn/flash_attn (FlashInfer is broken on GB10)",
+         "desc": "Which attention kernel implementation the engine runs.",
+         "pros": "+ the right backend for the GPU generation is a real throughput win",
+         "cons": "− FlashInfer is broken on GB10 (no working kernel — the serve dies)",
+         "conflicts": [
+            {"platform": "dgx_spark", "value_re": r"flashinfer",
+             "why": "FlashInfer is broken on the GB10 — use triton_attn or flash_attn (the family "
+                    "presets pin triton_attn)"}]},
         {"flag": "--dtype", "kind": "enum", "options": ["auto", "bfloat16", "float16"],
-         "label": "dtype", "note": "activation dtype; auto respects the checkpoint"},
-        {"flag": "--generation-config", "kind": "string",
-         "label": "generation config",
-         "note": "set to 'vllm' for benchmark-stable defaults instead of model-card sampling defaults"},
+         "label": "dtype", "note": "activation dtype; auto respects the checkpoint",
+         "desc": "Activation compute dtype; auto respects the checkpoint.",
+         "pros": "+ float16 can help on GPUs with weak bfloat16 support",
+         "cons": "− forcing float16 on a bfloat16 checkpoint risks overflow/NaNs"},
         {"flag": "--enable-prefix-caching", "kind": "bool", "label": "prefix caching",
-         "note": "reuses shared-prefix KV across requests (the perf grid cache-busts anyway)"},
+         "note": "reuses shared-prefix KV across requests (the perf grid cache-busts anyway)",
+         "desc": "Reuses KV cache across requests that share a prompt prefix.",
+         "pros": "+ big TTFT wins on repeated system prompts / shared few-shot prefixes",
+         "cons": "− no help for the perf grid (it cache-busts deliberately); slight cache-management overhead"},
         {"flag": "--enable-chunked-prefill", "kind": "bool", "label": "chunked prefill",
-         "note": "interleaves prefill with decode — smoother TTFT under load"},
+         "note": "interleaves prefill with decode — smoother TTFT under load",
+         "desc": "Splits long prefills into chunks interleaved with decode steps.",
+         "pros": "+ smoother TTFT under concurrent load; fixes 'max_num_batched_tokens < max_model_len' startup errors",
+         "cons": "− a single long prefill can finish slightly slower than one unchunked pass"},
         {"flag": "--trust-remote-code", "kind": "bool", "label": "trust remote code",
-         "note": "required by repos with custom modeling code"},
+         "note": "required by repos with custom modeling code",
+         "desc": "Lets the repo's custom modeling Python execute inside the engine.",
+         "pros": "+ required to load families that ship custom code (DeepSeek, GLM, Nemotron)",
+         "cons": "− runs arbitrary repo code — enable only for repos you trust"},
         {"flag": "--tensor-parallel-size", "kind": "number", "default": 1,
-         "label": "tensor parallel", "note": "multi-GPU: shards the model across N GPUs"},
+         "label": "tensor parallel", "note": "multi-GPU: shards the model across N GPUs",
+         "desc": "Shards the model across N GPUs (tensor parallelism).",
+         "pros": "+ fits models one GPU can't hold; pools memory bandwidth",
+         "cons": "− needs N matching GPUs and adds sync overhead — useless on a single-GPU host"},
         {"flag": "--reasoning-parser", "kind": "enum",
          "options": ["qwen3", "deepseek_r1", "gemma4", "glm45", "granite", "hunyuan_a13b",
                      "mistral", "step3", "ernie45", "seed_oss", "minimax_m1", "gpt_oss", "qwq"],
@@ -133,7 +191,10 @@ FLAG_CATALOG = {
          "note": "separates <think> from the answer — WITHOUT it a reasoning model leaks its trace "
                  "and tanks Instruction/Prose. Pick your family: Qwen 3.x -> qwen3, DeepSeek -> "
                  "deepseek_r1, Gemma-4 -> gemma4, GLM-4.5 -> glm45, StepFun -> step3. The family "
-                 "preset sets the right one automatically."},
+                 "preset sets the right one automatically.",
+         "desc": "Separates a reasoning model's <think> trace from its final answer.",
+         "pros": "+ clean answers — without it the trace leaks and tanks Instruction/Prose scores",
+         "cons": "− a parser name this engine build doesn't register CRASHES the serve at startup"},
         {"flag": "--tool-call-parser", "kind": "enum",
          "options": ["qwen3_coder", "qwen3_xml", "hermes", "deepseek_v3", "deepseek_v31",
                      "gemma4", "glm45", "kimi_k2", "step3", "llama3_json", "llama4_json",
@@ -145,40 +206,94 @@ FLAG_CATALOG = {
                  "Qwen 3.x -> qwen3_coder, DeepSeek -> deepseek_v3 (v3.1 -> deepseek_v31), "
                  "GLM-4.5 -> glm45, Kimi K2 -> kimi_k2, StepFun -> step3, Gemma-4 -> gemma4, "
                  "Llama -> llama3_json/llama4_pythonic; hermes is the generic fallback. The "
-                 "family preset picks it for you."},
+                 "family preset picks it for you.",
+         "desc": "Decodes the model family's native tool-call format for the agentic harnesses.",
+         "pros": "+ the correct family parser gives clean native tool calling through all three harnesses",
+         "cons": "− an unknown parser name fails the serve; a wrong family garbles tool calls"},
         {"flag": "--enable-auto-tool-choice", "kind": "bool", "label": "auto tool choice",
-         "note": "lets harnesses drive native tool calling"},
+         "note": "lets harnesses drive native tool calling",
+         "desc": "Enables server-side automatic tool choice so clients can drive native tool calls.",
+         "pros": "+ required for the harnesses to exercise native tool calling",
+         "cons": "− needs a matching --tool-call-parser set to be useful"},
         {"flag": "--swap-space", "kind": "number", "default": 4, "label": "swap space (GiB)",
-         "note": "CPU offload headroom per GPU"},
+         "note": "CPU offload headroom per GPU",
+         "desc": "CPU RAM (GiB per GPU) for swapping preempted sequences out of VRAM.",
+         "pros": "+ survives concurrency bursts instead of dropping/recomputing sequences",
+         "cons": "− swapped sequences crawl (PCIe round-trips); large values eat host RAM"},
         {"flag": "--limit-mm-per-prompt", "kind": "string", "label": "multimodal limits",
          "note": "per-prompt multimodal item caps, e.g. {\"audio\":2,\"image\":4} — some builds "
                  "need this for a declared-audio model to ACCEPT input_audio (the bench warns "
-                 "on a declared-vs-served mismatch)"},
+                 "on a declared-vs-served mismatch)",
+         "desc": "Caps how many multimodal items (images / audio clips) one prompt may carry.",
+         "pros": "+ declared-audio models NEED an allowance to accept input_audio at all",
+         "cons": "− left at the 0 default the audio suite probe-skips and a real capability goes untested"},
+        {"flag": "--reasoning-budget", "kind": "number", "label": "reasoning budget",
+         "note": "cap on <think> tokens per response — NOT supported by all engine builds (aeon-vllm-ultimate "
+                 "rejects it; if the serve dies on 'unrecognized arguments', remove this). Empty = "
+                 "engine default (uncapped)",
+         "desc": "Hard cap on <think> tokens a reasoning model may spend per response.",
+         "pros": "+ stops runaway reasoning from eating latency and the answer's token budget",
+         "cons": "− not supported by every build — aeon-vllm-ultimate rejects it ('unrecognized arguments')",
+         "conflicts": [
+            {"engine_re": r"^aeon-vllm-ultimate$",
+             "why": "this build rejects --reasoning-budget — the serve dies on 'unrecognized "
+                    "arguments'; remove it (the model still benches, reasoning uncapped)"}]},
         # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
         # (drafter HF card + preset dropdown), not as a raw catalog knob.
     ],
     "sglang": [
         {"flag": "--context-length", "kind": "number", "default": 65536, "min": 65536,
-         "label": "context length", "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed"},
+         "label": "context length", "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed",
+         "desc": "The context window the serve offers — prompt plus generation per request.",
+         "pros": "+ headroom for long agentic trajectories",
+         "cons": "− KV memory grows with it; 64K is the bench floor, only higher allowed"},
         {"flag": "--mem-fraction-static", "kind": "number", "default": 0.88, "step": 0.05,
-         "label": "mem fraction", "note": "KV pool fraction — lower if you OOM"},
+         "label": "mem fraction", "note": "KV pool fraction — lower if you OOM",
+         "desc": "Fraction of GPU memory reserved for weights plus the static KV pool.",
+         "pros": "+ higher = more KV capacity and concurrency",
+         "cons": "− too high OOMs at startup — lower it if the serve dies out of memory"},
         {"flag": "--max-running-requests", "kind": "number", "default": 256,
-         "label": "max running requests", "note": "concurrency cap"},
+         "label": "max running requests", "note": "concurrency cap",
+         "desc": "Cap on requests running concurrently.",
+         "pros": "+ higher aggregate throughput on the concurrency ladder",
+         "cons": "− more simultaneous KV pressure at long context"},
         {"flag": "--quantization", "kind": "enum", "options": ["fp8", "awq", "gptq", "modelopt"],
-         "label": "quantization", "note": "match the checkpoint"},
-        {"flag": "--tp", "kind": "number", "default": 1, "label": "tensor parallel", "note": "multi-GPU sharding"},
+         "label": "quantization", "note": "match the checkpoint",
+         "desc": "Weight quantization method — must match the checkpoint.",
+         "pros": "+ fixes a mis-detected checkpoint",
+         "cons": "− a mismatched method fails the load"},
+        {"flag": "--tp", "kind": "number", "default": 1, "label": "tensor parallel", "note": "multi-GPU sharding",
+         "desc": "Tensor-parallel size — shards the model across N GPUs.",
+         "pros": "+ fits models one GPU can't hold",
+         "cons": "− needs matching GPUs; pure overhead on a single-GPU host"},
     ],
     "llama": [
         {"flag": "-c", "kind": "number", "default": 65536, "min": 65536, "label": "context (-c)",
-         "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed"},
+         "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed",
+         "desc": "Context window in tokens for the llama.cpp server.",
+         "pros": "+ long trajectories fit",
+         "cons": "− KV memory grows linearly with it; 64K is the bench floor, only higher allowed"},
         {"flag": "-ngl", "kind": "number", "default": 999, "label": "gpu layers (-ngl)",
-         "note": "999 = everything on GPU; lower to fit VRAM"},
-        {"flag": "--threads", "kind": "number", "label": "cpu threads", "note": "CPU-side worker threads"},
+         "note": "999 = everything on GPU; lower to fit VRAM",
+         "desc": "How many model layers to offload to the GPU (999 = all of them).",
+         "pros": "+ full offload is the fastest path",
+         "cons": "− more layers than VRAM holds fails/OOMs — lower it to fit"},
+        {"flag": "--threads", "kind": "number", "label": "cpu threads", "note": "CPU-side worker threads",
+         "desc": "CPU worker threads for the CPU side of inference.",
+         "pros": "+ matching physical cores speeds CPU-bound serving",
+         "cons": "− oversubscribing cores slows generation"},
         {"flag": "--parallel", "kind": "number", "default": 4, "label": "parallel slots",
-         "note": "concurrent request slots (pair with --cont-batching)"},
+         "note": "concurrent request slots (pair with --cont-batching)",
+         "desc": "Concurrent request slots the server schedules.",
+         "pros": "+ real multi-stream benching (pair with --cont-batching)",
+         "cons": "− the context budget (-c) is split across slots"},
         {"flag": "--cont-batching", "kind": "bool", "label": "continuous batching",
-         "note": "required for real concurrency"},
-        {"flag": "--flash-attn", "kind": "bool", "label": "flash attention", "note": "faster attention where supported"},
+         "note": "required for real concurrency",
+         "desc": "Continuous batching — new requests join the running batch instead of queueing.",
+         "pros": "+ required for real concurrency; the perf ladder is serial without it"},
+        {"flag": "--flash-attn", "kind": "bool", "label": "flash attention", "note": "faster attention where supported",
+         "desc": "FlashAttention kernels where the build and hardware support them.",
+         "pros": "+ faster attention and lower memory at long context"},
     ],
 }
 

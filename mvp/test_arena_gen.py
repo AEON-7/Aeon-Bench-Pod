@@ -90,8 +90,12 @@ artifacts = [
     art(6, kind="weird"),                          # skipped: unknown kind
     art(7, prompt_id="<img src=x>"),               # saved with sanitized prompt_id
 ] + [art(10 + i, kind="animation", prompt_id="anim.balls") for i in range(5)]  # 5 more good -> 12 items
-artifacts.append(art(99))                          # 13th item -> dropped by MAX_ARTIFACTS
-# considered: first 12 -> saved = items 1,2,5,7 + 5 animations = 9
+base_saved = 9                                      # items 1,2,5,7 + 5 animations
+base_len = len(artifacts)
+# Add enough valid extras to prove the configurable MAX_ARTIFACTS cap still applies.
+for i in range(max(0, ingest.MAX_ARTIFACTS - base_len + 1)):
+    artifacts.append(art(100 + i, prompt_id="app.extra%d" % i))
+expected_saved = base_saved + max(0, ingest.MAX_ARTIFACTS - base_len)
 
 pod = {"run_id": "run" + uuid.uuid4().hex[:8], "model": 'evil<script>"m"`x`' + "Y" * 100,
        "suite_id": "aeon-suite-v1", "board": "text"}
@@ -105,7 +109,7 @@ ingest._commit(pod, bundle, final=False)           # checkpoint resend
 ok(db.list_artifacts() == [], "ingest: checkpoint resend still saves NO artifacts")
 ingest._commit(pod, bundle, final=True)            # final commit
 rows = db.list_artifacts(with_html=True)
-ok(len(rows) == 9, "ingest: final commit saved exactly 9 (caps + skips enforced, got %d)" % len(rows))
+ok(len(rows) == expected_saved, "ingest: final commit saved exactly %d (caps + skips enforced, got %d)" % (expected_saved, len(rows)))
 ok(all(not set('<>"\'`') & set(r["model"]) and len(r["model"]) <= 80 for r in rows),
    "ingest: model sanitized (no markup, <=80 chars)")
 ok(all(not set('<>"\'`') & set(r["prompt_id"]) for r in rows), "ingest: prompt_id sanitized")
@@ -127,7 +131,7 @@ ok(db.claim_pod_run(rid2, "committed") is True and db.claim_pod_run(rid2, "commi
 pod2 = {"run_id": "run" + uuid.uuid4().hex[:8], "model": "plain-model",
         "suite_id": "aeon-suite-v1", "board": "text"}
 ingest._commit(pod2, {"results": results}, final=True)
-ok(len(db.list_artifacts()) == 9 and db.get_run(pod2["run_id"])["status"] == "succeeded",
+ok(len(db.list_artifacts()) == expected_saved and db.get_run(pod2["run_id"])["status"] == "succeeded",
    "ingest: bundle without 'artifacts' fully backwards compatible")
 
 print("\nALL %d CHECKS PASS" % PASS)

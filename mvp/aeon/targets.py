@@ -48,6 +48,13 @@ def audio_block(wav_bytes, fmt="wav"):
     return {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
 
 
+def video_block(mp4_bytes, mime="video/mp4"):
+    """OpenAI-compatible video content part — the vLLM convention for qwen-vl-style
+    models ({"type":"video_url"}), mirroring image_block's data-URL transport."""
+    b64 = base64.b64encode(mp4_bytes).decode()
+    return {"type": "video_url", "video_url": {"url": f"data:{mime};base64," + b64}}
+
+
 def _prompt_chars(messages):
     """Total characters of prompt text across messages (str or block-list content)."""
     total = 0
@@ -97,6 +104,21 @@ def _audio_stats(messages):
                 if isinstance(blk, dict) and blk.get("type") == "input_audio":
                     n += 1
                     payload = blk.get("input_audio", {}).get("data", "")
+                    nbytes += (len(payload) * 3) // 4
+    return n, nbytes
+
+
+def _video_stats(messages):
+    """(n_video, total_decoded_bytes) across video_url blocks in the messages."""
+    n, nbytes = 0, 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict) and blk.get("type") == "video_url":
+                    n += 1
+                    url = blk.get("video_url", {}).get("url", "")
+                    payload = url.split(",", 1)[1] if "," in url else url
                     nbytes += (len(payload) * 3) // 4
     return n, nbytes
 
@@ -154,6 +176,12 @@ class OpenAITarget:
             res["audio_bytes"] = abytes
             # honest label: this TTFT includes upload + server decode + prefill (§6c.5)
             res["ttft_after_audio_ms"] = res.get("ttft_ms")
+        nv, vbytes = _video_stats(messages)
+        if nv:
+            res["n_video"] = nv
+            res["video_bytes"] = vbytes
+            # honest label: this TTFT includes upload + server decode + prefill (§6c.5)
+            res["ttft_after_video_ms"] = res.get("ttft_ms")
         return res
 
     def _post(self, payload, stream):
@@ -495,36 +523,101 @@ class MockTarget:
         }
 
 
-class MockVisionTarget:
-    """Canned slot-formatted answers for the vision suite, keyed by _case_id —
-    lets the vision board be exercised with zero GPU. probe_vision() short-circuits
-    this class to vision_ok=True, so these only need to satisfy the suite cases."""
+# wrong-on-purpose reply for '*-bad' mock personas: in-slot everywhere, correct nowhere
+# (closed_set rejects non-members, count_slot mismatches, CER blows past every threshold,
+# and no keyword group matches)
+_BAD_REPLY = ("<answer>zzzz</answer><count>-999</count><ocr>#####</ocr>"
+              "<object>zzzz</object><color>zzzz</color>")
 
-    GOOD = {
-        "vision.ocr.token": "<ocr>AEON</ocr>",
-        "vision.count.circles": "<count>4</count>",
-        "vision.color.square": "<answer>red</answer>",
-        "vision.spatial.quadrant": "<answer>top-left</answer>",
-        "vision.relation.leftof": "<answer>red circle</answer>",
-        "vision.chart.maxbar": "<answer>B</answer>",
-        "vision.chart.value": "<count>3</count>",
-        "vision.vqa.mcq": "<answer>triangle</answer>",
-        "vision.detail.tiny": "<ocr>k7</ocr>",
-        "vision.multi.morecount": "<answer>second</answer>",
-        "vision.describe.scene": "<object>circle</object><color>red</color>",
-    }
+
+def _gold_case_answer(case):
+    """Derive the CORRECT reply for a suite case from its OWN eval spec, so mock targets
+    never drift from the suite. Slot checkers emit their slot-formatted answers; keyword
+    checkers emit one sentence carrying the first synonym of every group in group order
+    (so ordered_keywords holds); a Tier-1 rubric emits its tier0-shadow slots."""
+    ev = case["eval"]
+    if "rubric" in ev:
+        return "".join(
+            "<{s}>{a}</{s}>".format(s=cr["tier0_check"].get("slot", "answer"),
+                                    a=cr["tier0_check"]["answer"])
+            for cr in ev["rubric"] if "tier0_check" in cr)
+    parts, kw, kw_slot, kw_scan = [], [], "answer", False
+    for chk in ev["checkers"]:
+        t = chk["type"]
+        if t in ("keyword_all", "keyword_set", "ordered_keywords", "keyword_any"):
+            groups = chk.get("groups") or ([chk["keywords"]] if chk.get("keywords") else [])
+            kw += [g[0] for g in groups if g]
+            kw_slot = chk.get("slot", "answer")
+            kw_scan = kw_scan or chk.get("scan") == "text"
+        elif t == "count_slot":
+            slot = chk.get("slot", "count")
+            parts.append(f"<{slot}>{chk['value']}</{slot}>")
+        elif t == "closed_set":
+            slot = chk.get("slot", "answer")
+            parts.append(f"<{slot}>{chk['answer']}</{slot}>")
+        elif t == "cer_threshold":
+            slot = chk.get("slot", "ocr")
+            parts.append(f"<{slot}>{chk['value']}</{slot}>")
+    if kw:
+        sent = "it shows " + ", then ".join(kw)
+        parts.append(sent if kw_scan else f"<{kw_slot}>{sent}</{kw_slot}>")
+    return " ".join(parts) or "<answer>unknown</answer>"
+
+
+class MockVisionTarget:
+    """Slot-formatted answers for the vision suite, keyed by _case_id — lets the vision
+    board be exercised with zero GPU. probe_vision() short-circuits this class to
+    vision_ok=True. The gold table is DERIVED from vision_suite's own checkers
+    (_gold_case_answer), so it never drifts from the suite. Personas: 'mock-vision*'
+    answers correctly; any '*-bad' persona answers wrong on every case."""
 
     def __init__(self, persona="mock-vision"):
         self.model = persona
+        self.bad = persona.endswith("-bad")
+        self._table = None
+
+    def _gold(self):
+        if self._table is None:
+            from . import vision_suite  # deferred: no import cycle
+            self._table = {c["id"]: _gold_case_answer(c) for c in vision_suite.CASES}
+        return self._table
 
     def chat(self, messages, *, temperature=0.0, max_tokens=512):
         cid = messages[0].get("_case_id") if messages else None
-        text = self.GOOD.get(cid, "<answer>unknown</answer>")
+        text = _BAD_REPLY if self.bad else self._gold().get(cid, "<answer>unknown</answer>")
         n, nbytes = _img_stats(messages)
         time.sleep(0.005)
         return {"text": text, "ttft_ms": 11.0, "decode_tps": 90.0, "e2e_ms": 9.0,
                 "output_tokens": max(1, len(text) // 4), "streamed": True,
                 "n_images": n, "image_bytes": nbytes, "ttft_after_image_ms": 11.0}
+
+
+class MockVideoTarget:
+    """Slot-formatted answers for the video suite, keyed by _case_id — lets the video
+    board be exercised with zero GPU (and no ffmpeg: the mock never decodes anything).
+    probe_video() short-circuits this class to video_ok=True. The gold table is DERIVED
+    from video_suite's own checkers (_gold_case_answer). Personas: 'mock-video*' answers
+    correctly; any '*-bad' persona answers wrong on every case."""
+
+    def __init__(self, persona="mock-video"):
+        self.model = persona
+        self.bad = persona.endswith("-bad")
+        self._table = None
+
+    def _gold(self):
+        if self._table is None:
+            from . import video_suite  # deferred: no import cycle
+            self._table = {c["id"]: _gold_case_answer(c) for c in video_suite.CASES}
+        return self._table
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        cid = messages[0].get("_case_id") if messages else None
+        text = _BAD_REPLY if self.bad else self._gold().get(cid, "<answer>unknown</answer>")
+        n, nbytes = _video_stats(messages)
+        time.sleep(0.005)
+        return {"text": text, "ttft_ms": 11.0, "decode_tps": 90.0, "e2e_ms": 9.0,
+                "output_tokens": max(1, len(text) // 4), "streamed": True,
+                "n_video": n, "video_bytes": nbytes, "ttft_after_video_ms": 11.0}
 
 
 class MockAudioTarget:

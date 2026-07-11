@@ -1,6 +1,11 @@
 """Regression tests for job cancellation and resource cleanup.
 
 Run directly with `python test_job_stop_cleanup.py` or collect with pytest.
+
+Ported from the public pod repo (PR #7) and reconciled with the private RESUME feature:
+a user Stop flips still-'running' local run rows to 'interrupted' (resumable), never
+'failed' — _finish_stopped_run goes through db.interrupt_run_if_running / db.run_resumable.
+All checks run against mocked docker/subprocess — no live docker daemon required.
 """
 from __future__ import annotations
 
@@ -128,14 +133,61 @@ def test_queued_job_stop_never_removes_active_jobs_serve():
             jobs._JOBS.pop(j["id"], None)
 
 
-def test_finish_stopped_run_closes_every_board_run():
+def test_finish_stopped_run_interrupts_every_board_run():
+    # RESUME reconciliation: eviction goes through interrupt_run_if_running (NOT
+    # fail_run_if_running) so partial runs stay resumable; the anchoring run's
+    # resumability is reflected on the job.
     j = _job(run_ids=["text-run", "vision-run", "text-run"])
     closed = []
-    with mock.patch.object(db, "fail_run_if_running",
-                           side_effect=lambda rid, reason: closed.append((rid, reason))):
+    with mock.patch.object(db, "interrupt_run_if_running",
+                           side_effect=lambda rid, reason: closed.append((rid, reason))), \
+         mock.patch.object(db, "run_resumable", return_value=True):
         jobs._finish_stopped_run(j)
     assert closed == [("text-run", "stopped by user"),
                       ("vision-run", "stopped by user")]
+    assert j.get("resumable") is True
+
+
+def test_stop_marks_runs_interrupted_and_resumable():
+    # End-to-end reconciliation check on a real (temp) SQLite pod db: Stop tree-kills,
+    # sweeps docker, AND leaves the partial run row 'interrupted' with its results intact
+    # so the Run tab can offer RESUME — while an already-succeeded board run is untouched.
+    old = (db.DB_PATH, db.AEON_DB_URL, db.IS_PG, db._initialized)
+    j = _job(run_ids=["done-run", "live-run"])
+    j["run_id"] = "live-run"                     # anchoring run = the interrupted one
+    docker_ok = mock.Mock(returncode=0, stderr="", stdout="")
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            db.DB_PATH = os.path.join(td, "pod.db")
+            db.AEON_DB_URL = None
+            db.IS_PG = False
+            db._initialized = False
+            db.init_db()
+            with db.connect() as c:
+                c.execute("INSERT INTO runs (id, model, target_url, status) VALUES (?,?,?,?)",
+                          ("done-run", "m", "u", "succeeded"))
+                c.execute("INSERT INTO runs (id, model, target_url, status) VALUES (?,?,?,?)",
+                          ("live-run", "m", "u", "running"))
+                c.execute("INSERT INTO results (run_id, case_id, status, score) VALUES (?,?,?,?)",
+                          ("live-run", "case-1", "scored", 1.0))
+            with jobs._LOCK:
+                jobs._JOBS[j["id"]] = j
+            try:
+                with mock.patch.object(jobs, "_terminate_process_tree") as terminate, \
+                     mock.patch.object(jobs.subprocess, "run", return_value=docker_ok):
+                    assert jobs.stop_job(j["id"]) is True
+                terminate.assert_called_once()               # tree-kill still happens
+            finally:
+                with jobs._LOCK:
+                    jobs._JOBS.pop(j["id"], None)
+            assert j["status"] == "stopped" and j["_runtime_cleaned"] is True
+            assert j.get("resumable") is True                # RESUME offer survives the stop
+            assert db.get_run("live-run")["status"] == "interrupted"
+            assert db.get_run("live-run")["error"] == "stopped by user"
+            assert db.get_run("done-run")["status"] == "succeeded"
+            assert db.run_resumable("live-run") is True
+    finally:
+        db.DB_PATH, db.AEON_DB_URL, db.IS_PG, db._initialized = old
 
 
 def test_fail_run_if_running_is_atomic():
@@ -167,7 +219,8 @@ def main():
         test_stop_job_never_overwrites_a_finished_job,
         test_harness_sweep_is_a_noop_without_orphans,
         test_queued_job_stop_never_removes_active_jobs_serve,
-        test_finish_stopped_run_closes_every_board_run,
+        test_finish_stopped_run_interrupts_every_board_run,
+        test_stop_marks_runs_interrupted_and_resumable,
         test_fail_run_if_running_is_atomic,
     ]
     for test in tests:

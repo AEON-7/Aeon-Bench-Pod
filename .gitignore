@@ -18,6 +18,9 @@ mvp/artifacts_store/
 mvp/blobs/
 mvp/aeon/assets/audio/*
 !mvp/aeon/assets/audio/speech/
+# video-suite mp4 cache — rendered deterministically from RAW FRAMES (videogen._finish),
+# so the mp4s regenerate anywhere; never commit them
+mvp/aeon/assets/video/
 
 # secrets / env
 .env

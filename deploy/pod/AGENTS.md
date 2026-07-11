@@ -128,3 +128,101 @@ bundle authorship, integrity-in-transit, and replay resistance (single-use nonce
 token). It is **never co-ranked** with mothership-verified records. Stronger tiers
 (`orchestrated` = the mothership re-generates the work; `attested` = a hardware TEE quote) are the
 mothership's job, not the pod's. See `docs/attestation.md` and `docs/run-a-benchmark.md`.
+
+---
+
+## The preset layer — family ⊕ hardware (`mvp/pod/presets.py`)
+
+`derive_recipe` no longer starts from zero: two composable preset layers seed every serve, and
+the operator's own flags always win last via `merge_flags`.
+
+- **Family presets** (`PRESETS` — Gemma-4, Qwen 3.5/3.6 dense+MoE, DeepSeek, GLM, Nemotron,
+  Llama 3/4, GPT-OSS, Mistral, Granite, and more, plus a generic fallback) carry only
+  **model-intrinsic** flags: reasoning/tool parsers, trust-remote-code, KV/mamba cache dtypes,
+  multimodal allowances. Detection (`detect(config, name)`) keys on config.json `model_type`
+  first, then architecture substring, then repo name — so a family is recognized however the
+  repo is named. Confidence is honest: `high` = validated on AEON's own DGX; `medium` = arch
+  understood, not benched here; `low` = safe flags only, parsers stay recommendations in the
+  notes (a wrong `--reasoning-parser` crashes the serve). Parser names in presets are only ever
+  ones present in the `engines.FLAG_CATALOG` option lists (test-enforced).
+- **Hardware presets** (`HARDWARE_PRESETS`: `dgx_spark` / `cuda_generic` / `rocm` / `metal` /
+  `cpu`) carry what the **host** needs, independent of family — e.g. the GB10's
+  `--attention-backend triton_attn` pin (FlashInfer is broken there). Selected from
+  `engines.host_platform()` via `hardware_preset()`.
+- **Composition:** `apply_flags(preset, modalities, hardware=)` is the conservative subset a
+  headless/GUI run gets by **default** (family safe flags + hardware flags; parser flags only at
+  high/medium confidence; audio allowance only when the model declares audio). `full_flags()` is
+  the complete recommendation (adds perf options like Qwen fp8 KV) behind the Run tab's
+  "★ family best-practice recipe → apply preset" chip — it **fills** Recipe Tuning, editable,
+  never silent. The preset id + the flags it contributed travel in the recorded recipe.
+
+## Champion recipes
+
+The mothership publishes the **winning serve recipe per (hardware label × canonical model)**:
+`GET /api/recipes/champions?hardware=&model=` (public, read-only; `mvp/aeon/scoring.py
+champion_recipes`). A champion is the run with the best demonstrated **peak aggregate tok/s**
+whose model **also** carries a quality composite for that pairing — fast AND answers well. Before
+publication the recipe is scrubbed: bench wiring (`--served-model-name`/`--host`/`--port`/…) is
+stripped, anything credential-named or token-shaped is dropped, and a drafter path is normalised
+to the portable `/drafter` mount.
+
+The pod proxies this as `GET /api/pod/recipes/champions`, filtered to its **own detected hardware
+label** (a DGX Spark pod sees what won on a DGX Spark), and the Run tab offers each as
+"★ CHAMPION RECIPES → apply template" — filling engine + Recipe Tuning + spec decode with the
+exact winning recipe, editable before launch. Mothership unreachable → `{available: false}` and
+the Run tab keeps working; the champion pull never blocks a bench.
+
+## Resume + deferred idempotent submission
+
+**Job identity:** at job start `aeon_pod` fixes a context (launch UTC timestamp + canonical model
++ detected hardware label — `_job_ctx`) and mints
+`job_sig = sha256("started_ts|model|hardware|suite")[:24]` (`_job_sig`) per bundle; `suite_scope`
+disambiguates the bundles of one comprehensive job (text suite vs `agentic-v2@hermes` vs
+vision/audio/perf). Every bundle carries its `job_sig`.
+
+- **Sessions** (`mvp/pod/pending.py`): `~/.aeon/pending_submits/{job_sig}.json` (chmod 600 — it
+  holds a bearer `run_token`) is written the moment the bench opens its mothership run, **even
+  when the mothership is unreachable** (run_id stays None, minted at submit time). Deleted only
+  after a confirmed final commit (ok **or** duplicate). Session files survive pod restarts; the
+  in-memory job list doesn't.
+- **Checkpoint streaming:** the bench pushes cumulative results with `final=False` every 8 cases;
+  the mothership claims the run only on the final commit and dedups per `(run_id, case_id)` — a
+  mid-run kill loses nothing already submitted. Checkpoint failures back off exponentially and
+  can never stall the bench.
+- **Interrupted, not failed:** a stopped/crashed bench flips its local run row to `interrupted`
+  (`jobs.py` on subprocess exit; `recover.py` at boot) — per-case results intact, so the Run tab
+  offers **⟲ RESUME** (`POST /api/pod/jobs/{id}/resume`): the identical argv/env relaunches with
+  `AEON_RESUME=1`, `_resume_anchor` picks the newest interrupted run for that model+suite
+  (guarded by the current case plan), and reuses its rid + `job_sig` so the open mothership
+  session and checkpoint stream simply continue.
+- **Completeness gate:** an incomplete pass of the planned cases is **not** auto-submitted — it
+  stays local + resumable; `--force-submit` is the CLI-only escape hatch. The deferred path
+  (`pending.submit_pending`) enforces the same gate (409 `incomplete`).
+- **Deferred submit:** **⬆ SUBMIT TO MOTHERSHIP** → `POST /api/pod/jobs/{id}/submit` (re-commits
+  every pending session the job minted) or `POST /api/pod/submit/{job_sig}` for sessions from
+  before a pod restart. Idempotent end-to-end: `GET /api/v1/jobs/{job_sig}` pre-checks so a
+  multi-MB bundle the mothership already has is never re-uploaded, and a duplicate final submit
+  answers HTTP 200 `{"ok":true,"duplicate":true,"run_id":…,"message":"job already submitted and
+  available on the Mothership"}` — the nonce is released cleanly (`duplicate`, never
+  quarantined): re-submitting a finished job is correct client behaviour, not forgery. Bundles
+  without a `job_sig` (old pods in the field) behave exactly as before.
+
+## Container hygiene & image provenance (honest posture)
+
+- **Harness containers are ephemeral by design** — one `docker run --rm` (or named + `docker cp`)
+  per agentic task, torn down immediately (see above). The engine container runs under the fixed
+  name `aeon-bench-serve`.
+- **Boot reconcile** (`mvp/pod/recover.py`): a fresh pod boot proves no bench is alive, so it
+  removes an orphaned `aeon-bench-serve`, restarts production containers a dead run paused and
+  never restored (the `paused.json` ledger — start only, never rm), and marks stranded `running`
+  run rows `interrupted` (resumable). Every action prints `[pod][recover]` in
+  `docker logs aeon-pod`.
+- **Image digest provenance:** recipes record the engine image's digest identity
+  (`image_digest` / `image_id` / `image_repo_digests`) even for `:latest` tags, so a result is
+  reproducible against the exact bytes that served it, and the downloadable `serve.sh` / compose
+  pin by digest (digest refs are format-validated before substitution). Harness + engine
+  containers carry the `aeon.pod.harness` / `aeon.pod.job` labels and are swept by label on
+  stop, on worker exit, and at boot reconcile.
+- **Not yet done (known posture, stated honestly):** engine images are **not signature-verified
+  or allowlisted** — the operator can point the pod at any custom image, and only the recorded
+  recipe and its digest make that visible after the fact.

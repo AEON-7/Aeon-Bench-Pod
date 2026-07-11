@@ -63,8 +63,12 @@ all_specs = [s for c in audio_suite.CASES for s in c["audio"]] + extra_specs
 for spec in all_specs:
     key, wav_bytes, meta = audiogen.synth(spec)
     with wave.open(io.BytesIO(wav_bytes)) as w:
+        # synthesized audio is 16 kHz by construction; pinned FSDD speech recordings carry
+        # their native 8 kHz in the header (transports pass the file verbatim)
+        rate_ok = (w.getframerate() > 0 if spec["gen"] == "speech_asset"
+                   else w.getframerate() == audiogen.RATE)
         ok = (w.getnchannels() == 1 and w.getsampwidth() == 2
-              and w.getframerate() == audiogen.RATE and w.getnframes() > 0)
+              and rate_ok and w.getnframes() > 0)
         dur = w.getnframes() / w.getframerate()
     key2, wav2, meta2 = audiogen.synth(spec)
     check(f"synth {spec['gen']}{spec.get('args', {})}",
@@ -73,7 +77,7 @@ for spec in all_specs:
 
 # --------------------------------------------------- 2. suite gold answers
 print("== 2. suite integrity: gold scores 1.0, wrong scores 0.0, no judge ==")
-check("suite id", audio_suite.SUITE_ID == "aeon-audio-v1", audio_suite.SUITE_ID)
+check("suite id", audio_suite.SUITE_ID == "aeon-audio-v2", audio_suite.SUITE_ID)
 h1, h2 = audio_suite.suite_hash(), audio_suite.suite_hash()
 check("suite_hash stable", bool(h1) and h1 == h2, f"{h1} vs {h2}")
 check("case count ~10", len(audio_suite.CASES) >= 10, str(len(audio_suite.CASES)))
@@ -90,6 +94,8 @@ for case in audio_suite.CASES:
         "Duration": lambda: chk["answer"] == meta["longer"],
         "Timbre": lambda: chk["answer"] == meta["kind"],
         "Pattern": lambda: chk["answer"] == meta["seq"],
+        # FSDD files are named <digit>_<speaker>_<take>.wav — the digit IS the ground truth
+        "Speech": lambda: chk["answer"] == meta["file"].split("_", 1)[0],
     }[case["category"]]()
     check(f"{case['id']} checker==generator-truth", consistent, f"chk={chk} meta={meta}")
 
@@ -123,7 +129,7 @@ check("all scored 1.0", all(r["status"] == "scored" and r["score"] == 1.0 for r 
       str([(r["case_id"], r["status"], r["score"]) for r in rows if r["score"] != 1.0]))
 check("run succeeded + board=audio", run_row["status"] == "succeeded" and run_row["board"] == "audio",
       str(run_row))
-check("run suite_id", run_row["suite_id"] == "aeon-audio-v1", str(run_row["suite_id"]))
+check("run suite_id", run_row["suite_id"] == "aeon-audio-v2", str(run_row["suite_id"]))
 
 run_audio_benchmark("audio-selftest-bad", "mock-audio-bad", "mock")
 with db.connect() as c:

@@ -9,8 +9,10 @@ behind, and what this fixes at every startup:
   ~/.aeon/paused.json     production containers the dead run paused (AEON_PAUSE_CONTAINERS /
                           clear-host mode) and never restored -> `docker start` each
                           (start only, NEVER rm; skipped if the operator disabled restore)
-  local 'running' runs    pod-local SQLite run rows stranded mid-flight -> marked failed
-                          so Live and the boards stop showing a ghost bench
+  local 'running' runs    pod-local SQLite run rows stranded mid-flight -> marked
+                          'interrupted' (RESUMABLE: their per-case results are intact, so
+                          the Run tab can offer ⟲ RESUME) — Live and the boards stop
+                          showing a ghost bench either way
 
 This is what turns "the benchmark mysteriously disappeared" into a logged, self-healed
 event: every action is printed as [pod][recover] in `docker logs aeon-pod`."""
@@ -75,13 +77,14 @@ def reconcile() -> list[str]:
     # 2) production containers a dead run paused and never restored
     acts += restore_paused()
     # 3) stranded pod-LOCAL run rows (SQLite only — never touch a shared Postgres, where
-    #    'running' can belong to someone else's live pod)
+    #    'running' can belong to someone else's live pod). 'interrupted', NOT failed: the
+    #    per-case results survive in pod.db, so the Run tab can offer resume.
     if not os.environ.get("AEON_DB_URL"):
         try:
             from aeon import db
-            n = db.fail_orphaned_runs("orphaned: pod restarted mid-run")
+            n = db.interrupt_orphaned_runs("interrupted: pod restarted mid-run")
             if n:
-                acts.append(f"marked {n} stranded 'running' run row(s) failed")
+                acts.append(f"marked {n} stranded 'running' run row(s) interrupted (resumable)")
         except Exception:
             pass
     for a in acts:

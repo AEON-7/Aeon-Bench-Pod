@@ -26,6 +26,7 @@ except AttributeError:
     pass
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -115,10 +116,65 @@ def _hardware_profile(label=None):
     return prof
 
 
+def detected_hardware_label():
+    """The canonical DETECTED hardware label for THIS host ('single DGX Spark (GB10)',
+    'RTX 5090 32GB', 'MacBook Pro M4 48GB', …) — the same label runs are stamped with, so it is
+    what the mothership keys champion recipes on. None when detection fails (a champion pull
+    then goes unfiltered)."""
+    try:
+        return _hardware_profile().get("detected_label")
+    except Exception:
+        return None
+
+
+def _job_ctx(model, hw_profile, started=None):
+    """Job identity context, fixed at JOB START: launch timestamp (UTC ISO) + canonical model
+    + the DETECTED hardware label. Every bundle this job submits derives its job_sig from it."""
+    return {"started": started or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "model": model,
+            "hw": ((hw_profile or {}).get("detected_label")
+                   or (hw_profile or {}).get("label") or "unknown")}
+
+
+def _job_sig(ctx, suite_scope):
+    """Deterministic job identity: sha256("started_ts|model|hardware|suite")[:24]. The SAME
+    job re-submitting later reuses it (the mothership dedups on it — a finished job can never
+    land twice); a NEW launch gets a fresh started_ts and therefore a fresh signature.
+    suite_scope disambiguates the bundles of one comprehensive job (text suite vs
+    'agentic-v2@hermes' vs vision/audio/perf)."""
+    raw = f"{ctx['started']}|{ctx['model']}|{ctx['hw']}|{suite_scope}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _missing_case_ids(results):
+    """Planned suite cases with no result row — the completeness gate's evidence (a case that
+    errored still has a row; only never-attempted cases count as missing)."""
+    from aeon import suite as suite_mod
+    got = {x.get("case_id") for x in results}
+    return [c["id"] for c in suite_mod.CASES if c["id"] not in got]
+
+
+def _resume_anchor(model, board="text", hf_repo=None):
+    """(interrupted_run, done_case_ids) to resume from, or (None, empty). Anchored on the
+    LOCAL row's suite id (runner always stamps suite_mod.SUITE_ID) and guarded so a run whose
+    scored cases fall OUTSIDE the current case plan (a different tier/category variant) is
+    never resumed into the wrong launch."""
+    from aeon import db
+    from aeon import suite as suite_mod
+    old = db.find_resumable_run(model, suite_mod.SUITE_ID, board=board, hf_repo=hf_repo)
+    if not old:
+        return None, set()
+    done = db.result_case_ids(old["id"])
+    plan = {c["id"] for c in suite_mod.CASES}
+    if not done or not done <= plan:
+        return None, set()
+    return old, done
+
+
 def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=None,
             board="text", suite_id=None, key_path=None, hf_repo=None, limit=None, difficulty=None,
             category=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None, judge_key=None,
-            concurrency=1, frontier_id=None):
+            concurrency=1, frontier_id=None, resume=False, force_submit=False):
     # Pod state is LOCAL SQLite (its own job dashboard) — never the mothership DB.
     os.environ.pop("AEON_DB_URL", None)
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
@@ -126,6 +182,7 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
 
     from aeon import db, runner, scoring
     from aeon import suite as suite_mod
+    from pod import pending
     from pod.aeon_submit import Pod
 
     frontier_meta = None
@@ -150,40 +207,28 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     if limit:                                  # quick subset for a fast smoke
         suite_mod.CASES = suite_mod.CASES[:limit]
 
-    rid = uuid.uuid4().hex[:10]
+    sid = suite_id or suite_mod.SUITE_ID
+    hwprof = _hardware_profile(hardware)
+    job_ctx = _job_ctx(model, hwprof)
+    # RESUME: pick up the newest interrupted local run for this model+suite — reuse its rid +
+    # job_sig (so its mothership session/checkpoint stream continues) and skip its cases.
+    rid = jsig = None
+    done_ids = set()
+    if resume:
+        old, done_ids = _resume_anchor(model, board=board, hf_repo=hf_repo)
+        if old:
+            rid, jsig = old["id"], old.get("job_sig")
+            print(f"[pod] RESUME: continuing local run {rid} — {len(done_ids)} cases already scored")
+        else:
+            print("[pod] resume requested but no interrupted local run matches — full bench")
+    rid = rid or uuid.uuid4().hex[:10]
+    jsig = jsig or _job_sig(job_ctx, sid)
     print(f"[pod] run_id={rid}", flush=True)   # the GUI job manager correlates the pod.db run by this
+    print(f"[pod] job_sig={jsig}", flush=True)  # ...and dedups/defers submission by this
     n = len(suite_mod.CASES)
     print(f"[pod] benchmarking {model}  @ {target}   ({n} cases)")
-    done = {"i": 0}
 
-    def cb(cid, score, status):
-        done["i"] += 1
-        s = f"{score:.2f}" if isinstance(score, float) else str(score)
-        print(f"  {done['i']:3d}/{n}  {cid:24s} {status:13s} {s}")
-
-    params = {"temperature": temperature, "max_tokens": max_tokens,   # headroom for reasoning models
-              "concurrency": concurrency}
-    # Judge policy: a frontier model OR deterministic-only (never self-judge). With no --judge,
-    # subjective Tier-1 cases are left unscored; deterministic cases always score.
-    runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
-                         judge_model=judge, judge_url=judge_url, judge_key=judge_key,
-                         env_extra={"frontier": frontier_meta} if frontier_meta else None,
-                         canonical_id=canonical_id,
-                         model_verified="frontier_api" if frontier_meta else None)
-
-    run = db.get_run(rid)
-    results = [{
-        "case_id": x["case_id"], "category": x["category"], "tier": x["tier"],
-        "status": x["status"], "score": x["score"], "creativity": x.get("creativity"),
-        "raw_output": db.result_output(x), "evidence": x.get("evidence") or {},
-        "speed": x.get("speed") or {},
-    } for x in run["results"]]
-
-    scored = [x["score"] for x in results if isinstance(x["score"], float)]
-    mean = sum(scored) / len(scored) if scored else 0.0
-    print(f"[pod] local result: mean {mean:.3f} over {len(scored)} scored / {n} cases")
-
-    env = {"hardware": _hardware_profile(hardware), "engine": {"name": engine}, "runner": "aeon-pod",
+    env = {"hardware": hwprof, "engine": {"name": engine}, "runner": "aeon-pod",
            "concurrency": concurrency}
     if frontier_meta:
         env["frontier"] = frontier_meta
@@ -193,8 +238,51 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
                         hf_repo=hf_repo, engine=engine, judge_model=judge)
     if frontier_meta:
         submit_extra["frontier"] = frontier_meta
-    st, r = pod.run_and_submit(model, suite_id or suite_mod.SUITE_ID, results, board=board,
-                               **submit_extra)   # frontier judge or None — NEVER the model itself
+    # Submission session UP FRONT (persisted even when the mothership is down): checkpoints
+    # stream over it, and a failed final submit stays recoverable from the pod dashboard.
+    ses = pending.load(jsig) if resume else None
+    if ses and ses.get("mothership") != pod.base:
+        ses = None                              # different mothership — open a fresh session
+    if not ses:
+        ses = pending.open_session(pod, job_sig=jsig, model=model, suite_id=sid, board=board,
+                                   local_rid=rid, extra=submit_extra)
+    ckpt = pending.checkpoint_fn(pod, ses)
+    done = {"i": len(done_ids)}                 # resumed cases count toward the progress line
+
+    def cb(cid, score, status):
+        done["i"] += 1
+        s = f"{score:.2f}" if isinstance(score, float) else str(score)
+        print(f"  {done['i']:3d}/{n}  {cid:24s} {status:13s} {s}")
+        if ckpt and done["i"] % 8 == 0:         # stream cumulative results (final=False)
+            try:
+                ckpt(pending.collect_results(rid))
+            except Exception as e:
+                print(f"[pod] checkpoint submit failed (non-fatal): {e}")
+
+    params = {"temperature": temperature, "max_tokens": max_tokens,   # headroom for reasoning models
+              "concurrency": concurrency}
+    # Judge policy: a frontier model OR deterministic-only (never self-judge). With no --judge,
+    # subjective Tier-1 cases are left unscored; deterministic cases always score.
+    runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
+                         judge_model=judge, judge_url=judge_url, judge_key=judge_key,
+                         env_extra={"frontier": frontier_meta} if frontier_meta else None,
+                         canonical_id=canonical_id,
+                         model_verified="frontier_api" if frontier_meta else None,
+                         job_sig=jsig, done_case_ids=done_ids, resume=bool(done_ids))
+
+    results = pending.collect_results(rid)
+    scored = [x["score"] for x in results if isinstance(x["score"], float)]
+    mean = sum(scored) / len(scored) if scored else 0.0
+    print(f"[pod] local result: mean {mean:.3f} over {len(scored)} scored / {n} cases")
+
+    # COMPLETENESS GATE: only a COMPLETE pass of the planned cases may submit — an incomplete
+    # stage stays local + resumable (--force-submit is the CLI-only escape hatch).
+    missing = _missing_case_ids(results)
+    if missing and not force_submit:
+        print(f"[pod][submit] incomplete job_sig={jsig} missing={len(missing)} — NOT submitting "
+              f"(resume the job to finish, or --force-submit)")
+        return 0, {"error": "incomplete", "missing": len(missing)}
+    st, r = pending.finalize(pod, ses, results)   # frontier judge or None — NEVER the model itself
     print(f"[pod] submit -> {mothership}: HTTP {st}  {json.dumps(r)[:400]}")
     return st, r
 
@@ -271,31 +359,26 @@ def _skip_short_ctx_harnesses(harness_ids, recipe):
 
 def _collect_results(rid):
     """Snapshot the pod-local results for a run as submit-ready dicts (cumulative so far)."""
-    from aeon import db
-    run = db.get_run(rid)
-    if not run:
-        return []
-    return [{
-        "case_id": x["case_id"], "category": x["category"], "tier": x["tier"],
-        "status": x["status"], "score": x["score"], "creativity": x.get("creativity"),
-        "raw_output": db.result_output(x), "evidence": x.get("evidence") or {},
-        "speed": x.get("speed") or {},
-    } for x in run["results"]]
+    from pod import pending
+    return pending.collect_results(rid)
 
 
 def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0,
                        judge=None, judge_url=None, judge_key=None, checkpoint=None, checkpoint_every=8,
                        retry_max_tokens=None, concurrency=1,
-                       hf_repo=None, trust_tier="self_reported", model_verified=None):
+                       hf_repo=None, trust_tier="self_reported", model_verified=None,
+                       rid=None, job_sig=None, done_case_ids=None, resume=False):
     """Benchmark `model` at `target` into the pod-local DB; return (rid, results, mean). If a
     `checkpoint(results)` callback is given, it's called every `checkpoint_every` cases with the
-    CUMULATIVE results-so-far — for incremental submission so a mid-run kill loses nothing."""
+    CUMULATIVE results-so-far — for incremental submission so a mid-run kill loses nothing.
+    RESUME: a caller passing the interrupted run's `rid` + its `done_case_ids` continues that
+    row in place — already-scored cases are skipped and the cumulative snapshot stays whole."""
     from aeon import runner
     from aeon import suite as suite_mod
-    rid = uuid.uuid4().hex[:10]
+    rid = rid or uuid.uuid4().hex[:10]
     print(f"[pod] run_id={rid}", flush=True)   # the GUI job manager correlates the pod.db run by this
     n = len(suite_mod.CASES)
-    done = {"i": 0}
+    done = {"i": len(done_case_ids or ())}     # resumed cases count toward the progress line
 
     def cb(cid, score, status):
         done["i"] += 1
@@ -312,14 +395,30 @@ def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TO
               "retry_max_tokens": retry_max_tokens, "retries": 1, "concurrency": concurrency}
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
                          judge_model=judge, judge_url=judge_url, judge_key=judge_key,
-                         hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified)
+                         hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
+                         job_sig=job_sig, done_case_ids=done_case_ids, resume=resume)
     results = _collect_results(rid)
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
     mean = sum(scored) / len(scored) if scored else 0.0
     return rid, results, mean
 
 
-def _vision_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=256, temperature=0.0):
+def _session_submit(pod, *, job_ctx, model, suite_id, board, results, local_rid=None,
+                    sig_scope=None, **extra):
+    """Open-session + FINAL submit in one step (the non-checkpointed dimensions: harness /
+    vision / audio / perf). The session persists BEFORE the upload, so a failed submit leaves
+    the results + credentials recoverable behind the pod dashboard's SUBMIT TO MOTHERSHIP
+    button; a job the mothership already has answers as an idempotent duplicate."""
+    from pod import pending
+    jsig = _job_sig(job_ctx, sig_scope or suite_id)
+    print(f"[pod] job_sig={jsig}", flush=True)
+    ses = pending.open_session(pod, job_sig=jsig, model=model, suite_id=suite_id, board=board,
+                               local_rid=local_rid, extra=extra)
+    return pending.finalize(pod, ses, results)
+
+
+def _vision_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, max_tokens=256,
+                       temperature=0.0):
     """Run the VISION suite on the served (multimodal) model into pod.db, then submit ATTESTED
     (board='vision'). The capability probe inside run_vision_benchmark records `capability_absent`
     and we skip submission for models with no vision — so a text-only model never gets a bogus
@@ -350,13 +449,14 @@ def _vision_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
     mean = sum(scored) / len(scored) if scored else 0.0
     print(f"[pod] vision suite: mean {mean:.3f} over {len(scored)} scored / {n} cases")
-    st, r = pod.run_and_submit(repo, vs.SUITE_ID, results, board="vision", suite_hash=vs.suite_hash(),
+    st, r = _session_submit(pod, job_ctx=job_ctx, model=repo, suite_id=vs.SUITE_ID,
+        board="vision", results=results, local_rid=rid, suite_hash=vs.suite_hash(),
         environment=env, target_class="hf_pull_controlled", **provenance)
     print(f"[pod] submit (vision) -> HTTP {st}  {json.dumps(r)[:200]}")
     return st, r
 
 
-def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2048,
+def _audio_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, max_tokens=2048,
                       temperature=0.0, declared_audio=False):
     """AUDIO suite on the served model -> attested (board='audio'). Probe-gated like vision:
     a model that doesn't accept input_audio records capability_absent and nothing is submitted.
@@ -394,9 +494,50 @@ def _audio_and_submit(pod, repo, target, alias, *, env, provenance, max_tokens=2
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
     mean = sum(scored) / len(scored) if scored else 0.0
     print(f"[pod] audio suite: mean {mean:.3f} over {len(scored)} scored / {n} cases")
-    st, r = pod.run_and_submit(repo, aus.SUITE_ID, results, board="audio", suite_hash=aus.suite_hash(),
+    st, r = _session_submit(pod, job_ctx=job_ctx, model=repo, suite_id=aus.SUITE_ID,
+        board="audio", results=results, local_rid=rid, suite_hash=aus.suite_hash(),
         environment=env, target_class="hf_pull_controlled", **provenance)
     print(f"[pod] submit (audio) -> HTTP {st}  {json.dumps(r)[:200]}")
+    return st, r
+
+
+def _video_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, max_tokens=2048,
+                      temperature=0.0):
+    """VIDEO suite on the served model -> attested (board='video'). Probe-gated like
+    vision/audio: a model/endpoint that doesn't accept video_url records capability_absent
+    and nothing is submitted. A missing encoder stack (imageio[ffmpeg]) is a SOFT SKIP with
+    an install hint — a host problem, never a model capability verdict."""
+    from aeon import db, runner, videogen
+    from aeon import video_suite as vids
+    if not videogen.available():
+        print("[pod] video: suite skipped — encoding needs imageio[ffmpeg] "
+              "(pip install \"imageio[ffmpeg]\"); host dependency, not a capability verdict")
+        return None
+    rid = uuid.uuid4().hex[:10]
+    print(f"[pod] run_id={rid}  (video suite, {len(vids.CASES)} cases)", flush=True)
+    n = len(vids.CASES)
+    done = {"i": 0}
+
+    def cb(cid, score, status):
+        done["i"] += 1
+        s = f"{score:.2f}" if isinstance(score, float) else str(score)
+        print(f"  [video] {done['i']:2d}/{n}  {cid:26s} {status:15s} {s}")
+        _stage("video", done["i"], n)
+
+    pr = runner.run_video_benchmark(rid, alias, target, params={"temperature": temperature,
+                                    "max_tokens": max_tokens}, progress_cb=cb)
+    if not pr.get("video_ok"):
+        print(f"[pod] video: model/endpoint does not accept video_url "
+              f"({pr.get('transport')}: {str(pr.get('error'))[:160]}) — not submitting a video run")
+        return None
+    results = _collect_results(rid)
+    scored = [x["score"] for x in results if isinstance(x["score"], float)]
+    mean = sum(scored) / len(scored) if scored else 0.0
+    print(f"[pod] video suite: mean {mean:.3f} over {len(scored)} scored / {n} cases")
+    st, r = _session_submit(pod, job_ctx=job_ctx, model=repo, suite_id=vids.SUITE_ID,
+        board="video", results=results, local_rid=rid, suite_hash=vids.suite_hash(),
+        environment=env, target_class="hf_pull_controlled", **provenance)
+    print(f"[pod] submit (video) -> HTTP {st}  {json.dumps(r)[:200]}")
     return st, r
 
 
@@ -414,7 +555,7 @@ def _cap_conc(base, max_conc, extend=False):
     return tuple(sorted(levels)) or (1,)
 
 
-def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=None,
+def _perf_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, harness_ids=None,
                      conc_levels=(1, 4, 8, 16, 32), max_tokens=256, max_conc=None):
     """PERFORMANCE grid: direct-to-model across the concurrency ladder x categories (tok/s decode,
     TTFT, PP prefill tok/s), plus per-harness single/concurrent task timing. Submitted as its own
@@ -455,10 +596,11 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, harness_ids=N
             print(f"  [perf] harness {h}: " + json.dumps(ht.get("levels", {}))[:160], flush=True)
         except Exception as e:
             print(f"  [perf] harness {h} timing failed (non-fatal): {e}")
-    _mirror_local(suite_id=perf_grid.SUITE_ID, results=rows, repo=repo, target=target,
-                  env=env, board="perf", recipe=provenance.get("recipe"),
-                  bench_seed=provenance.get("bench_seed"))
-    st, r = pod.run_and_submit(repo, perf_grid.SUITE_ID, rows, board="perf",
+    mrid = _mirror_local(suite_id=perf_grid.SUITE_ID, results=rows, repo=repo, target=target,
+                         env=env, board="perf", recipe=provenance.get("recipe"),
+                         bench_seed=provenance.get("bench_seed"))
+    st, r = _session_submit(pod, job_ctx=job_ctx, model=repo, suite_id=perf_grid.SUITE_ID,
+        board="perf", results=rows, local_rid=mrid,
         environment=env, target_class="hf_pull_controlled", **provenance)
     print(f"[pod] submit (perf {len(rows)} cells) -> HTTP {st}  {json.dumps(r)[:200]}")
     return st, r
@@ -583,21 +725,52 @@ def _mirror_local(*, suite_id, results, repo, target, env, board="text", judge=N
 def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, board, suite_id,
                 harness_ids, harness_only, judge, judge_url, judge_key, max_tokens, retry_max_tokens,
                 temperature, concurrency, vision, audio, perf, perf_max_conc, arena_per_kind,
-                difficulty, bench_seed):
+                difficulty, bench_seed, job_ctx, resume=False, force_submit=False, video=True):
     """Run EVERY benchmark dimension against an ALREADY-served, hash-verified model and submit
     each as its own attested bundle: text (+ arena artifacts) → agentic-v2 through each harness →
-    vision → audio → perf grid. Shared by run_attested (split-pod) and run_controlled
+    vision → audio → video → perf grid. Shared by run_attested (split-pod) and run_controlled
     (single-process) so both produce IDENTICAL comprehensive results — the source-of-truth for
     'what a comprehensive run does', so the two paths can never drift again."""
     from aeon import agentic_v2
     from aeon import suite as suite_mod
-    from pod import run_harness2
+    from pod import pending, run_harness2
     st, r = 0, {"skipped": "harness_only"}
     if not harness_only:
+        sid = suite_id or suite_mod.SUITE_ID
+        # RESUME: pick up the newest interrupted local run for this model+suite — reuse its
+        # rid + job_sig (so its persisted mothership session / checkpoint stream continues,
+        # and the eventual submit dedups against the same job) and skip its scored cases.
+        rid = jsig = None
+        done_ids = set()
+        if resume:
+            old, done_ids = _resume_anchor(alias, board=board, hf_repo=repo)
+            if old:
+                rid, jsig = old["id"], old.get("job_sig")
+                print(f"[pod] RESUME: continuing local run {rid} — "
+                      f"{len(done_ids)}/{len(suite_mod.CASES)} cases already scored")
+            else:
+                print("[pod] resume requested but no interrupted local run matches — full bench")
+        rid = rid or uuid.uuid4().hex[:10]
+        jsig = jsig or _job_sig(job_ctx, sid)
+        print(f"[pod] job_sig={jsig}", flush=True)
+        submit_extra = dict(suite_hash=suite_mod.suite_hash(), environment=env,
+                            target_class="hf_pull_controlled", judge_model=judge, **provenance)
+        # Submission session UP FRONT (persisted even when the mothership is down): the bench
+        # streams cumulative checkpoints (final=False) over it, and a failed final submit stays
+        # recoverable behind the pod dashboard's SUBMIT TO MOTHERSHIP button. A resumed job
+        # reuses its persisted session — checkpoints never claim, so the run is still open.
+        ses = pending.load(jsig) if resume else None
+        if ses and ses.get("mothership") != pod.base:
+            ses = None                          # different mothership — open a fresh session
+        if not ses:
+            ses = pending.open_session(pod, job_sig=jsig, model=repo, suite_id=sid, board=board,
+                                       local_rid=rid, extra=submit_extra)
         _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
             temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
             retry_max_tokens=retry_max_tokens, concurrency=concurrency,
-            hf_repo=repo, trust_tier="attested", model_verified="verified")
+            hf_repo=repo, trust_tier="attested", model_verified="verified",
+            rid=rid, job_sig=jsig, done_case_ids=done_ids, resume=bool(done_ids),
+            checkpoint=pending.checkpoint_fn(pod, ses))
         print(f"[pod] controlled suite: mean {mean:.3f} over {len(results)} cases")
         # Stamp the bench environment on the LOCAL run too (concurrency -> the pod's own
         # board computes aggregate tok/s exactly like the mothership).
@@ -624,11 +797,18 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
                 print(f"[pod] arena: {n_mir} artifacts mirrored into the local gallery")
         except Exception as e:
             print(f"[pod] arena local mirror failed (non-fatal): {e}")
-        st, r = pod.run_and_submit(repo, suite_id or suite_mod.SUITE_ID, results, board=board,
-            suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
-            judge_model=judge, artifacts=artifacts, **provenance)
-        print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> "
-              f"HTTP {st}  {json.dumps(r)[:300]}")
+        # COMPLETENESS GATE: only a COMPLETE pass of the planned cases may submit — an
+        # incomplete stage stays local + resumable (--force-submit is the CLI-only escape
+        # hatch). A case that errored still has a row; only never-attempted cases block.
+        missing = _missing_case_ids(results)
+        if missing and not force_submit:
+            print(f"[pod][submit] incomplete job_sig={jsig} missing={len(missing)} — NOT "
+                  f"submitting (resume the job to finish, or --force-submit)")
+            st, r = 0, {"error": "incomplete", "missing": len(missing)}
+        else:
+            st, r = pending.finalize(pod, ses, results, extra_update={"artifacts": artifacts})
+            print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> "
+                  f"HTTP {st}  {json.dumps(r)[:300]}")
 
     # AGENTIC through each REAL harness (agentic-v2 env-execution, fresh container per model-run).
     hstatuses = []
@@ -662,12 +842,15 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
         hscored = [x["score"] for x in hresults if isinstance(x["score"], float)]
         print(f"[pod] harness {h}: mean {sum(hscored)/len(hscored):.3f} over {len(hscored)} tasks"
               if hscored else f"[pod] harness {h}: no scored tasks")
-        _mirror_local(suite_id=agentic_v2.SUITE_ID, results=hresults, repo=repo, target=target,
-                      env=env, board=board, judge=judge, harness=disc.get("harness", h),
-                      harness_version=disc.get("harness_version"), bench_seed=bench_seed,
-                      suite_hash=suite_mod.suite_hash())
+        mrid = _mirror_local(suite_id=agentic_v2.SUITE_ID, results=hresults, repo=repo, target=target,
+                             env=env, board=board, judge=judge, harness=disc.get("harness", h),
+                             harness_version=disc.get("harness_version"), bench_seed=bench_seed,
+                             suite_hash=suite_mod.suite_hash())
         try:
-            hst, hr = pod.run_and_submit(repo, agentic_v2.SUITE_ID, hresults, board=board,
+            # per-harness sig scope: one comprehensive job submits agentic-v2 once PER harness
+            hst, hr = _session_submit(pod, job_ctx=job_ctx, model=repo,
+                suite_id=agentic_v2.SUITE_ID, board=board, results=hresults, local_rid=mrid,
+                sig_scope=f"{agentic_v2.SUITE_ID}@{h}",
                 suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
                 judge_model=judge, harness=disc.get("harness", h),
                 harness_version=disc.get("harness_version"), artifacts=h_arts, **provenance)
@@ -692,14 +875,17 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
 
     if vision and not harness_only:
         _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                           max_tokens=max_tokens, temperature=temperature)
+                           job_ctx=job_ctx, max_tokens=max_tokens, temperature=temperature)
     if audio and not harness_only:
         _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                          temperature=temperature,
+                          job_ctx=job_ctx, temperature=temperature,
                           declared_audio="audio" in ((recipe or {}).get("modalities") or []))
+    if video and not harness_only:
+        _video_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                          job_ctx=job_ctx, max_tokens=max_tokens, temperature=temperature)
     if perf and not harness_only:
         _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                         harness_ids=harness_ids, max_conc=perf_max_conc)
+                         job_ctx=job_ctx, harness_ids=harness_ids, max_conc=perf_max_conc)
     return st, r
 
 
@@ -709,8 +895,9 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
-                   drafter_hf=None, retry_max_tokens=None, audio=True, perf=False,
-                   perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None):
+                   drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
+                   perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
+                   resume=False, force_submit=False):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -728,6 +915,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
     os.environ.pop("AEON_DB_URL", None)              # pod state is LOCAL SQLite, never the mothership DB
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
     os.makedirs(os.path.dirname(os.environ["AEON_DB"]), exist_ok=True)
+    job_started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())   # job identity anchor
 
     from aeon import attest
     from aeon import suite as suite_mod
@@ -824,7 +1012,6 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                         seq[i] = t.replace("/drafter", ddir)
         recipe.update({"drafter": ddir, "drafter_repo": drepo_id, "drafter_revision": drev,
                        "spec_decode": "dflash"})
-    recipe = modelhost.normalize_dflash_spec(recipe)
     alias = recipe["served_alias"]
     print(f"[pod] recipe: {recipe['engine']} ({recipe.get('serve_mode', 'bare')}, "
           f"ctx {recipe.get('context_len')}) -> '{alias}' on :{port}"
@@ -856,10 +1043,14 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                 modelhost.pull(drepo, "main", ddir)
                 nst = modelhost.dflash_nst(repo, recipe.get("architecture"))
                 modelhost.apply_dflash(recipe, ddir, drepo, nst)
-                modelhost.normalize_dflash_spec(recipe)
                 print(f"[pod] spec-decode enabled: dflash nst={nst} (lossless; speed only)")
         except Exception as e:
             print(f"[pod] DFlash setup failed (non-fatal, plain decode): {e}")
+
+    modelhost.normalize_dflash_spec(recipe)
+    if recipe.get("spec_decode_attention_backend"):
+        print(f"[pod] spec-decode attention backend: {recipe['spec_decode_attention_backend']} "
+              "(normalized into DFlash speculative-config)")
 
     # The serve port must be OURS. A production server already on it (e.g. the DGX's live
     # aeon-vllm on :8000) would answer /v1/models and the bench would silently run against the
@@ -998,16 +1189,18 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                           weights_per_file=ver["per_file"], recipe=recipe,
                           deployment_manifest=deployment_manifest, bench_seed=bench_seed)
         pod = Pod(mothership, key_path or DEFAULT_KEY)
+        job_ctx = _job_ctx(repo, env["hardware"], started=job_started)   # -> per-bundle job_sig
 
         # ALL boards through the shared dimension-runner — text (+arena) · agentic-v2 harnesses ·
-        # vision · audio · perf — identical to the split-pod run_attested path (no drift).
+        # vision · audio · video · perf — identical to the split-pod run_attested path (no drift).
         st, r = _run_boards(pod, repo=repo, rev=ver["revision"], ver=ver, recipe=recipe,
             target=target, alias=alias, env=env, provenance=provenance, board=board,
             suite_id=suite_id, harness_ids=harness_ids, harness_only=harness_only,
             judge=judge, judge_url=judge_url, judge_key=judge_key, max_tokens=max_tokens,
             retry_max_tokens=retry_max_tokens, temperature=temperature, concurrency=concurrency,
-            vision=vision, audio=audio, perf=perf, perf_max_conc=perf_max_conc,
-            arena_per_kind=arena_per_kind, difficulty=difficulty, bench_seed=bench_seed)
+            vision=vision, audio=audio, video=video, perf=perf, perf_max_conc=perf_max_conc,
+            arena_per_kind=arena_per_kind, difficulty=difficulty, bench_seed=bench_seed,
+            job_ctx=job_ctx, resume=resume, force_submit=force_submit)
         return st, r
     finally:
         _stop(server)
@@ -1045,7 +1238,8 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
                  key_path=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None,
                  judge_key=None, harness_ids=None, limit=None, difficulty=None, category=None,
                  fast=False, seed=None, per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
-                 arena_per_kind=6, audio=True, perf=False, perf_max_conc=None, harness_only=False):
+                 arena_per_kind=6, audio=True, video=True, perf=False, perf_max_conc=None,
+                 harness_only=False, resume=False, force_submit=False):
     """Split-pod path: a `pull` sidecar already PULLED + HASH-VERIFIED the weights (writing
     .aeon-modelref.json) and an engine already SERVES them at --target. Benchmark that endpoint
     and submit ATTESTED, carrying the sidecar's verification (weights_hash + per-file hashes +
@@ -1105,14 +1299,16 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
                       weights_per_file=ver.get("per_file") or {}, recipe=recipe,
                       deployment_manifest=deployment_manifest, bench_seed=bench_seed)
     pod = Pod(mothership, key_path or DEFAULT_KEY)
+    job_ctx = _job_ctx(repo, env["hardware"])                # -> per-bundle job_sig
     # ALL boards through the shared dimension-runner (identical to the single-process
-    # run_controlled path — text (+arena) · agentic-v2 harnesses · vision · audio · perf).
+    # run_controlled path — text (+arena) · agentic-v2 harnesses · vision · audio · video · perf).
     return _run_boards(pod, repo=repo, rev=rev, ver=ver, recipe=recipe, target=target, alias=alias,
         env=env, provenance=provenance, board=board, suite_id=suite_id, harness_ids=harness_ids,
         harness_only=harness_only, judge=judge, judge_url=judge_url, judge_key=judge_key,
         max_tokens=max_tokens, retry_max_tokens=retry_max_tokens, temperature=temperature,
-        concurrency=concurrency, vision=vision, audio=audio, perf=perf, perf_max_conc=perf_max_conc,
-        arena_per_kind=arena_per_kind, difficulty=difficulty, bench_seed=bench_seed)
+        concurrency=concurrency, vision=vision, audio=audio, video=video, perf=perf,
+        perf_max_conc=perf_max_conc, arena_per_kind=arena_per_kind, difficulty=difficulty,
+        bench_seed=bench_seed, job_ctx=job_ctx, resume=resume, force_submit=force_submit)
 
 
 def main():
@@ -1171,8 +1367,9 @@ def main():
     ap.add_argument("--category", default=None, help="only cases whose category is in this comma-list "
         "(e.g. 'codegen') — applied ALONGSIDE --difficulty on the text suite; default: all categories")
     ap.add_argument("--preset", default=None, choices=("comprehensive", "hard-bench"),
-        help="one-shot bundle: 'comprehensive' = everything on (all harnesses + vision + audio + arena "
-        "+ perf); 'hard-bench' = the hard,expert tiers through all harnesses only (no vision/audio/arena/perf)")
+        help="one-shot bundle: 'comprehensive' = everything on (all harnesses + vision + audio + video "
+        "+ arena + perf); 'hard-bench' = the hard,expert tiers through all harnesses only "
+        "(no vision/audio/video/arena/perf)")
     ap.add_argument("--fast", action="store_true", help="FAST bench: one random case per "
         "(category x difficulty) = 20 cases spanning the whole radar at every tier")
     ap.add_argument("--seed", default=None, help="fast-bench seed — same seed + same suite gives EVERY "
@@ -1196,6 +1393,14 @@ def main():
     ap.add_argument("--no-vision", action="store_true", help="skip the VISION suite (default: run it; a "
         "capability probe auto-skips text-only models so this is only needed to force-disable)")
     ap.add_argument("--no-audio", action="store_true", help="skip the AUDIO suite (default: run it, probe-gated)")
+    ap.add_argument("--no-video", action="store_true", help="skip the VIDEO suite (default: run it, "
+        "probe-gated; soft-skipped with an install hint when imageio[ffmpeg] is missing)")
+    ap.add_argument("--modalities", default=os.environ.get("AEON_MODALITIES") or None,
+        help="EXPLICIT modality toggles: comma list from vision,audio,video (e.g. 'vision,video'), "
+        "or 'none' to disable all three. Overrides auto-detection AND the preset for these stages — "
+        "force-enable a modality the model's config hides, or disable a flaky one. Absent = auto "
+        "(each suite runs probe-gated). The GUI's MODALITIES chips set this; env AEON_MODALITIES "
+        "carries it through the host-launcher flow")
     ap.add_argument("--arena", type=int, default=int(os.environ.get("AEON_ARENA_PER_KIND", "6")),
         help="arena artifacts per kind (app/game/animation) generated by the served model and "
              "shipped in the signed bundle; 0 disables. Default 6 (18/bench) — a broad sweep of "
@@ -1210,6 +1415,13 @@ def main():
     ap.add_argument("--judge", default=None, help="FRONTIER judge model id (else deterministic-only; never self)")
     ap.add_argument("--judge-url", default=None, help="judge endpoint (defaults to --target)")
     ap.add_argument("--judge-key", default=None, help="judge API key")
+    ap.add_argument("--resume", action="store_true", default=os.environ.get("AEON_RESUME") == "1",
+        help="RESUME an interrupted bench: pick up the newest interrupted local run for this "
+        "model+suite, skip its already-scored cases, and continue its submission session (same "
+        "job_sig). env AEON_RESUME=1 sets it for the GUI/host-launcher flow")
+    ap.add_argument("--force-submit", action="store_true",
+        help="submit even when the stage is INCOMPLETE (CLI-only escape hatch: the completeness "
+        "gate normally refuses a partial bench; the GUI never sets this)")
     a = ap.parse_args()
 
     if a.concurrency <= 0:                            # 0 = AUTO: bias high when the box can handle it
@@ -1222,11 +1434,12 @@ def main():
 
     # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
     # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.
-    if a.preset == "comprehensive":               # everything on: all harnesses + vision + audio + arena + perf
+    if a.preset == "comprehensive":               # everything on: all harnesses + vision/audio/video + arena + perf
         a.harness = a.harness or "all"
         a.perf = True
         a.no_vision = False
         a.no_audio = False
+        a.no_video = False
         if a.arena == 0:                          # keep an explicit --arena N override; default stays 2
             a.arena = 2
     elif a.preset == "hard-bench":                # the hard,expert tiers through every harness, nothing else
@@ -1234,8 +1447,28 @@ def main():
         a.harness = a.harness or "all"
         a.no_vision = True
         a.no_audio = True
+        a.no_video = True
         a.arena = 0
         a.perf = False
+
+    # EXPLICIT modality toggles (GUI chips / --modalities / AEON_MODALITIES) win over both the
+    # preset and the --no-* flags: the listed modalities run, the rest are skipped. Absent =
+    # auto — each suite runs probe-gated exactly as before.
+    if a.modalities is not None:
+        want = {m.strip().lower() for m in str(a.modalities).split(",") if m.strip()}
+        want.discard("none")
+        want.discard("text")                      # text always runs; listing it is harmless
+        unknown = want - {"vision", "audio", "video"}
+        if unknown:
+            ap.error(f"unknown --modalities value(s): {','.join(sorted(unknown))} "
+                     "(valid: vision,audio,video — or 'none')")
+        a.no_vision = "vision" not in want
+        a.no_audio = "audio" not in want
+        a.no_video = "video" not in want
+        print(f"[pod] modalities (operator override): "
+              f"vision={'on' if not a.no_vision else 'off'} "
+              f"audio={'on' if not a.no_audio else 'off'} "
+              f"video={'on' if not a.no_video else 'off'}")
 
     hids = None
     if a.harness:
@@ -1249,8 +1482,9 @@ def main():
             judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key, harness_ids=hids, limit=a.limit,
             difficulty=a.difficulty, category=a.category, fast=a.fast, seed=a.seed, per_cell=a.per_cell,
             retry_max_tokens=a.retry_max_tokens, concurrency=a.concurrency, vision=not a.no_vision,
-            arena_per_kind=a.arena, audio=not a.no_audio, perf=a.perf, perf_max_conc=a.perf_max_conc,
-            harness_only=a.harness_only)
+            arena_per_kind=a.arena, audio=not a.no_audio, video=not a.no_video, perf=a.perf,
+            perf_max_conc=a.perf_max_conc, harness_only=a.harness_only,
+            resume=a.resume, force_submit=a.force_submit)
     elif a.hf_link:                                   # single-process controlled flow
         st, _ = run_controlled(a.hf_link, a.mothership, engine=a.engine, hardware=a.hardware,
             board=a.board, suite_id=a.suite_id, key_path=a.key, weights_dir=a.weights_dir,
@@ -1263,22 +1497,24 @@ def main():
             serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None),
             drafter_hf=a.drafter_hf, serve_cmd=a.serve_cmd,
             # comprehensive dimensions — previously dropped on the --hf-link (GUI) path
-            retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, perf=a.perf,
-            perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena, harness_only=a.harness_only)
+            retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, video=not a.no_video,
+            perf=a.perf, perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena,
+            harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit)
     elif a.frontier_id:
         st, _ = run_pod("frontier://" + a.frontier_id, a.frontier_id, a.mothership,
                         api_key=a.api_key, engine="frontier-api", hardware=a.hardware,
                         board=a.board, suite_id=a.suite_id, key_path=a.key, limit=a.limit,
                         difficulty=a.difficulty, category=a.category, max_tokens=a.max_tokens,
                         temperature=a.temperature, judge=a.judge, judge_url=a.judge_url,
-                        judge_key=a.judge_key, concurrency=a.concurrency, frontier_id=a.frontier_id)
+                        judge_key=a.judge_key, concurrency=a.concurrency, frontier_id=a.frontier_id,
+                        resume=a.resume, force_submit=a.force_submit)
     elif a.target and a.model:                        # local run (not globally ranked)
         st, _ = run_pod(a.target, a.model, a.mothership, api_key=a.api_key, engine=a.engine,
                         hardware=a.hardware, board=a.board, suite_id=a.suite_id, key_path=a.key,
                         hf_repo=a.hf_repo, limit=a.limit, difficulty=a.difficulty, category=a.category,
                         max_tokens=a.max_tokens,
                         temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key,
-                        concurrency=a.concurrency)
+                        concurrency=a.concurrency, resume=a.resume, force_submit=a.force_submit)
     else:
         ap.error("provide --modelref + --target (split pod), --hf-link (single-process controlled), "
                  "--frontier-id, OR --target + --model (local run)")

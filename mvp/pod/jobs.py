@@ -66,11 +66,15 @@ _STAGES = [
     ("harness ", "harness"),
     ("(vision suite", "vision"),
     ("(audio suite", "audio"),
+    ("(video suite", "video"),
     ("PERF grid", "perf"),
 ]
 
 _PUBLIC = ("id", "kind", "status", "stage", "stages", "serve_phase", "model", "hf_link", "base_url",
-           "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "hint", "returncode")
+           "difficulty", "preset", "run_id", "created_at", "updated_at", "error", "hint", "returncode",
+           # resume + deferred submission (job_sigs are parsed from '[pod] job_sig=' lines;
+           # submit_state from '[pod][submit]' markers; resumable from the local run row)
+           "job_sigs", "submit_state", "resumable")
 
 # Engine-startup landmarks (vLLM startup chatter streamed into the job log) -> a live
 # SERVE PHASE, so the 4-5 minute model load is visible instead of a silent 'serving' gap.
@@ -202,8 +206,13 @@ def _cleanup_owned_runtime(j):
         cleanup_event.set()
 
 
-def _finish_stopped_run(j):
-    """Atomically evict all of this job's partial board runs from Live views."""
+def _finish_stopped_run(j, reason="stopped by user"):
+    """Atomically evict all of this job's partial board runs from Live views.
+
+    RESUME reconciliation: a stopped/killed bench's still-'running' local rows are flipped
+    to 'interrupted' — NOT 'failed' — because their per-case results are intact, so the Run
+    tab can offer ⟲ RESUME (db.interrupt_run_if_running / db.run_resumable). Cleanly
+    finished rows ('succeeded') are never touched."""
     with _LOCK:
         run_ids = list(dict.fromkeys([j.get("run_id"), *(j.get("_run_ids") or [])]))
     run_ids = [rid for rid in run_ids if rid]
@@ -212,7 +221,9 @@ def _finish_stopped_run(j):
     try:
         from aeon import db
         for run_id in run_ids:
-            db.fail_run_if_running(run_id, "stopped by user")
+            db.interrupt_run_if_running(run_id, reason)
+        if j.get("run_id") and db.run_resumable(j["run_id"]):
+            _set(j, resumable=True)
     except Exception as e:
         with _LOCK:
             j["log"].append(f"[jobs] live-run cleanup warning: {str(e)[:240]}")
@@ -259,6 +270,9 @@ def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficu
          "created_at": _now(), "updated_at": _now(), "error": None,
          "hint": None,
          "returncode": None, "log": collections.deque(maxlen=500), "_argv": argv, "_env": env,
+         # _argv0/_env0 survive the run (private — filtered by _PUBLIC) so ⟲ RESUME can
+         # relaunch the identical job with AEON_RESUME=1
+         "_argv0": list(argv or ()), "_env0": dict(env or {}),
          "_proc": None, "_started": False, "_stop_requested": False,
          "_owns_serve": bool(owns_serve), "_runtime_cleaned": False,
          "_runtime_cleanup_started": False, "_runtime_cleanup_event": threading.Event()}
@@ -330,15 +344,17 @@ def _run_job(jid):
         j = _JOBS[jid]
         argv = j.pop("_argv", None)
         env = j.pop("_env", None)
-    if j.get("_stop_requested") or j.get("status") == "stopped" or not argv:
+    if j.get("_stop_requested") or j.get("status") == "stopped" or not argv:  # stopped before it started
         return
     _set(j, status="running", stage="starting")
+    # New session / process group so Stop can TERM->KILL the WHOLE runner tree (aeon_pod +
+    # its serve/docker/harness children), not just the direct child.
     popen_kw = {"start_new_session": True} if os.name != "nt" else {
         "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
     proc = subprocess.Popen(argv, cwd=_MVP, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1, **popen_kw)
     _set(j, _proc=proc, _started=True)
-    if j.get("_stop_requested"):
+    if j.get("_stop_requested"):                # Stop raced the launch — kill immediately
         _terminate_process_tree(proc)
     for line in proc.stdout:                    # blocks THIS worker thread (one job at a time — intended)
         line = line.rstrip("\n")
@@ -353,11 +369,25 @@ def _run_job(jid):
                     first_run = not j.get("run_id")
                 if first_run:
                     _set(j, run_id=rid)
-                if first_run and j.get("_launch_id"):
+                if first_run and j.get("_launch_id"):    # link template -> run for best-of ranking
                     from aeon import db
                     db.link_launch_run(j["_launch_id"], rid)
             except Exception:
                 pass
+        # job identity + deferred-submit markers (see pod/pending.py):
+        #   [pod] job_sig=<sig>                                    one per submitted bundle
+        #   [pod][submit] ok|duplicate|pending|incomplete job_sig=<sig> ...
+        if line.startswith("[pod] job_sig="):
+            sig = line[14:].strip().split()[0]
+            with _LOCK:
+                sigs = j.setdefault("job_sigs", [])
+                if sig not in sigs:
+                    sigs.append(sig)
+                j["updated_at"] = _now()
+            continue
+        if line.startswith("[pod][submit] "):
+            _submit_marker(j, line[14:])
+            continue
         # structured per-dimension progress: "[pod][stage] <name> <done>/<total>" lines are
         # emitted by aeon_pod at every dimension (text/arena/harness:<id>/vision/audio/perf-cN)
         if line.startswith("[pod][stage] "):
@@ -400,8 +430,15 @@ def _run_job(jid):
                 j["updated_at"] = _now()
     proc.wait()
     rc = proc.returncode
+    # STOP/CRASH SEMANTICS: whatever ended this subprocess, run rows still 'running' were
+    # killed mid-bench — flip them to 'interrupted' (their per-case results are intact) so
+    # the Run tab can offer ⟲ RESUME. Cleanly finished runs are 'succeeded' and unaffected.
+    # A user Stop takes the early return: stop_job / the worker finally own its eviction
+    # (same 'interrupted' flip via _finish_stopped_run) plus the runtime cleanup.
     if j.get("_stop_requested") or j.get("status") == "stopped":
         return
+    if rc != 0:
+        _finish_stopped_run(j, "interrupted: bench subprocess exited mid-run")
     ok = rc == 0
     final_stage = "done" if ok else (j.get("stage") if j.get("stage") == "verify_failed" else "error")
     hint = None
@@ -421,6 +458,96 @@ def _tail_error(j, rc):
         if line.strip():
             return f"exit {rc}: {line.strip()[:240]}"
     return f"exit {rc}"
+
+
+def _submit_marker(j, rest):
+    """'ok|duplicate|pending|incomplete job_sig=<sig> ...' -> the job's submit_state. One job
+    can mint several bundles (text/harness/vision/audio/perf): any still-pending sig dominates
+    (there IS something to submit); 'incomplete' blocks; else the last ok/duplicate stands."""
+    verb = (rest.split() or [""])[0]
+    sig = rest.split("job_sig=", 1)[1].split()[0] if "job_sig=" in rest else None
+    with _LOCK:
+        ps = j.setdefault("_pending_sigs", set())
+        if verb == "pending" and sig:
+            ps.add(sig)
+        elif verb in ("ok", "duplicate") and sig:
+            ps.discard(sig)
+        elif verb == "incomplete":
+            j["_incomplete"] = True
+        if ps:
+            j["submit_state"] = "pending_submit"
+        elif j.get("_incomplete"):
+            j["submit_state"] = "incomplete"
+        elif verb in ("ok", "duplicate"):
+            j["submit_state"] = "duplicate" if verb == "duplicate" else "submitted"
+        j["updated_at"] = _now()
+
+
+def resume_job(job_id):
+    """⟲ RESUME an interrupted job: relaunch the SAME argv/env with AEON_RESUME=1 — the new
+    subprocess picks up the newest interrupted local run for its model+suite and skips its
+    already-scored cases (aeon_pod --resume; env so the host-launcher flow inherits it too).
+    Returns the new job id, or None."""
+    with _LOCK:
+        j = _JOBS.get(job_id)
+        argv = list(j["_argv0"]) if j and j.get("_argv0") else None
+        env = dict(j["_env0"]) if j and j.get("_env0") else None
+    if not j or not argv:
+        return None
+    env = env or _base_env()
+    env["AEON_RESUME"] = "1"
+    return _mk_job(j["kind"], argv=argv, env=env, model=j.get("model"), hf_link=j.get("hf_link"),
+                   base_url=j.get("base_url"), difficulty=j.get("difficulty"),
+                   preset=j.get("preset"), serve_flags=j.get("serve_flags"),
+                   owns_serve=j.get("_owns_serve", False))
+
+
+def submit_job(job_id):
+    """⬆ SUBMIT TO MOTHERSHIP for a finished-but-unsubmitted job: re-submit every pending
+    session it minted (final=True; the job_sig dedup makes this idempotent — a job already
+    on the mothership answers duplicate, never a second row). Returns per-bundle outcomes,
+    or None for an unknown job."""
+    with _LOCK:
+        j = _JOBS.get(job_id)
+        sigs = list(j.get("job_sigs") or []) if j else []
+    if not j:
+        return None
+    from pod import pending
+    out, dup = [], False
+    for sig in sigs:
+        if not pending.load(sig):
+            continue                               # already committed / never pended
+        st, r = pending.submit_pending(sig)
+        r = r if isinstance(r, dict) else {}
+        dup = dup or bool(r.get("duplicate"))
+        out.append({"job_sig": sig, "http": st,
+                    **{k: r[k] for k in ("ok", "duplicate", "run_id", "message", "error") if k in r}})
+    if not out:
+        _set(j, submit_state="submitted")
+        return {"ok": True, "duplicate": False, "bundles": [],
+                "message": "nothing pending — already submitted"}
+    ok = all(x.get("http") == 200 for x in out)
+    _set(j, submit_state=("duplicate" if (ok and dup) else "submitted" if ok else "pending_submit"),
+         _pending_sigs={x["job_sig"] for x in out if x.get("http") != 200})
+    return {"ok": ok, "duplicate": dup, "bundles": out,
+            "message": "job already submitted and available on the Mothership" if dup else None}
+
+
+def list_pending_submits():
+    """Persisted-but-unsubmitted sessions NOT already represented by an in-memory job row.
+    Session files survive a pod restart (the in-memory job list doesn't), so the Run tab can
+    still offer SUBMIT TO MOTHERSHIP for results benched before the restart."""
+    try:
+        from pod import pending
+        sessions = pending.list_all()
+    except Exception:
+        return []
+    with _LOCK:
+        claimed = {s for jb in _JOBS.values() for s in (jb.get("job_sigs") or [])}
+    return [{"job_sig": s["job_sig"], "model": s.get("model"), "suite_id": s.get("suite_id"),
+             "board": s.get("board"), "mothership": s.get("mothership"),
+             "created_at": s.get("created_at")}
+            for s in sessions if s["job_sig"] not in claimed]
 
 
 # ---- job builders (secrets injected into env, never argv) --------------------------------------
@@ -505,14 +632,19 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
                     drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
-                    arena_per_kind=None, serve_cmd=None, temperature=None):
+                    arena_per_kind=None, serve_cmd=None, temperature=None, modalities=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
 
     `preset` ('comprehensive' | 'hard-bench') is a one-shot bundle resolved to the underlying
     knobs inside aeon_pod.main(): comprehensive turns everything on (all harnesses + vision +
-    audio + arena + perf); hard-bench runs the hard,expert tiers through every harness only."""
+    audio + video + arena + perf); hard-bench runs the hard,expert tiers through every harness only.
+
+    `modalities` (the Run tab's MODALITIES chips): None = auto-detect (each multimodal suite
+    runs probe-gated — the default); a list = EXPLICIT operator toggles, e.g. ['vision','video']
+    forces those on and audio off (an empty list disables all three). Serialized as
+    --modalities / AEON_MODALITIES so both launch flows honor it."""
     from aeon import db
     # Every launch's knobs become a reusable TEMPLATE (token NAME only — never the value), so
     # the Run form can be prefilled from a prior run and relaunched with one tweak. Best-effort:
@@ -527,7 +659,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "drafter_hf": drafter_hf, "max_tokens": max_tokens,
             "pause_all": pause_all, "restore_paused": restore_paused,
             "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd,
-            "temperature": temperature})
+            "temperature": temperature, "modalities": modalities})
     except Exception:
         pass
     extra = {}
@@ -563,6 +695,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             extra["AEON_ARENA_PER_KIND"] = str(arena_per_kind)
         if temperature is not None:             # sampling temp (0 = greedy); aeon_pod honors this env
             extra["AEON_TEMPERATURE"] = str(temperature)
+        if modalities is not None:              # explicit vision/audio/video toggles; 'none' = all off
+            extra["AEON_MODALITIES"] = ",".join(modalities) or "none"
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
         if preset:                              # resolved to the underlying knobs in aeon_pod.main()
@@ -595,6 +729,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--max-tokens", str(max_tokens)]
         if arena_per_kind is not None:          # arena sweep breadth (prompts per kind; 0 disables)
             argv += ["--arena", str(arena_per_kind)]
+        if modalities is not None:              # explicit vision/audio/video toggles; 'none' = all off
+            argv += ["--modalities", ",".join(modalities) or "none"]
         if HARDWARE:
             argv += ["--hardware", HARDWARE]
         if port:

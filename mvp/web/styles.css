@@ -620,8 +620,39 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .hmodel-name { font-size: 14px; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- compare */
-.cmp-pick { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 14px; }
-.cmp-pick label { flex-direction: row; align-items: center; color: var(--muted); font-size: 13px; }
+/* symmetric picker bar: two balanced chamfered plates — run-vs-run and seed A/B.
+   auto-fit: when the seed plate hides (no seeds yet) the runs plate takes the full width. */
+.cmp-pickbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px; margin: 4px 0 16px; }
+.cmp-pick {
+  display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 10px 14px; min-width: 0;
+  border: 1px solid var(--border-strong); background:
+    linear-gradient(135deg, transparent 5px, var(--border-strong) 5px 6.5px, transparent 6.5px),
+    linear-gradient(315deg, transparent 5px, var(--border-strong) 5px 6.5px, transparent 6.5px),
+    var(--panel);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+/* engraved plate title, centered between hairline rules */
+.cmp-plate-t {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--faint); white-space: nowrap;
+}
+.cmp-plate-t::before, .cmp-plate-t::after { content: ""; flex: 1 1 20px; height: 1px; background: var(--line); }
+.cmp-plate-t .cmp-vs { color: var(--muted); letter-spacing: .08em; }
+.cmp-plate-body { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.cmp-side-l { flex-direction: row; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; min-width: 0; flex: 1 1 180px; }
+.cmp-side-l select { flex: 1 1 auto; min-width: 0; width: 100%; }
+.cmp-key {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 800;
+  color: var(--faint); border: 1px solid var(--line);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+.cmp-key.a { color: var(--accent); border-color: rgba(0, 240, 255, .5); background: rgba(0, 240, 255, .07); }
+.cmp-key.b { color: var(--accent2); border-color: rgba(255, 46, 151, .5); background: rgba(255, 46, 151, .07); }
+.cmp-vs-mark { color: var(--faint); font-size: 14px; flex: none; }
+@media (max-width: 900px) { .cmp-pickbar { grid-template-columns: 1fr; } }
 .cmp-badge { font-size: 12px; }
 .cmp-ab { padding: 2px 10px; border-radius: var(--r-pill); font-weight: 600; font-family: var(--sans); }
 .cmp-ab.ok { background: rgba(61, 220, 133, .12); color: var(--good); border: 1px solid rgba(61, 220, 133, .4); }
@@ -630,12 +661,20 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .cmp-sec { margin: 18px 0; }
 .cmp-sec h3 { margin: 0 0 8px; font-size: 14px; }
 .cmp-sec h3 .note { font-weight: 400; }
-.cmp-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.cmp-tbl th, .cmp-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+.cmp-sec h3 .c2-only { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 10px; }
+/* fixed layout: the N model columns share the width EQUALLY — symmetric by construction */
+.cmp-tbl { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.cmp-tbl th, .cmp-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right;
+  overflow: hidden; text-overflow: ellipsis; }
 .cmp-tbl th:first-child, .cmp-tbl td:first-child, .cmp-tbl td.cmp-cat, .cmp-tbl td.cmp-cid { text-align: left; }
+.cmp-tbl th:first-child { width: 130px; }
+.cmp-cases th:first-child { width: 82px; }
+.cmp-cases th:nth-child(2) { width: 26%; }
 .cmp-tbl thead th { border-bottom: 1px solid var(--border-strong); }
 .cmp-tbl td.num { font-family: ui-monospace, monospace; }
-.cmp-win { color: var(--text); font-weight: 700; background: rgba(61, 220, 133, .10); }
+/* per-row leader: unmistakable — green ring + fill, not just bold */
+.cmp-win { color: var(--good); font-weight: 700; background: rgba(61, 220, 133, .16);
+  box-shadow: inset 0 0 0 1px rgba(61, 220, 133, .38); }
 .cmp-win::before { content: "▸ "; color: var(--good); }
 .cmp-comp td { border-top: 1px solid var(--border-strong); font-weight: 700; color: var(--text); }
 .cmp-cases td.cmp-cid { color: var(--muted); font-size: 11.5px; max-width: 260px;
@@ -881,8 +920,21 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
   margin: 0; font-family: ui-monospace, monospace; max-height: 96px; overflow: auto; }
 
 /* ---------------------------------------------------------------- run tab (pod) */
-.run-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-.run-card { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel); padding: 14px 16px; }
+/* golden-ratio emphasis on wide screens: the validated card (the hero flow) takes ~1.618x
+   the width of the frontier + endpoint cards; collapses 2-up, then stacked. */
+.run-cards { display: grid; grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px; margin-bottom: 14px; align-items: start; }
+@media (max-width: 1500px) { .run-cards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+/* run cards join the machined-plate grammar: chamfer + facets, inset depth (clip-path
+   clips outer shadows, so no drop shadows here) */
+.run-card {
+  border: 1px solid var(--line); border-radius: 0; padding: 14px 16px; min-width: 0;
+  background:
+    linear-gradient(135deg, transparent 6.5px, var(--border-strong) 6.5px 8px, transparent 8px),
+    linear-gradient(315deg, transparent 6.5px, var(--border-strong) 6.5px 8px, transparent 8px),
+    var(--panel);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
 .run-card h3 { margin: 0 0 4px; font-size: 14px; color: var(--text); }
 .run-card .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
 .run-card .row[hidden] { display: none; }   /* [hidden] must beat display:flex (UA rule loses) */
@@ -909,7 +961,15 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 .job-stage { color: var(--text); font-weight: 600; }
 .stage-flash .job-stage { animation: stageIn .5s var(--ease-out); }
 .job-err { flex: 1 1 100%; color: var(--bad); text-align: left; margin-top: 2px; }
-.job-live, .job-stop { padding: 2px 9px; font-size: 11px; }
+.job-live, .job-stop, .job-resume { padding: 2px 9px; font-size: 11px; }
+/* deferred submission: results benched while the mothership was down stay local — the
+   SUBMIT TO MOTHERSHIP button is deliberately LARGE (owner's ask) and uses the standard
+   chamfered .primary grammar; the duplicate answer reads as a confirmation, not an error */
+.job-submit-row { flex: 1 1 100%; padding: 8px 0 4px; }
+.job-submit-row .primary { width: 100%; padding: 14px 18px; font-size: 15px;
+  letter-spacing: .08em; text-transform: uppercase; }
+.job-dup { flex: 1 1 100%; color: var(--good); text-align: left; margin-top: 2px; }
+.pend-row { border-left-color: var(--warn); }
 @media (max-width: 720px) { .run-cards { grid-template-columns: 1fr; } }
 
 /* ---------------------------------------------------------------- arena */
@@ -968,7 +1028,63 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 #arenaRank tr.top td:first-child { color: var(--r1); font-weight: 700; }
 
 /* ---------------------------------------------------------------- code gallery */
-.gal-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Kind selector: in-your-face segmented plates — the .act-btn chamfer grammar scaled up.
+   Selected = solid cyan fill + inset glow + lit corner reticle (clip-path clips outer shadows,
+   so all depth is inset). Unselected still reads clickable: visible border, facet edges,
+   hover lift + cyan border shift. */
+.gal-kinds { display: flex; gap: 10px; flex-wrap: wrap; }
+.gal-kind {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 10px 26px; cursor: pointer; user-select: none;
+  background:
+    linear-gradient(135deg, transparent 4.5px, var(--border-strong) 4.5px 6px, transparent 6px),
+    linear-gradient(315deg, transparent 4.5px, var(--border-strong) 4.5px 6px, transparent 6px),
+    var(--panel2);
+  color: var(--muted); border: 1px solid var(--border-strong); border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  font-family: ui-monospace, monospace; font-size: 15px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase; line-height: 1.25; white-space: nowrap;
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast),
+              box-shadow var(--t-fast), transform var(--t-fast);
+}
+/* corner reticle — same grammar as .chamfer-card::after; lit on the selected plate */
+.gal-kind::after {
+  content: ""; position: absolute; inset: 3px; pointer-events: none;
+  --bk: rgba(0, 240, 255, .55);
+  background:
+    linear-gradient(var(--bk), var(--bk)) top left     / 7px 1px,
+    linear-gradient(var(--bk), var(--bk)) top left     / 1px 7px,
+    linear-gradient(var(--bk), var(--bk)) top right    / 7px 1px,
+    linear-gradient(var(--bk), var(--bk)) top right    / 1px 7px,
+    linear-gradient(var(--bk), var(--bk)) bottom left  / 7px 1px,
+    linear-gradient(var(--bk), var(--bk)) bottom left  / 1px 7px,
+    linear-gradient(var(--bk), var(--bk)) bottom right / 7px 1px,
+    linear-gradient(var(--bk), var(--bk)) bottom right / 1px 7px;
+  background-repeat: no-repeat;
+  opacity: 0; transition: opacity var(--t-fast);
+}
+.gal-kind:hover { color: var(--text); border-color: var(--accent); transform: translateY(-1px);
+  box-shadow: inset 0 0 14px rgba(0, 240, 255, .07); }
+.gal-kind:hover::after { opacity: .55; }
+.gal-kind:active { transform: translateY(1px); }
+.gal-kind.on {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(5, 19, 24, .35), inset 0 0 22px rgba(255, 255, 255, .3);
+}
+.gal-kind.on::after { --bk: rgba(5, 19, 24, .7); opacity: 1; }
+.gal-kind:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.gal-kind.on:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-ink), inset 0 0 22px rgba(255, 255, 255, .3);
+}
+.gal-kind-n {
+  font-size: 10px; letter-spacing: .08em; line-height: 1.5; padding: 1px 7px;
+  border: 1px solid currentColor; opacity: .75; font-variant-numeric: tabular-nums;
+  clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px);
+}
+@media (max-width: 720px) {
+  .gal-kinds { width: 100%; gap: 8px; }
+  .gal-kind { flex: 1 1 0; min-width: 0; padding: 10px 8px; font-size: 13px; letter-spacing: .09em; }
+}
 .gal-tools { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; flex-wrap: wrap; }
 .gal-tools input { min-width: min(420px, 100%); flex: 1 1 280px; }
 .gal-sec { margin-top: 20px; }
@@ -1617,8 +1733,10 @@ select:focus {
 @media (max-width: 720px) { .pcard.perf4 .perf4-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ---- VALIDATED BENCH (Run tab): model-validation strip · engine picker · MLX bare-metal ---- */
-/* The hero card carries the validated flow; the endpoint card is the demoted local-only path. */
-.run-card.vcard { border-color: var(--border-strong); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); }
+/* The hero card carries the validated flow (its 1.618fr width + stronger plate say so);
+   the endpoint card is the demoted local-only path. Depth stays inset (clip-path). */
+.run-card.vcard { border-color: var(--border-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), inset 0 0 46px rgba(0, 240, 255, .03); }
 /* Local-weights path: READ-ONLY (driven by scan/browse selection), with a deliberate ✕ clear.
    It can't be hand-edited to a path that sidesteps the hash check. */
 .lw-field { position: relative; display: flex; align-items: center; }
@@ -1665,6 +1783,21 @@ select:focus {
 .val-req { display: block; margin-top: 6px; font-size: 10.5px; color: var(--muted); }
 .val-req.warn-line { color: var(--warn); letter-spacing: .08em; }
 .val-note { display: block; margin-top: 4px; font-size: 10.5px; color: var(--faint); }
+/* MODALITIES chip row: config-detected suites, operator-toggleable (Run tab validated card) */
+.mod-row { align-items: center; gap: 8px; }
+.mod-t { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--accent); }
+.mod-chip {
+  font: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; cursor: pointer;
+  color: var(--faint); background: transparent; border: 1px dashed var(--line);
+  padding: 3px 12px; transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+.mod-chip:hover { color: var(--muted); border-color: var(--border-strong); }
+.mod-chip.on {
+  color: var(--good); border-style: solid; border-color: rgba(61, 220, 133, .5);
+  background: rgba(61, 220, 133, .08);
+}
+.mod-row .note { font-size: 10.5px; }
 .eng-info { text-align: left; min-height: 0; margin: 2px 0 0; }
 .eng-info .mlink { color: var(--accent); }
 /* RECIPE TUNING: the engine's knob catalog — the optimal-recipe search surface */
@@ -1680,16 +1813,84 @@ select:focus {
   border: 1px solid rgba(61, 220, 133, .5); padding: 2px 8px; margin-left: auto;
   clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); }
 .tune-wrap[open] > summary { border-bottom: 1px solid var(--border); }
-.tune-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 10px 22px; padding: 12px 14px 4px; }
-.tune-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* the TUNING LAB grid: one machined card per flag, balanced columns; the default grid
+   stretch equalizes card heights per row (the pros/cons pair pins to the card floor) */
+.tune-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px; padding: 12px 14px 6px; align-items: stretch; }
+/* centered section header with hairline rules (spans the whole grid) */
+.tune-sec-h {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin: 2px 0 0; font-size: 10px; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--faint); white-space: nowrap;
+}
+.tune-sec-h::before, .tune-sec-h::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+/* per-flag card: the .chamfer-card grammar at a smaller 8px cut */
+.tune-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; min-width: 0;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  background:
+    linear-gradient(135deg, transparent 5px, var(--facet) 5px 6.5px, transparent 6.5px),
+    linear-gradient(315deg, transparent 5px, var(--facet) 5px 6.5px, transparent 6.5px),
+    var(--panel2);
+}
+.tune-card-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .tune-k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
   display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.tune-f { text-transform: none; letter-spacing: 0; color: var(--faint); }
-.tune-row select, .tune-row input[type=number], .tune-row input[type=text] { width: 100%; }
+.tune-f { text-transform: none; letter-spacing: 0; color: var(--faint); font-size: 10.5px; margin-left: auto; overflow-wrap: anywhere; }
+.tune-card select, .tune-card input[type=number], .tune-card input[type=text] { width: 100%; }
 .tune-bool { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-.tune-n { font-size: 10px; color: var(--faint); line-height: 1.45;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tune-desc { margin: 0; font-family: var(--sans); font-size: 11px; color: var(--muted); line-height: 1.5; }
+/* pros/cons pair pinned to the card floor so every card's verdict line sits level */
+.tune-pc { margin-top: auto; display: flex; flex-direction: column; gap: 2px;
+  font-size: 10.5px; line-height: 1.45; }
+.tune-pro { color: var(--good); }
+.tune-con { color: var(--warn); }
+/* live conflict: amber strip + border — a warning, never a hard-disable */
+.tune-warn {
+  padding: 6px 9px; font-size: 10.5px; line-height: 1.45; font-family: var(--sans);
+  color: var(--warn); border: 1px solid rgba(255, 180, 84, .4); border-left: 3px solid var(--warn);
+  background: rgba(255, 180, 84, .07);
+}
+.tune-card.conflict { border-color: rgba(255, 180, 84, .55); }
+/* implicated by the last failed bench (diagnostics hint names this flag) */
+.tune-card.implicated, .tune-spec.implicated {
+  border-color: rgba(255, 180, 84, .55);
+  box-shadow: inset 0 0 0 1px rgba(255, 180, 84, .3), inset 0 0 22px rgba(255, 180, 84, .05);
+}
+.tune-card.pulse, .tune-spec.pulse { animation: tunePulse 1.2s ease-in-out 2; }
+@keyframes tunePulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(255, 180, 84, .25); }
+  50% { box-shadow: inset 0 0 0 2px var(--warn), inset 0 0 30px rgba(255, 180, 84, .16); }
+}
+@media (prefers-reduced-motion: reduce) { .tune-card.pulse, .tune-spec.pulse { animation: none; } }
+/* the last-failed-bench banner INSIDE the tuning panel (dismissible) */
+.tune-alert {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 10px 14px 0;
+  padding: 9px 12px; font-size: 11.5px; line-height: 1.5;
+  color: var(--warn); border: 1px solid rgba(255, 180, 84, .5); border-left: 3px solid var(--warn);
+  background: rgba(255, 180, 84, .07);
+}
+.tune-alert[hidden] { display: none; }      /* [hidden] must beat display:flex */
+.tune-alert-t { font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: 10px; white-space: nowrap; }
+.tune-alert-msg { flex: 1 1 320px; font-family: var(--sans); min-width: 0; }
+.tune-alert-flags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.tune-alert-x { flex: none; margin-left: auto; padding: 0 4px; background: none; border: 0;
+  color: var(--warn); cursor: pointer; font-size: 13px; line-height: 1; }
+.tune-alert-x:hover { color: var(--text); }
+/* clickable flag chip (failed-job row + tune banner) -> scrolls to + pulses the card */
+.tune-flag-chip {
+  display: inline-flex; align-items: center; padding: 2px 9px; cursor: pointer;
+  font-family: ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  color: var(--warn); background: rgba(255, 180, 84, .07); border: 1px solid rgba(255, 180, 84, .45);
+  border-radius: 0;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.tune-flag-chip:hover { color: var(--text); border-color: var(--warn); background: rgba(255, 180, 84, .16); }
+.tune-flag-chip:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--warn); }
+/* "check these toggles" row on a failed job */
+.job-flags { flex-basis: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.job-flags-t { font-size: 9.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--warn); white-space: nowrap; }
 .tune-wrap .row, .tune-wrap .tune-note { padding: 0 14px; }
 .tune-wrap .tune-note { padding-bottom: 12px; text-align: left; }
 /* spec-decode (DFlash) block: drafter card + preset armory */
@@ -1697,7 +1898,9 @@ select:focus {
   border-left: 2px solid var(--accent2); background: rgba(255, 46, 151, .02);
   clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .tune-spec .row, .tune-spec .tune-note { padding: 0; }
-.tune-spec-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+/* section header centered between hairline rules — same grammar as .tune-sec-h */
+.tune-spec-h { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.tune-spec-h::before, .tune-spec-h::after { content: ""; flex: 1 1 16px; height: 1px; background: var(--line); }
 .tune-spec-h .tune-t { color: var(--accent2); }
 .drafter-state { font-size: 10.5px; color: var(--faint); }
 .drafter-state.ok { color: var(--good); }
@@ -1908,31 +2111,99 @@ select:focus {
 .cmp-bar { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
 .cmp-bar .ghost:disabled { opacity: .5; }
 
-/* ---- RUN-vs-RUN compare (two models / two recipes, per-case) ---- */
+/* ---- RUN-vs-RUN compare (two models / two recipes, per-case) ----
+   SYMMETRY IS STRUCTURAL: the two head plates share ONE fixed grid row template
+   (model / composite / trust / recipe chips / meta) so every metric sits at the same y;
+   each case splits 1fr | delta spine | 1fr around a centered axis; A = cyan, B = magenta. */
 .cmp2-heads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 12px; }
 .cmp2-head {
   position: relative; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--panel);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  display: grid; grid-template-rows: 44px 40px 24px 34px minmax(40px, 1fr);
+  row-gap: 4px; align-items: start; min-width: 0;
 }
-.cmp2-head.win { border-color: rgba(61, 220, 133, .55); box-shadow: 0 0 16px rgba(61, 220, 133, .12); }
+/* side keying bar (A cyan / B magenta) — a painted strip, not box-shadow (win owns that) */
+.cmp2-head::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.cmp2-head.side-a::before { background: rgba(0, 240, 255, .55); }
+.cmp2-head.side-b::before { background: rgba(255, 46, 151, .5); }
+/* clip-path clips outer shadows — the winner glow lives inset */
+.cmp2-head.win { border-color: rgba(61, 220, 133, .55);
+  box-shadow: inset 0 0 0 1px rgba(61, 220, 133, .3), inset 0 0 26px rgba(61, 220, 133, .07); }
 .cmp2-side { position: absolute; right: 12px; top: 8px; font-family: var(--mono, monospace); font-size: 26px; font-weight: 700; color: var(--faint); opacity: .5; }
-.cmp2-model { font-weight: 600; font-size: 15px; margin-bottom: 4px; padding-right: 34px; overflow-wrap: anywhere; }
-.cmp2-comp { font-family: var(--mono, monospace); font-size: 30px; font-weight: 700; }
+.cmp2-head.side-a .cmp2-side { color: var(--accent); opacity: .55; }
+.cmp2-head.side-b .cmp2-side { color: var(--accent2); opacity: .55; }
+.cmp2-model { font-weight: 600; font-size: 15px; line-height: 1.35; padding-right: 34px; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cmp2-comp { font-family: var(--mono, monospace); font-size: 30px; font-weight: 700; line-height: 1.2; }
 .cmp2-comp.pass { color: var(--good); } .cmp2-comp.part { color: var(--warn); } .cmp2-comp.fail { color: var(--bad); }
-.cmp2-cats { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.cmp2-trust { display: flex; align-items: center; }
+.cmp2-trust-chip {
+  font-family: var(--mono, monospace); font-size: 9.5px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--faint); border: 1px solid var(--line); padding: 2px 8px;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+.cmp2-trust-chip.t-attested { color: var(--good); border-color: rgba(61, 220, 133, .5); background: rgba(61, 220, 133, .08); }
+.cmp2-trust-chip.t-orchestrated { color: var(--warn); border-color: rgba(255, 180, 84, .45); }
+.cmp2-cats { display: flex; flex-wrap: nowrap; gap: 4px; overflow-x: auto; align-items: center; min-width: 0; }
+.cmp2-cats .subcat { flex: none; }
+.cmp2-meta { margin: 0; text-align: left; align-self: end; }
 .cmp2-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 6px 0 12px; font-size: 12px; color: var(--muted); }
 .cmp2-filters select { max-width: 160px; }
 .c2-only { display: inline-flex; gap: 5px; align-items: center; }
 .c2-only input { accent-color: var(--accent); }
-.cmp2-case { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin-bottom: 10px; }
-.cmp2-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.cmp2-case { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; margin-bottom: 12px; }
+.cmp2-grid { display: grid; grid-template-columns: 1fr 56px 1fr; gap: 12px; margin-top: 8px; align-items: stretch; }
 .cmp2-cell { border: 1px solid var(--line); background: var(--well); padding: 8px; min-width: 0; }
 .cmp2-cell pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font-size: 11.5px; margin-top: 6px; }
 .cmp2-cell:first-child { border-left: 2px solid rgba(0, 240, 255, .35); }
-.cmp2-cell:last-child { border-left: 2px solid rgba(255, 46, 151, .3); }
-.cmp2-edge { font-family: var(--mono, monospace); font-size: 11px; font-weight: 700; }
-.cmp2-edge.a { color: var(--accent); } .cmp2-edge.b { color: var(--accent2); }
-@media (max-width: 900px) { .cmp2-grid, .cmp2-heads { grid-template-columns: 1fr; } }
+.cmp2-cell:last-child { border-right: 2px solid rgba(255, 46, 151, .3); }
+/* the delta SPINE: per-case score gap as a centered badge in the winner's hue */
+.cmp2-spine { display: flex; align-items: flex-start; justify-content: center; padding-top: 10px; }
+.cmp2-delta {
+  font-family: var(--mono, monospace); font-size: 11px; font-weight: 700; white-space: nowrap;
+  padding: 3px 8px; border: 1px solid currentColor; line-height: 1.4;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+.cmp2-delta.a { color: var(--accent); background: rgba(0, 240, 255, .08); }
+.cmp2-delta.b { color: var(--accent2); background: rgba(255, 46, 151, .08); }
+.cmp2-delta.even { color: var(--faint); }
+@media (max-width: 900px) {
+  .cmp2-heads { grid-template-columns: 1fr; }
+  .cmp2-head { grid-template-rows: auto auto 24px auto auto; }
+  .cmp2-grid { grid-template-columns: 1fr; }
+  .cmp2-spine { padding: 0; order: -1; }               /* stacked: the delta leads the pair */
+}
+
+/* ---- butterfly / tornado: mirrored per-category bars around a shared center axis ---- */
+.cmp2-fly {
+  margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.fly-h { display: grid; grid-template-columns: 1fr 150px 1fr; align-items: center; margin-bottom: 8px; }
+.fly-t { text-align: center; font-size: 10px; font-weight: 600; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fly-side { font-family: var(--mono, monospace); font-size: 11px; font-weight: 700; }
+.fly-side.a { color: var(--accent); text-align: left; }
+.fly-side.b { color: var(--accent2); text-align: right; }
+.fly-row { display: grid; grid-template-columns: 1fr 150px 1fr; align-items: center; margin-top: 6px; }
+.fly-cell { position: relative; height: 18px; background: var(--well); border: 1px solid var(--line); min-width: 0; overflow: hidden; }
+.fly-a { border-right: 2px solid var(--border-strong); }   /* the shared center axis */
+.fly-b { border-left: 2px solid var(--border-strong); }
+.fly-cell i { position: absolute; top: 0; bottom: 0; }
+.fly-a i { right: 0; background: linear-gradient(90deg, rgba(0, 240, 255, .06), rgba(0, 240, 255, .38)); }
+.fly-b i { left: 0; background: linear-gradient(270deg, rgba(255, 46, 151, .06), rgba(255, 46, 151, .34)); }
+.fly-val { position: absolute; top: 50%; transform: translateY(-50%); z-index: 1;
+  font-family: var(--mono, monospace); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fly-a .fly-val { left: 6px; }
+.fly-b .fly-val { right: 6px; }
+.fly-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0 8px; min-width: 0; }
+.fly-cat { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fly-delta { font-family: var(--mono, monospace); font-size: 11px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.fly-delta.a { color: var(--accent); }
+.fly-delta.b { color: var(--accent2); }
+.fly-delta.even { color: var(--faint); }
+@media (max-width: 560px) { .fly-row, .fly-h { grid-template-columns: 1fr 96px 1fr; } }
 
 /* ---- per-DIMENSION progress strip (Run tab job cards + Live view) ---- */
 .jstages { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
@@ -2080,6 +2351,11 @@ select:focus {
 .best-row { border-color: rgba(232, 194, 104, .45); }
 .best-star { color: var(--r1); }
 .best-conf { color: var(--r1); border-color: rgba(232, 194, 104, .4); }
+
+/* champion recipes — mothership winners for THIS hardware (Run tab, validated-bench card) */
+.champ-row { border-color: rgba(0, 240, 255, .35); }
+.champ-row .champ-sel { flex: 1 1 240px; min-width: 180px; }
+.champ-row .champ-empty { color: var(--faint); font-size: 11.5px; }
 
 /* ---- SHARE: per-benchmark share button (mcards + perf detail) ---- */
 .share-btn {

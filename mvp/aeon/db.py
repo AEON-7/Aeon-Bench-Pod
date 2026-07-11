@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS pod_submissions (
     model        TEXT,
     suite_id     TEXT,
     board        TEXT DEFAULT 'text',
-    status       TEXT DEFAULT 'open',   -- open | committed | quarantined
+    status       TEXT DEFAULT 'open',   -- open | committed | quarantined | duplicate
     reason       TEXT,                  -- reject/quarantine reason code on failure
     created_at   REAL,
     committed_at REAL
@@ -322,9 +322,13 @@ def _ensure_columns(c):
                      # the pod-computed weights hash, the serve recipe, and the deployment
                      # manifest (build hash + verification). Present only on attested runs.
                      ("weights_hash", "TEXT"), ("recipe", "TEXT"),
-                     ("deployment_manifest", "TEXT"), ("bench_seed", "TEXT")):
+                     ("deployment_manifest", "TEXT"), ("bench_seed", "TEXT"),
+                     # pod-minted job identity (sha256 of started_ts|model|hardware|suite):
+                     # the mothership dedups re-submitted jobs on it; the pod resumes by it
+                     ("job_sig", "TEXT")):
         if col not in runs_cols:
             c.execute(f"ALTER TABLE runs ADD COLUMN {col} {ddl}")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_sig ON runs(job_sig)")
     res_cols = {r["name"] for r in c.execute("PRAGMA table_info(results)")}
     if "board" not in res_cols:
         c.execute("ALTER TABLE results ADD COLUMN board TEXT DEFAULT 'text'")
@@ -370,6 +374,7 @@ def _ensure_columns_pg(c):
         ("runs", "harness", "TEXT"), ("runs", "harness_version", "TEXT"),
         ("runs", "weights_hash", "TEXT"), ("runs", "recipe", "TEXT"),
         ("runs", "deployment_manifest", "TEXT"), ("runs", "bench_seed", "TEXT"),
+        ("runs", "job_sig", "TEXT"),
         ("results", "board", "TEXT DEFAULT 'text'"), ("results", "creativity", "DOUBLE PRECISION"),
         ("results", "raw_output_ref", "TEXT"), ("results", "raw_output_hash", "TEXT"),
         ("results", "disputed", "INTEGER DEFAULT 0"), ("results", "disputed_reason", "TEXT"),
@@ -380,6 +385,7 @@ def _ensure_columns_pg(c):
     ]
     for t, col, typ in adds:
         c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS {col} {typ}")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_sig ON runs(job_sig)")
 
 
 def init_db():
@@ -420,7 +426,7 @@ def create_run(run_id, *, model, target_url, judge_model, judge_is_self,
                hf_repo=None, hf_revision=None, model_verified=None, canonical_id=None,
                harness=None, harness_version=None,
                trust_tier="self_reported", weights_hash=None, recipe=None,
-               deployment_manifest=None, bench_seed=None):
+               deployment_manifest=None, bench_seed=None, job_sig=None):
     init_db()
     canonical_id = canonical_id or canonical_model_id(model, hf_repo)
     model_verified = model_verified or ("claim" if hf_repo else "declared")
@@ -432,13 +438,13 @@ def create_run(run_id, *, model, target_url, judge_model, judge_is_self,
                  suite_id, suite_hash, board, vision_probe_json, status, n_cases,
                  params_json, env_json, started_at,
                  hf_repo, hf_revision, model_verified, canonical_id, harness, harness_version,
-                 trust_tier, weights_hash, recipe, deployment_manifest, bench_seed)
-               VALUES (?,?,?,?,?,?,?,?,?, 'running', ?, ?, ?, ?, ?,?,?,?,?,?, ?,?,?,?,?)""",
+                 trust_tier, weights_hash, recipe, deployment_manifest, bench_seed, job_sig)
+               VALUES (?,?,?,?,?,?,?,?,?, 'running', ?, ?, ?, ?, ?,?,?,?,?,?, ?,?,?,?,?,?)""",
             (run_id, model, target_url, judge_model, 1 if judge_is_self else 0,
              suite_id, suite_hash, board, vision_probe_json, n_cases,
              json.dumps(params), json.dumps(env), time.time(),
              hf_repo, hf_revision, model_verified, canonical_id, harness, harness_version,
-             trust_tier, weights_hash, recipe_json, dm_json, bench_seed),
+             trust_tier, weights_hash, recipe_json, dm_json, bench_seed, job_sig),
         )
 
 
@@ -563,6 +569,72 @@ def fail_orphaned_runs(reason: str) -> int:
         cur = c.execute("UPDATE runs SET status='failed', error=? WHERE status='running'",
                         (reason,))
         return cur.rowcount or 0
+
+
+def interrupt_orphaned_runs(reason: str) -> int:
+    """Like fail_orphaned_runs but marks stranded rows 'interrupted' (RESUMABLE — their
+    per-case results are intact, so a relaunch can skip them). POD-LOCAL boot reconciliation
+    only; the mothership never uses local statuses."""
+    with connect() as c:
+        cur = c.execute("UPDATE runs SET status='interrupted', error=? WHERE status='running'",
+                        (reason,))
+        return cur.rowcount or 0
+
+
+def interrupt_run_if_running(run_id, reason=None):
+    """Flip ONE still-'running' local run to 'interrupted' (resumable) — used when its bench
+    subprocess was stopped/killed under the pod GUI. Returns True iff the row changed."""
+    with connect() as c:
+        cur = c.execute("UPDATE runs SET status='interrupted', error=? WHERE id=? AND status='running'",
+                        (reason, run_id))
+        return cur.rowcount == 1
+
+
+def run_resumable(run_id):
+    """True if this pod-local run can be RESUMED: interrupted (or failed mid-flight) with at
+    least one stored result to skip past."""
+    with connect() as c:
+        r = c.execute(
+            "SELECT 1 FROM runs r WHERE r.id=? AND r.status IN ('interrupted','failed') "
+            "AND EXISTS (SELECT 1 FROM results x WHERE x.run_id=r.id)", (run_id,)).fetchone()
+        return bool(r)
+
+
+def find_resumable_run(model, suite_id, board="text", hf_repo=None):
+    """The newest resumable pod-local run for (model, suite): interrupted/failed with results.
+    Matches on the served alias OR the verified hf_repo (the controlled flow benches under the
+    'model-under-test' alias). Returns {id, job_sig} or None."""
+    init_db()
+    with connect() as c:
+        r = c.execute(
+            "SELECT r.id, r.job_sig FROM runs r WHERE r.suite_id=? AND r.board=? "
+            "AND r.status IN ('interrupted','failed') "
+            "AND (r.model=? OR (r.hf_repo IS NOT NULL AND r.hf_repo=?)) "
+            "AND EXISTS (SELECT 1 FROM results x WHERE x.run_id=r.id) "
+            "ORDER BY r.started_at DESC LIMIT 1",
+            (suite_id, board, model or "", hf_repo or "")).fetchone()
+        return dict(r) if r else None
+
+
+def resume_run_row(run_id):
+    """Re-open an interrupted/failed local run for a RESUME pass (results append in place,
+    finish_run() closes it again). Returns True iff a resumable row was re-opened."""
+    with connect() as c:
+        cur = c.execute("UPDATE runs SET status='running', error=NULL, finished_at=NULL "
+                        "WHERE id=? AND status IN ('interrupted','failed')", (run_id,))
+        return cur.rowcount == 1
+
+
+def find_run_by_job_sig(job_sig):
+    """The newest COMMITTED (succeeded) run carrying this pod-minted job_sig — the mothership's
+    job-level dedup anchor: a re-submitted job answers idempotent success instead of storing a
+    second copy. Unfinished/failed runs never block a re-submit."""
+    if not job_sig:
+        return None
+    with connect() as c:
+        r = c.execute("SELECT id, status FROM runs WHERE job_sig=? AND status='succeeded' "
+                      "ORDER BY started_at DESC LIMIT 1", (job_sig,)).fetchone()
+        return dict(r) if r else None
 
 
 def list_runs(limit=100):

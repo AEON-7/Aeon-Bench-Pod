@@ -28,10 +28,13 @@ def build_target(model, target_url, api_key=None):
 def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
                   progress_cb=None, api_key=None, judge_url=None, judge_key=None,
                   hf_repo=None, trust_tier="self_reported", model_verified=None,
-                  env_extra=None, canonical_id=None):
+                  env_extra=None, canonical_id=None, job_sig=None,
+                  done_case_ids=None, resume=False):
     # `model` is the served alias used for the actual /v1 requests (e.g. "model-under-test").
     # `hf_repo`/`trust_tier` carry the REAL verified identity so the pod-local run — and thus the
     # live view — shows the true model + badge while inference still targets the served alias.
+    # RESUME: `resume=True` + the interrupted run's id re-opens that row in place, and
+    # `done_case_ids` (its already-scored cases) are skipped — the pod's resume path.
     from . import judge_policy
     params = params or {"temperature": 0.0, "max_tokens": 512}
     target = build_target(model, target_url, api_key)
@@ -51,14 +54,19 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
     }
     if isinstance(env_extra, dict):
         env.update(env_extra)
-    db.create_run(
-        run_id, model=model, target_url=target_url,
-        judge_model=eff_judge, judge_is_self=False,
-        suite_id=suite_mod.SUITE_ID, suite_hash=suite_mod.suite_hash(),
-        n_cases=len(suite_mod.CASES), params=params, env=env,
-        hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
-        canonical_id=canonical_id,
-    )
+    # RESUME re-opens the interrupted row (results append in place; n_cases stands) —
+    # otherwise a fresh run row is minted as before.
+    if not (resume and db.resume_run_row(run_id)):
+        db.create_run(
+            run_id, model=model, target_url=target_url,
+            judge_model=eff_judge, judge_is_self=False,
+            suite_id=suite_mod.SUITE_ID, suite_hash=suite_mod.suite_hash(),
+            n_cases=len(suite_mod.CASES), params=params, env=env,
+            hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
+            canonical_id=canonical_id, job_sig=job_sig,
+        )
+    done_ids = set(done_case_ids or ())          # already-scored cases a resume skips
+    cases = [c for c in suite_mod.CASES if c["id"] not in done_ids]
     base_tok = params.get("max_tokens", 512)
     retry_tok = params.get("retry_max_tokens")                # higher ceiling for a cut-off re-run
     max_retries = int(params.get("retries", 1)) if retry_tok else 0
@@ -114,12 +122,12 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
 
     try:
         if concurrency <= 1:
-            for case in suite_mod.CASES:
+            for case in cases:
                 _persist(_score_case(case))
         else:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=concurrency) as ex:
-                futs = [ex.submit(_score_case, c) for c in suite_mod.CASES]
+                futs = [ex.submit(_score_case, c) for c in cases]
                 try:
                     for fut in as_completed(futs):
                         _persist(fut.result())                # a TargetError propagates -> abort the run
@@ -188,6 +196,75 @@ def run_vision_benchmark(run_id, model, target_url, judge_model=None, params=Non
                 score, evidence = 0.0, {"error": f"eval error: {e!r}"}
             status = "scored" if gen_status == "scored" else gen_status
             db.save_result(run_id, cid, category=case["category"], tier=case["tier"], board="vision",
+                           status=status, score=score, raw_output=text, evidence=evidence, speed=speed)
+            if progress_cb:
+                progress_cb(cid, score, status)
+        db.finish_run(run_id, "succeeded")
+    except Exception as e:
+        db.finish_run(run_id, "failed", error=str(e))
+        raise
+    return pr
+
+
+def run_video_benchmark(run_id, model, target_url, params=None,
+                        progress_cb=None, api_key=None):
+    """The VIDEO board run loop — mirrors run_vision_benchmark/run_audio_benchmark.
+    probe_video gates first; on failure the model is recorded `capability_absent` and
+    never appears on the video board (and is untouched on other boards). Every case is
+    Tier-0 deterministic (count_slot/closed_set/ordered_keywords on synthetic clips with
+    machine-known ground truth), so a judge is never invoked. Raises RuntimeError with an
+    install hint when the encoder stack (imageio[ffmpeg]) is missing — callers that want
+    a soft skip should check videogen.available() first (see aeon_pod._video_and_submit)."""
+    from . import probe, videogen
+    from . import video_suite as vids
+    from .targets import MockVideoTarget, text_block, video_block
+
+    params = params or {"temperature": 0.0, "max_tokens": 2048}   # reasoning-model headroom (see probe._ask)
+    target = MockVideoTarget(model) if target_url == "mock" else OpenAITarget(target_url, model, api_key=api_key)
+    judge = None  # all Tier-0 here — deterministic evaluate; a judge is never invoked
+    env = {"platform": platform.platform(), "python": platform.python_version(), "runner": "aeon-mvp-video"}
+
+    pr = probe.probe_video(target)
+    db.create_run(run_id, model=model, target_url=target_url, judge_model=None, judge_is_self=False,
+                  suite_id=vids.SUITE_ID, suite_hash=vids.suite_hash(), n_cases=len(vids.CASES),
+                  params=params, env=env, board="video", vision_probe_json=json.dumps(pr))
+    if not pr.get("video_ok"):
+        db.finish_run(run_id, "capability_absent", error=pr.get("error"))
+        if progress_cb:
+            progress_cb("_probe", None, "capability_absent")
+        return pr
+    try:
+        for case in vids.CASES:
+            cid = case["id"]
+            if not pr.get(case["requires"], False):
+                db.save_result(run_id, cid, category=case["category"], tier=case["tier"], board="video",
+                               status="na_capability", score=None, raw_output="",
+                               evidence={"skipped": case["requires"]}, speed={})
+                if progress_cb:
+                    progress_cb(cid, None, "na_capability")
+                continue
+            blocks = [text_block(case["prompt"])]
+            for spec in case["video"]:
+                _, mp4, _ = videogen.generate(spec)
+                blocks.append(video_block(mp4))
+            user = {"role": "user", "content": blocks, "_case_id": cid}
+            try:
+                resp = target.chat([user], temperature=params["temperature"], max_tokens=params["max_tokens"])
+                text = resp["text"]
+                speed = {k: resp.get(k) for k in
+                         ("ttft_ms", "decode_tps", "e2e_ms", "output_tokens",
+                          "ttft_after_video_ms", "n_video", "video_bytes")}
+                gen_status = "scored"
+            except TargetError:
+                raise
+            except Exception as e:
+                text, speed, gen_status = "", {}, f"gen_error: {e!r}"[:120]
+            try:
+                score, evidence = evaluate(case, text, judge)
+            except Exception as e:
+                score, evidence = 0.0, {"error": f"eval error: {e!r}"}
+            status = "scored" if gen_status == "scored" else gen_status
+            db.save_result(run_id, cid, category=case["category"], tier=case["tier"], board="video",
                            status=status, score=score, raw_output=text, evidence=evidence, speed=speed)
             if progress_cb:
                 progress_cb(cid, score, status)

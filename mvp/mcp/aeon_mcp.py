@@ -81,8 +81,9 @@ TOOLS = [
      "fn": lambda a: _http("GET", f"/api/runs/{a['run_id']}")},
 
     {"name": "aeon_leaderboard", "description": "Current leaderboard for a board.",
-     "schema": _obj({"board": {"type": "string", "enum": ["text", "vision"], "default": "text"}}),
-     "fn": lambda a: _http("GET", "/api/vision/leaderboard" if a.get("board") == "vision" else "/api/leaderboard")},
+     "schema": _obj({"board": {"type": "string", "enum": ["text", "vision", "video"], "default": "text"}}),
+     "fn": lambda a: _http("GET", {"vision": "/api/vision/leaderboard", "video": "/api/video/leaderboard"}
+                           .get(a.get("board"), "/api/leaderboard"))},
 
     # aeon_pending_judgements + aeon_submit_verdict REMOVED — judging is frontier-model-or-
     # deterministic at the POD, never via the mothership (no self-judge, no agent-as-judge here).

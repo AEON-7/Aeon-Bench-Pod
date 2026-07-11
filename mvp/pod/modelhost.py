@@ -251,25 +251,28 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
 
     from pod import engines as engmod
     from pod import presets as presetmod
-    # FAMILY BEST-PRACTICE PRESET: detect the family from config.json and fold its conservative
-    # recommended flags UNDER the operator's extra_flags — so a headless/GUI run gets known-good
-    # defaults (Gemma-4 -> kv auto + triton + gemma4 parsers; Qwen3.5 -> fp8 KV + qwen3 parser +
-    # 16384 budget; etc.), while any flag the operator set still wins (merge_flags dedups,
-    # operator last). The preset + which flags it contributed travel in the recipe for the card.
+    plat = engmod.host_platform()
+    # FAMILY ⊕ HARDWARE BEST-PRACTICE PRESET: detect the family from config.json, compose its
+    # model-intrinsic flags with THIS host's hardware preset (GB10 -> the triton_attn pin), and
+    # fold the result UNDER the operator's extra_flags — so a headless/GUI run gets known-good
+    # defaults (Gemma-4 -> kv auto + triton + gemma4 parsers; Qwen3.5 -> qwen3 parsers; etc.),
+    # while any flag the operator set still wins (merge_flags dedups, operator last). The preset
+    # + which flags it contributed travel in the recipe for the card.
     _preset = presetmod.detect(cfg, name=os.path.basename(local_dir.rstrip("/\\")))
-    _preset_flags = presetmod.apply_flags(_preset, modalities)
+    _hw = presetmod.hardware_preset(plat)
+    _preset_flags = presetmod.apply_flags(_preset, modalities, hardware=_hw)
     extra_flags = _preset_flags + [str(t) for t in (extra_flags or [])]
 
     base = {"served_alias": alias, "port": port, "source": "auto",
             "architecture": arch, "context_len": ctx, "quant": quant,
             "modalities": modalities,
             "family_preset": {"id": _preset["id"], "label": _preset["label"],
-                              "confidence": _preset["confidence"], "flags": _preset_flags}}
+                              "confidence": _preset["confidence"], "hardware": _hw["id"],
+                              "flags": _preset_flags}}
 
     # An explicit catalog engine (Run-tab dropdown / --engine) -> that engine's containerized
     # recipe; a custom `image` rides along and is recorded. MLX serves the LOCAL DIR bare-metal
     # and its served id is that path (mlx_lm.server has no alias flag), recorded as such.
-    plat = engmod.host_platform()
     if engine in engmod.ENGINES and (engine != "aeon-vllm-ultimate" or not aeon_vllm_ultimate_launcher()):
         srv = engmod.build_serve(engine, local_dir=local_dir, alias=alias, port=port, ctx=ctx,
                                  quant=quant, image=image, plat=plat, extra_flags=extra_flags,
@@ -446,58 +449,6 @@ def _inject_spec_backend(seq: list | None, backend: str) -> bool:
     return changed
 
 
-def _speculative_config_from(seq: list | None):
-    if not seq:
-        return None
-    i = 0
-    while i < len(seq):
-        tok = str(seq[i])
-        val = None
-        if tok == "--speculative-config" and i + 1 < len(seq):
-            val = str(seq[i + 1])
-        elif tok.startswith("--speculative-config="):
-            val = tok.split("=", 1)[1]
-        if val is not None:
-            try:
-                cfg = json.loads(val)
-            except Exception:
-                return None
-            return cfg if isinstance(cfg, dict) else None
-        i += 1
-    return None
-
-
-def annotate_spec_decode(recipe: dict) -> dict:
-    """Record the selected speculative-decoding method from the final serve flags.
-
-    This is purely disclosure/provenance: it does not alter the vLLM command. DFlash gets
-    additional drafter metadata elsewhere; MTP has no drafter, so parsing the final flags is the
-    only way to show a run was native-MTP accelerated instead of plain decode.
-    """
-    if not recipe:
-        return recipe
-    cfg = None
-    for key in ("flags", "command"):
-        cfg = _speculative_config_from(recipe.get(key))
-        if cfg:
-            break
-    if not cfg:
-        return recipe
-    method = str(cfg.get("method") or "").strip()
-    if method:
-        recipe["spec_decode"] = method
-        recipe["spec_decode_method"] = method
-    nst = cfg.get("num_speculative_tokens")
-    if nst is not None:
-        recipe["spec_decode_n"] = nst
-        recipe["drafter_nst"] = nst
-    if method.lower() == "dflash":
-        recipe.setdefault("spec_decode_note", "lossless — draft tokens verified by the target model; speed only")
-    elif "mtp" in method.lower():
-        recipe["spec_decode_note"] = "native MTP — target-model multi-token prediction head; speed only"
-    return recipe
-
-
 def normalize_dflash_spec(recipe: dict) -> dict:
     """Keep DFlash's nested backend aligned with the outer vLLM attention backend.
 
@@ -507,10 +458,10 @@ def normalize_dflash_spec(recipe: dict) -> dict:
     recipe correctly says triton_attn.
     """
     if recipe.get("serve_cmd_override"):
-        return annotate_spec_decode(recipe)
+        return recipe
     backend = _recipe_attention_backend(recipe)
     if not backend:
-        return annotate_spec_decode(recipe)
+        return recipe
     changed = False
     for key in ("flags", "command"):
         changed = _inject_spec_backend(recipe.get(key), backend) or changed
@@ -519,7 +470,7 @@ def normalize_dflash_spec(recipe: dict) -> dict:
         notes = list(recipe.get("recipe_notes") or [])
         notes.append(f"DFlash speculative-config normalized with attention_backend={backend}")
         recipe["recipe_notes"] = notes
-    return annotate_spec_decode(recipe)
+    return recipe
 
 
 import urllib.parse   # noqa: E402  (used by fetch_ref)

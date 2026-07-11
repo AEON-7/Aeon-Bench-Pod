@@ -30,6 +30,7 @@ try:
 except ImportError:                                # public pod distribution
     accounts = admin = ingest = None               # type: ignore[assignment]
 from . import suite as suite_mod
+from . import video_suite
 from . import vision_suite
 from . import agentic_v2
 from .targets import OpenAITarget, list_models
@@ -164,6 +165,16 @@ def perf_board():
             "run": m.get("run"),
         }
     return d
+
+
+@app.get("/api/recipes/champions")
+def recipes_champions(hardware: str | None = None, model: str | None = None):
+    """CHAMPION recipes: per (hardware label × canonical model), the WINNING serve recipe —
+    best demonstrated peak aggregate tok/s that also carries a quality composite. Public,
+    read-only, cache-friendly; pods pull this filtered to their own detected hardware
+    (?hardware= loose-matches: 'dgx spark' finds 'single DGX Spark (GB10)') and offer each
+    champion as an applyable Run-tab template."""
+    return scoring.champion_recipes(hardware=hardware, model=model)
 
 
 @app.get("/api/compare/seeds")
@@ -336,11 +347,19 @@ def share_card(key: str):
 
 
 @app.get("/share/{key}", response_class=HTMLResponse)
-def share_page(key: str):
+def share_page(key: str, request: Request):
     """Scraper-facing share page: OG/Twitter meta + instant hop into the app. The IMAGE carries
-    the design; these tags carry the words."""
+    the design; these tags carry the words.
+
+    CACHE-BUST: X/Slack/etc. key their card cache on og:url, NOT on the link you posted — so a
+    stale card can't be refreshed by adding ?v=2 to the shared link if og:url stays canonical.
+    Here og:url AND the image URL REFLECT the request's query string, so posting
+    /share/<key>?v=2 is a genuinely new canonical + image to the unfurler and forces a re-crawl.
+    Clean shares (no query string) stay clean — no behavior change for the normal case."""
     info = _share_info(key)
     base = (os.environ.get("AEON_PUBLIC_URL") or "https://aeon-bench.com").rstrip("/")
+    qs = request.url.query                       # e.g. "v=2" when the poster cache-busted
+    suffix = f"?{qs}" if qs else ""
     if info:
         bits = []
         if info.get("composite") is not None:
@@ -353,16 +372,19 @@ def share_page(key: str):
         desc = " · ".join(bits) or "open, attested local-LLM benchmarks"
     else:
         title, desc = "AEON Bench", "Open, attested benchmarks for local LLMs — run a pod on your own hardware."
-    img = f"{base}/api/share/card/{key}.png"
+    img = f"{base}/api/share/card/{key}.png{suffix}"
+    page_url = f"{base}/share/{key}{suffix}"
     e = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>{e(title)}</title>
 <meta property="og:type" content="website"><meta property="og:site_name" content="AEON Bench">
 <meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(desc)}">
-<meta property="og:url" content="{base}/share/{e(key)}"><meta property="og:image" content="{img}">
+<meta property="og:url" content="{e(page_url)}"><meta property="og:image" content="{e(img)}">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{e(title)}">
-<meta name="twitter:description" content="{e(desc)}"><meta name="twitter:image" content="{img}">
+<meta name="twitter:description" content="{e(desc)}"><meta name="twitter:image" content="{e(img)}">
+<meta name="twitter:image:alt" content="{e(title)}">
 <meta name="theme-color" content="#00f0ff">
 <meta http-equiv="refresh" content="0;url=/"></head>
 <body style="background:#07070d;color:#e3e3ee;font-family:monospace">
@@ -419,6 +441,21 @@ def vision_suite_summary():
 @app.get("/api/vision/leaderboard")
 def vision_leaderboard():
     return scoring.vision_leaderboard()
+
+
+# ---- Video board ----
+
+@app.get("/api/video/suite")
+def video_suite_summary():
+    try:
+        return video_suite.summary()
+    except RuntimeError as e:            # encoder stack (imageio[ffmpeg]) missing on this host
+        return JSONResponse({"error": str(e)}, status_code=503)
+
+
+@app.get("/api/video/leaderboard")
+def video_leaderboard():
+    return scoring.video_leaderboard()
 
 
 # (vision + audio run launchers removed — runs originate only from pods; see note above.)
@@ -990,45 +1027,25 @@ def _recipe_serve(recipe):
 
 
 def _drafter_info(recipe):
-    """Speculative-decode disclosure for a stored recipe, or None for plain decode.
-
-    DFlash pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) lets others
-    replicate. Native MTP has no drafter, so the method/n are parsed from --speculative-config.
-    """
+    """DFlash speculative-decode drafter disclosure for a stored recipe, or None for plain decode.
+    The recipe pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) is what
+    lets others replicate. `n` (num_speculative_tokens) comes from the top-level field if recorded,
+    else parsed out of the --speculative-config JSON in the serve flags."""
     if not recipe:
         return None
-    n = recipe.get("spec_decode_n") or recipe.get("drafter_n") or recipe.get("drafter_nst")
-    method = recipe.get("spec_decode_method") or recipe.get("spec_decode")
-    spec_model = None
-    for seq in (recipe.get("flags") or [], recipe.get("command") or []):
-        for i, f in enumerate(seq):
-            if f == "--speculative-config" and i + 1 < len(seq):
-                try:
-                    cfg = json.loads(seq[i + 1])
-                    method = method or cfg.get("method")
-                    n = n or cfg.get("num_speculative_tokens")
-                    spec_model = cfg.get("model")
-                except Exception:
-                    pass
-                break
-            if isinstance(f, str) and f.startswith("--speculative-config="):
-                try:
-                    cfg = json.loads(f.split("=", 1)[1])
-                    method = method or cfg.get("method")
-                    n = n or cfg.get("num_speculative_tokens")
-                    spec_model = cfg.get("model")
-                except Exception:
-                    pass
-                break
-    if not (recipe.get("drafter") or recipe.get("drafter_repo") or method):
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or recipe.get("spec_decode")):
         return None
-    method = method or "dflash"
-    uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
-                       (str(method).lower() == "dflash" and str(spec_model or "").startswith("/drafter")))
-    return {"method": method,
+    n = recipe.get("drafter_n") or recipe.get("drafter_nst")
+    for i, f in enumerate(recipe.get("flags") or []):
+        if f == "--speculative-config" and i + 1 < len(recipe["flags"]):
+            try:
+                n = n or json.loads(recipe["flags"][i + 1]).get("num_speculative_tokens")
+            except Exception:
+                pass
+            break
+    return {"method": recipe.get("spec_decode") or "dflash",
             "repo": recipe.get("drafter_repo"),          # e.g. z-lab/gemma-4-26B-A4B-it-DFlash
-            "revision": recipe.get("drafter_revision"), "n": n,
-            "uses_drafter": uses_drafter}
+            "revision": recipe.get("drafter_revision"), "n": n}
 
 
 def _portable_speculative(flags):
@@ -1075,7 +1092,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     # ref is immutable (client-verified on pull), a tag is a mutable pointer
     image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
-    if d and d.get("uses_drafter"):
+    if d:
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     lines = []
     if hf_repo:
@@ -1088,13 +1105,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
         lines += [f"# 1b) pull the z-lab DFlash drafter — lossless speculative decode (speed only{ncmt})",
                   f"hf download {d['repo']}{drev} --local-dir ./drafter", ""]
     if d:
-        method = str(d.get("method") or "dflash")
-        if method.lower() == "dflash":
-            disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
-        elif "mtp" in method.lower():
-            disc = f"Native MTP spec-decode: {method}"
-        else:
-            disc = f"Spec-decode: {method}"
+        disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
         if d.get("revision"):
             disc += f"@{str(d['revision'])[:12]}"
         if d.get("n"):
@@ -1103,7 +1114,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     lines.append("# 2) serve with the exact flags from this run")
     lines.append("docker run --rm --gpus all --name replica \\")
     lines.append("  -v ./weights:/model \\")
-    if d and d.get("uses_drafter"):
+    if d:
         lines.append("  -v ./drafter:/drafter \\"
                      + (f"  # {d['repo']}" if d.get("repo") else "  # z-lab DFlash drafter weights"))
     lines.append(f"  -p {port}:{port} \\")
@@ -1234,11 +1245,11 @@ def _compose_yaml(r, recipe):
     image, port, flags, _ = serve
     image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
-    if d and d.get("uses_drafter"):
+    if d:
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     cmd = "\n".join("      - " + _yaml_quote(t) for t in ["serve", "/model"] + flags)
     vols = "      - ./weights:/model"
-    if d and d.get("uses_drafter"):
+    if d:
         vols += ("\n      - ./drafter:/drafter"
                  + (f"   # {d['repo']}" if d.get("repo") else "   # z-lab DFlash drafter weights"))
     usage = ""
@@ -1491,6 +1502,20 @@ async def v1_submit_results(run_id: str, request: Request):
     return r if code == 200 else JSONResponse(r, status_code=code)
 
 
+@app.get("/api/v1/jobs/{job_sig}")
+def v1_job_status(job_sig: str, request: Request):
+    """Job-level dedup pre-check: has a run with this pod-minted job_sig already committed?
+    Lets a pod skip re-uploading a multi-MB bundle the mothership already has. Public data
+    (exists/run_id/status only), rate-limited like the other /api/v1 ingest routes."""
+    if (g := _no_trust_stack()):   # signed-submission RECEIVER is mothership-only
+        return g
+    if not _v1_rate_ok(request, "jobs"):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
+    r = db.find_run_by_job_sig((job_sig or "").strip()[:64])
+    return {"exists": bool(r), "run_id": r["id"] if r else None,
+            "status": r["status"] if r else None}
+
+
 @app.get("/api/harness_board")
 def harness_board():
     """AI Harness Bench: model × harness matrix (which harness gets the most out of a model)."""
@@ -1586,6 +1611,8 @@ class PodVerifiedRunBody(BaseModel):
     arena_per_kind: int | None = None   # arena sweep breadth (prompts per kind, 0 disables; None = default 6)
     serve_cmd: str | None = None        # FULL serve-command override (advanced): verbatim startup cmd
     temperature: float | None = None    # sampling temperature (0 = greedy/deterministic; None = pod default 0)
+    modalities: list[str] | None = None  # MODALITIES chips: None = auto-detect (probe-gated);
+                                         # a list = explicit vision/audio/video toggles ([] = all off)
 
 
 def _clamp_conc(v):
@@ -1595,6 +1622,15 @@ def _clamp_conc(v):
         return max(1, min(64, int(v))) if v is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _clean_modalities(mods):
+    """Browser-supplied modality toggles: None stays None (auto-detect); a list is reduced
+    to the known modalities in canonical order (an empty result disables all three)."""
+    if mods is None:
+        return None
+    got = {str(m).strip().lower() for m in mods}
+    return [m for m in ("vision", "audio", "video") if m in got]
 
 
 def _clean_serve_flags(flags):
@@ -1707,7 +1743,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
                         if body.arena_per_kind is not None else None),
         serve_cmd=((body.serve_cmd or "").strip() or None),
         temperature=(min(2.0, max(0.0, float(body.temperature)))
-                     if body.temperature is not None else None))
+                     if body.temperature is not None else None),
+        modalities=_clean_modalities(body.modalities))
     return {"job_id": jid}
 
 
@@ -1791,7 +1828,9 @@ def pod_jobs(request: Request):
     if (g := _require_pod_token(request)):
         return g
     from pod import jobs
-    return {"jobs": jobs.list_jobs()}
+    # `pending` = persisted-but-unsubmitted sessions with no in-memory job (they survive a
+    # pod restart) — the Run tab renders a SUBMIT TO MOTHERSHIP card for each.
+    return {"jobs": jobs.list_jobs(), "pending": jobs.list_pending_submits()}
 
 
 @app.get("/api/pod/stats")
@@ -1831,6 +1870,50 @@ def pod_best_launch(request: Request, model: str):
     return {"best": db.best_launch((model or "").strip())}
 
 
+def _fetch_champions(base_url: str, hardware: str | None):
+    """GET the mothership's /api/recipes/champions (5s budget). Split out so tests stub it —
+    the champion pull must never make the Run tab depend on the network."""
+    from urllib.parse import urlencode
+    from urllib.request import urlopen
+    url = (base_url or "").rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("mothership URL must be http(s)")
+    url += "/api/recipes/champions"
+    if hardware:
+        url += "?" + urlencode({"hardware": hardware})
+    with urlopen(url, timeout=5) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+@app.get("/api/pod/recipes/champions")
+def pod_champion_recipes(request: Request):
+    """POD-ONLY: the mothership's champion recipes for THIS pod's detected hardware — the
+    best-in-class winning recipe per model on hardware like ours, offered in the Run tab as an
+    applyable template (a DGX Spark pod sees the recipes that won on a DGX Spark). Mothership
+    offline/unreachable degrades to {available:false, reason} — the Run tab keeps working."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    try:
+        from pod import jobs
+        mothership = jobs.MOTHERSHIP
+    except Exception:
+        mothership = os.environ.get("AEON_MOTHERSHIP", "https://aeon-bench.com")
+    try:
+        from pod.aeon_pod import detected_hardware_label
+        hw = detected_hardware_label()
+    except Exception:
+        hw = None
+    try:
+        d = _fetch_champions(mothership, hw)
+    except Exception as e:
+        return {"available": False, "hardware": hw, "mothership": mothership,
+                "reason": (str(e)[:200] or "mothership unreachable")}
+    return {"available": True, "hardware": hw, "mothership": mothership,
+            "champions": d.get("champions") or [], "hardwares": d.get("hardwares") or []}
+
+
 @app.get("/api/pod/jobs/{job_id}")
 def pod_job(job_id: str, request: Request):
     if (g := _require_pod()):
@@ -1852,6 +1935,51 @@ def pod_job_stop(job_id: str, request: Request):
         return g
     from pod import jobs
     return {"ok": jobs.stop_job(job_id)}
+
+
+@app.post("/api/pod/jobs/{job_id}/resume")
+def pod_job_resume(job_id: str, request: Request):
+    """POD-ONLY: ⟲ RESUME an interrupted job — relaunches the identical argv/env with the
+    resume flag; the bench continues its local run from the last scored case."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import jobs
+    jid = jobs.resume_job(job_id)
+    if not jid:
+        return JSONResponse({"error": "job not found or not resumable"}, status_code=404)
+    return {"ok": True, "job_id": jid}
+
+
+@app.post("/api/pod/jobs/{job_id}/submit")
+def pod_job_submit(job_id: str, request: Request):
+    """POD-ONLY: ⬆ SUBMIT TO MOTHERSHIP for a finished-but-unsubmitted job. Re-reads the
+    local results + the persisted pending_submits session(s) and commits them (final=True);
+    idempotent via the job_sig dedup — an already-stored job answers duplicate."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import jobs
+    r = jobs.submit_job(job_id)
+    if r is None:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    return r
+
+
+@app.post("/api/pod/submit/{job_sig}")
+def pod_submit_pending(job_sig: str, request: Request):
+    """POD-ONLY: deferred submit for a persisted pending session by job_sig — covers results
+    benched BEFORE a pod restart (no in-memory job row survives one; the session file does)."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import pending
+    st, r = pending.submit_pending((job_sig or "").strip()[:64])
+    body = r if isinstance(r, dict) else {"raw": r}
+    return {"ok": st == 200, "http": st, **body}
 
 
 @app.get("/api/pod/keys")

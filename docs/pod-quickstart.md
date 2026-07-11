@@ -13,7 +13,6 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
-  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -31,12 +30,16 @@ hash-matched local copy is good as gold: **no re-download**; a manually-typed HF
 overrides the auto-reconciliation. The **VALIDATED MODEL** light goes green, you pick the
 **engine** for your hardware (aeon-vllm-ultimate / vLLM / SGLang / llama.cpp / vLLM-ROCm /
 custom image — or bare-metal **Apple MLX** and **LM Studio**, the Windows host-performance
-path), optionally open **⚙ RECIPE TUNING** (every common startup flag, annotated; 64K context
-floor enforced; a **DFlash drafter** slot that hash-validates the drafter's HF card like the
-model), and launch. The pod **serves** the validated weights, **benchmarks** — driving the
-agentic suite through **Hermes / OpenClaw / OpenCode** (versions disclosed) — and **submits**
-the ed25519-signed bundle: **attested**, with the inference engine, bench hardware, and exact
-startup recipe (docker or bare-metal, reported identically) on every result.
+path), optionally apply a template — **★ CHAMPION RECIPES** (the mothership's winning recipe per
+model on hardware like yours) or the detected **★ family best-practice preset**, both editable —
+or open **⚙ RECIPE TUNING** yourself (every common startup flag as an annotated card with
+pros/cons and live conflict warnings; 64K context floor enforced; a **DFlash drafter** slot that
+hash-validates the drafter's HF card like the model; modality toggles override the auto-detected
+vision/audio/video capabilities), and launch. The pod **serves** the validated weights,
+**benchmarks** — driving the agentic suite through **Hermes / OpenClaw / OpenCode** (versions
+disclosed) — and **submits** the ed25519-signed bundle: **attested**, with the inference engine,
+bench hardware, and exact startup recipe (docker or bare-metal, reported identically) on every
+result. Queue several models back-to-back — each runs, submits, and cleans up automatically.
 
 > On a DGX Spark (GB10) the pod defaults to the first-party `aeon-vllm-ultimate` engine with
 > its optimal flags — the same engine behind AEON's own boards.
@@ -48,12 +51,7 @@ Pull the latest, drop the old container, run the new one — also the fix for
 
 ```bash
 docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
-docker run -d --name aeon-pod --network host --gpus all \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v aeon-pod-state:/root/.aeon \
-  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
-  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
-  ghcr.io/aeon-7/aeon-pod:latest
+docker run -d --name aeon-pod --network host --gpus all   -v /var/run/docker.sock:/var/run/docker.sock   -v aeon-pod-state:/root/.aeon   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models"   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
 Your device key, runs and models persist in the named volumes — updating never loses them.
@@ -68,8 +66,13 @@ docker restart aeon-pod       # reload
 docker logs -f aeon-pod       # follow the dashboard + job logs live
 ```
 
-An interrupted benchmark doesn't lose what it already submitted (results stream to the
-mothership in checkpoints); relaunch from the Run tab — validated local weights are reused.
+An interrupted benchmark loses nothing: results stream to the mothership in checkpoints, and
+the run is marked **interrupted** (not failed) — hit **⟲ RESUME** on its Run-tab job card to
+continue from the last scored case (validated local weights are reused). An incomplete bench is
+never auto-submitted — resume it to completion. If the mothership was unreachable at the end of
+a run, the results persist on the pod and the job card offers **⬆ SUBMIT TO MOTHERSHIP**;
+re-submitting is always safe (a job the mothership already has answers "job already submitted
+and available on the Mothership" — never a second board entry).
 
 ## Docker compose (build from source)
 

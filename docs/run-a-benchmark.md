@@ -24,7 +24,6 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
-  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -38,15 +37,30 @@ From the **Run tab**:
    cache, LM Studio library, AEON pulls — each auto-reconciled to its HF card), or **▤ browse**.
    A hash-matched local copy is good as gold — **no re-download**. Wait for the green
    **VALIDATED MODEL** light.
-2. **Pick the engine** — **aeon-vllm-ultimate** (AEON's own boards run this), **vLLM**,
+2. **Apply a template (optional, recommended)** — under the validation strip:
+   **★ CHAMPION RECIPES** offers the mothership's winning recipe per model on hardware like
+   yours (best demonstrated peak tok/s that also scored well) — **apply template →** fills
+   engine + Recipe Tuning + spec decode with the exact winning recipe; and when validation
+   recognizes the model family, the **★ best-practice preset** chip fills Recipe Tuning with the
+   family ⊕ hardware flags (honest high/medium/low confidence tag). Both only *fill* the
+   controls — everything stays editable. Skip both and the pod still auto-applies the
+   conservative family ⊕ hardware defaults at launch.
+3. **Pick the engine** — **aeon-vllm-ultimate** (AEON's own boards run this), **vLLM**,
    **SGLang**, **llama.cpp** (GGUF), **vLLM-ROCm** (AMD), a **custom image**, or bare-metal
    **Apple MLX** / **LM Studio** (startup recipe recorded exactly like a docker recipe).
-3. **Tune the recipe (optional)** — **⚙ RECIPE TUNING** exposes every common startup flag as an
-   annotated control (the 64K context floor is enforced — Hermes rejects less), a **DFlash
-   drafter** slot (paste the drafter's HF card: validated like the model, mounted at `/drafter`,
-   preset `n` configs — spec decode is lossless, speed only) and freeform extra flags. The final
-   recipe travels with the result and is downloadable as `serve.sh` / `compose.yml`.
-4. **Launch.** Validate → serve → benchmark → sign → submit **attested**.
+4. **Tune the recipe (optional)** — **⚙ RECIPE TUNING** exposes every common startup flag as an
+   annotated card — what it does, the upside, the risk — with **live conflict warnings** when a
+   flag clashes with this model/engine/platform (amber strip, never a hard-disable; the 64K
+   context floor is enforced — Hermes rejects less). Plus a **DFlash drafter** slot (paste the
+   drafter's HF card: validated like the model, mounted at `/drafter`, preset `n` configs —
+   spec decode is lossless, speed only) and freeform extra flags. The final recipe travels with
+   the result and is downloadable as `serve.sh` / `compose.yml`. Modalities (vision / audio /
+   video) are auto-detected from the HF config and probed at bench time; the Run tab's modality
+   toggles override that detection — go by what the tab shows.
+5. **Launch.** Validate → serve → benchmark → sign → submit **attested**. If a launch fails, the
+   job card shows a plain-language **▸ fix** hint plus **⚠ check these toggles** chips that jump
+   to the implicated Recipe Tuning cards. A stopped or crashed bench is **interrupted, not
+   failed** — its scored cases are intact and **⟲ RESUME** continues from the last scored case.
 
 ### 1.1 Alternative: the compose pipeline (build from source)
 
@@ -84,7 +98,7 @@ Useful optional vars (full list documented in `deploy/pod/.env.example`):
 - `AEON_HARDWARE` — a label recorded with the run, e.g. `"NVIDIA DGX Spark GB10 128GB"`.
 - `AEON_JUDGE` / `AEON_JUDGE_URL` / `AEON_JUDGE_KEY` — a **frontier** judge for subjective Tier-1
   cases. Leave empty for deterministic-only scoring. **Never** the model under test judging itself.
-- `AEON_MAX_TOKENS` (default 32768) — generation cap, including hidden reasoning tokens.
+- `AEON_MAX_TOKENS` (default 2048) — generation cap; reasoning models need headroom.
 - `AEON_LIMIT` — benchmark only the first N cases for a quick smoke before a full run.
 - `HF_TOKEN` — only for gated/private HF repos.
 
@@ -141,6 +155,12 @@ What you'll see:
   **hardware**, the **harness versions**, and the **judge** used. These are searchable/filterable,
   not hidden.
 
+> **Only comprehensive passes rank.** The global leaderboard shows the comprehensive suite only:
+> fast-bench seeded draws are compare-by-seed views, tier-scoped runs (e.g. hard-only) get their
+> own boards, and a run must score **at least 90% of the suite** to stand — a partial or
+> text-only pass is stored and viewable but never ranked. Run **Comprehensive** and run it to
+> completion.
+
 ### Trust tiers (be honest about what a number means)
 
 The board badges every run by how its truth was established, and **only one tier is ranked on the
@@ -163,8 +183,9 @@ execution-integrity gap is a future hardware-TEE sub-level. Full detail:
 ## 3. Submit results
 
 **Submission is automatic** — the pod does it at the end of the run over the enrolled, signed
-channel (`mvp/pod/aeon_submit.py`). You don't run a separate step. Here's what travels and why it's
-safe:
+channel (`mvp/pod/aeon_submit.py`), and results **stream to the mothership in checkpoints during
+the run**, so a mid-run kill loses nothing already sent. You don't run a separate step. Here's
+what travels and why it's safe:
 
 1. **Enroll** — on first run the pod generates a local **ed25519 device key** (`~/.aeon/device_key.pem`,
    chmod 600) and proves possession of it to the mothership. The **private key never leaves the pod**;
@@ -176,6 +197,18 @@ safe:
    "local_weights"`, the **HF repo** (for model-identity verification), and the **judge** used. The
    mothership validates the schema server-side, treats the bundle as **inert data (never executed)**,
    and stores it.
+
+### Interrupted, incomplete, or offline — nothing is lost
+
+- **Completeness gate:** an incomplete bench is **not auto-submitted** — it stays local and
+  resumable. Use **⟲ RESUME** on the job card to finish the remaining cases first (`--force-submit`
+  is the CLI-only escape hatch; a forced partial will never rank anyway).
+- **Mothership down at submit time?** The results persist on the pod (surviving restarts) and the
+  job card grows a **⬆ SUBMIT TO MOTHERSHIP** button — one click commits them later.
+- **Idempotent by construction:** every bundle carries a pod-minted `job_sig` (a hash of launch
+  time + model + hardware + suite). Re-submitting a job the mothership already has answers
+  `"job already submitted and available on the Mothership"` (`ok: true, duplicate: true`) — that's
+  success, not an error; the same job can never land on the board twice.
 
 ### Which tier your run earns
 

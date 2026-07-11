@@ -61,8 +61,8 @@ const fmtModel = (m) => {
   return i < 0 ? escH(s) : `<span class="morg">${escH(s.slice(0, i + 1))}</span>${escH(s.slice(i + 1))}`;
 };
 // fixed capability set shown as boxes in every row (available ones highlighted)
-const CAP_SET = ["Vision", "Audio", "Tool Calling", "Reasoning", "Coding", "Math", "Instruction", "Uncensored"];
-const CAP_ABBR = { Vision: "VIS", Audio: "AUD", "Tool Calling": "TOOL", Reasoning: "RSN",
+const CAP_SET = ["Vision", "Video", "Audio", "Tool Calling", "Reasoning", "Coding", "Math", "Instruction", "Uncensored"];
+const CAP_ABBR = { Vision: "VIS", Video: "VID", Audio: "AUD", "Tool Calling": "TOOL", Reasoning: "RSN",
   Coding: "CODE", Math: "MATH", Instruction: "INST", Uncensored: "UNC" };
 
 const BOARDS = {
@@ -70,6 +70,8 @@ const BOARDS = {
             speed: [["avg_decode_tps", "tok/s", fmtTps], ["avg_ttft_ms", "TTFT", fmtDur]], coverage: false },
   vision: { suite: "/api/vision/suite", lb: "/api/vision/leaderboard", runs: "/api/vision/runs",
             speed: [["avg_ttft_after_image_ms", "img TTFT", fmtDur], ["avg_decode_tps", "tok/s", fmtTps]], coverage: true },
+  video:  { suite: "/api/video/suite",  lb: "/api/video/leaderboard",
+            speed: [["avg_ttft_after_video_ms", "vid TTFT", fmtDur], ["avg_decode_tps", "tok/s", fmtTps]], coverage: true },
   audio:  { audio: true },
 };
 let active = "text";
@@ -77,7 +79,7 @@ let active = "text";
 // — the true global ranking. Default off so local runs stay visible (clearly badged) and the
 // board is never bare; the toggle flips to the pure verified view.
 let verifiedOnly = false;
-const ST = { text: {}, vision: {}, audio: {}, harness: {} };
+const ST = { text: {}, vision: {}, video: {}, audio: {}, harness: {} };
 let HARNESS = null;   // cached /api/harness_board (model × harness matrix)
 // client-side model->meta cache (creator/org card + avatar), so the board fetches
 // each model's metadata at most once. Values: "pending" (Promise) or the meta dict.
@@ -863,7 +865,8 @@ function renderRanking(rows) {
 async function loadRanking() { try { const r = await api("/api/arena/ranking?kind=" + ARENA.kind); renderRanking(r.ranking); } catch (e) {} }
 
 // ---- Code Gallery (public: top-rated artifacts per prompt + full-source download) ----
-const GAL = { kind: "game", filter: "", data: null };
+// counts: artifact totals per kind, cached as each kind loads (badge on the kind plates)
+const GAL = { kind: "game", filter: "", data: null, counts: {} };
 const GAL_KINDS = [["game", "Games"], ["app", "Apps"], ["animation", "Animations"]];
 
 function setGallery() {
@@ -878,9 +881,14 @@ function setGallery() {
   loadGallery(GAL.kind);
 }
 
+// Kind selector: big machined segment plates (chamfered, mono-engraved), not generic chips.
+// Count badges appear per kind once that kind has loaded at least once (GAL.counts cache).
 function renderGalKinds() {
-  $("#galKinds").innerHTML = GAL_KINDS.map(([k, label]) =>
-    `<button class="chip gal-kind${GAL.kind === k ? " on" : ""}" data-kind="${k}">${label}</button>`).join("");
+  $("#galKinds").innerHTML = GAL_KINDS.map(([k, label]) => {
+    const on = GAL.kind === k, n = GAL.counts[k];
+    return `<button class="gal-kind${on ? " on" : ""}" data-kind="${k}" aria-pressed="${on ? "true" : "false"}">` +
+      `${label}${n != null ? `<span class="gal-kind-n">${n}</span>` : ""}</button>`;
+  }).join("");
   $$("#galKinds .gal-kind").forEach((b) => b.onclick = () => {
     GAL.kind = b.dataset.kind; renderGalKinds(); loadGallery(GAL.kind);
   });
@@ -898,6 +906,9 @@ async function loadGallery(kind) {
   }
   if (GAL.kind !== kind) return;                   // sub-tab changed while loading — abandon
   GAL.data = d;
+  // cache this kind's artifact total for the selector badge (cheap: already in the payload)
+  GAL.counts[kind] = (d.prompts || []).reduce((n, p) => n + (p.artifacts || []).length, 0);
+  renderGalKinds();
   renderGallery(d);
 }
 
@@ -2048,6 +2059,8 @@ async function loadRunCompare(a, b) {
   renderRunCompare();
 }
 
+// A/B head plates: a FIXED grid row template (model / composite / trust / recipe chips / meta)
+// so both plates keep every metric at the same y — symmetry is structural, not content-driven.
 function _cmpHead(side, s, otherComp) {
   const r = s.run || {}, rp = s.reproduction || {};
   const comp = s.composite;
@@ -2055,14 +2068,45 @@ function _cmpHead(side, s, otherComp) {
   const cats = Object.entries(s.categories || {}).map(([c, v]) =>
     `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
   const spec = rp.spec_decode ? ` · spec ${escH(rp.spec_decode)}` : "";
-  return `<div class="cmp2-head${win ? " win" : ""}">
+  const trust = r.trust_tier
+    ? `<span class="cmp2-trust-chip t-${escA(r.trust_tier)}">${r.trust_tier === "attested" ? "✓ " : ""}${escH(r.trust_tier)}</span>`
+    : `<span class="cmp2-trust-chip">local-only</span>`;
+  return `<div class="cmp2-head side-${side === "A" ? "a" : "b"}${win ? " win" : ""}">
     <div class="cmp2-side">${side}</div>
     <div class="cmp2-model">${fmtModel(r.model || "?")}</div>
     <div class="cmp2-comp ${comp == null ? "" : comp >= 80 ? "pass" : comp >= 40 ? "part" : "fail"}">${comp != null ? comp.toFixed(1) : "—"}</div>
+    <div class="cmp2-trust">${trust}</div>
     <div class="cmp2-cats">${cats}</div>
-    <div class="note" style="text-align:left">run <span class="mono">${escH(r.id || "")}</span> · ${r.started_at ? fmtDT(r.started_at) : "—"}<br>
+    <div class="cmp2-meta note">run <span class="mono">${escH(r.id || "")}</span> · ${r.started_at ? fmtDT(r.started_at) : "—"}<br>
       engine <b>${escH(rp.engine || "—")}</b>${spec}${rp.hardware_detected ? ` · ${escH(rp.hardware_detected)}` : ""}</div>
   </div>`;
+}
+
+// The difference-forward view: a mirrored per-category bar pair ("butterfly"). A grows LEFT
+// from the shared center axis (cyan), B grows RIGHT (magenta), same 0-100 scale, the delta
+// printed in the middle in the winner's hue. Pure div bars — no chart lib.
+function _cmpButterfly(d) {
+  const A = (d.a && d.a.categories) || {}, B = (d.b && d.b.categories) || {};
+  const cats = [...new Set([...Object.keys(A), ...Object.keys(B)])].sort();
+  if (!cats.length) return "";
+  const rows = cats.map((c) => {
+    const av = A[c], bv = B[c];
+    const dl = av != null && bv != null ? av - bv : null;
+    const dTxt = dl == null ? "—"
+      : Math.abs(dl) < 0.05 ? "="
+      : dl > 0 ? `◄ +${Math.abs(dl).toFixed(1)}` : `+${Math.abs(dl).toFixed(1)} ►`;
+    const dCls = dl == null || Math.abs(dl) < 0.05 ? " even" : dl > 0 ? " a" : " b";
+    return `<div class="fly-row">
+      <div class="fly-cell fly-a" title="A · ${escA(c)}: ${av == null ? "—" : av.toFixed(1)}">
+        <span class="fly-val">${av == null ? "—" : av.toFixed(1)}</span><i style="width:${av == null ? 0 : Math.min(100, av)}%"></i></div>
+      <div class="fly-mid"><span class="fly-cat">${escH(c)}</span><span class="fly-delta${dCls}">${dTxt}</span></div>
+      <div class="fly-cell fly-b" title="B · ${escA(c)}: ${bv == null ? "—" : bv.toFixed(1)}">
+        <i style="width:${bv == null ? 0 : Math.min(100, bv)}%"></i><span class="fly-val">${bv == null ? "—" : bv.toFixed(1)}</span></div>
+    </div>`;
+  }).join("");
+  return `<div class="cmp2-fly">
+    <div class="fly-h"><span class="fly-side a">◄ A</span><span class="fly-t">category delta — shared axis, same scale</span><span class="fly-side b">B ►</span></div>
+    ${rows}</div>`;
 }
 
 function renderRunCompare() {
@@ -2091,16 +2135,22 @@ function renderRunCompare() {
   };
   const body = rows.map((c) => {
     const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(diffLabel(c.difficulty))}</span>` : "";
+    // per-case delta SPINE: the score gap as a centered badge between the two cells,
+    // pointing at (and tinted in) the winner's hue — not just an edge marker.
     const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
-    const edge = delta > 0 ? `<span class="cmp2-edge a">◄ A</span>` : delta < 0 ? `<span class="cmp2-edge b">B ►</span>` : "";
+    const dv = Math.round(Math.abs(delta) * 100);
+    const spine = delta > 0 ? `<span class="cmp2-delta a" title="A leads by ${dv}">◄ +${dv}</span>`
+      : delta < 0 ? `<span class="cmp2-delta b" title="B leads by ${dv}">+${dv} ►</span>`
+      : `<span class="cmp2-delta even" title="even">=</span>`;
     return `<div class="cmp2-case">
-      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}${edge}</div>
+      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}</div>
       <div class="sub-q"><b>asked:</b> ${escH((c.prompt || "").slice(0, 700))}</div>
-      <div class="cmp2-grid">${cell(c.a)}${cell(c.b)}</div>
+      <div class="cmp2-grid">${cell(c.a)}<div class="cmp2-spine">${spine}</div>${cell(c.b)}</div>
     </div>`;
   }).join("") || `<p class="board-empty">No cases match these filters.</p>`;
   $("#cmpBody").innerHTML =
     `<div class="cmp2-heads">${_cmpHead("A", d.a, (d.b || {}).composite)}${_cmpHead("B", d.b, (d.a || {}).composite)}</div>` +
+    _cmpButterfly(d) +
     filters + `<div class="cmp2-cases">${body}</div>`;
   const cc = $("#c2Cat"); if (cc) cc.onchange = () => { CMP.runFilters.cat = cc.value; renderRunCompare(); };
   const cd = $("#c2Diff"); if (cd) cd.onchange = () => { CMP.runFilters.diff = cd.value; renderRunCompare(); };
@@ -2141,14 +2191,25 @@ function renderCompare(d) {
     : v <= 0.001 ? `<td class="num cmp-q fail">✗</td>`
     : `<td class="num cmp-q part">${Math.round(v * 100)}</td>`;   // same 0-100 grammar as every score
   const cHead = `<tr><th>tier</th><th>question</th>` + ms.map((m) => `<th class="num">${escH(m.model.split("/").pop())}</th>`).join("") + `</tr>`;
-  const cRows = d.cases.map((c) =>
+  // "differences only" (mirrors #c2Only on run-vs-run): hide questions every model scored the same
+  const only = !!CMP.seedDiffsOnly;
+  const differs = (c) => {
+    const vs = ms.map((m) => c.scores[m.model]);
+    return new Set(vs.map((v) => (v == null ? "na" : Math.round(v * 1000)))).size > 1;
+  };
+  const shown = only ? d.cases.filter(differs) : d.cases;
+  const cRows = shown.map((c) =>
     `<tr><td class="cmp-diff t-${escA(c.difficulty || "")}">${escH(diffLabel(c.difficulty || ""))}</td>` +
     `<td class="cmp-cid mono" title="${escA(c.category + " · " + c.case_id)}">${escH(c.case_id)}</td>` +
-    ms.map((m) => mark(c.scores[m.model])).join("") + `</tr>`).join("");
+    ms.map((m) => mark(c.scores[m.model])).join("") + `</tr>`).join("")
+    || `<tr><td colspan="${ms.length + 2}" style="color:var(--muted)">No differences — every model scored these questions identically.</td></tr>`;
   const caseTbl = `<table class="cmp-tbl cmp-cases"><thead>${cHead}</thead><tbody>${cRows}</tbody></table>`;
+  const onlyCtl = `<label class="c2-only"><input type="checkbox" id="cmpSeedOnly"${only ? " checked" : ""}> differences only</label>`;
   $("#cmpBody").innerHTML =
-    `<div class="cmp-sec"><h3>By category <span class="note">— bold = leads that category</span></h3>${catTbl}</div>` +
-    `<div class="cmp-sec"><h3>By question <span class="note">— ✓ correct · ✗ wrong · all models got the SAME ${d.cases.length} questions</span></h3>${caseTbl}</div>`;
+    `<div class="cmp-sec"><h3>By category <span class="note">— ▸ leads that category</span></h3>${catTbl}</div>` +
+    `<div class="cmp-sec"><h3>By question <span class="note">— ✓ correct · ✗ wrong · all models got the SAME ${d.cases.length} questions${only ? ` · showing ${shown.length} with differences` : ""}</span> ${onlyCtl}</h3>${caseTbl}</div>`;
+  const so = $("#cmpSeedOnly");
+  if (so) so.onchange = () => { CMP.seedDiffsOnly = so.checked; renderCompare(CMP.data); };
 }
 
 // ---- Live benchmark view: watch a RUNNING controlled run (per-category progress + prompt/answer feed) ----
@@ -2286,7 +2347,7 @@ function teleStrip(t, j) {
   const sv = t.serve || {};
   // red only when the engine SHOULD be up: it already spoke (serve_phase) or the bench is past it.
   // 'submitting' excluded — the final submit can outlive a torn-down engine, that's normal.
-  const expectUp = j && (["benchmarking", "vision", "audio", "arena", "harness", "perf"].includes(j.stage)
+  const expectUp = j && (["benchmarking", "vision", "audio", "video", "arena", "harness", "perf"].includes(j.stage)
     || (j.stage === "serving" && j.serve_phase));
   const cls = sv.running ? "up" : expectUp ? "down" : "idle";
   const label = sv.running
@@ -2394,6 +2455,7 @@ async function setRun() {
   await loadFrontierModels();
   await loadEngines();
   await loadLaunches();
+  loadChampions();      // NOT awaited: an offline mothership must never stall the Run tab
   await pollJobs();
   if (RUN.jobsTimer) clearInterval(RUN.jobsTimer);
   RUN.jobsTimer = setInterval(() => {                // refresh job progress while the tab is active
@@ -2544,6 +2606,8 @@ function applyLaunchParams(p, statusMsg) {
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
   set("#tuneServeCmd", p.serve_cmd);
+  // explicit modality toggles replay once the re-validation below repopulates the chips
+  RUN.tplMods = Array.isArray(p.modalities) ? p.modalities : null;
   if (p.engine && $("#veEngine")) {
     $("#veEngine").value = p.engine;
     RUN.enginePinned = true;                          // a template IS an explicit engine choice —
@@ -2607,6 +2671,9 @@ function _restoreTuneBody(vals) {
   });
 }
 
+// The DOM id of a flag's card (used by the failed-job "check these toggles" chips)
+function _tuneCardId(flag) { return "card_tf_" + String(flag).replace(/[^a-z0-9]/gi, "_"); }
+
 function renderTune(e) {
   const wrap = $("#tuneWrap"), body = $("#tuneBody");
   if (!wrap || !body) return;
@@ -2617,34 +2684,86 @@ function renderTune(e) {
   const sameEngine = !!e && RUN.tuneEngine === e.id;
   const keep = sameEngine ? _tuneBodyValues() : null;
   RUN.tuneEngine = e ? e.id : null;
+  RUN.tuneFlags = flags;                               // catalog defs: conflict eval + hint linking
   wrap.hidden = !flags.length;                         // bare engines (MLX/LM Studio): no knob grammar yet
   if (!flags.length) { body.innerHTML = ""; updateTuneCount(); return; }
-  body.innerHTML = flags.map((f) => {
-    const id = "tf_" + f.flag.replace(/[^a-z0-9]/gi, "_");
-    let ctl;
-    if (f.kind === "enum") {
-      ctl = `<select id="${id}" data-flag="${escA(f.flag)}" data-kind="enum">
-        <option value="">— engine default —</option>` +
-        f.options.map((o) => `<option value="${escA(o)}">${escH(o)}</option>`).join("") + `</select>`;
-    } else if (f.kind === "bool") {
-      ctl = `<label class="tune-bool"><input type="checkbox" id="${id}" data-flag="${escA(f.flag)}" data-kind="bool"> on</label>`;
-    } else if (f.kind === "number") {
-      ctl = `<input type="number" id="${id}" data-flag="${escA(f.flag)}" data-kind="number"` +
-        (f.step ? ` step="${f.step}"` : "") + (f.min != null ? ` min="${f.min}" data-min="${f.min}"` : "") +
-        (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
-    } else {
-      ctl = `<input type="text" id="${id}" data-flag="${escA(f.flag)}" data-kind="string" spellcheck="false"` +
-        (f.default != null ? ` placeholder="${escA(String(f.default))}"` : "") + `>`;
-    }
-    return `<div class="tune-row" title="${escA(f.note || "")}">
-      <span class="tune-k">${escH(f.label)} <span class="mono tune-f">${escH(f.flag)}</span></span>
-      ${ctl}<span class="tune-n">${escH(f.note || "")}</span></div>`;
-  }).join("");
+  // Every flag is its own machined CARD in a balanced grid: engraved name + mono flag literal,
+  // the control (same data-flag/data-kind serialization — collectServeFlags is untouched),
+  // a one-line description, a PROS/CONS pair, and a live amber conflict strip.
+  body.innerHTML =
+    `<div class="tune-sec-h">engine flags — ${escH(e.name || e.id)}</div>` +
+    flags.map((f) => {
+      const id = "tf_" + f.flag.replace(/[^a-z0-9]/gi, "_");
+      let ctl;
+      if (f.kind === "enum") {
+        ctl = `<select id="${id}" data-flag="${escA(f.flag)}" data-kind="enum">
+          <option value="">— engine default —</option>` +
+          f.options.map((o) => `<option value="${escA(o)}">${escH(o)}</option>`).join("") + `</select>`;
+      } else if (f.kind === "bool") {
+        ctl = `<label class="tune-bool"><input type="checkbox" id="${id}" data-flag="${escA(f.flag)}" data-kind="bool"> on</label>`;
+      } else if (f.kind === "number") {
+        ctl = `<input type="number" id="${id}" data-flag="${escA(f.flag)}" data-kind="number"` +
+          (f.step ? ` step="${f.step}"` : "") + (f.min != null ? ` min="${f.min}" data-min="${f.min}"` : "") +
+          (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
+      } else {
+        ctl = `<input type="text" id="${id}" data-flag="${escA(f.flag)}" data-kind="string" spellcheck="false"` +
+          (f.default != null ? ` placeholder="${escA(String(f.default))}"` : "") + `>`;
+      }
+      const pc = (f.pros || f.cons)
+        ? `<div class="tune-pc">${f.pros ? `<span class="tune-pro">${escH(f.pros)}</span>` : ""}` +
+          `${f.cons ? `<span class="tune-con">${escH(f.cons)}</span>` : ""}</div>` : "";
+      return `<div class="tune-card chamfer-card" id="${_tuneCardId(f.flag)}" data-cardflag="${escA(f.flag)}" title="${escA(f.note || "")}">
+        <div class="tune-card-h"><span class="tune-k">${escH(f.label)}</span><span class="mono tune-f">${escH(f.flag)}</span></div>
+        ${ctl}
+        <p class="tune-desc">${escH(f.desc || f.note || "")}</p>
+        ${pc}
+        <div class="tune-warn" hidden></div>
+      </div>`;
+    }).join("");
   body.querySelectorAll("[data-flag]").forEach((el) => {
     el.oninput = updateTuneCount; el.onchange = updateTuneCount;
   });
   if (keep) _restoreTuneBody(keep);
   updateTuneCount();
+  renderTuneAlert(RUN.jobs);              // re-apply the implicated-flag highlight after a rebuild
+}
+
+// ---- LIVE CONFLICT SURFACING: a flag whose catalog "conflicts" entry matches the validated
+// model / selected engine / host platform (and, when value_re gates it, the control's current
+// value) gets an amber warning strip + border. Never a hard-disable — operator freedom.
+
+function _conflictTargets() {
+  const model = (RUN.val && (RUN.val.repo || "")) || ($("#hfLink") ? $("#hfLink").value.trim() : "");
+  return { model, plat: (RUN.engines && RUN.engines.platform) || {}, engine: RUN.tuneEngine || "" };
+}
+
+function _conflictHits(f, el, tgt) {
+  const val = !el ? "" : el.dataset.kind === "bool" ? (el.checked ? "on" : "") : (el.value || "");
+  return (f.conflicts || []).filter((c) => {
+    try {
+      let hit = false;
+      if (c.model_re) hit = !!tgt.model && new RegExp(c.model_re, "i").test(tgt.model);
+      else if (c.engine_re) hit = !!tgt.engine && new RegExp(c.engine_re, "i").test(tgt.engine);
+      else if (c.platform) hit = tgt.plat[c.platform] === true
+        || tgt.plat.accel === c.platform || tgt.plat.os === c.platform;
+      if (hit && c.value_re) hit = !!val && new RegExp(c.value_re, "i").test(val);
+      return hit;
+    } catch (err) { return false; }                    // a bad regex in the catalog never breaks the panel
+  });
+}
+
+function evalTuneConflicts() {
+  const tgt = _conflictTargets();
+  (RUN.tuneFlags || []).forEach((f) => {
+    const card = document.getElementById(_tuneCardId(f.flag)); if (!card) return;
+    const hits = _conflictHits(f, card.querySelector("[data-flag]"), tgt);
+    const warn = card.querySelector(".tune-warn");
+    if (warn) {
+      warn.hidden = !hits.length;
+      warn.innerHTML = hits.map((c) => `⚠ ${escH(c.why || "risky with this model / host")}`).join("<br>");
+    }
+    card.classList.toggle("conflict", !!hits.length);
+  });
 }
 
 // minimal quote-aware tokenizer for the freeform extras (JSON values carry spaces)
@@ -2730,6 +2849,7 @@ function updateTuneCount() {
   const n = (collectServeFlags() || []).filter((t) => t.startsWith("-")).length;
   c.hidden = !n;
   c.textContent = n ? `${n} override${n > 1 ? "s" : ""} active` : "";
+  evalTuneConflicts();                     // value_re-gated conflicts follow every control change
 }
 
 // The bare-metal serve helper (MLX / LM Studio): exact startup commands, per engine — what the
@@ -2956,6 +3076,58 @@ function valRender(st) {
   // FAMILY BEST-PRACTICE PRESET row: when validation detected a model family, offer a one-click
   // recipe fill (editable afterward). Rendered as its own strip below the validation message.
   renderPresetRow(st.family_preset);
+  evalTuneConflicts();                     // model identity changed — re-check model_re conflicts
+  // MODALITIES chips: populated once the repo resolved (config-declared modalities), hidden
+  // while validation is idle/failed/in flight.
+  renderModChips((s === "validated" || s === "resolved") ? (st.modalities || ["text"]) : null);
+}
+
+// ---- MODALITY toggles (VISION / AUDIO / VIDEO) -------------------------------------------
+// Auto-populated from the validate response's config-declared modalities (lit = declared);
+// each chip is toggleable so an operator can FORCE-ENABLE a modality the config hides (config
+// lies) or DISABLE a flaky one. Untouched chips send nothing — the pod keeps its auto,
+// probe-gated default; any click switches the launch to an explicit --modalities list.
+
+function renderModChips(mods) {
+  const row = $("#modRow"); if (!row) return;
+  if (!mods) { row.hidden = true; RUN.mods = null; RUN.modsTouched = false; return; }
+  RUN.mods = { vision: mods.includes("vision"), audio: mods.includes("audio"),
+               video: mods.includes("video") };
+  RUN.modsTouched = false;
+  if (Array.isArray(RUN.tplMods)) {                    // a template carried explicit toggles
+    RUN.mods = { vision: RUN.tplMods.includes("vision"), audio: RUN.tplMods.includes("audio"),
+                 video: RUN.tplMods.includes("video") };
+    RUN.modsTouched = true;
+    RUN.tplMods = null;
+  }
+  row.hidden = false;
+  syncModChips();
+}
+
+function syncModChips() {
+  $$("#modRow .mod-chip").forEach((b) => {
+    const on = !!(RUN.mods && RUN.mods[b.dataset.mod]);
+    b.classList.toggle("on", on);
+    b.title = `${b.dataset.mod} suite ${on ? "RUNS (still capability-probed at run time)"
+      : "is SKIPPED"} — click to toggle`;
+  });
+  const note = $("#modNote");
+  if (note) note.textContent = RUN.modsTouched
+    ? "operator override — sent with the launch"
+    : "auto-detected from the model config · probe-gated at run time · click to override";
+}
+
+function toggleModChip(mod) {
+  if (!RUN.mods) return;
+  RUN.mods[mod] = !RUN.mods[mod];
+  RUN.modsTouched = true;
+  syncModChips();
+}
+
+// null = untouched (the pod auto-detects, probe-gated); a list = explicit toggles ([] = all off)
+function modalitiesPayload() {
+  if (!RUN.mods || !RUN.modsTouched) return null;
+  return ["vision", "audio", "video"].filter((m) => RUN.mods[m]);
 }
 
 // "Apply best-performing template": if THIS model was benched before on this pod, offer the
@@ -3016,6 +3188,96 @@ function renderPresetRow(fp) {
     runStatus(`applied the ${fp.label} best-practice recipe to Recipe Tuning — edit any flag before launch`, "ok");
     if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ block: "nearest" });
   };
+}
+
+// ---- CHAMPION RECIPES: the mothership's winning recipe per model on THIS hardware -------------
+// The pod proxies /api/pod/recipes/champions -> mothership /api/recipes/champions filtered to its
+// detected hardware label (a DGX Spark pod sees what won on a DGX Spark). Applying one fills the
+// same controls the family-preset chip fills (engine, Recipe Tuning, spec decode) — then the user
+// tweaks freely. Offline/empty degrades to a muted note; the Run tab never depends on the network.
+
+async function loadChampions() {
+  if (RUN.champs === undefined) {                      // once per page load — no repeat 5s stalls offline
+    RUN.champs = null;                                 // in flight
+    let d = null;
+    try { d = await api("/api/pod/recipes/champions", { headers: podHeaders() }); } catch (e) { d = null; }
+    RUN.champs = (d && d.available && d.champions) || [];
+    RUN.champHw = (d && d.hardware) || null;
+  }
+  renderChampRow();
+}
+
+function renderChampRow() {
+  const row = $("#champRow"); if (!row) return;
+  const list = RUN.champs || [];
+  row.hidden = false;
+  const hwEl = $("#champHw");
+  if (hwEl) hwEl.textContent = "best on " + (RUN.champHw || "your hardware");
+  const sel = $("#champSel"), btn = $("#champApply"), prov = $("#champProv");
+  if (!list.length) {                                  // empty OR fetch failed: same muted state
+    if (sel) { sel.hidden = true; sel.innerHTML = ""; }
+    if (btn) btn.hidden = true;
+    if (prov) prov.innerHTML = `<span class="champ-empty">no champion recipes for this hardware yet</span>`;
+    return;
+  }
+  if (sel) {
+    sel.hidden = false; sel.disabled = false;
+    sel.innerHTML = list.map((c, i) => {
+      const bits = [(c.model || c.canonical || "?").split("/").pop().slice(0, 44), c.engine || "engine?"];
+      if (c.peak_agg_tps != null) bits.push(Math.round(c.peak_agg_tps) + " tok/s");
+      if (c.quality != null) bits.push("quality " + Number(c.quality).toFixed(1));
+      if (c.drafter) bits.push("DFlash");
+      return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
+    }).join("");
+  }
+  if (btn) { btn.hidden = false; btn.disabled = false; }
+  renderChampProv();
+}
+
+function renderChampProv() {
+  const prov = $("#champProv"); if (!prov) return;
+  const i = +(($("#champSel") && $("#champSel").value) || 0);
+  const c = (RUN.champs || [])[i];
+  if (!c) { prov.innerHTML = ""; return; }
+  const when = c.started_at ? new Date(c.started_at * 1000).toISOString().slice(0, 10) : "";
+  const cell = c.peak_agg_cell ? ` (${c.peak_agg_cell.category} @ c${c.peak_agg_cell.conc})` : "";
+  const bits = [`run ${c.run || "?"}`];
+  if (when) bits.push(when);
+  if (c.peak_agg_tps != null) bits.push(`${Math.round(c.peak_agg_tps)} tok/s peak${cell}`);
+  if (c.quality != null) bits.push(`quality ${Number(c.quality).toFixed(1)}`);
+  if (c.trust_tier) bits.push(c.trust_tier);
+  if (c.drafter && c.drafter.repo) bits.push(`DFlash ${c.drafter.repo}${c.drafter.n ? " n=" + c.drafter.n : ""}`);
+  prov.innerHTML = escH(bits.join(" · "));
+}
+
+function applyChampion() {
+  const i = +(($("#champSel") && $("#champSel").value) || 0);
+  const ch = (RUN.champs || [])[i]; if (!ch) return;
+  // engine first — switching re-renders the tuning catalog the flags land in
+  const es = $("#veEngine");
+  if (ch.engine && es && [...es.options].some((o) => o.value === ch.engine && !o.disabled)) {
+    es.value = ch.engine;
+    RUN.enginePinned = true;                           // a champion IS an explicit engine choice
+    engineChanged();
+  }
+  const wrap = $("#tuneWrap");
+  if (wrap) wrap.open = true;                          // reveal Recipe Tuning
+  if ($("#tuneBody") && $("#tuneBody").children.length === 0) engineChanged();  // render the catalog first
+  // custom image only when the champion ran a non-catalog image
+  const e = curEngine();
+  if ($("#veImage")) $("#veImage").value = (ch.image && (!e || e.image !== ch.image)) ? ch.image : "";
+  // serve flags -> the data-flag controls (+ extras for unknowns) + --speculative-config -> spec block
+  applyServeFlags(ch.serve_flags || []);
+  if (ch.drafter && ch.drafter.repo && $("#drafterHf")) {
+    $("#drafterHf").value = ch.drafter.repo;           // hash-validated like the model at launch
+    validateDrafter();
+  }
+  // a champion is a per-model recipe: offer its model when the user hasn't picked one yet
+  const hl = $("#hfLink");
+  if (hl && ch.hf_repo && !hl.value.trim()) { hl.value = ch.hf_repo; delete hl.dataset.auto; scheduleValidate(); }
+  runStatus(`applied the ${RUN.champHw || "hardware"} champion recipe for ` +
+    `${(ch.model || "?").split("/").pop()} (run ${ch.run || "?"}) — tweak anything, then Launch`, "ok");
+  if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ block: "nearest" });
 }
 
 function renderKeys() {
@@ -3169,6 +3431,7 @@ async function runHfVerified() {
       temperature: tempValue(),                          // 0 = greedy/deterministic (default)
       pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
       restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
+      modalities: modalitiesPayload(),                   // null = auto; list = MODALITIES chips
       ..._validatedExtras() }, "#hfLaunch");
 }
 
@@ -3200,7 +3463,7 @@ const JOB_STAGE = { queued: "queued", starting: "starting", resolving: "resolvin
 
 async function pollJobs() {
   let d; try { d = await api("/api/pod/jobs", { headers: podHeaders() }); } catch (e) { return; }
-  renderJobs((d && d.jobs) || []);
+  renderJobs((d && d.jobs) || [], (d && d.pending) || []);
 }
 
 let JOB_STAGES = {};   // job id -> last seen stage (drives the departures-board flash)
@@ -3220,9 +3483,74 @@ function stageStrip(j) {
   }).join("") + `</div>`;
 }
 
-function renderJobs(jobs) {
-  const box = $("#runJobs"); if (!box) return;
-  if (!jobs.length) { box.innerHTML = ""; return; }
+// ---- FAILED-BENCH TROUBLESHOOTING: link the diagnosed hint back to the exact tuning card ----
+
+// Which catalog flags a diagnosis hint implicates: every current-engine flag whose literal name
+// (sans leading dashes) appears in the hint text — the diagnostics table always names its
+// related flag in prose ("set kv-cache-dtype = auto", "lower gpu-memory-utilization", …).
+// Drafter / spec-decode failures implicate the SPEC DECODE block instead.
+function _hintFlags(hint) {
+  const t = String(hint || "");
+  if (!t) return [];
+  const out = [];
+  (RUN.tuneFlags || []).forEach((f) => {
+    const name = String(f.flag).replace(/^-+/, "");
+    if (name.length < 2) return;                       // "-c": too short to match safely
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp("(^|[^a-z0-9])" + esc + "($|[^a-z0-9])", "i").test(t)) out.push(f.flag);
+  });
+  if (/drafter|dflash|speculative/i.test(t)) out.push("--speculative-config");
+  return [...new Set(out)];
+}
+
+// Scroll to + pulse the tuning card for a flag (the spec block for --speculative-config).
+function focusTuneCard(flag) {
+  const wrap = $("#tuneWrap"); if (wrap) wrap.open = true;
+  const el = flag === "--speculative-config"
+    ? $("#tuneSpec") : document.getElementById(_tuneCardId(flag));
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.remove("pulse"); void el.offsetWidth;   // restart the pulse animation
+  el.classList.add("pulse");
+  setTimeout(() => el.classList.remove("pulse"), 2600);
+}
+
+// The last-failed-bench banner INSIDE the tuning panel — troubleshooting lives where the fix
+// happens. Shows the newest job's failure hint (dismissible, per job id) and highlights the
+// implicated cards amber; a newer successful run clears it naturally.
+function renderTuneAlert(jobs) {
+  const box = $("#tuneAlert"); if (!box) return;
+  const latest = (jobs || []).find((x) => x.status === "done"
+    || ((x.status === "error" || x.stage === "verify_failed") && x.hint));
+  const failed = latest && latest.status !== "done" ? latest : null;
+  const flags = failed ? _hintFlags(failed.hint) : [];
+  $$("#tuneBody .tune-card").forEach((c) =>
+    c.classList.toggle("implicated", flags.includes(c.dataset.cardflag)));
+  { const sp = $("#tuneSpec");
+    if (sp) sp.classList.toggle("implicated", flags.includes("--speculative-config")); }
+  if (!failed || RUN.tuneAlertDismissed === failed.id) {
+    box.hidden = true; box.innerHTML = ""; return;
+  }
+  box.hidden = false;
+  box.innerHTML = `<span class="tune-alert-t">⚠ last bench failed</span>` +
+    `<span class="tune-alert-msg">${escH(failed.hint)}${flags.length ? " — implicated flag highlighted below" : ""}</span>` +
+    (flags.length ? `<span class="tune-alert-flags">${flags.map((fl) =>
+      `<button class="tune-flag-chip" data-flag="${escA(fl)}">${escH(fl)}</button>`).join("")}</span>` : "") +
+    `<button class="tune-alert-x" title="dismiss">✕</button>`;
+  box.querySelector(".tune-alert-x").onclick = () => {
+    RUN.tuneAlertDismissed = failed.id; renderTuneAlert(RUN.jobs);
+  };
+  box.querySelectorAll(".tune-flag-chip").forEach((b) =>
+    b.onclick = () => focusTuneCard(b.dataset.flag));
+}
+
+function renderJobs(jobs, pending) {
+  RUN.jobs = jobs;                          // renderTune re-applies implicated marks from here
+  pending = pending || [];
+  const box = $("#runJobs"); if (!box) { renderTuneAlert(jobs); return; }
+  renderTuneAlert(jobs);
+  if (!jobs.length && !pending.length) { box.innerHTML = ""; return; }
+  const isPod = CFG.role === "pod";              // submit/resume are POD-only affordances
   box.innerHTML = `<h4 class="live-feed-h">recent runs</h4>` + jobs.map((j) => {
     const stg = JOB_STAGE[j.stage] || j.stage || j.status;
     const cls = j.status === "done" ? "ok" : (j.status === "error" || j.stage === "verify_failed") ? "err"
@@ -3230,10 +3558,25 @@ function renderJobs(jobs) {
     const kindB = j.kind === "verified" ? `<span class="elig-badge verified">✓ verified</span>` : `<span class="tag">endpoint</span>`;
     const live = (j.run_id && j.status === "running") ? `<button class="ghost job-live">● Live</button>` : "";
     const stop = (j.status === "running" || j.status === "queued") ? `<button class="ghost job-stop" data-id="${escA(j.id)}">stop</button>` : "";
+    // interrupted (stopped / died mid-bench) with intact local results -> continue in place
+    const resume = (isPod && j.resumable && (j.status === "stopped" || j.status === "error"))
+      ? `<button class="ghost job-resume" data-id="${escA(j.id)}">⟲ RESUME</button>` : "";
     const err = j.error ? `<div class="note job-err">${escH(j.error)}</div>` : "";
     // engine-error DIAGNOSIS: a plain-language "what to change in your recipe" hint parsed from
     // the failure log (names the exact custom flag when one caused it).
     const hint = j.hint ? `<div class="job-hint"><b>▸ fix</b> ${escH(j.hint)}</div>` : "";
+    // …and the diagnosed hint linked back to the exact RECIPE TUNING cards it implicates
+    const hf = j.hint ? _hintFlags(j.hint) : [];
+    const toggles = hf.length ? `<div class="job-flags"><span class="job-flags-t">⚠ check these toggles</span>` +
+      hf.map((fl) => `<button class="tune-flag-chip" data-flag="${escA(fl)}" title="scroll to this flag in RECIPE TUNING">${escH(fl)}</button>`).join("") + `</div>` : "";
+    // finished-but-unsubmitted (mothership/network down at submit time): the results are safe
+    // in pod.db + pending_submits — one BIG button pushes them up, idempotently (job_sig dedup).
+    const submitB = (isPod && j.submit_state === "pending_submit")
+      ? `<div class="job-submit-row"><button class="primary job-submit" data-id="${escA(j.id)}">⬆ SUBMIT TO MOTHERSHIP</button></div>` : "";
+    const dup = j.submit_state === "duplicate"
+      ? `<div class="note job-dup">✓ job already submitted and available on the Mothership</div>` : "";
+    const incomplete = j.submit_state === "incomplete"
+      ? `<div class="note job-err">incomplete bench — not submitted; ⟲ RESUME to finish the remaining cases</div>` : "";
     const flash = JOB_STAGES[j.id] !== undefined && JOB_STAGES[j.id] !== j.stage ? " stage-flash" : "";
     JOB_STAGES[j.id] = j.stage;
     return `<div class="job-row${flash}">
@@ -3243,10 +3586,24 @@ function renderJobs(jobs) {
       ${j.serve_phase && j.stage === "serving" ? `<span class="tag tele-phase">${escH(j.serve_phase)}</span>` : ""}
       ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
       ${j.difficulty ? `<span class="tag">${escH(diffLabel(j.difficulty))}</span>` : ""}
-      ${live}${stop}${stageStrip(j)}${err}${hint}</div>`;
-  }).join("");
+      ${live}${stop}${resume}${stageStrip(j)}${err}${hint}${toggles}${incomplete}${dup}${submitB}</div>`;
+  }).join("")
+  // Unsubmitted-results cards: persisted sessions with no in-memory job — they survive a pod
+  // restart, so a bench completed while the mothership was down is never lost.
+  + (isPod ? pending.map((p) => `<div class="job-row pend-row">
+      <span class="job-mk warn"></span>
+      <span class="mono job-model">${escH((p.model || "").split("/").pop() || p.model || "?")}</span>
+      <span class="tag">${escH(p.suite_id || "")}</span>
+      <span class="job-stage">unsubmitted results${p.created_at ? " · benched " + new Date(p.created_at * 1000).toLocaleString() : ""}</span>
+      <div class="job-submit-row"><button class="primary job-submit-sig" data-sig="${escA(p.job_sig)}">⬆ SUBMIT TO MOTHERSHIP</button></div>
+    </div>`).join("") : "");
   $$(".job-live").forEach((b) => b.onclick = () => $("#tabs [data-live]").click());
   $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b));
+  $$(".job-resume").forEach((b) => b.onclick = () => resumeJob(b.dataset.id));
+  $$(".job-submit").forEach((b) => b.onclick = () => submitJob(b.dataset.id, b));
+  $$(".job-submit-sig").forEach((b) => b.onclick = () => submitPendingSig(b.dataset.sig, b));
+  box.querySelectorAll(".tune-flag-chip").forEach((b) =>
+    b.onclick = () => focusTuneCard(b.dataset.flag));
 }
 
 async function stopJob(id, button = null) {
@@ -3264,6 +3621,41 @@ async function stopJob(id, button = null) {
     return;
   }
   await pollJobs();
+}
+
+async function resumeJob(id) {
+  let r;
+  try { r = await api("/api/pod/jobs/" + encodeURIComponent(id) + "/resume", { method: "POST", headers: podHeaders() }); }
+  catch (e) { runStatus("resume failed: " + (e && e.error ? e.error : JSON.stringify(e)), "err"); return; }
+  runStatus(`resumed — job ${r.job_id} continues from the last scored case`, "ok");
+  pollJobs();
+}
+
+// shared outcome line for both deferred-submit buttons: the duplicate answer is the owner's
+// exact wording; a failure reassures that nothing was lost.
+function submitOutcome(r) {
+  runStatus(r.duplicate ? "job already submitted and available on the Mothership"
+    : r.ok ? "results submitted to the mothership ✓"
+    : "submit failed (" + (r.message || r.error || ("HTTP " + r.http)) + ") — results are still safe locally; try again once the mothership is reachable",
+    r.ok ? "ok" : "err");
+}
+
+async function submitJob(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "SUBMITTING…"; }
+  let r;
+  try { r = await api("/api/pod/jobs/" + encodeURIComponent(id) + "/submit", { method: "POST", headers: podHeaders() }); }
+  catch (e) { r = { ok: false, error: (e && e.error) || JSON.stringify(e) }; }
+  submitOutcome(r);
+  pollJobs();
+}
+
+async function submitPendingSig(sig, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "SUBMITTING…"; }
+  let r;
+  try { r = await api("/api/pod/submit/" + encodeURIComponent(sig), { method: "POST", headers: podHeaders() }); }
+  catch (e) { r = { ok: false, error: (e && e.error) || JSON.stringify(e) }; }
+  submitOutcome(r);
+  pollJobs();
 }
 
 let CFG = { role: "mothership", live: false };
@@ -3291,6 +3683,9 @@ async function init() {
   bind("#reLaunch", runEndpointBench);
   bind("#hfLaunch", runHfVerified);
   { const ts = $("#tplSel"); if (ts) ts.onchange = () => { if (ts.value !== "") applyLaunchTemplate(+ts.value); }; }
+  // champion recipes (mothership winners for this hardware): pick -> provenance, apply -> fill
+  { const cs = $("#champSel"); if (cs) cs.onchange = renderChampProv; }
+  bind("#champApply", applyChampion);
   // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override
@@ -3298,6 +3693,8 @@ async function init() {
   // selection (scan/browse), never free-typed — so it can't be edited to a path that
   // sidesteps the check. Clearing it is a DELIBERATE mode switch to "pull the repo fresh".
   bind("#hfLocalClear", () => setLocalWeights(""));
+  // MODALITIES chips: any click switches the launch from auto-detected to explicit toggles
+  $$("#modRow .mod-chip").forEach((b) => b.onclick = () => toggleModChip(b.dataset.mod));
   vIn("#tuneExtra", updateTuneCount);
   // spec-decode block: drafter card validates like the model; presets arm --speculative-config
   { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }

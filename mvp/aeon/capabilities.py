@@ -20,6 +20,7 @@ NAME_RULES = [
     ("Reasoning",    r"reason|thinking|think\b|[-_]r1\b|qwq|deepseek-?r1|\bo1\b|cogito|marco-?o1"),
     ("Vision",       r"\bvl\b|[-_]vl[-_]|vision|llava|moondream|internvl|qwen.?\d*-?vl|pixtral|omni"),
     ("Audio",        r"omni|[-_]audio|whisper|voxtral|qwen.*audio|ultravox"),
+    ("Video",        r"video|omni"),
 ]
 
 # text-board categories that read as capabilities. A category is "tested" when the
@@ -29,7 +30,7 @@ NAME_RULES = [
 TESTED_CATEGORIES = {"Reasoning", "Coding", "Math", "Instruction"}
 
 
-def model_tags(model, category_scores, board, vision_ok=False, audio_ok=False):
+def model_tags(model, category_scores, board, vision_ok=False, audio_ok=False, video_ok=False):
     """Return [{name, source}] for a model. source in {tested, declared}."""
     name = (model or "").lower()
     by = {}
@@ -50,5 +51,7 @@ def model_tags(model, category_scores, board, vision_ok=False, audio_ok=False):
         add("Vision", "tested")
     if audio_ok:
         add("Audio", "tested")
+    if board == "video" or video_ok:
+        add("Video", "tested")
 
     return [{"name": t, "source": s} for t, s in by.items()]

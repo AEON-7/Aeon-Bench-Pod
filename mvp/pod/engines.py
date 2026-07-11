@@ -372,6 +372,27 @@ def _host_path(p: str) -> str:
     return os.path.abspath(p)
 
 
+def _model_mount(local_dir: str) -> tuple[str, str]:
+    """Host mount + in-container model path for sibling serve containers.
+
+    Hugging Face's global cache stores snapshot files as symlinks into a sibling `blobs/`
+    directory. Mounting only `.../snapshots/<revision>` at /model breaks those symlinks inside
+    Docker, so vLLM sees `/model` as missing config.json. For HF cache snapshots, mount the
+    whole repo cache root at /model and serve `/model/snapshots/<revision>` instead.
+
+    Caveat: only RELATIVE cache symlinks (modern huggingface_hub) resolve under the repo-root
+    mount; caches written with ABSOLUTE symlinks (ancient hub versions / cross-drive Windows
+    fallbacks) still dangle in-container — the diagnostics hint catches that case.
+    """
+    host = _host_path(local_dir).replace("\\", "/").rstrip("/")
+    marker = "/snapshots/"
+    if marker in host:
+        root, _, rev = host.rpartition(marker)
+        if root and rev and "/models--" in root:
+            return root, f"/model/snapshots/{rev}"
+    return host, "/model"
+
+
 def _gpu_flags(engine_id: str, plat: dict) -> list[str]:
     if engine_id == "vllm-rocm" or plat.get("accel") == "rocm":
         return ["--device=/dev/kfd", "--device=/dev/dri", "--ipc=host",
@@ -441,8 +462,9 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
                 "bare_cmd": bare, "no_harness": True, "alias_from_server": True,
                 "setup": "LM Studio + its `lms` CLI — https://lmstudio.ai"}
 
+    model_mount, model_path = _model_mount(local_dir)
     docker = ["docker", "run", "--rm", "--name", SERVE_CONTAINER, "--network", "host",
-              *_gpu_flags(engine_id, plat), "-v", f"{_host_path(local_dir)}:/model:ro"]
+              *_gpu_flags(engine_id, plat), "-v", f"{model_mount}:/model:ro"]
     if drafter_dir:                                      # validated spec-decode drafter -> /drafter
         docker += ["-v", f"{_host_path(drafter_dir)}:/drafter:ro"]
     applied: list[str] = []
@@ -460,10 +482,10 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
             flags += ["--limit-mm-per-prompt", '{"image":4,"audio":4}']
         flags, applied = merge_flags(flags, extra_flags)
         flags = _floor_ctx(flags, "vllm")
-        cmd = docker + ["--entrypoint", "vllm", img, "serve", "/model"] + flags
+        cmd = docker + ["--entrypoint", "vllm", img, "serve", model_path] + flags
         srv = {"flags": flags}                          # vllm-style flags: the repro card renders these
     elif e["style"] == "sglang":
-        args = ["--model-path", "/model", "--served-model-name", alias,
+        args = ["--model-path", model_path, "--served-model-name", alias,
                 "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]
         args, applied = merge_flags(args, extra_flags)
         args = _floor_ctx(args, "sglang")
@@ -473,7 +495,7 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
         gguf = _find_gguf(local_dir)
         if not gguf:
             raise ValueError("llama.cpp needs GGUF weights; none found in the model dir")
-        args = ["-m", f"/model/{gguf}", "-c", str(ctx),
+        args = ["-m", f"{model_path}/{gguf}", "-c", str(ctx),
                 "--host", "0.0.0.0", "--port", str(port), "--alias", alias]
         if plat["accel"] == "cuda":
             args += ["-ngl", "999"]

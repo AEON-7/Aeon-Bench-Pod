@@ -1364,7 +1364,7 @@ function _instrumentPanel(d) {
     (catAgg[c.category] = catAgg[c.category] || []).push(c.score);
     if (c.difficulty) {
       (diffAgg[c.difficulty] = diffAgg[c.difficulty] || []).push(c.score);
-      const k = c.category + "" + c.difficulty;
+      const k = c.category + " " + c.difficulty;
       (cellAgg[k] = cellAgg[k] || []).push(c.score);
     }
   });
@@ -1392,7 +1392,7 @@ function _instrumentPanel(d) {
   if (diffs.length >= 2 && cats.length >= 2) {
     const head = `<tr><th></th>${diffs.map((k) => `<th><span class="diff-chip d-${k}">${escH(diffLabel(k))}</span></th>`).join("")}</tr>`;
     const trs = cats.map(([c]) => `<tr><th class="ipm-cat">${escH(c)}</th>` + diffs.map((k) => {
-      const v = cellAgg[c + "" + k];
+      const v = cellAgg[c + " " + k];
       if (!v) return `<td class="ipm-na">·</td>`;
       const m = 100 * v.reduce((a, b) => a + b, 0) / v.length;
       return `<td style="--s:${(m / 100).toFixed(3)}" title="${escA(c)} × ${escA(k)}: ${m.toFixed(1)} (${v.length} case${v.length === 1 ? "" : "s"})">${Math.round(m)}</td>`;
@@ -1772,16 +1772,7 @@ function _perfRecipe(m) {
   const cmd = rp.docker_run_assembled || rp.bare_cmd;   // bare-metal (MLX) reports the same way
   if (!cmd) return "";
   const d = rp.drafter;
-  const draft = d ? (() => {
-    const method = String(d.method || "dflash").toLowerCase();
-    const head = method === "dflash"
-      ? `DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}`
-      : method.includes("mtp")
-        ? `Native MTP spec-decode: <b>${escH(d.method || "mtp")}</b>`
-        : `Spec-decode: <b>${escH(d.method || method)}</b>`;
-    const note = d.uses_drafter ? "pulled + mounted at /drafter in the command" : "no drafter mount";
-    return `<br>${head}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — ${note})</span>`;
-  })() : "";
+  const draft = d ? `<br>DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — pulled + mounted at /drafter in the command)</span>` : "";
   return `<div class="sub-repro perf-repro">
     <div class="repro-h"><span class="repro-t">⚙ the recipe behind these numbers</span>
       <span style="display:flex;gap:6px;align-items:center">
@@ -2227,6 +2218,48 @@ function queueStrip(queued) {
   </div>`;
 }
 
+// ---- RACING DASH: live aggregate throughput in dot-matrix, straight off the engine's own
+// Prometheus counters (generation_tokens_total delta/dt = true engine-wide tok/s across every
+// concurrent stream; num_requests_running = live active streams). Renders while a job runs.
+const DOT_FONT = {   // classic 5x7 dot-matrix glyphs, 5-bit rows MSB-left
+  "0": [14, 17, 19, 21, 25, 17, 14], "1": [4, 12, 4, 4, 4, 4, 14], "2": [14, 17, 1, 2, 4, 8, 31],
+  "3": [31, 2, 4, 2, 1, 17, 14], "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14],
+  "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8], "8": [14, 17, 17, 14, 17, 17, 14],
+  "9": [14, 17, 17, 15, 1, 2, 12], " ": [0, 0, 0, 0, 0, 0, 0], "-": [0, 0, 0, 31, 0, 0, 0],
+};
+function dotMatrix(str, cls) {
+  return `<span class="dm ${cls || ""}">` + [...String(str)].map((ch) => {
+    const rows = DOT_FONT[ch] || DOT_FONT[" "];
+    return `<span class="dm-ch">` + rows.map((r) =>
+      [4, 3, 2, 1, 0].map((b) => `<i class="${(r >> b) & 1 ? "on" : ""}"></i>`).join("")
+    ).join("") + `</span>`;
+  }).join("") + `</span>`;
+}
+
+let DASH = { jobId: null, peak: 0 };   // peak-hold per job, like a tach redline memory
+function dashStrip(t, j) {
+  const e = t && t.engine;
+  if (!e || (e.gen_tps == null && e.running == null)) return "";
+  if (!j || DASH.jobId !== j.id) DASH = { jobId: j && j.id, peak: 0 };
+  const tps = e.gen_tps != null ? Math.round(e.gen_tps) : null;
+  if (tps != null && tps > DASH.peak) DASH.peak = tps;
+  const pad = (v, n) => String(v == null ? "-" : v).padStart(n, " ").slice(-n);
+  const pct = DASH.peak ? Math.min(100, 100 * (tps || 0) / DASH.peak) : 0;
+  return `<div class="dash">
+    <div class="dash-main">
+      <div><div class="dash-label">Aggregate throughput</div>${dotMatrix(pad(tps, 4), "dm-xl dm-cyan")}</div>
+      <div class="dash-unit">tok/s</div>
+      <div class="dash-cells">
+        <div class="dash-cell"><div class="dash-label">Active streams</div>${dotMatrix(pad(e.running, 2), "dm-md dm-amber")}</div>
+        <div class="dash-cell"><div class="dash-label">Queued</div>${dotMatrix(pad(e.waiting, 2), "dm-md")}</div>
+        <div class="dash-cell"><div class="dash-label">Peak</div>${dotMatrix(pad(DASH.peak || null, 4), "dm-md dm-red")}</div>
+        ${e.prompt_tps != null ? `<div class="dash-cell"><div class="dash-label">Prefill tok/s</div>${dotMatrix(pad(Math.round(e.prompt_tps), 5), "dm-md")}</div>` : ""}
+      </div>
+    </div>
+    <div class="dash-tach"><i style="width:${pct.toFixed(1)}%"></i></div>
+  </div>`;
+}
+
 // Host serve-watch strip: is the model load PROGRESSING or stalled? VRAM filling = weights
 // are streaming in; the serve-container line answers "has it mysteriously disappeared".
 function teleStrip(t, j) {
@@ -2280,7 +2313,7 @@ function renderLive(d, job, queued, tele) {
   const jobStrip = (activeJob ? `<div class="live-job">
       <h4 class="live-feed-h">run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}
         <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span>${phaseTag}</h4>
-      ${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "") + queueStrip(queued);
+      ${dashStrip(tele, activeJob)}${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "") + queueStrip(queued);
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
     $("#liveBody").innerHTML = (activeJob || queued.length)
@@ -2644,44 +2677,23 @@ function collectServeFlags() {
   return out.length ? out : null;
 }
 
-function parsedSpecConfig(raw) {
-  try { return JSON.parse(raw || ""); } catch (e) { return null; }
-}
-
-function specUsesDrafter(cfg) {
-  return cfg && String(cfg.method || "").toLowerCase() === "dflash"
-    && String(cfg.model || "").includes("/drafter");
-}
-
-// The SPEC DECODE block: DFlash preset templates target the /drafter mount and need a drafter
-// card; native MTP presets use the target model's built-in MTP head and need no drafter.
-// Custom JSON is passed through when it parses. Sets the inline drafter state line.
+// The SPEC DECODE block: preset templates target the /drafter mount (needs a drafter card);
+// custom JSON is passed through when it parses. Sets the inline drafter state line.
 function specConfigJson() {
   const sel = $("#specSel"); if (!sel || !sel.value) return null;
   const st = $("#drafterState");
   if (sel.value === "custom") {
     const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
     if (!raw) return null;
-    const cfg = parsedSpecConfig(raw);
-    if (!cfg) {
+    try { JSON.parse(raw); } catch (e) {
       if (st) { st.textContent = "✗ custom config is not valid JSON"; st.className = "drafter-state mono bad"; }
-      return null;
-    }
-    if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
-      if (st) { st.textContent = "▸ DFlash custom config references /drafter; paste the drafter HF card"; st.className = "drafter-state mono warn"; }
       return null;
     }
     return raw;
   }
-  const cfg = parsedSpecConfig(sel.value);
-  if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
-    if (st) { st.textContent = "▸ paste the drafter HF card to arm this DFlash preset"; st.className = "drafter-state mono warn"; }
+  if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
+    if (st) { st.textContent = "▸ paste the drafter HF card to arm this preset"; st.className = "drafter-state mono warn"; }
     return null;                                     // preset references /drafter — no card, no flag
-  }
-  if (cfg && String(cfg.method || "").toLowerCase().includes("mtp") && st) {
-    const n = cfg.num_speculative_tokens || "?";
-    st.textContent = `native MTP armed (n=${n}; no drafter card needed)`;
-    st.className = "drafter-state mono ok";
   }
   return sel.value;
 }

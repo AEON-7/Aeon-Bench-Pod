@@ -1977,6 +1977,47 @@ select:focus {
 .lq-note { text-align: left; margin-top: 6px; }
 .live-job { margin-bottom: 14px; }
 
+/* ---- RACING DASH (Live view): dot-matrix live throughput off the engine's own counters.
+   Dark instrument bezel, glowing LED dots, peak-hold tach — the benchmark's rev counter. ---- */
+.dash {
+  margin: 8px 0 10px; padding: 16px 18px 12px; background: #06070c;
+  border: 1px solid var(--border-strong);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  box-shadow: inset 0 0 48px rgba(0, 0, 0, .65), inset 0 0 2px rgba(0, 240, 255, .18);
+}
+.dash-main { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.dash-label {
+  font-family: var(--mono, monospace); font-size: 8.5px; letter-spacing: .24em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 7px; white-space: nowrap;
+}
+.dash-unit {
+  font-family: var(--mono, monospace); font-size: 11px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--muted); padding-bottom: 5px;
+}
+.dash-cells { display: flex; gap: 26px; flex-wrap: wrap; margin-left: auto; align-items: flex-end; }
+.dm { display: inline-flex; gap: 7px; }
+.dm-ch { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
+.dm-ch i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255, 255, 255, .05);                     /* unlit ghost dots — the classic look */
+  transition: background .25s ease, box-shadow .25s ease;   /* digits morph instead of snapping */
+}
+.dm-ch i.on { background: var(--accent); box-shadow: 0 0 4px var(--accent), 0 0 10px rgba(0, 240, 255, .5); }
+.dm-xl .dm-ch { gap: 3px; }
+.dm-xl .dm-ch i { width: 8px; height: 8px; }
+.dm-md .dm-ch i { width: 4px; height: 4px; }
+.dm-amber .dm-ch i.on { background: #ffb454; box-shadow: 0 0 4px #ffb454, 0 0 10px rgba(255, 180, 84, .5); }
+.dm-red .dm-ch i.on { background: #ff5d7a; box-shadow: 0 0 4px #ff5d7a, 0 0 10px rgba(255, 93, 122, .45); }
+.dash-tach {
+  position: relative; height: 7px; margin-top: 13px;
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line); overflow: hidden;
+}
+.dash-tach i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #0a7c8a, var(--accent) 62%, #ffb454 86%, #ff5d7a);
+  transition: width .6s ease;
+}
+
 /* ---- serve-watch telemetry strip (Live view, while a job runs): VRAM / RAM / CPU gauges
    + the aeon-bench-serve health line — the "is the model load stalled?" instrument ---- */
 .tele-strip {

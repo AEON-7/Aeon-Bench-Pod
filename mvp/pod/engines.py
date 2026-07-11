@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import platform as _platform
+import re
 import shutil
 import subprocess
 
@@ -419,6 +420,71 @@ def _declares_audio(local_dir: str) -> bool:
         return any(k in cfg for k in ("audio_config", "audio_token_id", "audio_token_index"))
     except Exception:
         return False
+
+
+def _image_repo(ref: str | None) -> str:
+    """Repository portion of an image ref, without tag/digest, NORMALIZED so podman's
+    fully-qualified RepoDigests (docker.io/vllm/vllm-openai@...) match docker-familiar
+    catalog names (vllm/vllm-openai) and vice versa. Empty for local image IDs —
+    including bare all-hex short IDs (docker accepts `3f2a9bce41` without sha256:)."""
+    ref = str(ref or "").strip()
+    if not ref or ref.startswith("sha256:"):
+        return ""
+    ref = ref.split("@", 1)[0]
+    slash = ref.rfind("/")
+    colon = ref.rfind(":")
+    if colon > slash:
+        ref = ref[:colon]
+    if slash < 0 and re.fullmatch(r"[0-9a-f]{10,64}", ref.lower()):
+        return ""                                  # bare image ID, not a repository name
+    for reg in ("docker.io/", "registry-1.docker.io/", "index.docker.io/"):
+        if ref.startswith(reg):
+            ref = ref[len(reg):]
+            break
+    if ref.startswith("library/") and ref.count("/") == 1:
+        ref = ref[len("library/"):]                # official images: library/python == python
+    return ref
+
+
+# repo path + @sha256:<64 hex> — the only shape safe to substitute into replication files
+_DIGEST_REF_RE = re.compile(r"^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$")
+
+
+def image_digests(image: str) -> dict:
+    """Content-address an engine image for the signed recipe. `image_id` is Docker's local
+    image config digest and exists for local builds. `image_digest` is a registry-pullable
+    manifest digest (`repo@sha256:...`) and is recorded only when it matches the requested
+    repository or is otherwise unambiguous. Best-effort: failure never blocks a run."""
+    try:
+        out = subprocess.run(["docker", "image", "inspect", image,
+                              "--format", "{{json .}}"],
+                             capture_output=True, text=True, timeout=30)
+        if out.returncode != 0:
+            return {}
+        meta = json.loads(out.stdout.strip() or "{}")
+        if isinstance(meta, list):
+            meta = meta[0] if meta else {}
+        image_id = meta.get("Id")
+        digests = sorted({str(x) for x in (meta.get("RepoDigests") or []) if x})
+        d = {"image_id": image_id} if image_id else {}
+        if digests:
+            d["image_repo_digests"] = digests
+        requested_repo = _image_repo(image)
+        if "@sha256:" in str(image):
+            d["image_digest"] = str(image)
+        elif requested_repo:
+            matches = [x for x in digests if _image_repo(x) == requested_repo]
+            if len(matches) == 1:
+                d["image_digest"] = matches[0]
+        elif len(digests) == 1:
+            d["image_digest"] = digests[0]
+        # only ever record a WELL-FORMED digest ref — this value is substituted into
+        # downloadable replication files (the mothership re-validates, but stamp clean)
+        if d.get("image_digest") and not _DIGEST_REF_RE.match(str(d["image_digest"])):
+            d.pop("image_digest", None)
+        return d
+    except Exception:
+        return {}
 
 
 def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: int,

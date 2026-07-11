@@ -1047,6 +1047,19 @@ def _portable_speculative(flags):
     return out
 
 
+# A digest ref safe to substitute VERBATIM into downloadable shell/compose files:
+# repo path + @sha256:<64 hex>. Recipes arrive from pods (and self-reported bundles) without
+# field-level sanitization, so a hostile image_digest could otherwise smuggle shell
+# metacharacters into a file explicitly marketed as safe-to-replicate.
+_DIGEST_REF_RE = re.compile(r"^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$")
+
+
+def _pinned_image(recipe, image):
+    """The recipe's image_digest when it is a well-formed digest ref, else the tag."""
+    dig = (recipe or {}).get("image_digest")
+    return dig if isinstance(dig, str) and _DIGEST_REF_RE.match(dig) else image
+
+
 def _docker_cmd(recipe, hf_repo, hf_revision):
     """Assemble the copy-pasteable replication command for a run's stored serve recipe.
     Flags are VERBATIM — identical serve settings, minus the bench itself. Host-specific paths
@@ -1058,6 +1071,9 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     if not serve:
         return None
     image, port, flags, _ = serve
+    # replicate against the content-pinned image when the run recorded one: a digest
+    # ref is immutable (client-verified on pull), a tag is a mutable pointer
+    image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
     if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
@@ -1112,6 +1128,10 @@ def _reproduction(r):
     hw = (env.get("hardware") or {}) if isinstance(env, dict) else {}
     return {
         "image": (recipe or {}).get("image") if recipe else None,
+        # immutable pins, surfaced where viewers look for provenance (not only inside
+        # the assembled docker_run string)
+        "image_digest": (recipe or {}).get("image_digest") if recipe else None,
+        "image_id": (recipe or {}).get("image_id") if recipe else None,
         "engine": (recipe or {}).get("engine") if recipe else None,
         "engine_version": (recipe or {}).get("engine_version") if recipe else None,
         "docker_run": (recipe or {}).get("docker_run") if recipe else None,
@@ -1138,6 +1158,36 @@ def _reproduction(r):
 
 # ---- downloadable replication files (serve.sh / docker-compose.yml) --------------------------
 
+def _engine_provenance_lines(r):
+    """Engine lines for the replication header — digest-first (immutable pin) with the tag
+    as fallback; local-only builds surface their image_id (config digest) instead."""
+    try:
+        recipe = json.loads(r.get("recipe") or "null") or {}
+    except Exception:
+        recipe = {}
+    if not recipe.get("image"):
+        return []
+    # same format gate as the substitution points: these lines land verbatim in downloadable
+    # files, and a hostile digest with an embedded newline could escape the comment block
+    digest = _pinned_image(recipe, None)
+    image_id = recipe.get("image_id")
+    if not (isinstance(image_id, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)):
+        image_id = None
+    lines = [f"engine:     {digest or recipe.get('image')}"]
+    if image_id and not digest:
+        lines.append(f"engine id:  {image_id} (local build — not registry-resolvable)")
+    return lines
+
+
+def _engine_provenance(recipe):
+    """Small, public, signed subset of the engine recipe. Avoid dumping arbitrary custom
+    command text into the manifest; keep the immutable image evidence."""
+    recipe = recipe or {}
+    keys = ("engine", "serve_mode", "image", "image_digest", "image_id", "image_repo_digests",
+            "spec_decode", "drafter_repo", "drafter_revision")
+    return {k: recipe[k] for k in keys if recipe.get(k)}
+
+
 def _replicate_header(r):
     """Shared provenance comment block for the downloadable replication files."""
     env = json.loads(r.get("env_json") or "{}")
@@ -1149,6 +1199,7 @@ def _replicate_header(r):
              f"weights:    sha256 {r.get('weights_hash') or 'n/a'}",
              f"benched on: {hw.get('detected_label') or hw.get('label') or 'unknown'}",
              f"run:        {r.get('id')}",
+             *_engine_provenance_lines(r),
              f"provenance: https://aeon-bench.com/api/runs/{r.get('id')}/manifest (signed)"]
     return "\n".join("# " + l for l in lines)
 
@@ -1181,6 +1232,7 @@ def _compose_yaml(r, recipe):
     if not serve:
         return None
     image, port, flags, _ = serve
+    image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
     if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
@@ -1203,7 +1255,7 @@ def _compose_yaml(r, recipe):
                  f"{dpull}# 2) docker compose up\n")
     return _replicate_header(r) + "\n" + usage + f"""services:
   model:
-    image: {image}
+    image: {_yaml_quote(image)}
     entrypoint: vllm
     command:
 {cmd}
@@ -1336,6 +1388,14 @@ def run_manifest(run_id: str):
     r = db.get_run(run_id)
     if not r:
         return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        recipe = json.loads(r.get("recipe") or "null") or {}
+    except Exception:
+        recipe = {}
+    try:
+        dm = json.loads(r.get("deployment_manifest") or "null") or {}
+    except Exception:
+        dm = {}
     cats = {}
     for x in r.get("results", []):
         if x.get("score") is not None:
@@ -1350,6 +1410,11 @@ def run_manifest(run_id: str):
         "composite": round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0,
         "started_at": r.get("started_at"), "finished_at": r.get("finished_at"),
         "env": json.loads(r.get("env_json") or "{}"),
+        "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
+        "weights_hash": r.get("weights_hash"),
+        "engine": _engine_provenance(recipe),
+        "deployment": {k: dm.get(k) for k in ("build_hash", "verification", "served_model_check")
+                       if dm.get(k) is not None},
     }
     return attest.sign_manifest(manifest)
 

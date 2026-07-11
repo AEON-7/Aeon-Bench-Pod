@@ -62,16 +62,26 @@ ok(s1 != _job_sig(ctx, "aeon-suite-v3@hermes"),
 jc = _job_ctx("m", {"detected_label": "RTX 5090 32GB"}, started="2026-01-01T00:00:00Z")
 ok(jc["hw"] == "RTX 5090 32GB" and jc["started"] == "2026-01-01T00:00:00Z",
    "_job_ctx uses the DETECTED hardware label + the pinned start ts")
+ok(jc["group"] == _job_ctx("m", {"detected_label": "RTX 5090 32GB"},
+                           started="2026-01-01T00:00:00Z")["group"]
+   and len(jc["group"]) == 24 and all(c in "0123456789abcdef" for c in jc["group"]),
+   "_job_ctx mints a deterministic 24-hex job GROUP (started|model|hw, no suite scope)")
+ok(jc["group"] != _job_ctx("m", {"detected_label": "RTX 5090 32GB"},
+                           started="2026-01-01T00:00:01Z")["group"],
+   "a new launch timestamp mints a NEW job_group")
 
 pod_client = Pod("http://mothership.invalid", KEY)
 captured = {}
 pod_client._post = lambda path, obj, headers=None, retries=5: (captured.update(obj), (200, {"ok": True}))[1]
-st, _ = pod_client.submit("rid", "nonce", "tok", [{"case_id": "c1", "category": "x"}], job_sig=s1)
+st, _ = pod_client.submit("rid", "nonce", "tok", [{"case_id": "c1", "category": "x"}],
+                          job_sig=s1, job_group=jc["group"])
 ok(st == 200 and captured["bundle"]["job_sig"] == s1, "Pod.submit carries job_sig in the bundle")
+ok(captured["bundle"]["job_group"] == jc["group"], "Pod.submit carries job_group in the bundle")
 ok("signature" in captured, "the bundle is still signed")
 
 # ---------- 2) ingest duplicate path (real ed25519, ingest functions directly) ----------
 SIG = "f" * 24
+GROUP = "e" * 24
 
 
 def enroll_and_open(model="lab/model-a", suite="aeon-suite-v3"):
@@ -86,20 +96,23 @@ def enroll_and_open(model="lab/model-a", suite="aeon-suite-v3"):
     return r
 
 
-def signed_submit(opened, job_sig=None):
+def signed_submit(opened, job_sig=None, job_group=None):
     bundle = {"run_id": opened["run_id"], "run_nonce": opened["run_nonce"], "final": True,
               "results": [{"case_id": "c1", "category": "math", "tier": 0,
                            "status": "scored", "score": 1.0, "raw_output": "ok"}]}
     if job_sig:
         bundle["job_sig"] = job_sig
+    if job_group:
+        bundle["job_group"] = job_group
     raw = json.dumps({"bundle": bundle, "signature": pod_client._sign(_canon(bundle))}).encode()
     return ingest.submit_results(opened["run_id"], opened["run_token"], raw)
 
 
 o1 = enroll_and_open()
-r1, c1 = signed_submit(o1, job_sig=SIG)
+r1, c1 = signed_submit(o1, job_sig=SIG, job_group=GROUP)
 ok(c1 == 200 and r1.get("ok") and not r1.get("duplicate"), "first submit commits normally")
 ok(db.get_run(o1["run_id"])["job_sig"] == SIG, "job_sig stored on the committed run row")
+ok(db.get_run(o1["run_id"])["job_group"] == GROUP, "job_group stored on the committed run row")
 ok(db.find_run_by_job_sig(SIG)["id"] == o1["run_id"], "find_run_by_job_sig anchors the committed run")
 
 o2 = enroll_and_open()

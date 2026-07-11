@@ -147,6 +147,30 @@ def _terminate_process_tree(proc, grace_s=_STOP_GRACE_S):
             pass
 
 
+def _sweep_harness_containers(j=None):
+    """Remove orphaned harness task containers (aeon_claw_*/aeon_hermes_*/aeon_opencode_*).
+
+    The harness runner removes its own container in an in-process `finally`, but a SIGTERM'd
+    runner never runs finally blocks — so every Stop during an agentic stage would otherwise
+    leave an orphan. Containers are tagged `aeon.pod.harness=1` at `docker create` time
+    (adapters/base.py run_container_io); only one job runs at a time, so a blanket label
+    sweep can never hit another live job's containers. Best-effort: never raises."""
+    try:
+        r = subprocess.run(["docker", "ps", "-aq", "--filter", "label=aeon.pod.harness"],
+                           capture_output=True, text=True, timeout=60)
+        ids = [c for c in (r.stdout or "").split() if c]
+        if not ids:
+            return
+        subprocess.run(["docker", "rm", "-f", *ids], capture_output=True, text=True, timeout=120)
+        if j is not None:
+            with _LOCK:
+                j["log"].append(f"[jobs] removed {len(ids)} orphaned harness container(s)")
+    except Exception as e:
+        if j is not None:
+            with _LOCK:
+                j["log"].append(f"[jobs] harness container sweep warning: {str(e)[:240]}")
+
+
 def _cleanup_owned_runtime(j):
     """Remove this job's serve container once; queued jobs never own it."""
     with _LOCK:
@@ -157,7 +181,9 @@ def _cleanup_owned_runtime(j):
         if not wait_for_owner:
             j["_runtime_cleanup_started"] = True
     if wait_for_owner:
-        cleanup_event.wait(timeout=130)
+        if not cleanup_event.wait(timeout=130):
+            with _LOCK:
+                j["log"].append("[jobs] serve cleanup wait timed out")
         return
     detail = None
     try:
@@ -197,13 +223,17 @@ def stop_job(job_id):
         j = _JOBS.get(job_id)
         proc = j.get("_proc") if j else None
         started = bool(j and j.get("_started"))
-        if j:
+        done = bool(j and j.get("status") in ("done", "error", "stopped"))
+        if j and not done:
             j["_stop_requested"] = True
     if not j:
         return False
+    if done:                                     # never overwrite a finished job's outcome
+        return True
     _set(j, status="stopping", stage="stopping", error=None)
     if started:
         _terminate_process_tree(proc)
+        _sweep_harness_containers(j)
         _cleanup_owned_runtime(j)
         _finish_stopped_run(j)
     _set(j, status="stopped", stage="stopped", error="stopped by user")
@@ -219,6 +249,8 @@ def _set(j, **kw):
 def _mk_job(kind, *, argv, env, model=None, hf_link=None, base_url=None, difficulty=None,
             preset=None, serve_flags=None, launch_id=None, owns_serve=False):
     jid = uuid.uuid4().hex[:12]
+    if env is not None:                          # lets harness containers carry an aeon.pod.job label
+        env["AEON_JOB_ID"] = jid
     j = {"id": jid, "kind": kind, "status": "queued", "stage": "queued",
          "model": model, "hf_link": hf_link, "base_url": base_url, "difficulty": difficulty,
          "preset": preset, "serve_flags": serve_flags,   # for the failure diagnostician
@@ -260,6 +292,14 @@ def _worker():
             with _LOCK:
                 j = _JOBS.get(jid)
             if j:
+                # Crash backstop ordering: kill the runner's process tree BEFORE removing its
+                # serve container and BEFORE discarding the _proc handle — if _run_job raised
+                # while the child was still alive, cleaning up first would rm the engine out
+                # from under a running benchmark and leave an unstoppable orphan tree. On
+                # normal completion the child is already reaped, so this is a safe no-op.
+                _terminate_process_tree(j.get("_proc"))
+                if j.get("_started"):
+                    _sweep_harness_containers(j)
                 _cleanup_owned_runtime(j)
                 if j.get("_stop_requested"):
                     _finish_stopped_run(j)

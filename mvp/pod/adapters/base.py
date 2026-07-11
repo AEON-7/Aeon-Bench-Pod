@@ -92,7 +92,13 @@ def run_container_io(image: str, args: list, *, seed=None, seed_optional=None, c
     collect: [(container_src, dst_path)] copied out after the run, never raising.
     Returns (stdout, stderr, returncode, duration_s)."""
     cname = f"aeon_{safe_name(name_hint)}_{uuid.uuid4().hex[:10]}"
-    create = ["docker", "create", "--name", cname, "--network", "host"]
+    # Label every harness container so the job manager / boot reconciler can sweep orphans:
+    # this in-process `finally: docker rm -f` never runs when the runner is SIGTERM'd mid-stage.
+    create = ["docker", "create", "--name", cname, "--network", "host",
+              "--label", "aeon.pod.harness=1"]
+    _jid = os.environ.get("AEON_JOB_ID")
+    if _jid:
+        create += ["--label", f"aeon.pod.job={_jid}"]
     for k, v in (env or {}).items():
         create += ["-e", f"{k}={v}"]
     if workdir:

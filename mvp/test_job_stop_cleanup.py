@@ -52,23 +52,62 @@ def test_running_job_stop_kills_and_removes_owned_serve():
     with jobs._LOCK:
         jobs._JOBS[j["id"]] = j
     calls = []
-    docker_result = mock.Mock(returncode=0, stderr="", stdout="aeon-bench-serve")
+
+    def _docker(argv, **kw):
+        if argv[:2] == ["docker", "ps"]:          # harness-orphan sweep query
+            return mock.Mock(returncode=0, stderr="", stdout="abc123def456\n")
+        return mock.Mock(returncode=0, stderr="", stdout="")
+
     try:
         with mock.patch.object(jobs, "_terminate_process_tree",
                                side_effect=lambda proc: calls.append(("kill", proc.pid))), \
              mock.patch.object(jobs, "_finish_stopped_run",
                                side_effect=lambda job: calls.append(("finish", tuple(job["_run_ids"])))), \
-             mock.patch.object(jobs.subprocess, "run", return_value=docker_result) as run:
+             mock.patch.object(jobs.subprocess, "run", side_effect=_docker) as run:
             assert jobs.stop_job(j["id"]) is True
         assert j["status"] == "stopped" and j["stage"] == "stopped"
         assert j["_stop_requested"] is True and j["_runtime_cleaned"] is True
         assert calls == [("kill", 4242), ("finish", ("text-run", "vision-run"))]
-        run.assert_called_once_with(
-            ["docker", "rm", "-f", "aeon-bench-serve"],
-            capture_output=True, text=True, timeout=120)
+        run.assert_has_calls([
+            mock.call(["docker", "ps", "-aq", "--filter", "label=aeon.pod.harness"],
+                      capture_output=True, text=True, timeout=60),
+            mock.call(["docker", "rm", "-f", "abc123def456"],
+                      capture_output=True, text=True, timeout=120),
+            mock.call(["docker", "rm", "-f", "aeon-bench-serve"],
+                      capture_output=True, text=True, timeout=120),
+        ])
+        assert run.call_count == 3
     finally:
         with jobs._LOCK:
             jobs._JOBS.pop(j["id"], None)
+
+
+def test_stop_job_never_overwrites_a_finished_job():
+    j = _job(status="done")
+    with jobs._LOCK:
+        jobs._JOBS[j["id"]] = j
+    try:
+        with mock.patch.object(jobs, "_terminate_process_tree") as terminate, \
+             mock.patch.object(jobs, "_finish_stopped_run") as finish, \
+             mock.patch.object(jobs.subprocess, "run") as run:
+            assert jobs.stop_job(j["id"]) is True
+        assert j["status"] == "done" and j["stage"] == "done"
+        assert j["_stop_requested"] is False
+        terminate.assert_not_called()
+        finish.assert_not_called()
+        run.assert_not_called()
+    finally:
+        with jobs._LOCK:
+            jobs._JOBS.pop(j["id"], None)
+
+
+def test_harness_sweep_is_a_noop_without_orphans():
+    empty = mock.Mock(returncode=0, stderr="", stdout="\n")
+    with mock.patch.object(jobs.subprocess, "run", return_value=empty) as run:
+        jobs._sweep_harness_containers()
+    run.assert_called_once_with(
+        ["docker", "ps", "-aq", "--filter", "label=aeon.pod.harness"],
+        capture_output=True, text=True, timeout=60)
 
 
 def test_queued_job_stop_never_removes_active_jobs_serve():
@@ -125,6 +164,8 @@ def test_fail_run_if_running_is_atomic():
 def main():
     tests = [
         test_running_job_stop_kills_and_removes_owned_serve,
+        test_stop_job_never_overwrites_a_finished_job,
+        test_harness_sweep_is_a_noop_without_orphans,
         test_queued_job_stop_never_removes_active_jobs_serve,
         test_finish_stopped_run_closes_every_board_run,
         test_fail_run_if_running_is_atomic,

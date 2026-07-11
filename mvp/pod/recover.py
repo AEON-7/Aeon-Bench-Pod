@@ -64,6 +64,14 @@ def reconcile() -> list[str]:
     if r and "aeon-bench-serve" in (r.stdout or ""):
         _run(["docker", "rm", "-f", "aeon-bench-serve"], timeout=120)
         acts.append("removed orphaned aeon-bench-serve container")
+    # 1b) orphaned harness task containers (labelled aeon.pod.harness at `docker create` in
+    #     adapters/base.py) — the runner's own in-process rm never executes when the runner
+    #     was SIGTERM'd/killed mid-stage, so historical orphans self-heal here at boot
+    r = _run(["docker", "ps", "-aq", "--filter", "label=aeon.pod.harness"])
+    ids = [c for c in ((r.stdout or "").split() if r else []) if c]
+    if ids:
+        _run(["docker", "rm", "-f", *ids], timeout=120)
+        acts.append(f"removed {len(ids)} orphaned harness container(s)")
     # 2) production containers a dead run paused and never restored
     acts += restore_paused()
     # 3) stranded pod-LOCAL run rows (SQLite only — never touch a shared Postgres, where

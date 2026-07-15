@@ -55,7 +55,10 @@ HARDWARE_PRESETS: dict[str, dict] = {
         "id": "dgx_spark", "label": "DGX Spark (GB10)",
         "flags": list(_GB10_ATTN),
         "notes": "FlashInfer is broken on GB10 — pin triton_attn (flash_attn also works). "
-                 "Unified memory: gpu-util 0.70 is OOM-safe; 16-24 seqs is the 64K-ctx sweet spot.",
+                 "Unified memory (CPU+GPU share one pool): keep gpu-util 0.6-0.7 (0.7 default) — "
+                 ">~0.8 page-thrashes and stalls the box; go lower with co-located services, high "
+                 "concurrency, fp16 KV, or DFlash (its buffers aren't counted). 16-24 seqs is the "
+                 "64K-ctx sweet spot.",
     },
     "cuda_generic": {
         "id": "cuda_generic", "label": "CUDA (generic)",

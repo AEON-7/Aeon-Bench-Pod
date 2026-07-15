@@ -338,8 +338,19 @@ Two numbers, both usually best left at their defaults:
   present and drops to single-stream only on CPU-only hosts. Set it explicitly only to override.
   **When 1:** pure CPU / bare boxes with no accelerator. **When higher:** capable GPUs (auto handles
   this). **GB10 unified-memory caveat:** the GB10 reports N/A for VRAM, so auto hard-codes 128 GB →
-  concurrency 24; keep `--gpu-memory-utilization` at 0.70 (the 0.8 default can OOM on unified
-  memory).
+  concurrency 24; keep `--gpu-memory-utilization` at **0.6-0.7** here (see the GPU-util rule below —
+  higher concurrency is a reason to sit at the low end).
+
+- **`--gpu-memory-utilization` (READ THIS on unified memory)** — the fraction of GPU memory the engine
+  claims for weights + KV cache. **Default 0.7. Recommended range 0.6-0.7.** On **unified-memory boxes
+  (DGX Spark GB10)** the CPU and GPU share **one** LPDDR5X pool, so setting this above ~0.8
+  **page-thrashes the shared pool and stalls the whole box** (even 0.85 stalls — this is not a soft
+  OOM, it's a hard hang). Stay at 0.7, and drop toward **0.6** (or lower) when: other GPU services
+  share the box (ASR/TTS/embedding sidecars), concurrency is high, the KV cache is fp16 (double an
+  fp8 cache), or you run **DFlash/spec-decode** (its verify buffers are **not** counted by this
+  fraction, so leave extra headroom). **Discrete GPUs are different:** a dedicated-VRAM card (RTX PRO
+  6000, B100, RTX 5090) has no shared pool to thrash, so 0.9+ is fine and correct there — do not copy
+  the 0.6-0.7 unified-memory value onto a discrete-GPU recipe.
 - **`--perf-max-conc`** — caps the **performance-grid** concurrency ladder only (default **32**). The
   perf ladder runs `1,4,8,16,32`; rungs above the cap drop, and a non-standard cap becomes the new
   top rung (24 → 1/4/8/16/24). Leave at 32 unless the hardware can't sustain the top rung.
@@ -379,7 +390,8 @@ Apple silicon → `mlx`; no Docker at all → `mlx` (Mac) or `lmstudio` (elsewhe
 ### 5.2 Tunable flags per engine style (`mvp/pod/engines.py` FLAG_CATALOG)
 
 - **vLLM grammar** (`aeon-vllm-ultimate` / `vllm` / `vllm-rocm`): `--max-model-len` (**≥65536**, the
-  bench floor), `--gpu-memory-utilization` (default 0.8; **0.70 is OOM-safe on GB10**),
+  bench floor), `--gpu-memory-utilization` (**default 0.7; recommended 0.6-0.7 on unified memory —
+  >~0.8 thrashes the GB10 shared pool; discrete VRAM can run 0.9+**, see the GPU-util rule in §4i),
   `--max-num-seqs` (default 32; **GB10 sweet spot 16–24** at 64K ctx), `--quantization` (usually
   auto-derived; NVFP4 repos → `modelopt`), `--kv-cache-dtype` (`auto`/`fp8_e4m3`/`fp8_e5m2` — fp8
   halves KV memory but **crashes Gemma-4 sliding-window on triton_attn**; keep `auto` for Gemma-4 /

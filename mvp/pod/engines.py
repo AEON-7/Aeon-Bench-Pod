@@ -115,15 +115,22 @@ FLAG_CATALOG = {
          "desc": "The context window the serve actually offers — prompt plus generation per request.",
          "pros": "+ headroom for long agentic trajectories and long-prefill perf cases",
          "cons": "− KV cache grows with it; past the model's native window the serve fails at startup (rope_scaling)"},
-        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.8, "step": 0.05,
-         "label": "gpu memory util", "note": "VRAM fraction; pod default 0.8 (vLLM's own is 0.9). Unified-memory boxes (DGX Spark GB10) are OOM-safe as low as 0.70",
+        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.7, "step": 0.05,
+         "label": "gpu memory util",
+         "note": "Fraction of GPU memory for weights + KV cache. Recommended 0.6-0.7. On UNIFIED-memory "
+                 "boxes (DGX Spark GB10) CPU + GPU share one pool, so >~0.8 thrashes (even 0.85 stalls); "
+                 "stay 0.6-0.7 and go lower with co-located services, high concurrency, or fp16 KV. "
+                 "DISCRETE GPUs (dedicated VRAM: RTX / B100) have no shared pool and can run 0.9+.",
          "desc": "Fraction of GPU memory the engine claims for weights plus KV cache.",
-         "pros": "+ higher = bigger KV pool, more concurrent sequences",
-         "cons": "− too high OOMs the serve; 0.70 is the proven-safe setting on unified-memory GB10",
+         "pros": "+ higher = bigger KV pool, more concurrent sequences (safe headroom on DISCRETE VRAM)",
+         "cons": "− on UNIFIED memory (GB10) >~0.8 page-thrashes the shared pool and stalls the box; "
+                 "keep 0.6-0.7, lower still for co-located services / high concurrency / fp16 KV cache",
          "conflicts": [
             {"platform": "dgx_spark",
-             "why": "unified memory on the GB10: the 0.8 default can OOM — 0.70 is the field-proven "
-                    "safe setting here (leave headroom for the OS + harness containers)"}]},
+             "why": "unified memory on the GB10: CPU + GPU share one LPDDR5X pool, so >~0.8 thrashes "
+                    "(even 0.85 stalls). Keep 0.6-0.7 (0.7 default here); lower it further when ASR/TTS/"
+                    "embedding sidecars share the box, concurrency is high, or KV cache is fp16 — and note "
+                    "DFlash/spec-decode buffers aren't counted by this fraction, so leave extra headroom"}]},
         {"flag": "--max-num-seqs", "kind": "number", "default": 32,
          "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)",
          "desc": "Hard cap on how many sequences the scheduler runs concurrently.",
@@ -247,11 +254,14 @@ FLAG_CATALOG = {
          "desc": "The context window the serve offers — prompt plus generation per request.",
          "pros": "+ headroom for long agentic trajectories",
          "cons": "− KV memory grows with it; 64K is the bench floor, only higher allowed"},
-        {"flag": "--mem-fraction-static", "kind": "number", "default": 0.88, "step": 0.05,
-         "label": "mem fraction", "note": "KV pool fraction — lower if you OOM",
+        {"flag": "--mem-fraction-static", "kind": "number", "default": 0.7, "step": 0.05,
+         "label": "mem fraction",
+         "note": "SGLang's KV-pool fraction (same knob as vLLM --gpu-memory-utilization). Recommended "
+                 "0.6-0.7. On UNIFIED memory (DGX Spark GB10) >~0.8 thrashes the shared pool; DISCRETE "
+                 "VRAM can run higher.",
          "desc": "Fraction of GPU memory reserved for weights plus the static KV pool.",
-         "pros": "+ higher = more KV capacity and concurrency",
-         "cons": "− too high OOMs at startup — lower it if the serve dies out of memory"},
+         "pros": "+ higher = more KV capacity and concurrency (safe on discrete VRAM)",
+         "cons": "− on unified memory (GB10) >~0.8 page-thrashes and stalls the box; keep 0.6-0.7"},
         {"flag": "--max-running-requests", "kind": "number", "default": 256,
          "label": "max running requests", "note": "concurrency cap",
          "desc": "Cap on requests running concurrently.",
@@ -651,7 +661,8 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
     applied: list[str] = []
     if e["style"] == "vllm":
         flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
-                 "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.8"]  # 0.8 default; op overrides
+                 "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.7"]  # 0.7 default (0.6-0.7 safe on
+                 # unified memory; >~0.8 thrashes the GB10 shared pool); op overrides for discrete VRAM
         if quant:
             flags += ["--quantization", str(quant)]
         if _declares_audio(local_dir):

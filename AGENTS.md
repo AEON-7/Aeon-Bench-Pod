@@ -57,6 +57,16 @@ The whole job, in eight moves:
 hash-verified against HF + signed) **and comprehensive** (≥90% suite coverage). Everything else is
 local-only. Don't dress a local or partial run up as validated.
 
+> **Do it all headlessly via MCP.** Everything below can be driven through the pod's MCP server
+> (`mvp/mcp/aeon_pod_mcp.py`, dependency-free stdlib) — no dashboard clicking. Point your MCP
+> client at it (`env AEON_BASE=http://127.0.0.1:8091`, `AEON_POD_TOKEN` if the pod is locked) and
+> use, in order: `aeon_pod_info` → `aeon_pod_scan_models` (or skip, for a fresh HF pull) →
+> `aeon_pod_champion_recipes` → `aeon_pod_validate` (optional) → **`aeon_pod_run`** (preset
+> `comprehensive`) → `aeon_pod_jobs` / `aeon_pod_stats` → `aeon_pod_resume` / `aeon_pod_submit`.
+> The `aeon_pod_run` tool takes `hf_link` (fresh pull) **or** `hf_link` + `local_dir` (hash-verify
+> on-disk bytes) — the same verified path as §4. The MCP talks ONLY to a local pod; the mothership
+> never runs jobs. Short version of the whole loop: `SKILL.md`.
+
 ---
 
 ## 1. What AEON Bench is

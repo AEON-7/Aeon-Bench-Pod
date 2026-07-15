@@ -21,6 +21,10 @@ exact result — that's what makes the scoreboard trustworthy instead of marketi
 > want it, configure the optimal settings for your hardware, run the whole benchmark, and hand
 > you back the results with a live link to watch. That file is written specifically so an AI
 > agent can do the entire job start to finish. **This is the easy button.**
+>
+> The pod even ships a **built-in MCP server** (`mvp/mcp/aeon_pod_mcp.py`) so your agent can pull,
+> hash-verify, benchmark, and submit a model through clean tools — no clicking. See
+> [`SKILL.md`](SKILL.md).
 
 ---
 

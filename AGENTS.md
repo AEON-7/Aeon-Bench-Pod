@@ -27,8 +27,12 @@ The whole job, in eight moves:
 1. **Check prerequisites** — Docker running; on NVIDIA rigs the **NVIDIA Container Toolkit** so
    `--gpus all` works. Without GPU access the pod misdetects a CPU-only box and the CUDA engines
    vanish. *(Why: the platform detection drives which engines exist.)*
-2. **Start the pod** — one `docker run`. Pick the platform variant (§2). *(Why: one image serves
-   every platform, but the flags differ.)*
+2. **Start the pod on the LATEST image — `docker pull` FIRST, every time.** One `docker run`, pick the
+   platform variant (§2). **Always `docker pull ghcr.io/aeon-7/aeon-pod:latest` and recreate the
+   container BEFORE queueing any jobs — even if a pod is already running** (see §2.4). *(Why: the
+   image ships the current recipe defaults, engine fixes, and suite versions; benchmarking on a stale
+   pod can use known-bad settings or an old suite and produce results that don't line up with the
+   live board.)*
 3. **Show your human the dashboard** — `http://localhost:8091` → **Run tab**. Tell them the URL and
    what they'll see so they can watch. *(Why: they own the run; they should be able to watch it.)*
 4. **Point at the model** — paste an HF link (pod pulls + hash-verifies fresh) **or** pick an
@@ -143,7 +147,13 @@ The pod image ships the docker CLI + curl; the daemon is never inside it.
 > Docker daemon whether it has the nvidia runtime, so sibling engine containers can still get GPUs
 > even from a GPU-blind dashboard — but **full local detail requires the flag**, so pass it.
 
-### 2.4 Update / re-run (also the fix for `name "aeon-pod" already in use`)
+### 2.4 Update to the latest image — DO THIS BEFORE EVERY BENCHMARKING SESSION
+
+**Always pull the latest pod before you queue jobs**, even if a pod is already running (this is also
+the fix for `name "aeon-pod" already in use`). The image carries the current recipe defaults, engine
+fixes, and suite versions — a stale pod can bench with known-bad settings or an outdated suite,
+producing results that won't line up with the live leaderboard. The one command below pulls latest,
+drops the old container, and recreates it; the named volumes keep your device key, runs, and models.
 
 ```bash
 docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
@@ -218,6 +228,11 @@ one pass when the queue drains).
 
 *(Why: this is the run that ranks. Every step below either earns the attested tier or protects
 completeness — skip a step and the run silently drops to local-only or gets filtered off the board.)*
+
+> **Pre-flight — before you queue any job, confirm the pod is on the latest image.** If you didn't
+> just start it fresh, run the §2.4 update (`docker pull … && docker rm -f … && docker run …`). Never
+> queue a validated benchmark on a stale pod — it may serve with old recipe defaults or an outdated
+> suite, and the result won't match the live board.
 
 Work in the Run tab's **"◉ Validated bench"** card, top to bottom.
 

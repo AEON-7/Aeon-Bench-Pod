@@ -24,52 +24,6 @@ exact result — that's what makes the scoreboard trustworthy instead of marketi
 
 ---
 
-## 📸 See it in action
-
-*A taste below — the **[full illustrated walkthrough](docs/walkthrough/README.md)** covers every feature, screenshot by screenshot.*
-
-<table>
-<tr>
-<td width="50%" valign="top"><a href="docs/walkthrough/README.md#the-public-leaderboard"><img src="docs/walkthrough/img/01-leaderboard.png" alt="The public leaderboard"></a><br><sub><b>The public leaderboard</b> — ranked open models with verified quality <i>and</i> real measured speed.</sub></td>
-<td width="50%" valign="top"><a href="docs/walkthrough/README.md#run-your-own-benchmark--the-run-tab"><img src="docs/walkthrough/img/03-hf-link.png" alt="Run your own benchmark"></a><br><sub><b>Run your own benchmark</b> — paste a Hugging Face link; the pod verifies the weights and benchmarks on <i>your</i> hardware.</sub></td>
-</tr>
-<tr>
-<td width="50%" valign="top"><a href="docs/walkthrough/README.md#recipe-tuning-made-human"><img src="docs/walkthrough/img/06-tuning-cards.png" alt="Recipe tuning made human"></a><br><sub><b>Recipe tuning in plain English</b> — every setting is a card with pros, cons, and warnings before a bad combo crashes a run.</sub></td>
-<td width="50%" valign="top"><a href="docs/walkthrough/README.md#one-click-champion-recipes--the-easy-button"><img src="docs/walkthrough/img/05-champion.png" alt="One-click champion recipes"></a><br><sub><b>One-click champion recipes</b> — the best proven setup for your exact hardware, ready to apply and tweak.</sub></td>
-</tr>
-<tr>
-<td width="50%" valign="top"><a href="docs/walkthrough/README.md#performance-by-hardware"><img src="docs/walkthrough/img/14-performance.png" alt="Performance clustered by hardware"></a><br><sub><b>Performance by hardware</b> — clustered by rig, so the best model + recipe for each class is obvious.</sub></td>
-<td width="50%" valign="top"><a href="docs/walkthrough/README.md#compare-anything-side-by-side"><img src="docs/walkthrough/img/13-compare.png" alt="Compare two benchmarks side by side"></a><br><sub><b>Compare anything</b> — two whole benchmarks side by side across every board, with honest gap fillers.</sub></td>
-</tr>
-</table>
-
-**→ [Open the full illustrated walkthrough](docs/walkthrough/README.md)** for the guided tour of all 17 screens.
-
----
-
-## What you get
-
-- **The truth about a model's speed and quality**, measured on *your* hardware, not a lab's.
-- **A score you can trust** — every run is weight-verified against Hugging Face and signed, so
-  nobody can post a fake number.
-- **A public leaderboard spot** — validated runs rank at [aeon-bench.com](https://aeon-bench.com)
-  next to everyone else's, with the exact recipe shown so anyone can reproduce it.
-- **One-click best settings** — the board already knows the fastest proven recipe for your exact
-  hardware and hands it to you to apply, then tweak.
-
-Under the hood, a "validated" run is a controlled pipeline:
-
-```
-pull (Hugging Face) → verify weights (LFS sha256 + manifest) → serve (recorded recipe)
-→ benchmark (text · agentic ×3 harnesses · vision · audio · video · arena · perf)
-→ sign (ed25519 device key) → submit (attested)
-```
-
-Runs through this flow are **attested** and eligible for the global leaderboard. Direct-endpoint
-runs are stored as *self-reported* — handy for private testing, but never globally ranked.
-
----
-
 ## Quickstart — one command
 
 Pull the maintained multi-platform image (x86 / ARM / DGX Spark / Apple-silicon Docker Desktop)
@@ -124,6 +78,52 @@ containerized via **llama.cpp** (CPU inside the VM — fine for correctness, slo
 - **aeon-pod-state** — remembers your signing key + past runs (survives updates).
 - **/models** (with `AEON_MODELS_HOST_DIR`) — where verified model weights live so the server can use them.
 - **/host-home** (read-only) — lets **⌕ scan system** find models you already have (HF cache, LM Studio, `~/models`) without copying anything.
+
+---
+
+## 📸 See it in action
+
+*A taste below — the **[full illustrated walkthrough](docs/walkthrough/README.md)** covers every feature, screenshot by screenshot.*
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="docs/walkthrough/README.md#the-public-leaderboard"><img src="docs/walkthrough/img/01-leaderboard.png" alt="The public leaderboard"></a><br><sub><b>The public leaderboard</b> — ranked open models with verified quality <i>and</i> real measured speed.</sub></td>
+<td width="50%" valign="top"><a href="docs/walkthrough/README.md#run-your-own-benchmark--the-run-tab"><img src="docs/walkthrough/img/03-hf-link.png" alt="Run your own benchmark"></a><br><sub><b>Run your own benchmark</b> — paste a Hugging Face link; the pod verifies the weights and benchmarks on <i>your</i> hardware.</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/walkthrough/README.md#recipe-tuning-made-human"><img src="docs/walkthrough/img/06-tuning-cards.png" alt="Recipe tuning made human"></a><br><sub><b>Recipe tuning in plain English</b> — every setting is a card with pros, cons, and warnings before a bad combo crashes a run.</sub></td>
+<td width="50%" valign="top"><a href="docs/walkthrough/README.md#one-click-champion-recipes--the-easy-button"><img src="docs/walkthrough/img/05-champion.png" alt="One-click champion recipes"></a><br><sub><b>One-click champion recipes</b> — the best proven setup for your exact hardware, ready to apply and tweak.</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/walkthrough/README.md#performance-by-hardware"><img src="docs/walkthrough/img/14-performance.png" alt="Performance clustered by hardware"></a><br><sub><b>Performance by hardware</b> — clustered by rig, so the best model + recipe for each class is obvious.</sub></td>
+<td width="50%" valign="top"><a href="docs/walkthrough/README.md#compare-anything-side-by-side"><img src="docs/walkthrough/img/13-compare.png" alt="Compare two benchmarks side by side"></a><br><sub><b>Compare anything</b> — two whole benchmarks side by side across every board, with honest gap fillers.</sub></td>
+</tr>
+</table>
+
+**→ [Open the full illustrated walkthrough](docs/walkthrough/README.md)** for the guided tour of all 17 screens.
+
+---
+
+## What you get
+
+- **The truth about a model's speed and quality**, measured on *your* hardware, not a lab's.
+- **A score you can trust** — every run is weight-verified against Hugging Face and signed, so
+  nobody can post a fake number.
+- **A public leaderboard spot** — validated runs rank at [aeon-bench.com](https://aeon-bench.com)
+  next to everyone else's, with the exact recipe shown so anyone can reproduce it.
+- **One-click best settings** — the board already knows the fastest proven recipe for your exact
+  hardware and hands it to you to apply, then tweak.
+
+Under the hood, a "validated" run is a controlled pipeline:
+
+```
+pull (Hugging Face) → verify weights (LFS sha256 + manifest) → serve (recorded recipe)
+→ benchmark (text · agentic ×3 harnesses · vision · audio · video · arena · perf)
+→ sign (ed25519 device key) → submit (attested)
+```
+
+Runs through this flow are **attested** and eligible for the global leaderboard. Direct-endpoint
+runs are stored as *self-reported* — handy for private testing, but never globally ranked.
 
 ---
 

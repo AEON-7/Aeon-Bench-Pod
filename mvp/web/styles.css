@@ -2731,6 +2731,9 @@ select:focus {
   width: 118px; flex: none; text-align: center; align-self: center;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   font-variant-numeric: tabular-nums;
+  /* the instrument anchors the FAR RIGHT of every dial cluster — one aligned tok/s column
+     down the whole board, however many dials a given row draws */
+  order: 99;
 }
 .pi-tps {
   font: 800 24px/1 ui-monospace, monospace; letter-spacing: -1px;
@@ -2836,6 +2839,31 @@ select:focus {
   .mrow-rank { font-size: 52px; letter-spacing: -3px; -webkit-text-stroke-width: 1px; }
   .mrow-aeon { min-width: 72px; }
   .mrow-aeon .dial-hero { --dial: 96px !important; }
+  /* far-right anchoring is a desktop alignment device; on the wrapped mobile cluster the
+     instrument just flows with the dials */
+  .perf-inst { order: 0; }
+}
+
+/* phones: identity gets its own full-width band — the category meters were being crushed
+   inside the id column (min track widths overflowed the card). rank + hero share the top
+   line, everything below breathes at full card width. */
+@media (max-width: 640px) {
+  .mrow {
+    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-areas: "rank aeon" "id id" "dials dials";
+    column-gap: 12px; row-gap: 8px; padding: 12px 14px 14px;
+  }
+  .mrow-rank { font-size: 44px; letter-spacing: -2px; }
+  .mrow-aeon { justify-self: end; }
+  .mrow-aeon .dial-hero { --dial: 88px !important; }
+  .mrow-cats { max-width: none; }
+  .catbar { grid-template-columns: 78px minmax(0, 1fr) 26px; column-gap: 8px; }
+  .catbar-l { font-size: 8px; letter-spacing: .1em; overflow: hidden; text-overflow: ellipsis; }
+  .catbar-v { font-size: 12px; }
+  .mrow-dials { gap: 4px 10px; width: 100%; }
+  .perf-inst { width: 104px; }
+  .pi-tach { width: 88px; }
+  .mrow-open { display: none; }
 }
 
 /* ---- multimodal sibling plates inside the run detail (vision · audio · video) ---- */

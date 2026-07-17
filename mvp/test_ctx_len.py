@@ -162,10 +162,18 @@ check(repro_bare["ctx_len"] is None, "recipe-less run detail carries ctx_len nul
 
 info = app_mod._share_info(DIRECT.replace("/", "__"))
 check(info is not None, "share info resolves the canonical key")
-# the card fixtures above added board rows, so rank against a FRESH board (what render sees)
+# the card fixtures above added board rows, so rank against a FRESH board (what render sees).
+# Rank order = the DISPLAYED board: AEON score (composite fallback) descending — NOT the raw
+# server list, which is composite-sorted and can disagree once agentic/perf components land.
+def _display_order(models):
+    return sorted(models, key=lambda m: -(m["aeon_score"] if m.get("aeon_score") is not None
+                                          else (m.get("composite") or 0)))
+
+
 lb2 = scoring.leaderboard()
-want = next((i + 1, m) for i, m in enumerate(lb2["models"]) if m["canonical"] == DIRECT)
-check(info["rank"] == want[0], "share rank = position in scoring.leaderboard() order")
+want = next((i + 1, m) for i, m in enumerate(_display_order(lb2["models"]))
+            if m["canonical"] == DIRECT)
+check(info["rank"] == want[0], "share rank = the DISPLAYED board position (AEON-score order)")
 check(info["aeon"] == want[1]["aeon_score"], "share info carries the AEON score")
 check(info["ctx_len"] == 65536, "share info carries the served ctx")
 check(info["components"]["intelligence"] == want[1]["composite"]
@@ -182,5 +190,40 @@ check(sharecard.render_fallback_card()[:8] == b"\x89PNG\r\n\x1a\n",
       "fallback card still renders")
 check(sharecard._fmt_ctx(65536) == "64K" and sharecard._fmt_ctx(131072) == "128K"
       and sharecard._fmt_ctx(512) == "512", "PNG ctx grammar: /1024 rounded + K")
+
+# ---- 5) share rank mirrors the DISPLAYED board even when AEON and composite orders split ----
+# A: pure-intelligence heavyweight. B: lower composite, but a perfect agentic pass lifts its
+# AEON blend above A — the composite-sorted server list puts A first, the board shows B first.
+
+
+def harness_run(model, harness, scores):
+    rid = uuid.uuid4().hex[:12]
+    db.create_run(rid, model=model, target_url="http://x", judge_model=None,
+                  judge_is_self=True, suite_id=suite_mod.SUITE_ID,
+                  suite_hash=suite_mod.suite_hash(), n_cases=len(scores),
+                  params={}, env={}, hf_repo=model, trust_tier="attested",
+                  harness=harness, harness_version="1.0.0")
+    for i, s in enumerate(scores):
+        db.save_result(rid, f"case-{i}", category="Agentic", tier=1, status="scored",
+                       score=s, raw_output="ok", evidence={}, speed={})
+    db.finish_run(rid, "succeeded")
+    _pin(rid, _ts())
+    return rid
+
+
+A, B = "lab/rank-composite-king", "lab/rank-aeon-king"
+text_run(A, score=0.9)
+text_run(B, score=0.85)
+harness_run(B, "hermes", [1.0, 1.0])
+
+lb3 = scoring.leaderboard()
+raw_pos = {m["canonical"]: i + 1 for i, m in enumerate(lb3["models"])}
+disp_pos = {m["canonical"]: i + 1 for i, m in enumerate(_display_order(lb3["models"]))}
+check(raw_pos[A] < raw_pos[B] and disp_pos[B] < disp_pos[A],
+      "fixture really splits the orders (A leads raw composite list, B leads displayed board)")
+check(app_mod._share_info(B.replace("/", "__"))["rank"] == disp_pos[B],
+      "AEON leader shares the rank the board shows, not its composite-list slot")
+check(app_mod._share_info(A.replace("/", "__"))["rank"] == disp_pos[A],
+      "composite leader's share rank drops to its displayed position")
 
 print(f"\nOK  ctx_len: {PASSED} checks passed")

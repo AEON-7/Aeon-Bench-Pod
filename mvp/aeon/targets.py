@@ -22,6 +22,26 @@ class TargetError(RuntimeError):
     pass
 
 
+def no_answer_reason(exc=None, text=None):
+    """Classify ONE generation attempt for the no-answer fairness rule: a case that yields
+    NO ANSWER is a technical glitch, not a wrong answer — the runner re-runs it in up to
+    two retry passes, and only when every pass fails does it become results.status
+    ='no_answer' (score NULL; the mothership weights it at ¼ of a case).
+
+    Returns None for a genuine answer, else a short reason string:
+      * 'transport: <exc>'  — the attempt RAISED (connection refused/reset, timeout,
+        HTTP failure incl. TargetError from a non-2xx response): nothing was generated;
+      * 'empty_completion'  — the request succeeded (HTTP 200) but the completion is
+        empty or whitespace-only: still not an answer.
+    Any NON-EMPTY completion is an ANSWER — a wrong answer scores 0 at full weight and
+    is never retried by this rule."""
+    if exc is not None:
+        return f"transport: {exc!r}"[:200]
+    if text is None or not str(text).strip():
+        return "empty_completion"
+    return None
+
+
 def _clean(messages):
     """Send only standard OpenAI fields (drop internal tags like _case_id)."""
     return [{"role": m["role"], "content": m["content"]} for m in messages]

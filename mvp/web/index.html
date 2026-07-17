@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=86" />
+  <link rel="stylesheet" href="/static/styles.css?v=89" />
 </head>
 <body>
   <header>
@@ -37,10 +37,7 @@
   <main>
     <nav class="tabs" id="tabs">
       <span class="tabgroup" data-label="Boards">
-        <button class="tab active" data-board="text">Text</button>
-        <button class="tab" data-board="vision">Vision</button>
-        <button class="tab" data-board="video">Video</button>
-        <button class="tab" data-board="audio">Audio</button>
+        <button class="tab active" data-board="text">Global Leaderboard</button>
         <button class="tab" data-perf="1">Performance</button>
       </span>
       <span class="tabgroup" data-label="Your lab">
@@ -63,7 +60,7 @@
 
     <section class="panel" id="boardPanel">
       <div class="lbhead">
-        <h2>Leaderboard</h2>
+        <h2 id="boardTitle">Global Leaderboard</h2>
         <details class="weights-wrap">
           <summary>Category weights</summary>
           <div class="weights" id="weights"></div>
@@ -383,20 +380,6 @@
       </div>
     </section>
 
-    <section class="panel" id="audioPanel" hidden>
-      <h2>Audio — capability-gated</h2>
-      <p class="lede">Audio input is probed, never assumed — a model earns its place on this board.</p>
-      <details class="how"><summary>How this works</summary>
-        <p class="note">Every Comprehensive bench sends the served model a real <code>input_audio</code> probe.
-          If the transport is accepted, the audio suite runs automatically — spoken-digit recognition on
-          real recorded speech plus deterministic synthetic stimuli (tones, rhythms, sweeps) — and the
-          attested results land on this board. Models whose config declares no audio skip the suite
-          (correctly, silently). A model that <b>declares</b> audio but whose serve rejects it shows a red
-          <code>audio:BLOCKED</code> chip in the Run-tab stages — usually a recipe/engine issue; the pod
-          auto-grants <code>--limit-mm-per-prompt</code> for declared-audio models on vLLM-family engines.</p>
-      </details>
-    </section>
-
     <section class="panel" id="arenaPanel" hidden>
       <div class="lbhead">
         <h2 id="arenaTitle">Generated Apps</h2>
@@ -458,6 +441,7 @@
         <h2>Submissions — full transparency</h2>
         <select id="subsBoard">
           <option value="">all boards</option><option value="text">text</option><option value="vision">vision</option>
+          <option value="audio">audio</option><option value="video">video</option>
         </select>
       </div>
       <p class="lede">Every run, fully inspectable: prompt, answer, score, judge.</p>
@@ -649,6 +633,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=86"></script>
+  <script src="/static/app.js?v=89"></script>
 </body>
 </html>

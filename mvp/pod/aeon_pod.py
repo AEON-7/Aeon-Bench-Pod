@@ -202,7 +202,10 @@ def _job_sig(ctx, suite_scope):
 
 def _missing_case_ids(results):
     """Planned suite cases with no result row — the completeness gate's evidence (a case that
-    errored still has a row; only never-attempted cases count as missing)."""
+    errored still has a row; only never-attempted cases count as missing). A case classified
+    status='no_answer' HAS a row (all runner retry passes exhausted) and counts complete; a
+    case killed MID-retry is rowless by design, so it reads missing until a resume settles it
+    (see runner._run_retry_passes)."""
     from aeon import suite as suite_mod
     got = {x.get("case_id") for x in results}
     return [c["id"] for c in suite_mod.CASES if c["id"] not in got]

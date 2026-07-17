@@ -295,9 +295,14 @@ def _share_info(key: str):
     if len(key) > 140 or any(ch not in _SHARE_KEY_OK for ch in key):
         return None
     lb = scoring.leaderboard()
+    # Rank EXACTLY as the public board displays: AEON SCORE (composite fallback) descending —
+    # the server list is composite-sorted, so indexing it directly can call the AEON #1 "#2".
+    models = sorted(lb.get("models") or [],
+                    key=lambda m: -(m.get("aeon_score") if m.get("aeon_score") is not None
+                                    else (m.get("composite") or 0)))
     row = rank = None
     kl = key.lower()                       # canonical ids are lowercased; display names aren't —
-    for i, m in enumerate(lb.get("models") or []):     # accept either casing in a shared link
+    for i, m in enumerate(models):         # accept either casing in a shared link
         if any((v or "").replace("/", "__").lower() == kl
                for v in (m.get("canonical"), m.get("model"))):
             row, rank = m, i + 1

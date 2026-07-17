@@ -288,7 +288,6 @@ function rowDials(m) {
   const it = d.intelligence;
   out.push(dial(it && it.score != null ? it.score : null, "intelligence",
     { title: "text-suite score — every category × difficulty tier of the best verified run" }));
-  out.push(perfInstrument(m));
   const ag = d.agentic;
   const agTip = ag && ag.harnesses
     ? "agentic score — " + Object.entries(ag.harnesses).map(([h, x]) => {
@@ -302,6 +301,9 @@ function rowDials(m) {
       out.push(dial(d[k].score, k,
         { title: `${k} suite score — click the row: the run detail shows the ${k} results` }));
   });
+  // the race instrument anchors the FAR RIGHT of every row (CSS order backs this up), so the
+  // tok/s readout lines up down the board no matter how many dials a row draws
+  out.push(perfInstrument(m));
   return out.join("");
 }
 

@@ -95,6 +95,8 @@ ok(rowNew.includes("78.2"), "AEON score is the headline number");
 ok(/aeon score/i.test(rowNew), "headline is labelled AEON SCORE");
 ok(svgCount(rowNew) === 4, "hero + intelligence + agentic + vision dials (perf is an instrument, untested audio/video skipped), got " + svgCount(rowNew));
 ok(/perf-inst/.test(rowNew) && !/pi-na/.test(rowNew), "performance renders as the race instrument (tested)");
+ok(rowNew.indexOf("perf-inst") > rowNew.lastIndexOf('viewBox="0 0 80 80"'),
+   "race instrument renders AFTER every dial — the far-right aligned slot on each row");
 ok(/pi-tps">517/.test(rowNew) || /517/.test(rowNew), "instrument shows the peak tok/s readout");
 ok(/tok\/s peak/.test(rowNew), "readout is labelled tok/s peak");
 ok(/dial-hero/.test(rowNew), "the AEON headline is its own HERO gauge");

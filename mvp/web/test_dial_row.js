@@ -93,7 +93,10 @@ const rowNew = app.globalRow({
 ok(rowNew.includes('data-run="r-best-7"'), "row click target = best_intelligence_run");
 ok(rowNew.includes("78.2"), "AEON score is the headline number");
 ok(/aeon score/i.test(rowNew), "headline is labelled AEON SCORE");
-ok(svgCount(rowNew) === 5, "hero + intelligence + performance + agentic + vision (untested audio/video skipped), got " + svgCount(rowNew));
+ok(svgCount(rowNew) === 4, "hero + intelligence + agentic + vision dials (perf is an instrument, untested audio/video skipped), got " + svgCount(rowNew));
+ok(/perf-inst/.test(rowNew) && !/pi-na/.test(rowNew), "performance renders as the race instrument (tested)");
+ok(/pi-tps">517/.test(rowNew) || /517/.test(rowNew), "instrument shows the peak tok/s readout");
+ok(/tok\/s peak/.test(rowNew), "readout is labelled tok/s peak");
 ok(/dial-hero/.test(rowNew), "the AEON headline is its own HERO gauge");
 ok(/dial-sub">overall</.test(rowNew), "hero gauge is engraved OVERALL");
 ok(/dial-val aeon-val/.test(rowNew), "hero value carries aeon-val (count-up hook)");
@@ -113,7 +116,8 @@ const rowProv = app.globalRow({
   dials: { intelligence: { score: 61, run: "r-p1" }, performance: null, agentic: null,
            vision: null, audio: null, video: null },
 }, 1);
-ok(svgCount(rowProv) === 4, "hero + core trio always drawn (perf/agentic as na), got " + svgCount(rowProv));
+ok(svgCount(rowProv) === 3, "hero + intelligence + agentic drawn (perf = na instrument), got " + svgCount(rowProv));
+ok(/perf-inst pi-na/.test(rowProv), "untested performance renders the dim na instrument");
 ok((rowProv.match(/not yet tested/g) || []).length >= 2, "missing core dials say 'not yet tested'");
 ok(/aeon-prov/.test(rowProv) && /prov/.test(rowProv), "provisional AEON dims with an honest chip");
 ok(!/>0</.test(rowProv), "no fake zero anywhere in the provisional row");
@@ -139,6 +143,17 @@ ok(rowIntel.includes('data-run="r-intel"'), "dials.intelligence.run beats the ge
 // escaping
 const rowEsc = app.globalRow({ model: 'evil"/><script>alert(1)</script>', comp: 10, categories: {} }, 4);
 ok(!rowEsc.includes("<script>"), "model name is escaped (XSS guard)");
+
+// ---------------------------------------------- served-context chip (ctx_len)
+console.log("globalRow() — served-context chip");
+const rowCtx = app.globalRow({ model: "o/ctx-model", comp: 50, categories: {}, ctx_len: 65536 }, 5);
+ok(/mcard-ctx/.test(rowCtx) && />64K ctx</.test(rowCtx), "ctx_len 65536 renders the quiet 64K ctx chip");
+ok(/max context length this benchmark was served at/.test(rowCtx), "ctx chip carries its tooltip");
+ok(!rowOld.includes("mcard-ctx") && !rowNew.includes("mcard-ctx"),
+   "rows without ctx_len render no ctx chip (old-payload compat)");
+ok(app.fmtCtx(65536) === "64K" && app.fmtCtx(131072) === "128K" && app.fmtCtx(512) === "512",
+   "fmtCtx: /1024 rounded + K, sub-1K literal");
+ok(app.ctxChip(null) === "" && app.ctxChip(undefined) === "", "ctxChip is empty for null/undefined");
 
 // ---------------------------------------------------------------- applyRole()
 console.log("applyRole() — two-role nav gating");

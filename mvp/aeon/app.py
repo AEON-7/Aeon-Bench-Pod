@@ -325,8 +325,16 @@ def _share_info(key: str):
         avatar = (modelmeta.resolve(model) or {}).get("avatar_url")
     except Exception:
         pass
+    dials = row.get("dials") or {}
     return {"model": model, "org": org, "name": name or model, "rank": rank,
             "composite": row.get("composite"), "peak_tps": peak,
+            # the OVERALL headline + its component scores (None = not yet tested)
+            "aeon": row.get("aeon_score"),
+            "provisional": bool(row.get("aeon_provisional")),
+            "components": {"intelligence": row.get("composite"),
+                           "agentic": (dials.get("agentic") or {}).get("score"),
+                           "performance": (dials.get("performance") or {}).get("score")},
+            "ctx_len": row.get("ctx_len"),      # max context the benchmark was served at
             "trust": "attested" if row.get("record_eligible") else "local",
             "hardware": hw, "suite": f"{lb.get('suite_shown') or ''} · rank {rank}",
             "avatar_url": avatar}
@@ -363,8 +371,13 @@ def share_page(key: str, request: Request):
     suffix = f"?{qs}" if qs else ""
     if info:
         bits = []
-        if info.get("composite") is not None:
+        if info.get("aeon") is not None:
+            bits.append(f"AEON score {info['aeon']:.1f} overall")
+        elif info.get("composite") is not None:
             bits.append(f"composite {info['composite']:.1f}")
+        if info.get("ctx_len"):
+            c = info["ctx_len"]
+            bits.append(f"max ctx {round(c / 1024)}K" if c >= 1024 else f"max ctx {c}")
         if info.get("peak_tps"):
             bits.append(f"peak {info['peak_tps']:.0f} tok/s concurrent")
         if info.get("trust") == "attested":
@@ -1065,9 +1078,12 @@ def _recipe_serve(recipe):
 def _drafter_info(recipe):
     """Speculative-decode disclosure for a stored recipe, or None for plain decode.
 
-    DFlash pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) lets others
-    replicate. Native MTP has no drafter, so the method/n are parsed from --speculative-config
-    (both the "--speculative-config JSON" and "--speculative-config=JSON" forms).
+    DFlash pins a LOCAL drafter dir; the public HF drafter repo (`drafter_repo`) lets others
+    replicate. DSpark is drafter-based too (block-N drafters, e.g.
+    deepseek-ai/dspark_qwen3_8b_block7) but ALSO ships a self-contained form with the DSpark
+    weights inside the target checkpoint — no external drafter (uses_drafter=False). Native MTP
+    has no drafter either, so the method/n are parsed from --speculative-config (both the
+    "--speculative-config JSON" and "--speculative-config=JSON" forms).
     """
     if not recipe:
         return None
@@ -1098,11 +1114,17 @@ def _drafter_info(recipe):
         return None
     method = method or "dflash"
     uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
-                        (str(method).lower() == "dflash" and str(spec_model or "").startswith("/drafter")))
+                        (str(method).lower() in ("dflash", "dspark")
+                         and str(spec_model or "").startswith("/drafter")))
     return {"method": method,
             "repo": recipe.get("drafter_repo"),          # e.g. z-lab/gemma-4-26B-A4B-it-DFlash
             "revision": recipe.get("drafter_revision"), "n": n,
             "uses_drafter": uses_drafter}
+
+
+def _drafter_kind(d):
+    """Drafter-family label for replication comments: z-lab DFlash vs DSpark block drafters."""
+    return "DSpark" if str((d or {}).get("method") or "dflash").lower() == "dspark" else "z-lab DFlash"
 
 
 def _portable_speculative(flags):
@@ -1159,12 +1181,16 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     if d and d.get("repo"):
         drev = f" --revision {d['revision']}" if d.get("revision") else ""
         ncmt = f", num_speculative_tokens={d['n']}" if d.get("n") else ""
-        lines += [f"# 1b) pull the z-lab DFlash drafter — lossless speculative decode (speed only{ncmt})",
+        lines += [f"# 1b) pull the {_drafter_kind(d)} drafter — lossless speculative decode (speed only{ncmt})",
                   f"hf download {d['repo']}{drev} --local-dir ./drafter", ""]
     if d:
         method = str(d.get("method") or "dflash")
         if method.lower() == "dflash":
             disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
+        elif method.lower() == "dspark" and d.get("uses_drafter"):
+            disc = f"DSpark spec-decode: {d['repo'] or 'DSpark drafter (repo not recorded in this run)'}"
+        elif method.lower() == "dspark":
+            disc = "Native DSpark spec-decode (in-checkpoint)"
         elif "mtp" in method.lower():
             disc = f"Native MTP spec-decode: {method}"
         else:
@@ -1179,7 +1205,7 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     lines.append("  -v ./weights:/model \\")
     if d and d.get("uses_drafter"):
         lines.append("  -v ./drafter:/drafter \\"
-                     + (f"  # {d['repo']}" if d.get("repo") else "  # z-lab DFlash drafter weights"))
+                     + (f"  # {d['repo']}" if d.get("repo") else f"  # {_drafter_kind(d)} drafter weights"))
     lines.append(f"  -p {port}:{port} \\")
     lines.append(f"  --entrypoint vllm {image} \\")
     lines.append("  serve /model \\")
@@ -1214,6 +1240,9 @@ def _reproduction(r):
         "bare_cmd": (recipe or {}).get("bare_cmd") if recipe else None,
         "serve_mode": (recipe or {}).get("serve_mode") if recipe else None,
         "flags": (recipe or {}).get("flags") if recipe else None,
+        # max context this run was actually SERVED at (vLLM --max-model-len / SGLang
+        # --context-length / llama.cpp -c), parsed from the recipe; null = not recorded
+        "ctx_len": scoring.ctx_len_from_recipe(recipe),
         "spec_decode": (recipe or {}).get("spec_decode") if recipe else None,
         # DFlash drafter disclosure (repo + revision + n) so viewers can truly replicate spec-decode
         "drafter": _drafter_info(recipe),
@@ -1314,7 +1343,7 @@ def _compose_yaml(r, recipe):
     vols = "      - ./weights:/model"
     if d and d.get("uses_drafter"):
         vols += ("\n      - ./drafter:/drafter"
-                 + (f"   # {d['repo']}" if d.get("repo") else "   # z-lab DFlash drafter weights"))
+                 + (f"   # {d['repo']}" if d.get("repo") else f"   # {_drafter_kind(d)} drafter weights"))
     usage = ""
     if r.get("hf_repo"):
         rev = f" --revision {r['hf_revision']}" if r.get("hf_revision") else ""
@@ -1322,7 +1351,7 @@ def _compose_yaml(r, recipe):
         if d and d.get("repo"):
             drev = f" --revision {d['revision']}" if d.get("revision") else ""
             ncmt = f" (num_speculative_tokens={d['n']})" if d.get("n") else ""
-            dpull = ("# 1b) pull the z-lab DFlash drafter — lossless spec-decode; speed only"
+            dpull = (f"# 1b) pull the {_drafter_kind(d)} drafter — lossless spec-decode; speed only"
                      f"{ncmt}:\n#      hf download {d['repo']}{drev} --local-dir ./drafter\n")
         usage = ("#\n# 1) pull the exact weights this run benchmarked (sha256-verified upstream):\n"
                  f"#      hf download {r['hf_repo']}{rev} --local-dir ./weights\n"
@@ -1663,7 +1692,7 @@ class PodVerifiedRunBody(BaseModel):
     local_dir: str | None = None        # model already on disk: hash-validate, don't re-download
     serve_url: str | None = None        # operator-started serve (macOS/MLX bare-metal path)
     serve_flags: list[str] | None = None  # recipe tuning: flag overrides merged into the serve cmd
-    drafter_hf: str | None = None       # DFlash drafter HF card: validated like the model, -> /drafter
+    drafter_hf: str | None = None       # DFlash/DSpark drafter HF card: validated like the model, -> /drafter
     port: int | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)

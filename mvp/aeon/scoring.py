@@ -152,9 +152,9 @@ def leaderboard(suite=None):
             lb = _leaderboard_scoped(legacy)
             if lb["models"]:
                 lb["suite_shown"], lb["legacy"] = legacy, True
-                return _attach_dials(lb)
+                return _attach_ctx(_attach_dials(lb))
     out["suite_shown"] = suite or suite_mod.SUITE_ID
-    return _attach_dials(out)
+    return _attach_ctx(_attach_dials(out))
 
 
 def _leaderboard_scoped(suite=None):
@@ -302,8 +302,11 @@ def _perf_percentile_index():
                 pct = round(100.0 * below / (n - 1), 1)
             cur = out.get(m["canonical"])
             if cur is None or (pct, m["peak_agg_tps"]) > (cur["score"], cur["peak_agg_tps"]):
+                cell = m.get("peak_agg_cell") or {}
                 out[m["canonical"]] = {"score": pct, "peak_agg_tps": m["peak_agg_tps"],
-                                       "hw": m["hw_bucket"]}
+                                       "hw": m["hw_bucket"],
+                                       # the demonstrated peak's cohort size — the racing readout
+                                       "conc": cell.get("conc")}
     return out
 
 
@@ -360,6 +363,69 @@ def _attach_dials(lb):
         # the HIGHEST-composite run among the runs this row aggregates (eligible runs when
         # the model has any) — the run the dashboard auto-opens for the intelligence dial
         m["best_intelligence_run"] = m["best_run"]
+    return lb
+
+
+# ---- served CONTEXT LENGTH: the window the benchmark actually ran at ---------------------------
+#
+# Parsed from a run's stored serve recipe. Engine grammars: vLLM --max-model-len ·
+# SGLang --context-length · llama.cpp -c / --ctx-size — each in both the two-token
+# ["--flag", "65536"] form and the inline "--flag=65536" form. Anything else -> None
+# (null = not recorded, never a guess).
+_CTX_FLAGS = ("--max-model-len", "--context-length", "--ctx-size", "-c")
+
+
+def ctx_len_from_recipe(recipe):
+    """Served context length (tokens) from a stored recipe's flags, or None."""
+    if not isinstance(recipe, dict):
+        return None
+    for seq in (recipe.get("flags"), recipe.get("command")):
+        if not isinstance(seq, list):
+            continue
+        toks = [str(f) for f in seq]
+        for i, f in enumerate(toks):
+            name, eq, inline = f.partition("=")
+            if name not in _CTX_FLAGS:
+                continue
+            val = inline if eq else (toks[i + 1] if i + 1 < len(toks) else None)
+            if val is None or val.startswith("-"):
+                continue
+            try:
+                n = int(str(val).strip())
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                return n
+    return None
+
+
+def _attach_ctx(lb):
+    """Extend each board row with ctx_len — the served context of its best_intelligence_run,
+    falling back to the model's NEWEST run that stored a recipe. Purely additive; a model
+    with no recipe anywhere carries ctx_len null (endpoint runs record no serve flags)."""
+    models = lb.get("models") or []
+    if not models:
+        return lb
+    try:
+        recs = db.run_recipes()
+    except Exception:
+        recs = []
+    by_run, newest = {}, {}
+    for r in recs:
+        try:
+            ctx = ctx_len_from_recipe(json.loads(r.get("recipe") or "null"))
+        except Exception:
+            ctx = None
+        by_run[r["id"]] = ctx
+        canon = r.get("canonical_id")
+        cur = newest.get(canon)
+        if cur is None or (r.get("started_at") or 0) > cur[0]:
+            newest[canon] = ((r.get("started_at") or 0), ctx)
+    for m in models:
+        ctx = by_run.get(m.get("best_intelligence_run") or m.get("best_run"))
+        if ctx is None:
+            ctx = (newest.get(m.get("canonical")) or (0, None))[1]
+        m["ctx_len"] = ctx
     return lb
 
 
@@ -635,9 +701,11 @@ def _champion_flags(recipe):
 
 def _champion_drafter(recipe):
     """Speculative-decode disclosure for a champion, or None (plain decode). Method-aware like
-    app._drafter_info: DFlash names its z-lab drafter repo (+ revision + n); native MTP has NO
-    drafter, so an mtp champion never advertises one (uses_drafter=False). Method/n come from the
-    recorded top-level fields, else from --speculative-config (both flag forms)."""
+    app._drafter_info: DFlash names its z-lab drafter repo (+ revision + n), and DSpark's
+    drafter form (block-N drafters targeting /drafter) does the same; native MTP and
+    in-checkpoint DSpark have NO drafter, so those champions never advertise one
+    (uses_drafter=False). Method/n come from the recorded top-level fields, else from
+    --speculative-config (both flag forms)."""
     n = recipe.get("spec_decode_n") or recipe.get("drafter_n") or recipe.get("drafter_nst")
     method = recipe.get("spec_decode_method") or recipe.get("spec_decode")
     spec_model = None
@@ -665,7 +733,8 @@ def _champion_drafter(recipe):
         return None
     method = method or "dflash"
     uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
-                        (str(method).lower() == "dflash" and str(spec_model or "").startswith("/drafter")))
+                        (str(method).lower() in ("dflash", "dspark")
+                         and str(spec_model or "").startswith("/drafter")))
     return {"method": method,
             "repo": recipe.get("drafter_repo"),
             "revision": recipe.get("drafter_revision"), "n": n,

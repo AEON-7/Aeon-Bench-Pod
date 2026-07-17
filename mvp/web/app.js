@@ -44,6 +44,11 @@ function decrypt(el, text, dur = 500) {
 const fmtDur = (ms) => ms == null ? "—" : ms < 1000 ? Math.round(ms) + "ms" : (ms / 1000).toFixed(1) + "s";
 const fmtTps = (v) => v == null ? "—" : v >= 100 ? String(Math.round(v)) : (+v).toFixed(1);
 const fmtComp = (v) => v >= 99.95 ? "100" : v.toFixed(1);
+// served context window: 65536 -> "64K" (sub-1K windows stay literal)
+const fmtCtx = (v) => v >= 1024 ? Math.round(v / 1024) + "K" : String(v);
+// the quiet mono context chip — identical grammar on board rows, run detail, bench cards
+const ctxChip = (v) => v == null ? ""
+  : `<span class="mcard-ctx mono" title="max context length this benchmark was served at">${fmtCtx(v)} ctx</span>`;
 const fmtDate = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : "unknown";
 const fmtClock = (ts) => ts ? new Date(ts * 1000).toTimeString().slice(0, 8) : "—";
 const fmtDT = (ts) => ts ? fmtDate(ts) + " " + fmtClock(ts) : "—";
@@ -283,9 +288,7 @@ function rowDials(m) {
   const it = d.intelligence;
   out.push(dial(it && it.score != null ? it.score : null, "intelligence",
     { title: "text-suite score — every category × difficulty tier of the best verified run" }));
-  const p = d.performance;
-  out.push(dial(p && p.score != null ? p.score : null, "performance",
-    { title: p ? `speed score${p.peak_agg_tps != null ? ` — peak ${fmtTps(p.peak_agg_tps)} tok/s` : ""}${p.hw ? " on " + p.hw : ""} · full curves on the Performance tab` : "performance — not yet tested" }));
+  out.push(perfInstrument(m));
   const ag = d.agentic;
   const agTip = ag && ag.harnesses
     ? "agentic score — " + Object.entries(ag.harnesses).map(([h, x]) => {
@@ -300,6 +303,49 @@ function rowDials(m) {
         { title: `${k} suite score — click the row: the run detail shows the ${k} results` }));
   });
   return out.join("");
+}
+
+// PERFORMANCE is a MEASUREMENT, not a rating — so it renders as a race-car instrument, not a
+// 0-100 dial: peak aggregate tok/s as the big readout, the tach bar showing its standing
+// within the hardware class (cyan→amber→red, the Live dash's gradient), and the demonstrated
+// concurrency + served context window as cockpit sub-readouts.
+function perfInstrument(m) {
+  const p = m.dials && m.dials.performance;
+  const ctx = m.ctx_len != null ? Math.round(m.ctx_len / 1024) + "K CTX" : "";
+  if (!p || p.peak_agg_tps == null) {
+    return `<div class="perf-inst pi-na" role="img" aria-label="performance: not yet tested">
+      <span class="pi-tps">—</span><span class="pi-unit">tok/s peak</span>
+      <span class="pi-tach"><i style="--p:0%"></i></span>
+      <span class="pi-lbl">performance</span><span class="pi-note">not yet tested</span>
+    </div>`;
+  }
+  const subs = [p.conc != null ? `C${p.conc}` : "", ctx].filter(Boolean).join(" · ");
+  const pct = p.score != null ? Math.min(100, Math.max(0, +p.score)) : 0;
+  return `<div class="perf-inst" role="img" aria-label="performance: peak ${fmtTps(p.peak_agg_tps)} tokens per second" title="peak aggregate throughput demonstrated during the benchmark${p.conc != null ? ` at concurrency ${p.conc}` : ""}${p.hw ? ` on ${p.hw}` : ""} — tach shows standing within this hardware class · full curves on the Performance tab">
+    <span class="pi-tps">${fmtTps(p.peak_agg_tps)}</span><span class="pi-unit">tok/s peak</span>
+    <span class="pi-tach"><i style="--p:${pct.toFixed(1)}%"></i></span>
+    <span class="pi-lbl">performance</span>
+    ${subs ? `<span class="pi-sub">${escH(subs)}</span>` : ""}
+  </div>`;
+}
+
+// CELL-CHUNK category meters: a glowing dot-matrix fill over a ghost-cell track (the Live
+// view's racing-dash language), full category names, band-hued numeral — the score contrast
+// reads in lit cells, hue AND number at once.
+function catBars(cats) {
+  const ORDER = ["Math", "Instruction", "Reasoning", "Coding", "Prose"];
+  const keys = ORDER.filter((c) => cats && cats[c] != null)
+    .concat(Object.keys(cats || {}).filter((c) => !ORDER.includes(c)));
+  if (!keys.length) return "";
+  return `<div class="mrow-cats" role="img" aria-label="per-category scores">` + keys.map((c) => {
+    const v = Math.min(100, Math.max(0, +cats[c] || 0));
+    const band = v >= 80 ? "pass" : v >= 40 ? "part" : "fail";
+    return `<div class="catbar ${band}" title="${escA(c)} — ${v.toFixed(1)} of 100">
+      <span class="catbar-l">${escH(c)}</span>
+      <span class="catbar-cells"><i style="--w:${v.toFixed(1)}%"></i></span>
+      <b class="catbar-v">${Math.round(v)}</b>
+    </div>`;
+  }).join("") + `</div>`;
 }
 
 function _aeonTitle(m, headline, isAeon, prov) {
@@ -332,6 +378,7 @@ function globalRow(m, i) {
     : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`;
   const vram = m.vram_est_gb != null
     ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
+  const ctx = ctxChip(m.ctx_len);
   const frontierChip = fr
     ? `<span class="frontier-chip" title="validated hosted frontier API reference">${escH(fr.brand || fr.provider)} · ${escH(fr.version || fr.model)} · effort ${escH(fr.effort || "default")}</span>`
     : "";
@@ -348,9 +395,10 @@ function globalRow(m, i) {
           <img class="model-avatar${fr ? " frontier" : ""}" data-meta-avatar="${escA(m.model)}" src="${escA(ava)}" alt="" loading="lazy" width="40" height="40">
         </a>
         <span class="mrow-model">${fmtModel(m.model)}</span>
-        ${badge}${vram}
+        ${badge}${vram}${ctx}
       </div>
       ${frontierChip}
+      ${catBars(m.categories)}
       <div class="mcard-acts mrow-acts">
         <a class="get-model-btn" data-meta-card="${escA(m.model)}" target="_blank" rel="noopener noreferrer" hidden>Get&nbsp;Model</a>
         <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
@@ -1465,7 +1513,7 @@ function _benchCard(c) {
       ${c.flagged_any ? `<span class="bc-flag" title="one or more runs in this benchmark are flagged">⚑</span>` : ""}
       <span class="bc-score subs-s${scls}">${comp != null ? fmtComp(comp) : "—"}</span>
     </div>
-    <div class="bc-meta">${_trustChip(c.trust_tier, c.verified)}<span class="bc-info">${meta}</span></div>
+    <div class="bc-meta">${_trustChip(c.trust_tier, c.verified)}${ctxChip(c.ctx_len)}<span class="bc-info">${meta}</span></div>
     <div class="bc-chips">${_cardChips(c)}</div>
   </div>`;
 }
@@ -1725,7 +1773,8 @@ function renderSubmissionDetail(d) {
   // inference engine + bench hardware belong in the RESULT's headline, not just the repro card
   const rp0 = d.reproduction || {};
   const engHw = (rp0.engine ? ` · engine <b>${escH(rp0.engine)}</b>${rp0.serve_mode === "bare" ? ' <span class="micro">(bare metal)</span>' : ""}` : "")
-    + (rp0.hardware_detected || rp0.hardware_claimed ? ` · <span class="catk" title="hardware detected on the bench machine">${escH(rp0.hardware_detected || rp0.hardware_claimed)}</span>` : "");
+    + (rp0.hardware_detected || rp0.hardware_claimed ? ` · <span class="catk" title="hardware detected on the bench machine">${escH(rp0.hardware_detected || rp0.hardware_claimed)}</span>` : "")
+    + (rp0.ctx_len != null ? ` · ${ctxChip(rp0.ctx_len)}` : "");
   const meta = `<div class="sub-meta">
     <h3>${escH(r.model)} <span class="tag">${escH(r.board)}</span> ${r.flagged ? '<span class="ev-badge bad">bad bench</span>' : ""}</h3>
     <div class="note" style="text-align:left">run <span class="mono">${escH(r.id)}</span> · ${escH(r.status)} · ${escH(r.n_cases)} cases · ${_fmtTime(r.started_at)}<br>
@@ -3296,7 +3345,7 @@ async function loadLaunches() {
     if (p.concurrency) bits.push("c" + p.concurrency);
     const nf = (p.serve_flags || []).filter((t) => String(t).startsWith("-")).length;
     if (nf) bits.push(nf + " tuned flags");
-    if (p.drafter_hf) bits.push("DFlash");
+    if (p.drafter_hf) bits.push(/dspark/i.test(p.drafter_hf) ? "DSpark" : "DFlash");
     return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
   }).join("");
 }
@@ -3570,7 +3619,10 @@ function parsedSpecConfig(raw) {
 }
 
 function specUsesDrafter(cfg) {
-  return cfg && String(cfg.method || "").toLowerCase() === "dflash"
+  // DFlash always drafts from an external card; DSpark only in its drafter form —
+  // its native (in-checkpoint) form ships the DSpark weights inside the target checkpoint.
+  const m = cfg && String(cfg.method || "").toLowerCase();
+  return !!cfg && (m === "dflash" || m === "dspark")
     && String(cfg.model || "").includes("/drafter");
 }
 
@@ -3582,13 +3634,23 @@ function curSpecConfig() {
   return parsedSpecConfig(sel.value);
 }
 
-function specIsMtp() {
-  const cfg = curSpecConfig();
-  return !!cfg && String(cfg.method || "").toLowerCase().includes("mtp");
+// A selected config that runs WITHOUT a drafter card: native MTP heads, or DSpark's
+// in-checkpoint form (method dspark with no /drafter model — the DSpark weights ship
+// inside the target checkpoint). Gates the drafter-field hide + the launch payload.
+function specIsNative(cfg) {
+  if (cfg === undefined) cfg = curSpecConfig();
+  if (!cfg) return false;
+  const m = String(cfg.method || "").toLowerCase();
+  return m.includes("mtp") || (m === "dspark" && !specUsesDrafter(cfg));
 }
 
-// The SPEC DECODE block: DFlash preset templates target the /drafter mount and need a drafter
-// card; native MTP presets use the target model's built-in MTP head and need no drafter.
+// Display label for a drafter-based spec method ("DFlash" / "DSpark") in status lines.
+function specMethodLabel(cfg) {
+  return String((cfg && cfg.method) || "").toLowerCase() === "dspark" ? "DSpark" : "DFlash";
+}
+
+// The SPEC DECODE block: DFlash/DSpark drafter presets target the /drafter mount and need a
+// drafter card; native MTP (built-in heads) and native DSpark (in-checkpoint weights) need none.
 // Custom JSON is passed through when it parses. Sets the inline drafter state line.
 function specConfigJson() {
   const sel = $("#specSel"); if (!sel || !sel.value) return null;
@@ -3602,32 +3664,42 @@ function specConfigJson() {
       return null;
     }
     if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
-      if (st) { st.textContent = "▸ DFlash custom config references /drafter; paste the drafter HF card"; st.className = "drafter-state mono warn"; }
+      if (st) { st.textContent = `▸ ${specMethodLabel(cfg)} custom config references /drafter; paste the drafter HF card`; st.className = "drafter-state mono warn"; }
       return null;
     }
     return raw;
   }
   const cfg = parsedSpecConfig(sel.value);
   if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
-    if (st) { st.textContent = "▸ paste the drafter HF card to arm this DFlash preset"; st.className = "drafter-state mono warn"; }
+    if (st) { st.textContent = `▸ paste the drafter HF card to arm this ${specMethodLabel(cfg)} preset`; st.className = "drafter-state mono warn"; }
     return null;                                     // preset references /drafter — no card, no flag
   }
-  if (cfg && String(cfg.method || "").toLowerCase().includes("mtp") && st) {
+  if (cfg && st) {
     const n = cfg.num_speculative_tokens || "?";
-    st.textContent = `native MTP armed (n=${n}; no drafter card needed)`;
-    st.className = "drafter-state mono ok";
+    const m = String(cfg.method || "").toLowerCase();
+    if (m.includes("mtp")) {
+      st.textContent = `native MTP armed (n=${n}; no drafter card needed)`;
+      st.className = "drafter-state mono ok";
+    } else if (m === "dspark" && specIsNative(cfg)) {
+      st.textContent = `native DSpark armed (n=${n}; in-checkpoint — no drafter card needed)`;
+      st.className = "drafter-state mono ok";
+    }
   }
   return sel.value;
 }
 
 // Method-aware SPEC DECODE chrome: the custom-JSON row, the drafter-field visibility (native
-// MTP needs no drafter card — and a hidden field must never silently ride a launch, see
-// _validatedExtras), and the method desc + pros/cons card in the tune-card grammar.
+// MTP / in-checkpoint DSpark need no drafter card — and a hidden field must never silently
+// ride a launch, see _validatedExtras), and the method desc + pros/cons card in the
+// tune-card grammar.
 const SPEC_METHOD_CARDS = {
   dflash: { desc: "A z-lab drafter proposes n tokens per step; the target model verifies every one, so answers are bit-identical.",
             pro: "+ lossless speedup", con: "− needs a matching z-lab drafter" },
   mtp:    { desc: "The checkpoint's own multi-token-prediction heads draft ahead — served natively, no external drafter model.",
             pro: "+ no drafter needed, native heads", con: "− only on MTP-trained checkpoints" },
+  dspark: { desc: "DeepSeek-style DSpark block drafting — a DSpark head drafts ahead in parallel; runs from an external DSpark drafter card or fully in-checkpoint on DSpark-trained models.",
+            pro: "+ lossless speedup; in-checkpoint form needs no drafter download",
+            con: "− needs DSpark-trained weights (e.g. *dspark_*_blockN) and a V2-runner engine (aeon-vllm-ultimate / vLLM ≥0.25)" },
 };
 
 function syncSpecUI() {
@@ -3636,10 +3708,13 @@ function syncSpecUI() {
   const cfg = curSpecConfig();
   const method = String((cfg && cfg.method) || "").toLowerCase();
   const isMtp = method.includes("mtp");
-  const df = $("#drafterField"); if (df) df.hidden = isMtp;   // MTP: no drafter fields
+  // native forms (MTP heads / in-checkpoint DSpark): no drafter fields
+  const df = $("#drafterField"); if (df) df.hidden = specIsNative(cfg);
   const card = $("#specMethodCard");
   if (card) {
-    const m = isMtp ? SPEC_METHOD_CARDS.mtp : method === "dflash" ? SPEC_METHOD_CARDS.dflash : null;
+    const m = isMtp ? SPEC_METHOD_CARDS.mtp
+            : method === "dflash" ? SPEC_METHOD_CARDS.dflash
+            : method === "dspark" ? SPEC_METHOD_CARDS.dspark : null;
     card.hidden = !m;
     if (m) {
       const d = $("#specMethodDesc"), p = $("#specMethodPro"), c = $("#specMethodCon");
@@ -4064,7 +4139,10 @@ function renderChampRow() {
       const bits = [(c.model || c.canonical || "?").split("/").pop().slice(0, 44), c.engine || "engine?"];
       if (c.peak_agg_tps != null) bits.push(Math.round(c.peak_agg_tps) + " tok/s");
       if (c.quality != null) bits.push("quality " + Number(c.quality).toFixed(1));
-      if (c.drafter) bits.push(String(c.drafter.method || "dflash").toLowerCase().includes("mtp") ? "MTP" : "DFlash");
+      if (c.drafter) {
+        const dm = String(c.drafter.method || "dflash").toLowerCase();
+        bits.push(dm.includes("mtp") ? "MTP" : dm === "dspark" ? "DSpark" : "DFlash");
+      }
       return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
     }).join("");
   }
@@ -4084,9 +4162,13 @@ function renderChampProv() {
   if (c.peak_agg_tps != null) bits.push(`${Math.round(c.peak_agg_tps)} tok/s peak${cell}`);
   if (c.quality != null) bits.push(`quality ${Number(c.quality).toFixed(1)}`);
   if (c.trust_tier) bits.push(c.trust_tier);
-  if (c.drafter && c.drafter.repo) bits.push(`DFlash ${c.drafter.repo}${c.drafter.n ? " n=" + c.drafter.n : ""}`);
-  else if (c.drafter && String(c.drafter.method || "").toLowerCase().includes("mtp"))
+  if (c.drafter && c.drafter.repo) {
+    const dm = String(c.drafter.method || "dflash").toLowerCase();
+    bits.push(`${dm === "dspark" ? "DSpark" : "DFlash"} ${c.drafter.repo}${c.drafter.n ? " n=" + c.drafter.n : ""}`);
+  } else if (c.drafter && String(c.drafter.method || "").toLowerCase().includes("mtp"))
     bits.push(`native MTP${c.drafter.n ? " n=" + c.drafter.n : ""}`);
+  else if (c.drafter && String(c.drafter.method || "").toLowerCase() === "dspark")
+    bits.push(`native DSpark${c.drafter.n ? " n=" + c.drafter.n : ""}`);
   prov.innerHTML = escH(bits.join(" · "));
 }
 
@@ -4235,9 +4317,10 @@ function _validatedExtras() {
     // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
     serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
-    // DFlash drafter card: validated + mounted at /drafter. Never rides a native-MTP launch —
-    // the field is hidden then, and hidden state must not silently pull/mount a drafter.
-    drafter_hf: (!specIsMtp() && $("#drafterHf") && $("#drafterHf").value.trim()) || null,
+    // DFlash/DSpark drafter card: validated + mounted at /drafter. Never rides a native launch
+    // (MTP heads / in-checkpoint DSpark) — the field is hidden then, and hidden state must not
+    // silently pull/mount a drafter.
+    drafter_hf: (!specIsNative() && $("#drafterHf") && $("#drafterHf").value.trim()) || null,
     serve_cmd: ($("#tuneServeCmd") && $("#tuneServeCmd").value.trim()) || null,  // FULL serve override (verbatim)
   };
 }
@@ -4539,7 +4622,8 @@ async function init() {
   $$("#modRow .mod-chip").forEach((b) => b.onclick = () => toggleModChip(b.dataset.mod));
   vIn("#tuneExtra", updateTuneCount);
   // spec-decode block: drafter card validates like the model; presets arm --speculative-config
-  // (DFlash needs the card; native MTP hides the drafter fields entirely — syncSpecUI)
+  // (DFlash/DSpark drafter forms need the card; native MTP and in-checkpoint DSpark hide the
+  //  drafter fields entirely — syncSpecUI)
   { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }
   { const ss = $("#specSel"); if (ss) ss.onchange = () => { syncSpecUI(); updateTuneCount(); }; }
   vIn("#specCustom", () => { syncSpecUI(); updateTuneCount(); });
@@ -4709,7 +4793,7 @@ async function init() {
 // In a browser `process` is undefined, so this branch is inert and init() runs as always.
 if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST === "1"
     && typeof module !== "undefined") {
-  module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp };
+  module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp, fmtCtx, ctxChip };
 } else {
   init();
 }

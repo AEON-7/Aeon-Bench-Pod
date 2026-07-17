@@ -194,6 +194,81 @@ def main():
     assert app_mod._drafter_info(rec)["uses_drafter"] is False
     assert "spec_decode" not in modelhost.normalize_dflash_spec({"flags": ["--port", "8000"]})
 
+    # ---- DSpark: drafter form (external block-N drafter) + in-checkpoint (native) form --------
+    dsp = app_mod._drafter_info({"flags": [
+        "--speculative-config", '{"method":"dspark","model":"/drafter","num_speculative_tokens":7}']})
+    assert dsp == {"method": "dspark", "repo": None, "revision": None, "n": 7,
+                   "uses_drafter": True}, dsp
+    ndsp = app_mod._drafter_info({"flags": [
+        "--speculative-config", '{"method":"dspark","num_speculative_tokens":4}']})
+    assert ndsp == {"method": "dspark", "repo": None, "revision": None, "n": 4,
+                    "uses_drafter": False}, ndsp
+    # inline '--speculative-config=JSON' form on the recorded command parses too
+    idsp = app_mod._drafter_info({"command": [
+        '--speculative-config={"method":"dspark","num_speculative_tokens":7}']})
+    assert idsp["method"] == "dspark" and idsp["n"] == 7 and idsp["uses_drafter"] is False, idsp
+    # replication: native DSpark disclosed as in-checkpoint, never pulls or mounts /drafter …
+    ndsp_cmd = app_mod._docker_cmd({"engine": "aeon-vllm-ultimate", "flags": [
+        "--max-model-len", "65536",
+        "--speculative-config", '{"method":"dspark","num_speculative_tokens":4}']}, "org/model", None)
+    assert "Native DSpark spec-decode (in-checkpoint)" in ndsp_cmd and "n=4" in ndsp_cmd, ndsp_cmd
+    assert "/drafter" not in ndsp_cmd, ndsp_cmd
+    # … while the drafter form pulls + mounts the block-N drafter and names the repo honestly
+    dsp_cmd = app_mod._docker_cmd({"engine": "aeon-vllm-ultimate", "spec_decode": "dspark",
+                                   "drafter_repo": "deepseek-ai/dspark_qwen3_8b_block7", "flags": [
+        "--speculative-config",
+        '{"method":"dspark","model":"/drafter","num_speculative_tokens":7}']}, "org/model", None)
+    assert "-v ./drafter:/drafter" in dsp_cmd, dsp_cmd
+    assert "DSpark spec-decode: deepseek-ai/dspark_qwen3_8b_block7" in dsp_cmd, dsp_cmd
+    assert "pull the DSpark drafter" in dsp_cmd, dsp_cmd
+    assert "z-lab" not in dsp_cmd, dsp_cmd    # a DSpark drafter is not a z-lab DFlash card
+    # _champion_drafter mirrors both DSpark forms
+    cdsp = scoring._champion_drafter({"flags": [
+        "--speculative-config", '{"method":"dspark","model":"/drafter","num_speculative_tokens":8}']})
+    assert cdsp == {"method": "dspark", "repo": None, "revision": None, "n": 8,
+                    "uses_drafter": True}, cdsp
+    cnat = scoring._champion_drafter({"flags": [
+        "--speculative-config", '{"method":"dspark","num_speculative_tokens":4}']})
+    assert cnat["method"] == "dspark" and cnat["uses_drafter"] is False, cnat
+    # pod-side annotate: dspark passes through generically (method + n recorded) …
+    rec = modelhost.normalize_dflash_spec({"flags": [
+        "--attention-backend", "triton_attn",
+        "--speculative-config", '{"method":"dspark","model":"/drafter","num_speculative_tokens":8}']})
+    assert rec["spec_decode"] == "dspark" and rec["spec_decode_method"] == "dspark", rec
+    assert rec["spec_decode_n"] == 8 and rec["drafter_nst"] == 8, rec
+    assert app_mod._drafter_info(rec)["uses_drafter"] is True
+    # … and the DFlash-only backend normalizer must IGNORE dspark: the flag value stays
+    # byte-identical (no nested attention_backend injection) and nothing is recorded as normalized
+    assert rec["flags"][-1] == '{"method":"dspark","model":"/drafter","num_speculative_tokens":8}', \
+        rec["flags"]
+    assert "spec_decode_attention_backend" not in rec and not rec.get("recipe_notes"), rec
+    # (control: the same recipe shape WITH method=dflash does get the backend injected)
+    ctl = modelhost.normalize_dflash_spec({"flags": [
+        "--attention-backend", "triton_attn",
+        "--speculative-config", '{"method":"dflash","model":"/drafter","num_speculative_tokens":8}']})
+    assert ctl.get("spec_decode_attention_backend") == "TRITON_ATTN", ctl
+
+    # ---- Run-tab spec presets: every option's JSON round-trips the champion sanitizer ---------
+    # (compact separators, byte-identical -> applying a champion re-selects the dropdown preset)
+    html = open(os.path.join(_MVP, "web", "index.html"), encoding="utf-8").read()
+    sel_html = re.search(r'<select id="specSel">(.*?)</select>', html, re.S).group(1)
+    opts = [v for v in re.findall(r"<option value='([^']+)'", sel_html) if v.startswith("{")]
+    assert len(opts) >= 28, f"expected the full spec-preset matrix, got {len(opts)}"
+    methods = set()
+    for raw in opts:
+        cfg = json.loads(raw)                                  # every preset parses
+        methods.add(cfg["method"])
+        assert isinstance(cfg.get("num_speculative_tokens"), int), raw
+        assert json.dumps(cfg, separators=(",", ":")) == raw, raw   # sanitizer-format round-trip
+        sf = scoring._champion_flags({"flags": ["--speculative-config", raw]})
+        assert sf == ["--speculative-config", raw], sf         # champion apply keeps the bytes
+    assert {"dflash", "mtp", "qwen3_next_mtp", "dspark"} <= methods, methods
+    dspark_cfgs = [json.loads(o) for o in opts if json.loads(o)["method"] == "dspark"]
+    drafter_ns = sorted(c["num_speculative_tokens"] for c in dspark_cfgs
+                        if c.get("model") == "/drafter")
+    native_ns = sorted(c["num_speculative_tokens"] for c in dspark_cfgs if "model" not in c)
+    assert drafter_ns == [4, 7, 8] and native_ns == [4, 7], (drafter_ns, native_ns)
+
     # ---- pod proxy route: stubbed mothership fetch (never the network) ------------------------
     calls = {}
 
@@ -217,7 +292,8 @@ def main():
         app_mod._fetch_champions = real
 
     print("OK  champion recipes: best-with-quality wins per (hardware × model), loose hw match, "
-          "wiring/secrets scrubbed, malformed recipes skipped, offline proxy degrades gracefully")
+          "wiring/secrets scrubbed, malformed recipes skipped, offline proxy degrades gracefully, "
+          "dflash/dspark/mtp disclosure method-aware + spec presets sanitizer-round-trip")
 
 
 if __name__ == "__main__":

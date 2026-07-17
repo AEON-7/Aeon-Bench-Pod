@@ -3,9 +3,11 @@
 Social scrapers (X, iMessage, Discord, Slack, WhatsApp) read OG meta tags and fetch a static
 image — they never execute JS — so each shareable benchmark gets a Pillow-rendered 1200×630 PNG
 in the site's NIGHT CITY grammar: near-black ground, chamfered cyan frame, scanlines + horizon
-bloom, podium-metal rank, the model's name + owner avatar, composite score and peak concurrent
-tok/s. Cards are cached in-memory (the board moves slowly) and NEVER 500 — any failure degrades
-to a plain branded card.
+bloom, the model's name + owner avatar, and the two heroes: the podium-metal GLOBAL rank plate
+("#3 GLOBAL") and the OVERALL AEON SCORE numeral. A supporting chip line carries the component
+scores (intelligence / agentic / performance), the MAX CTX the benchmark was served at, and the
+trust tier; peak concurrent tok/s rides the hardware footer. Cards are cached in-memory (the
+board moves slowly) and NEVER 500 — any failure degrades to a plain branded card.
 
 Fonts: DejaVu Sans Mono when present (shipped in the prod image via fonts-dejavu-core), else
 platform monos (Consolas / Menlo), else Pillow's built-in scalable default.
@@ -87,18 +89,25 @@ def _frame(d: ImageDraw.ImageDraw):
         d.line([(x, y), (x, y + 26 * dy)], fill=(0, 240, 255, 110), width=2)
 
 
-def _chip(d, x, y, label, value, color, pad=16, fsize=30, check=False):
+def _chip(d, x, y, label, value, color, pad=16, fsize=30, check=False, h=78):
     fl, fv = _font(15), _font(fsize)
-    ck = 30 if check else 0                       # vector checkmark (font-safe: ✓ is tofu in many monos)
+    ck = fsize if check else 0                    # vector checkmark (font-safe: ✓ is tofu in many monos)
     wl, wv = _tw(d, label, fl), _tw(d, value, fv) + ck
     w = max(wl, wv) + pad * 2
-    h = 78
     d.polygon(_chamfer(x, y, x + w, y + h, 10), fill=(255, 255, 255, 7), outline=color + (140,))
     d.text((x + pad, y + 12), label, font=fl, fill=FAINT)
+    vy = y + h - fsize - 14                       # value baseline scales with the chip height
     if check:
-        d.line([(x + pad, y + 52), (x + pad + 8, y + 61), (x + pad + 22, y + 40)], fill=color, width=4)
-    d.text((x + pad + ck, y + 34), value, font=fv, fill=color)
+        s = fsize / 30.0
+        d.line([(x + pad, vy + 18 * s), (x + pad + 8 * s, vy + 27 * s), (x + pad + 22 * s, vy + 6 * s)],
+               fill=color, width=max(3, round(4 * s)))
+    d.text((x + pad + ck, vy), value, font=fv, fill=color)
     return x + w + 14
+
+
+def _fmt_ctx(n):
+    """65536 -> '64K' (the boards' context grammar); sub-1K windows stay literal."""
+    return f"{round(n / 1024)}K" if n >= 1024 else str(n)
 
 
 def _avatar(url: str | None, size: int = 128) -> Image.Image:
@@ -132,8 +141,11 @@ def _avatar(url: str | None, size: int = 128) -> Image.Image:
 
 
 def render_model_card(info: dict) -> bytes:
-    """1200×630 PNG for one benchmark row: {model, org, name, rank, composite, peak_tps,
-    trust, hardware, suite, avatar_url}."""
+    """1200×630 PNG for one benchmark row: {model, org, name, rank, aeon, provisional,
+    components, ctx_len, composite, peak_tps, trust, hardware, suite, avatar_url}.
+    Heroes: the GLOBAL rank plate + the OVERALL AEON SCORE numeral. Supporting chip line:
+    component scores · MAX CTX · trust. Old payloads (no aeon/ctx) degrade to the composite
+    headline with the same geometry — nothing faked, nothing crammed."""
     base = Image.new("RGB", (W, H), BG)
     lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
@@ -155,19 +167,23 @@ def render_model_card(info: dict) -> bytes:
     ftag = _font(16)
     d.text((W - 58 - _tw(d, tag, ftag), 54), tag, font=ftag, fill=FAINT)
 
-    # rank watermark + chip (podium metals)
+    # HERO 1 — global-leaderboard placement: watermark numerals + the "#3 GLOBAL" plate,
+    # podium-metal-hued for the top three
     rank = info.get("rank")
     if rank:
         metal = RANK_METALS.get(rank, (110, 110, 146))
         rs = f"{rank:02d}"
         frk = _font(300)
         d.text((W - 92 - _tw(d, rs, frk), 96), rs, font=frk, fill=metal + (34,))
-        fr2 = _font(22)
-        chip = f"RANK {rs}"
-        cw = _tw(d, chip, fr2) + 30
-        d.polygon(_chamfer(W - 70 - cw, 108, W - 70, 152, 8), fill=(255, 255, 255, 10),
-                  outline=metal + (170,))
-        d.text((W - 55 - cw + 15 - 15 + 15, 118), chip, font=fr2, fill=metal)
+        flbl = _font(15)
+        lab = "GLOBAL LEADERBOARD"
+        d.text((W - 70 - _tw(d, lab, flbl), 300), lab, font=flbl, fill=FAINT)
+        fr2 = _font(42)
+        plate = f"#{rank} GLOBAL"
+        cw = _tw(d, plate, fr2) + 44
+        d.polygon(_chamfer(W - 70 - cw, 324, W - 70, 400, 12), fill=(255, 255, 255, 10),
+                  outline=metal + (180,))
+        d.text((W - 70 - cw + 22, 338), plate, font=fr2, fill=metal)
 
     # owner avatar + identity
     lay.alpha_composite(_avatar(info.get("avatar_url")), (60, 150))
@@ -181,21 +197,46 @@ def render_model_card(info: dict) -> bytes:
         fn = _font(fn.size - 4)
     d.text((214, 202), name, font=fn, fill=TEXT)
 
-    # metric chips
-    x = 216
-    comp = info.get("composite")
-    if comp is not None:
-        x = _chip(d, x, 330, "COMPOSITE", f"{comp:.1f}", RANK_METALS[1])
-    tps = info.get("peak_tps")
-    if tps:
-        x = _chip(d, x, 330, "PEAK CONCURRENT", f"{tps:.0f} TOK/S", CYAN)
-    if (info.get("trust") or "") == "attested":
-        x = _chip(d, x, 330, "TRUST", "ATTESTED", GOOD, check=True)
+    # HERO 2 — the OVERALL AEON SCORE numeral (the headline number; old payloads without an
+    # aeon score keep the slot with the composite, labelled honestly)
+    aeon = info.get("aeon")
+    headline = aeon if aeon is not None else info.get("composite")
+    if headline is not None:
+        fl = _font(20)
+        x = 218
+        d.text((x, 296), "AEON SCORE" if aeon is not None else "COMPOSITE", font=fl, fill=FAINT)
+        x += _tw(d, "AEON SCORE" if aeon is not None else "COMPOSITE", fl) + 16
+        if aeon is not None:
+            d.text((x, 296), "OVERALL", font=fl, fill=CYAN)
+            x += _tw(d, "OVERALL", fl) + 16
+            if info.get("provisional"):
+                d.text((x, 296), "· PROVISIONAL", font=fl, fill=MUTED)
+        d.text((212, 322), f"{headline:.1f}", font=_font(108), fill=TEXT)
 
-    # footer: hardware + site
+    # supporting chip line: component scores + the served context + trust
+    x, cy = 60, 466
+    comps = info.get("components") or {}
+    for key, lab in (("intelligence", "INTELLIGENCE"), ("agentic", "AGENTIC"),
+                     ("performance", "PERFORMANCE")):
+        v = comps.get(key)
+        if v is not None:
+            x = _chip(d, x, cy, lab, f"{v:.1f}", RANK_METALS[1], fsize=24, h=64, pad=14)
+    ctx = info.get("ctx_len")
+    if ctx:
+        x = _chip(d, x, cy, "MAX CTX", _fmt_ctx(ctx), CYAN, fsize=24, h=64, pad=14)
+    if (info.get("trust") or "") == "attested":
+        x = _chip(d, x, cy, "TRUST", "ATTESTED", GOOD, check=True, fsize=24, h=64, pad=14)
+
+    # footer: hardware + peak concurrent throughput, site
+    foot = []
     hw = info.get("hardware")
     if hw:
-        d.text((58, H - 76), str(hw).upper(), font=_font(18), fill=MUTED)
+        foot.append(str(hw).upper())
+    tps = info.get("peak_tps")
+    if tps:
+        foot.append(f"PEAK {tps:.0f} TOK/S CONCURRENT")
+    if foot:
+        d.text((58, H - 76), " · ".join(foot), font=_font(18), fill=MUTED)
     site = "aeon-bench.com"
     fs = _font(20)
     d.text((W - 58 - _tw(d, site, fs), H - 78), site, font=fs, fill=CYAN)

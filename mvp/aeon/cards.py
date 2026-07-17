@@ -232,6 +232,13 @@ def _card(card_id, runs, cats, counts, means, artifacts):
         boards["perf"] = _perf_slot(perf[-1])
     boards["arena"] = _arena_slot(runs, artifacts)
     t0, t1 = _card_window(runs)
+    # served context: the text run's recipe first (the job's primary bundle), else the first
+    # run in the job whose recipe discloses one — null when no recipe recorded a window
+    ctx_len = None
+    for r in text + [x for x in runs if x not in text]:
+        ctx_len = scoring.ctx_len_from_recipe(_recipe(r))
+        if ctx_len is not None:
+            break
     return {
         "card_id": card_id,
         "model": anchor.get("model"),
@@ -241,6 +248,7 @@ def _card(card_id, runs, cats, counts, means, artifacts):
         "trust_tier": anchor.get("trust_tier") or "self_reported",
         "hardware": _hw(anchor),
         "engine": _engine(anchor),
+        "ctx_len": ctx_len,               # max context the job was served at (null = not recorded)
         "started_at": t0,
         "finished_at": t1,
         "flagged_any": any(r.get("flagged") for r in runs),

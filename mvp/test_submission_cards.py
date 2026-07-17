@@ -238,7 +238,45 @@ ok(card["flagged_any"] is True, "any flagged run flags the whole card")
 ok(card["boards"]["vision"]["flagged"] is True and card["boards"]["text"]["flagged"] is False,
    "the flag is disclosed per board, not smeared")
 
-# ---------- 5) malformed rows are skipped, never a 500 ----------
+# ---------- 5) DSpark spec-decode disclosure: drafter form + in-checkpoint form ----------
+DSPARK_DRAFTER_JSON = '{"method":"dspark","model":"/drafter","num_speculative_tokens":7}'
+DSPARK_NATIVE_JSON = '{"method":"dspark","num_speculative_tokens":4}'
+rid_dspd = mk_run("lab/dspark-drafter", cases=[("t.m1", "math", 1.0, "4")],
+                  hf_repo="lab/dspark-drafter",
+                  recipe={"engine": "aeon-vllm-ultimate",
+                          "image": "ghcr.io/aeon-7/aeon-vllm-ultimate:latest",
+                          "drafter_repo": "deepseek-ai/dspark_qwen3_8b_block7",
+                          "flags": ["--gpu-memory-utilization", "0.70",
+                                    "--speculative-config", DSPARK_DRAFTER_JSON,
+                                    "--served-model-name", "model-under-test"]})
+rid_dspn = mk_run("lab/dspark-native", cases=[("t.m1", "math", 1.0, "4")],
+                  hf_repo="lab/dspark-native",
+                  recipe={"engine": "aeon-vllm-ultimate",
+                          "image": "ghcr.io/aeon-7/aeon-vllm-ultimate:latest",
+                          "flags": ["--gpu-memory-utilization", "0.70",
+                                    "--speculative-config", DSPARK_NATIVE_JSON,
+                                    "--served-model-name", "model-under-test"]})
+cmp_dsp = cards.compare_cards("lg:" + rid_dspd, "lg:" + rid_dspn)
+ok("error" not in cmp_dsp, "dspark cards resolve on both sides")
+rcd = cmp_dsp["sections"]["recipe"]["a"]
+ok(rcd["spec_decode"] and rcd["spec_decode"]["method"] == "dspark"
+   and rcd["spec_decode"]["repo"] == "deepseek-ai/dspark_qwen3_8b_block7"
+   and rcd["spec_decode"]["n"] == 7,
+   "dspark drafter form: disclosure names the block7 drafter repo + n")
+ok(rcd["spec_decode"]["uses_drafter"] is True,
+   "dspark drafter form: uses_drafter=True (pull + /drafter mount)")
+ok(rcd["serve_flags"][rcd["serve_flags"].index("--speculative-config") + 1] == DSPARK_DRAFTER_JSON,
+   "dspark drafter option JSON survives the champion sanitizer byte-identical")
+rcn = cmp_dsp["sections"]["recipe"]["b"]
+ok(rcn["spec_decode"] and rcn["spec_decode"]["method"] == "dspark"
+   and rcn["spec_decode"]["n"] == 4 and rcn["spec_decode"]["repo"] is None,
+   "native dspark: method + n disclosed, no drafter repo")
+ok(rcn["spec_decode"]["uses_drafter"] is False,
+   "native (in-checkpoint) dspark: uses_drafter=False — nothing to pull or mount")
+ok(rcn["serve_flags"][rcn["serve_flags"].index("--speculative-config") + 1] == DSPARK_NATIVE_JSON,
+   "native dspark option JSON survives the champion sanitizer byte-identical")
+
+# ---------- 6) malformed rows are skipped, never a 500 ----------
 rid_bad = mk_run("lab/mangled", cases=[("t.m1", "math", 1.0, "4")])
 with db.connect() as c:
     c.execute("UPDATE runs SET env_json='{{{not json', recipe='also not json' WHERE id=?",

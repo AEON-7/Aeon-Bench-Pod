@@ -35,8 +35,9 @@ ENGINES = {
         "image": "ghcr.io/aeon-7/aeon-vllm-ultimate:latest",
         "url": "https://github.com/aeon-7/aeon-vllm-ultimate",
         "platforms": ["cuda"], "formats": ["safetensors"],
-        "note": "AEON's tuned vLLM build (NVFP4/modelopt + DFlash speculative decode) — the "
-                "engine behind AEON's own attested boards; optimal on DGX Spark GB10.",
+        "note": "AEON's tuned vLLM build (NVFP4/modelopt + DFlash/DSpark speculative decode; "
+                "V2 GPU runner) — the engine behind AEON's own attested boards; optimal on "
+                "DGX Spark GB10.",
     },
     "vllm": {
         "name": "vLLM", "style": "vllm",
@@ -245,8 +246,10 @@ FLAG_CATALOG = {
             {"engine_re": r"^aeon-vllm-ultimate$",
              "why": "this build rejects --reasoning-budget — the serve dies on 'unrecognized "
                     "arguments'; remove it (the model still benches, reasoning uncapped)"}]},
-        # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
-        # (drafter HF card + preset dropdown), not as a raw catalog knob.
+        # --speculative-config (methods: dflash / dspark / mtp / qwen3_next_mtp) is handled by
+        # the dedicated SPEC DECODE block in the Run tab (drafter HF card + preset dropdown),
+        # not as a raw catalog knob. dspark needs a V2-runner engine (aeon-vllm-ultimate /
+        # vLLM >=0.25) and runs drafter-based OR in-checkpoint (no /drafter mount).
     ],
     "sglang": [
         {"flag": "--context-length", "kind": "number", "default": 65536, "min": 65536,

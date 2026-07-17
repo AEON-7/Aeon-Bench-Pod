@@ -691,6 +691,15 @@ def runs_for_cards(limit=4000):
             "ORDER BY started_at DESC LIMIT ?", (int(limit),)).fetchall()]
 
 
+def run_recipes():
+    """[{id, canonical_id, started_at, recipe}] for succeeded runs that stored a serve
+    recipe — the leaderboard's served-context join (small: recipe-bearing runs only)."""
+    with connect() as c:
+        return [dict(x) for x in c.execute(
+            "SELECT id, COALESCE(canonical_id, model) AS canonical_id, started_at, recipe "
+            "FROM runs WHERE status='succeeded' AND recipe IS NOT NULL").fetchall()]
+
+
 def run_case_counts():
     """{run_id: {'rows': result rows, 'scored': non-null scores}} in one aggregate query —
     the cards view's cheap per-run sizes (COUNT(score) skips NULLs on both backends)."""

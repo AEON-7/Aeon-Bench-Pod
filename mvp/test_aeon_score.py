@@ -209,8 +209,9 @@ def main():
           "intelligence dial = text composite + best run")
     check(d["agentic"] == {"score": 70.0, "harnesses": {"hermes": 80.0, "opencode": 60.0}},
           "agentic dial = mean of available harness scores")
-    check(d["performance"] == {"score": 100.0, "peak_agg_tps": 100.0, "hw": spark_bucket},
-          "performance dial = top percentile in its hw bucket")
+    check(d["performance"] == {"score": 100.0, "peak_agg_tps": 100.0, "hw": spark_bucket,
+                               "conc": 8},
+          "performance dial = top percentile in its hw bucket (+ the peak cell's concurrency)")
     check(d["audio"] == {"score": 50.0, "run": row(ab, FULL)["run"]},
           "audio dial joined from the audio board")
     check(d["vision"] is None and d["video"] is None,

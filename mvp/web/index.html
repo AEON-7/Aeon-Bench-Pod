@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=89" />
+  <link rel="stylesheet" href="/static/styles.css?v=94" />
 </head>
 <body>
   <header>
@@ -200,9 +200,9 @@
             <div id="tuneAlert" class="tune-alert" hidden></div>
             <div id="tuneBody" class="tune-body"></div>
             <div class="tune-spec" id="tuneSpec">
-              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH / MTP</span><span id="drafterState" class="drafter-state mono"></span></div>
+              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH / DSPARK / MTP</span><span id="drafterState" class="drafter-state mono"></span></div>
               <div class="row">
-                <label class="grow" id="drafterField">Drafter HF card <span class="note">(DFlash only)</span><input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
+                <label class="grow" id="drafterField">Drafter HF card <span class="note">(DFlash / DSpark drafter forms)</span><input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash or deepseek-ai/dspark_&lt;model&gt;_blockN — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
                 <label>Speculative config<select id="specSel">
                   <option value="">— off —</option>
                   <optgroup label="DFlash drafter (/drafter), n=1-15">
@@ -222,6 +222,11 @@
                     <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":14}'>DFlash n=14</option>
                     <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":15}'>DFlash n=15 — deepest</option>
                   </optgroup>
+                  <optgroup label="DSpark drafter (/drafter)">
+                    <option value='{"method":"dspark","model":"/drafter","num_speculative_tokens":4}'>DSpark n=4</option>
+                    <option value='{"method":"dspark","model":"/drafter","num_speculative_tokens":7}'>DSpark n=7 — block7 drafters</option>
+                    <option value='{"method":"dspark","model":"/drafter","num_speculative_tokens":8}'>DSpark n=8</option>
+                  </optgroup>
                   <optgroup label="Native MTP, no drafter card">
                     <option value='{"method":"mtp","num_speculative_tokens":1}'>MTP n=1 — generic</option>
                     <option value='{"method":"mtp","num_speculative_tokens":2}'>MTP n=2 — generic</option>
@@ -232,6 +237,10 @@
                     <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":3}'>Qwen MTP n=3</option>
                     <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":4}'>Qwen MTP n=4</option>
                   </optgroup>
+                  <optgroup label="Native DSpark (in-checkpoint)">
+                    <option value='{"method":"dspark","num_speculative_tokens":4}'>Native DSpark n=4</option>
+                    <option value='{"method":"dspark","num_speculative_tokens":7}'>Native DSpark n=7</option>
+                  </optgroup>
                   <option value="custom">custom JSON…</option>
                 </select></label>
               </div>
@@ -241,7 +250,7 @@
                 <p class="tune-desc" id="specMethodDesc"></p>
                 <div class="tune-pc"><span class="tune-pro" id="specMethodPro"></span><span class="tune-con" id="specMethodCon"></span></div>
               </div>
-              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. DFlash presets require a drafter card (pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>) and support n=1-15. Native MTP presets use the model's built-in MTP head and need no drafter; start small, then tune upward per model.</p>
+              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. DFlash presets require a drafter card (pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>) and support n=1-15. DSpark runs either from an external DSpark drafter card (block-N drafters, e.g. <span class="mono">deepseek-ai/dspark_qwen3_8b_block7</span> — same pull/validate/mount as DFlash) or fully in-checkpoint on DSpark-trained models (no drafter download; head internals come from the drafter's own config). Native MTP presets use the model's built-in MTP head and need no drafter; start small, then tune upward per model.</p>
             </div>
             <div class="row"><label class="grow">Extra flags <span class="note">(any flag not listed above — appended verbatim)</span><input id="tuneExtra" type="text" placeholder="e.g.  --seed 7  --num-scheduler-steps 8  --rope-scaling '{&quot;type&quot;:&quot;yarn&quot;}'" spellcheck="false" /></label></div>
             <p class="note tune-note"><b>How custom flags work:</b> type them exactly as you'd pass them to the engine, space-separated (<span class="mono">--flag value</span> or a bare <span class="mono">--flag</span> for booleans). Wrap a value containing spaces or JSON in single quotes. These MERGE into the engine's serve command — a flag also set above is replaced by your value; a new flag is appended. The bench wiring (served alias · host · port · 64K floor) is protected and can't be broken. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>
@@ -633,6 +642,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=89"></script>
+  <script src="/static/app.js?v=94"></script>
 </body>
 </html>

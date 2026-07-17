@@ -72,6 +72,15 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "In RECIPE TUNING set max-num-batched-tokens = 32768 and cap max-num-seqs (try 64 for "
      "64K bench context, or 16 for long-context sidecar profiles), or reduce "
      "num_speculative_tokens."),
+    (re.compile(r"Quantization method specified in the model config[\s\S]{0,200}?does not match"
+                r"[\s\S]{0,120}?quantization.{0,3}\s*argument", re.I),
+     "--quantization",
+     "The recipe pins a --quantization method that CONTRADICTS the checkpoint's own "
+     "quantization_config in config.json (e.g. a champion recipe from a ModelOpt-NVFP4 donor "
+     "reused on an llm-compressor/compressed-tensors NVFP4 checkpoint). Clear the quantization "
+     "override in RECIPE TUNING — the pod derives the right method from config.json — or set it "
+     "to the method named first in the error. Updated pods drop the conflicting flag "
+     "automatically (QUANT GUARD in the log)."),
     (re.compile(r"Unknown quantization|Unsupported quantization|quantization method.*not "
                 r"(?:supported|recognized)|No supported quant|does not support.*quantization", re.I),
      "--quantization",
@@ -103,7 +112,12 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The requested context exceeds the model's native window. Lower max-model-len to the model's "
      "native context (shown on the validation strip), or configure rope scaling if the model "
      "supports it."),
-    (re.compile(r"tool[_-]call[_-]parser|tool call parser.*(?:not|unknown|invalid)", re.I),
+    # Anchored on ERROR phrasing only — the plain flag name appears in vLLM's non-default-args
+    # config dump on every run (matching it there mis-blamed a healthy parser for an unrelated
+    # startup crash: the 27B-Ultimate quant mismatch, 2026-07-17).
+    (re.compile(r"tool[_-]call[_-]parser.{0,60}?(?:not|unknown|invalid|no such)|"
+                r"(?:invalid|unknown)\s+tool[ _-]call[ _-]parser|"
+                r"tool call parser.*(?:not|unknown|invalid)", re.I),
      "--tool-call-parser",
      "The tool-call-parser name isn't supported by this build. In RECIPE TUNING pick your family's "
      "parser (Qwen -> qwen3_coder, DeepSeek -> deepseek_v3, GLM-4.5 -> glm45, Kimi K2 -> kimi_k2, "

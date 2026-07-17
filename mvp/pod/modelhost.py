@@ -309,12 +309,16 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
                                              extra_flags=extra_flags, drafter_dir=drafter_dir)}
     launcher, eng = (ult or "aeon-vllm-ultimate", "aeon-vllm-ultimate") if use_ultimate else ("vllm", "vllm")
     flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
-             "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.8"]  # 0.8 default; op overrides
+             "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.7"]  # 0.6-0.7 safe on
+             # unified memory (>~0.8 thrashes the GB10 shared pool); op overrides for discrete VRAM
     if quant:
         flags += ["--quantization", str(quant)]
+    extra_flags, _qnote = engmod.quant_guard(extra_flags, quant)
     flags, applied = engmod.merge_flags(flags, extra_flags)   # recipe tuning on the bare path too
     cmd = [launcher, "serve", local_dir] + flags
     recipe = {**base, "engine": eng, "serve_mode": "bare", "command": cmd, "flags": flags}
+    if _qnote:
+        recipe["quant_guard"] = _qnote
     if applied:
         recipe["custom_flags"] = applied
     if use_ultimate and engine is None:

@@ -356,6 +356,36 @@ def merge_flags(base: list[str], extra: list[str] | None) -> tuple[list[str], li
     return merged, applied
 
 
+def quant_guard(extra: list[str] | None, derived: str | None) -> tuple[list[str], str | None]:
+    """Drop an operator --quantization override that CONTRADICTS the checkpoint's own declared
+    quant_method (config.json). vLLM hard-fails that mismatch at startup, so the flag is never
+    valid — the classic cause is a champion recipe reused from a differently-quantized donor
+    (ModelOpt NVFP4 vs llm-compressor/compressed-tensors NVFP4 of the same family). When the
+    checkpoint declares NOTHING the operator flag stands (old-style ModelOpt exports need it).
+    Returns (filtered_extra, note|None) — the note is logged + recorded in the recipe."""
+    if not extra or not derived:
+        return list(extra or []), None
+    toks, out, note, i = [str(t) for t in extra], [], None, 0
+    while i < len(toks):
+        t = toks[i].strip()
+        val = None
+        if t == "--quantization" and i + 1 < len(toks) and not toks[i + 1].startswith("-"):
+            val, i = toks[i + 1].strip(), i + 2
+        elif t.startswith("--quantization="):
+            val, i = t.split("=", 1)[1].strip(), i + 1
+        else:
+            out.append(toks[i])
+            i += 1
+            continue
+        if val and val != derived:
+            note = (f"recipe --quantization {val} conflicts with the checkpoint's declared "
+                    f"quant_method '{derived}' (config.json) — serving with '{derived}' "
+                    "(vLLM always refuses the mismatch at startup)")
+        elif val:                                        # matches the declared method: keep it
+            out += ["--quantization", val]
+    return out, note
+
+
 #: the served-context bench floor — Hermes refuses models reporting less, which would silently
 #: burn a whole run's harness pass. Overrides BELOW the floor are raised back to it.
 CTX_FLOOR = 65536
@@ -675,10 +705,13 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
             # untested. Grant it up-front; an operator --limit-mm-per-prompt in recipe
             # tuning still overrides via merge_flags.
             flags += ["--limit-mm-per-prompt", '{"image":4,"audio":4}']
+        extra_flags, _qnote = quant_guard(extra_flags, quant)
         flags, applied = merge_flags(flags, extra_flags)
         flags = _floor_ctx(flags, "vllm")
         cmd = docker + ["--entrypoint", "vllm", img, "serve", model_path] + flags
         srv = {"flags": flags}                          # vllm-style flags: the repro card renders these
+        if _qnote:
+            srv["quant_guard"] = _qnote
     elif e["style"] == "sglang":
         args = ["--model-path", model_path, "--served-model-name", alias,
                 "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]

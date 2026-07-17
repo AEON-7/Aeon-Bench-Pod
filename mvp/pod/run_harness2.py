@@ -1,5 +1,14 @@
 """run_harness2 — run the aeon-agentic-v2 ENVIRONMENT-EXECUTION suite through a real harness.
 
+SETUP PHASE (scored, first row): for each REAL harness the MODEL UNDER TEST first configures
+the harness ITSELF — `pod.harness_skills.run_setup_case` hands it the per-harness helper
+skill + endpoint facts over a direct chat, grades the authored config deterministically
+(parse / protected endpoint+model fields / boot check), and the result rides as a normal row
+`agentic.setup.<harness>` so setup ability flows into the harness score. Whatever setup
+scores, the task loop below ALWAYS runs with the adapter's own known-good config — task
+scores stay comparable across models; setup is its own signal. (`AEON_SELFCONFIG=0` or
+`selfconfig=False` skips the phase; the mock harness has no config surface and never runs it.)
+
 For each task: make a fresh temp workdir, populate the task's setup files, let the harness
 adapter launch ONE one-shot docker container with the workdir mounted at /work, then score the
 OBSERVABLE OUTCOME (files written + final answer) with `aeon.agentic_v2.score_agentic_v2`.
@@ -8,7 +17,8 @@ parallelize fine). A per-task failure becomes status="harness_error" (score 0); 
 never aborts.
 
     run_agentic_v2(harness_id, model_base_url, served_alias,
-                   *, concurrency=4, timeout=240, progress_cb=None) -> [row, ...]
+                   *, concurrency=4, timeout=240, progress_cb=None, selfconfig=True)
+        -> [setup_row?, row, ...]
 
     row = {case_id, category, tier, status, score,
            raw_output,          # truncated transcript JSON {answer, steps, raw}
@@ -40,6 +50,7 @@ if _MVP not in sys.path:
 from aeon import agentic                       # noqa: E402  (tool-call trajectory scorer)
 from aeon import agentic_v2                    # noqa: E402
 from pod import adapters                       # noqa: E402
+from pod import harness_skills                 # noqa: E402  (scored setup phase)
 
 _VER_RE = re.compile(r"\d{4}\.\d{1,2}\.\d{1,2}|\d+\.\d+\.\d+(?:-[\w.]+)?")
 _RAW_LIMIT = 8000                              # per-row transcript budget (chars)
@@ -190,14 +201,28 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
 
 
 def run_agentic_v2(harness_id: str, model_base_url: str, served_alias: str, *,
-                   concurrency: int = 4, timeout: int = 240, progress_cb=None) -> list:
+                   concurrency: int = 4, timeout: int = 240, progress_cb=None,
+                   selfconfig: bool = True) -> list:
     """Run every aeon-agentic-v2 task through `harness_id`'s adapter and score the outcomes.
 
-    Returns the per-task rows in CASES order. `progress_cb(case_id, score, status)` fires as
-    each task completes. Per-task failures -> status="harness_error", score 0.
+    Returns the per-task rows in CASES order — prefixed with the scored
+    `agentic.setup.<harness>` SELF-CONFIG row when the harness has a helper skill (see
+    module docstring). `progress_cb(case_id, score, status)` fires as each task completes
+    (not for the setup row — the pod's stage counter is sized to the task count). Per-task
+    failures -> status="harness_error", score 0.
     """
     adapter = adapters.get(harness_id)
     info = discover(harness_id)
+
+    # SETUP PHASE — the model under test configures the harness itself (scored; never
+    # aborts the batch, and NEVER replaces the adapter's own config for the task loop).
+    setup_row = None
+    if (selfconfig and harness_id in harness_skills.SKILLS
+            and os.environ.get("AEON_SELFCONFIG") != "0"):
+        setup_row = harness_skills.run_setup_case(harness_id, model_base_url, served_alias)
+        setup_row["suite_id"] = agentic_v2.SUITE_ID
+        setup_row.update(info)                    # harness, harness_version
+        print(f"[pod] harness {harness_id} self-config: {setup_row['score']}")
 
     run_root = tempfile.mkdtemp(prefix=f"aeonv2_{harness_id}_")
     scratch_root = os.path.join(run_root, "tasks")
@@ -216,7 +241,7 @@ def run_agentic_v2(harness_id: str, model_base_url: str, served_alias: str, *,
                 rows[i] = row
                 if progress_cb:
                     progress_cb(row["case_id"], row["score"], row["status"])
-        return rows
+        return ([setup_row] if setup_row else []) + rows
     finally:
         try:
             adapter.cleanup_run()

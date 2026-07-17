@@ -29,6 +29,7 @@ try:
     from . import accounts, admin, ingest
 except ImportError:                                # public pod distribution
     accounts = admin = ingest = None               # type: ignore[assignment]
+from . import audio_suite
 from . import suite as suite_mod
 from . import video_suite
 from . import vision_suite
@@ -456,6 +457,21 @@ def video_suite_summary():
 @app.get("/api/video/leaderboard")
 def video_leaderboard():
     return scoring.video_leaderboard()
+
+
+# ---- Audio board ----
+
+@app.get("/api/audio/suite")
+def audio_suite_summary():
+    try:
+        return audio_suite.summary()
+    except (RuntimeError, OSError) as e:   # pinned speech assets missing/corrupt on this host
+        return JSONResponse({"error": str(e)}, status_code=503)
+
+
+@app.get("/api/audio/leaderboard")
+def audio_leaderboard():
+    return scoring.audio_leaderboard()
 
 
 # (vision + audio run launchers removed — runs originate only from pods; see note above.)

@@ -69,8 +69,14 @@ def harness_board(board="text"):
 def _run_summary(info):
     """Per-run composite + category + speed roll-up (one run = one benchmark pass). Speed is
     reported BOTH overall and per category (prompt types have very different speed profiles —
-    a reasoning model is slow on reasoning prompts, fast on lookups)."""
+    a reasoning model is slow on reasoning prompts, fast on lookups).
+
+    NO_ANSWER weighting (pod contract): a results row may carry status='no_answer' (score
+    NULL) — the model was asked and declined/failed to commit to an answer. Category mean =
+    sum(scores) / (n_answered + 0.25 * n_no_answer): a no-answer costs a quarter of a wrong
+    answer. Runs without such rows compute EXACTLY as before (denominator = n_answered)."""
     cats, ttfts, tpss, e2es, crv = {}, [], [], [], {}
+    noans = {}    # category -> count of status='no_answer' rows (score NULL by contract)
     cat_sp = {}   # category -> {ttft:[], tps:[], e2e:[]}
     out_toks, busy_ms = 0, 0.0
     for r in info["results"]:
@@ -83,9 +89,18 @@ def _run_summary(info):
         b["ttft"].append(sp.get("ttft_ms")); b["tps"].append(sp.get("decode_tps")); b["e2e"].append(sp.get("e2e_ms"))
         if r["score"] is not None:
             cats.setdefault(c, []).append(r["score"])
+        elif (r.get("status") or "") == "no_answer":
+            noans[c] = noans.get(c, 0) + 1
         if r.get("creativity") is not None:
             crv.setdefault(c, []).append(r["creativity"])
-    cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
+    # Category order: scored categories first (in row order, exactly as before), then any
+    # category attempted ONLY via no_answer rows — so runs without no_answer rows serialize
+    # bit-identically to the pre-no_answer payload.
+    cat_scores = {}
+    for c in list(cats) + [c for c in noans if c not in cats]:
+        sc = cats.get(c, [])
+        denom = len(sc) + 0.25 * noans.get(c, 0)
+        cat_scores[c] = round(100 * sum(sc) / denom, 1) if denom else 0.0
     composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
     tier = info.get("trust_tier") or "self_reported"
     # AGGREGATE throughput under the run's actual test load: with N cases in flight the
@@ -109,8 +124,10 @@ def _run_summary(info):
                                "e2e_ms": _avg(b["e2e"])} for c, b in cat_sp.items()},
         "n_cases": len(info["results"]),
         # healthy passes score every submitted row (verified in prod 2026-07-11); nulls mean
-        # error/killed cases, so coverage gates count SCORED cases, not rows
+        # error/killed cases, so coverage gates count SCORED cases, not rows — except
+        # no_answer rows, which are ATTEMPTED (asked + declined) and count toward coverage
         "n_scored": sum(1 for r in info["results"] if r["score"] is not None),
+        "n_no_answer": sum(noans.values()),
         "frontier": info.get("frontier"),
     }
 
@@ -135,9 +152,9 @@ def leaderboard(suite=None):
             lb = _leaderboard_scoped(legacy)
             if lb["models"]:
                 lb["suite_shown"], lb["legacy"] = legacy, True
-                return lb
+                return _attach_dials(lb)
     out["suite_shown"] = suite or suite_mod.SUITE_ID
-    return out
+    return _attach_dials(out)
 
 
 def _leaderboard_scoped(suite=None):
@@ -178,12 +195,15 @@ def _leaderboard_scoped(suite=None):
 
     # Coverage floor: the corpus size is authoritative for the current suite; for legacy/tier
     # scopes (whose corpora are no longer shipped) the largest committed pass calibrates it.
+    # ATTEMPTED = covered: a no_answer row is a case the model was asked (it costs score via
+    # the ¼-weight rule), so it counts toward coverage like a scored row.
     scope = suite or COMPREHENSIVE
     if scope == COMPREHENSIVE:
         expected = len(suite_mod.CASES)
     else:
-        expected = max((r["n_scored"] for r in runs), default=0)
-    runs = [r for r in runs if r["n_scored"] >= MIN_SUITE_COVERAGE * expected]
+        expected = max((r["n_scored"] + r["n_no_answer"] for r in runs), default=0)
+    runs = [r for r in runs
+            if (r["n_scored"] + r["n_no_answer"]) >= MIN_SUITE_COVERAGE * expected]
 
     by_model = {}
     for rs in runs:
@@ -252,6 +272,97 @@ def _leaderboard_scoped(suite=None):
     return {"categories": suite_mod.CATEGORIES, "models": board}
 
 
+# ---- AEON score: the six-dial per-model summary + blended headline number --------------
+#
+# Weights over the three RANKED components; the modality dials (vision/audio/video) are
+# informational and never blend in. When a component is missing the remaining weights are
+# renormalized and the row is flagged provisional — an honest partial score, never a
+# hidden zero.
+AEON_WEIGHTS = {"intelligence": 0.5, "agentic": 0.3, "performance": 0.2}
+
+
+def _perf_percentile_index():
+    """canonical -> {'score', 'peak_agg_tps', 'hw'}: the model's best PERCENTILE standing on
+    the perf board. Percentile ranks the model's peak_agg_tps among the perf rows of the
+    SAME hw bucket (apples to apples — a Spark never races a 5090): 100 = fastest in
+    bucket, 0 = slowest, single-row bucket = 100. A model with rows on several rigs keeps
+    its best showing (ties broken by higher absolute peak)."""
+    buckets = {}
+    for m in perf_board()["models"]:
+        if isinstance(m.get("peak_agg_tps"), (int, float)):
+            buckets.setdefault(m["hw_bucket"], []).append(m)
+    out = {}
+    for bucket, ms in buckets.items():
+        n = len(ms)      # one row per (canonical, bucket) by construction — a real cohort
+        for m in ms:
+            if n == 1:
+                pct = 100.0
+            else:
+                below = sum(1 for x in ms if x["peak_agg_tps"] < m["peak_agg_tps"])
+                pct = round(100.0 * below / (n - 1), 1)
+            cur = out.get(m["canonical"])
+            if cur is None or (pct, m["peak_agg_tps"]) > (cur["score"], cur["peak_agg_tps"]):
+                out[m["canonical"]] = {"score": pct, "peak_agg_tps": m["peak_agg_tps"],
+                                       "hw": m["hw_bucket"]}
+    return out
+
+
+def _agentic_index():
+    """canonical -> {'score': mean of its available harness scores, 'harnesses': {hid: score}}
+    from the AI-Harness matrix (same canonical join key as the text board)."""
+    out = {}
+    for canon, cells in harness_board()["matrix"].items():
+        hs = {h: cell["score"] for h, cell in cells.items() if cell.get("score") is not None}
+        if hs:
+            out[canon] = {"score": round(sum(hs.values()) / len(hs), 1), "harnesses": hs}
+    return out
+
+
+def _modality_index(lb):
+    """canonical -> {'score', 'run'} for a modality board payload (rows carry 'canonical' —
+    the join fix: these boards now group by the same canonical id as the text board)."""
+    return {m.get("canonical") or m["model"]: {"score": m["composite"], "run": m["run"]}
+            for m in lb["models"]}
+
+
+def _attach_dials(lb):
+    """Extend each text-board model row with the six-dial object + the blended aeon_score.
+    Purely additive: every pre-existing field is untouched. A dial is null when the model
+    was never tested on that axis (null = not tested, NEVER a zero)."""
+    if not lb.get("models"):
+        return lb
+    perf = _perf_percentile_index()
+    agentic = _agentic_index()
+    vis = _modality_index(vision_leaderboard())
+    aud = _modality_index(audio_leaderboard())
+    vid = _modality_index(video_leaderboard())
+    for m in lb["models"]:
+        canon = m["canonical"]
+        p, a = perf.get(canon), agentic.get(canon)
+        m["dials"] = {
+            "intelligence": {"score": m["composite"], "run": m["best_run"]},  # always present
+            "performance": p,
+            "agentic": a,
+            "vision": vis.get(canon),
+            "audio": aud.get(canon),
+            "video": vid.get(canon),
+        }
+        comps = {"intelligence": m["composite"],
+                 "agentic": a["score"] if a else None,
+                 "performance": p["score"] if p else None}
+        present = {k: v for k, v in comps.items() if v is not None}
+        wsum = sum(AEON_WEIGHTS[k] for k in present)
+        parts = {k: (round(AEON_WEIGHTS[k] / wsum, 4) if k in present else 0.0)
+                 for k in AEON_WEIGHTS}
+        m["aeon_score"] = round(sum(parts[k] * present[k] for k in present), 1) if present else None
+        m["aeon_score_parts"] = parts                  # the weights ACTUALLY used (0 = absent)
+        m["aeon_provisional"] = len(present) < len(AEON_WEIGHTS)
+        # the HIGHEST-composite run among the runs this row aggregates (eligible runs when
+        # the model has any) — the run the dashboard auto-opens for the intelligence dial
+        m["best_intelligence_run"] = m["best_run"]
+    return lb
+
+
 def _hw_label(env):
     """Hardware label a run was benched on (detected wins; operator claim is the fallback)."""
     hw = (env or {}).get("hardware") or {}
@@ -278,7 +389,9 @@ def _quality_index():
     idx = {}
     floor = MIN_SUITE_COVERAGE * len(suite_mod.CASES)
     for info in by_run.values():
-        if sum(1 for r in info["results"] if r["score"] is not None) < floor:
+        # attempted = covered: no_answer rows count toward the floor (same rule as the board)
+        if sum(1 for r in info["results"]
+               if r["score"] is not None or (r.get("status") or "") == "no_answer") < floor:
             continue
         comp = _run_summary(info)["composite"]
         try:
@@ -736,47 +849,69 @@ def compare_by_seed(seed, board="text"):
             "suite_consistent": len(shashes) <= 1, "suite_hash": shashes[0] if shashes else None}
 
 
-def vision_leaderboard():
-    """Separate VISION board (DESIGN §6c). Only models whose latest vision run was
-    capability-probed OK appear here (capability_absent runs are excluded by the
-    succeeded-status filter). Never merged into the text leaderboard."""
-    from . import vision_suite as vs
-
-    rows = db.all_results_with_runs(board="vision")
+def _modality_board(board, categories, ttft_key, tag_board, **tag_kw):
+    """Shared modality-board builder (vision/audio/video): one row per CANONICAL model
+    (lowercased hf_repo when known — the SAME join key the text/harness/perf boards group
+    by, so a run benched under a local alias lines up with its text standing), showing that
+    model's LATEST run on this board. Rows carry `canonical` + `hf_repo` alongside the
+    original fields; `model` stays the run's declared name."""
+    rows = db.all_results_with_runs(board=board)
     by_run = {}
     for r in rows:
         by_run.setdefault(
-            r["run"], {"model": r["model"], "started_at": r["started_at"], "results": []}
+            r["run"], {"model": r["model"],
+                       "canonical": r.get("canonical_id") or r["model"],
+                       "hf_repo": r.get("hf_repo"),
+                       "started_at": r["started_at"], "results": []}
         )["results"].append(r)
 
     latest = {}
     for run_id, info in by_run.items():
-        m = info["model"]
-        if m not in latest or info["started_at"] > latest[m]["started_at"]:
-            latest[m] = {"run": run_id, **info}
+        k = info["canonical"]
+        if k not in latest or info["started_at"] > latest[k]["started_at"]:
+            latest[k] = {"run": run_id, **info}
 
-    total_cats = len(vs.CATEGORIES_VISION)
-    board = []
-    for model, info in latest.items():
+    total_cats = len(categories)
+    board_rows = []
+    for canonical, info in latest.items():
+        model = info["model"]
         cats, ttfts, tpss = {}, [], []
         for r in info["results"]:
             sp = r.get("speed") or {}
-            ttfts.append(sp.get("ttft_after_image_ms"))
+            ttfts.append(sp.get(ttft_key))
             tpss.append(sp.get("decode_tps"))
             if r["score"] is not None:
                 cats.setdefault(r["category"], []).append(r["score"])
         cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
         composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
-        board.append({
-            "model": model, "run": info["run"], "composite": composite,
+        board_rows.append({
+            "model": model, "canonical": canonical, "hf_repo": info["hf_repo"],
+            "run": info["run"], "composite": composite,
             "categories": cat_scores, "coverage": f"{len(cat_scores)}/{total_cats}",
-            "avg_ttft_after_image_ms": _avg(ttfts), "avg_decode_tps": _avg(tpss),
+            "avg_" + ttft_key: _avg(ttfts), "avg_decode_tps": _avg(tpss),
             "n_cases": len(info["results"]),
             "vram_est_gb": vram.estimate_gb(model),
-            "tags": capabilities.model_tags(model, cat_scores, "vision"),
+            "tags": capabilities.model_tags(model, cat_scores, tag_board, **tag_kw),
         })
-    board.sort(key=lambda x: -x["composite"])
-    return {"categories": vs.CATEGORIES_VISION, "models": board}
+    board_rows.sort(key=lambda x: -x["composite"])
+    return {"categories": categories, "models": board_rows}
+
+
+def vision_leaderboard():
+    """Separate VISION board (DESIGN §6c). Only models whose latest vision run was
+    capability-probed OK appear here (capability_absent runs are excluded by the
+    succeeded-status filter). Never merged into the text leaderboard."""
+    from . import vision_suite as vs
+    return _modality_board("vision", vs.CATEGORIES_VISION, "ttft_after_image_ms", "vision")
+
+
+def audio_leaderboard():
+    """Separate AUDIO board — mirrors vision_leaderboard (board='audio'). Only models
+    whose latest audio run was capability-probed OK appear here (capability_absent runs
+    are excluded by the succeeded-status filter). Never merged into other boards."""
+    from . import audio_suite as auds
+    return _modality_board("audio", auds.CATEGORIES_AUDIO, "ttft_after_audio_ms", "audio",
+                           audio_ok=True)
 
 
 def video_leaderboard():
@@ -784,39 +919,4 @@ def video_leaderboard():
     whose latest video run was capability-probed OK appear here (capability_absent runs
     are excluded by the succeeded-status filter). Never merged into other boards."""
     from . import video_suite as vids
-
-    rows = db.all_results_with_runs(board="video")
-    by_run = {}
-    for r in rows:
-        by_run.setdefault(
-            r["run"], {"model": r["model"], "started_at": r["started_at"], "results": []}
-        )["results"].append(r)
-
-    latest = {}
-    for run_id, info in by_run.items():
-        m = info["model"]
-        if m not in latest or info["started_at"] > latest[m]["started_at"]:
-            latest[m] = {"run": run_id, **info}
-
-    total_cats = len(vids.CATEGORIES_VIDEO)
-    board = []
-    for model, info in latest.items():
-        cats, ttfts, tpss = {}, [], []
-        for r in info["results"]:
-            sp = r.get("speed") or {}
-            ttfts.append(sp.get("ttft_after_video_ms"))
-            tpss.append(sp.get("decode_tps"))
-            if r["score"] is not None:
-                cats.setdefault(r["category"], []).append(r["score"])
-        cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
-        composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
-        board.append({
-            "model": model, "run": info["run"], "composite": composite,
-            "categories": cat_scores, "coverage": f"{len(cat_scores)}/{total_cats}",
-            "avg_ttft_after_video_ms": _avg(ttfts), "avg_decode_tps": _avg(tpss),
-            "n_cases": len(info["results"]),
-            "vram_est_gb": vram.estimate_gb(model),
-            "tags": capabilities.model_tags(model, cat_scores, "video"),
-        })
-    board.sort(key=lambda x: -x["composite"])
-    return {"categories": vids.CATEGORIES_VIDEO, "models": board}
+    return _modality_board("video", vids.CATEGORIES_VIDEO, "ttft_after_video_ms", "video")

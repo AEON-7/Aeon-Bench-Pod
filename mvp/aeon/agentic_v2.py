@@ -40,7 +40,11 @@ from __future__ import annotations
 import os
 import re
 
-SUITE_ID = "aeon-agentic-v2.3"   # v2.3: +5 GOD MODE tasks (distinct god_mode tier)
+# v2.3: +5 GOD MODE tasks (distinct god_mode tier)
+# v2.4: +harness self-config setup case (agentic.setup.<harness> — minted per harness by
+#        pod.run_harness2 from pod.harness_skills, scored 1.0/0.5/0.0; changes the harness
+#        suite composition, so old and new runs must never mix in one matrix cell)
+SUITE_ID = "aeon-agentic-v2.4"
 
 _WS = re.compile(r"\s+")
 

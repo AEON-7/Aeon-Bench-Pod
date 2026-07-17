@@ -65,21 +65,20 @@ const CAP_SET = ["Vision", "Video", "Audio", "Tool Calling", "Reasoning", "Codin
 const CAP_ABBR = { Vision: "VIS", Video: "VID", Audio: "AUD", "Tool Calling": "TOOL", Reasoning: "RSN",
   Coding: "CODE", Math: "MATH", Instruction: "INST", Uncensored: "UNC" };
 
+// Vision + Audio no longer have their own tabs: their results live in the Global
+// Leaderboard's dials and in each model's run-detail view. (Video keeps its tab.)
+// One board: the Global Leaderboard. Vision/audio/video are dials on it + plates in run
+// detail (their /api/*/leaderboard endpoints stay for API consumers and the dial joins).
 const BOARDS = {
-  text:   { suite: "/api/suite",        lb: "/api/leaderboard",        runs: "/api/runs",
-            speed: [["avg_decode_tps", "tok/s", fmtTps], ["avg_ttft_ms", "TTFT", fmtDur]], coverage: false },
-  vision: { suite: "/api/vision/suite", lb: "/api/vision/leaderboard", runs: "/api/vision/runs",
-            speed: [["avg_ttft_after_image_ms", "img TTFT", fmtDur], ["avg_decode_tps", "tok/s", fmtTps]], coverage: true },
-  video:  { suite: "/api/video/suite",  lb: "/api/video/leaderboard",
-            speed: [["avg_ttft_after_video_ms", "vid TTFT", fmtDur], ["avg_decode_tps", "tok/s", fmtTps]], coverage: true },
-  audio:  { audio: true },
+  text:  { suite: "/api/suite",       lb: "/api/leaderboard",       runs: "/api/runs",
+           speed: [["avg_decode_tps", "tok/s", fmtTps], ["avg_ttft_ms", "TTFT", fmtDur]], coverage: false },
 };
 let active = "text";
 // Global-leaderboard lens: when true, show ONLY record-eligible (verified HF-pull, signed) runs
 // — the true global ranking. Default off so local runs stay visible (clearly badged) and the
 // board is never bare; the toggle flips to the pure verified view.
 let verifiedOnly = false;
-const ST = { text: {}, vision: {}, video: {}, audio: {}, harness: {} };
+const ST = { text: {}, harness: {} };
 let HARNESS = null;   // cached /api/harness_board (model × harness matrix)
 // client-side model->meta cache (creator/org card + avatar), so the board fetches
 // each model's metadata at most once. Values: "pending" (Promise) or the meta dict.
@@ -162,8 +161,10 @@ function filteredModels() {
   });
   if (st.vramLimit) ms = ms.filter((m) => m.vram_est_gb == null || m.vram_est_gb <= st.vramLimit);
   if (verifiedOnly) ms = ms.filter((m) => m.record_eligible);
+  // rank by the AEON SCORE (the new total aggregate); older servers fall back to the
+  // weighted category composite — the same number the row shows as its headline
   return ms.map((m) => ({ ...m, comp: composite(m, st.cats || [], st.weights) }))
-    .sort((a, b) => b.comp - a.comp);
+    .sort((a, b) => (b.aeon_score ?? b.comp) - (a.aeon_score ?? a.comp));
 }
 
 function allTags() {
@@ -225,10 +226,188 @@ function renderEligBar() {
   if (cb) cb.onchange = (e) => { verifiedOnly = e.target.checked; renderBoard(); };
 }
 
+// ---- DIAL: the reusable SVG arc gauge ---------------------------------------------------------
+// dial(value, label, opts?) -> HTML string. ONE function renders every gauge on the board.
+//   value      0-100 (clamped) · null/undefined = "not yet tested" (dim + dashed track + "—")
+//   label      engraved uppercase micro-label under the gauge
+//   opts.size  box width in px (default 76; the design range is 72-96)
+//   opts.title tooltip text
+//   opts.note  micro-label for the null state (default "not yet tested")
+//   opts.fmt   value formatter (default: integer)
+// Geometry: a 270° fuel-gauge arc (gap at the bottom) in an 80×80 viewBox. The arc color
+// encodes the VALUE BAND with the site-wide verdict semantics (≥80 green · ≥40 amber · red),
+// identically on every dial. The sweep animates on data arrival via stroke-dashoffset
+// (`dialIn` keyframe, gated on #board.fresh — filter/slider re-renders stay still).
+function _arcPath(cx, cy, r, a0, a1) {
+  const pt = (a) => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const [x0, y0] = pt(a0), [x1, y1] = pt(a1);
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+function dial(value, label, opts) {
+  opts = opts || {};
+  const size = opts.size || 76;
+  const na = value == null || Number.isNaN(+value);
+  const v = na ? 0 : Math.min(100, Math.max(0, +value));
+  const R = 33, L = 2 * Math.PI * R * 0.75;                    // 270° arc length
+  const off = L * (1 - v / 100);
+  const band = na ? "" : v >= 80 ? " pass" : v >= 40 ? " part" : " fail";
+  const fmt = opts.fmt || ((x) => String(Math.round(x)));
+  const path = _arcPath(40, 40, R, 135, 405);
+  // hero: the one oversized gauge per row — instrument tick ring + engraved sub-label
+  const ticks = opts.hero
+    ? `<path class="dial-ticks" d="${_arcPath(40, 40, 38, 135, 405)}" stroke-dasharray="1.4 4.53"/>` : "";
+  return `<div class="dial${band}${na ? " dial-na" : ""}${opts.hero ? " dial-hero" : ""}" style="--dial:${size}px"${opts.title ? ` title="${escA(opts.title)}"` : ""} role="img" aria-label="${escA(label)}: ${na ? (opts.note || "not yet tested") : fmt(v) + " of 100"}">
+    <svg viewBox="0 0 80 80" aria-hidden="true">
+      ${ticks}
+      <path class="dial-track" d="${path}"/>
+      ${na ? "" : `<path class="dial-arc" d="${path}" stroke-dasharray="${L.toFixed(1)} ${(2 * L).toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" style="--c:${L.toFixed(1)}"/>`}
+    </svg>
+    ${opts.sub ? `<span class="dial-sub">${escH(opts.sub)}</span>` : ""}
+    <b class="dial-val${opts.valCls ? " " + opts.valCls : ""}">${na ? "—" : fmt(v)}</b>
+    <span class="dial-lbl">${escH(label)}</span>
+    ${na ? `<span class="dial-note">${escH(opts.note || "not yet tested")}</span>` : ""}
+  </div>`;
+}
+
+// ---- GLOBAL LEADERBOARD: one INSTRUMENT PANEL row per model ----------------------------------
+// rank · AEON SCORE (the headline — brightest element on the board) · identity · dial cluster.
+// Dials follow the /api/leaderboard `dials` contract: INTELLIGENCE / PERFORMANCE / AGENTIC are
+// always drawn (null = honest "not yet tested"), VISION / AUDIO / VIDEO only when tested.
+// Old servers (no `dials` / `aeon_score`) degrade to the category composite headline plus a
+// single intelligence dial — labelled honestly, nothing faked.
+function rowDials(m) {
+  const d = m.dials;
+  if (!d) return dial(m.comp, "intelligence",
+    { title: "text-suite composite (older server — component dials unavailable)" });
+  const out = [];
+  const it = d.intelligence;
+  out.push(dial(it && it.score != null ? it.score : null, "intelligence",
+    { title: "text-suite score — every category × difficulty tier of the best verified run" }));
+  const p = d.performance;
+  out.push(dial(p && p.score != null ? p.score : null, "performance",
+    { title: p ? `speed score${p.peak_agg_tps != null ? ` — peak ${fmtTps(p.peak_agg_tps)} tok/s` : ""}${p.hw ? " on " + p.hw : ""} · full curves on the Performance tab` : "performance — not yet tested" }));
+  const ag = d.agentic;
+  const agTip = ag && ag.harnesses
+    ? "agentic score — " + Object.entries(ag.harnesses).map(([h, x]) => {
+        const s = x != null && typeof x === "object" ? x.score : x;
+        return `${h} ${s == null ? "—" : Math.round(s)}`;
+      }).join(" · ")
+    : "agentic (hermes · openclaw · opencode) — not yet tested";
+  out.push(dial(ag && ag.score != null ? ag.score : null, "agentic", { title: agTip }));
+  ["vision", "audio", "video"].forEach((k) => {
+    if (d[k] && d[k].score != null)
+      out.push(dial(d[k].score, k,
+        { title: `${k} suite score — click the row: the run detail shows the ${k} results` }));
+  });
+  return out.join("");
+}
+
+function _aeonTitle(m, headline, isAeon, prov) {
+  if (!isAeon) return `category composite ${fmtComp(headline)} — this server predates the AEON score`;
+  let parts = "";
+  const p = m.aeon_score_parts;
+  if (p && typeof p === "object") {
+    parts = Object.entries(p).map(([k, v]) =>
+      `${k} ${typeof v === "number" ? (v > 0 && v <= 1 ? Math.round(v * 100) + "%" : v) : v}`).join(" · ");
+  }
+  return `AEON SCORE ${fmtComp(headline)} — the OVERALL rating: intelligence + speed + agentic, one number`
+    + (parts ? ` · blend: ${parts}` : "")
+    + (prov ? " · provisional: a component is not yet tested (missing dials never count as zero)" : "");
+}
+
+function globalRow(m, i) {
+  const isAeon = m.aeon_score != null;
+  const headline = isAeon ? m.aeon_score : (m.comp ?? 0);
+  const prov = isAeon && !!m.aeon_provisional;
+  const band = headline >= 80 ? "pass" : headline >= 40 ? "part" : "fail";
+  const d = m.dials;
+  const bestRun = m.best_intelligence_run
+    ?? (d && d.intelligence && d.intelligence.run) ?? m.run ?? "";
+  const fr = m.frontier || null;
+  const ava = fr && fr.logo_url ? fr.logo_url : "/static/generic-avatar.svg";
+  const creatorHref = fr && fr.website ? ` href="${escA(fr.website)}"` : "";
+  const badge = m.record_eligible
+    ? `<span class="elig-badge verified" title="verified HF-pull controlled run — globally ranked">✓ verified</span>`
+    : fr ? `<span class="elig-badge frontier" title="validated hosted frontier API reference — comparison only, not a local-weight attestation">frontier API</span>`
+    : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`;
+  const vram = m.vram_est_gb != null
+    ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
+  const frontierChip = fr
+    ? `<span class="frontier-chip" title="validated hosted frontier API reference">${escH(fr.brand || fr.provider)} · ${escH(fr.version || fr.model)} · effort ${escH(fr.effort || "default")}</span>`
+    : "";
+  return `<div class="mrow${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}"${bestRun ? ` data-run="${escA(bestRun)}"` : ""} data-trust="${m.record_eligible ? "verified" : "local"}" tabindex="0" role="button" aria-label="open the best submission for ${escA(m.model)}" style="--i:${i}">
+    <div class="mrow-rank">${String(i + 1).padStart(2, "0")}</div>
+    <div class="mrow-aeon ${band}${prov ? " prov" : ""}" title="${escA(_aeonTitle(m, headline, isAeon, prov))}">
+      ${dial(headline, isAeon ? "aeon score" : "composite",
+             { hero: true, size: 124, sub: "overall", fmt: fmtComp, valCls: "aeon-val" })}
+      ${prov ? `<span class="aeon-prov">not fully tested</span>` : ""}
+    </div>
+    <div class="mrow-id">
+      <div class="mrow-name">
+        <a class="model-creator mrow-ava${fr ? " frontier" : ""}" data-meta="${escA(m.model)}"${creatorHref} target="_blank" rel="noopener noreferrer" title="${fr ? "frontier provider" : "creator profile"}">
+          <img class="model-avatar${fr ? " frontier" : ""}" data-meta-avatar="${escA(m.model)}" src="${escA(ava)}" alt="" loading="lazy" width="40" height="40">
+        </a>
+        <span class="mrow-model">${fmtModel(m.model)}</span>
+        ${badge}${vram}
+      </div>
+      ${frontierChip}
+      <div class="mcard-acts mrow-acts">
+        <a class="get-model-btn" data-meta-card="${escA(m.model)}" target="_blank" rel="noopener noreferrer" hidden>Get&nbsp;Model</a>
+        <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
+        <span class="mrow-open" aria-hidden="true">open best run ▸</span>
+      </div>
+    </div>
+    <div class="mrow-dials">${rowDials(m)}</div>
+  </div>`;
+}
+
+function _boardEmpty() {
+  return `<div class="board-empty">${verifiedOnly
+    ? "No <b>verified</b> submissions yet. The global leaderboard ranks only models benchmarked through the controlled <b>HF-pull flow</b> — pulled fresh from Hugging Face → hash-verified → run through the harnesses → cryptographically signed. Direct-endpoint runs are stored as <b>local</b> (toggle off to see them)."
+    : "No models match these filters."}</div>`;
+}
+
+// Row click → the model's BEST intelligence submission opens directly (no second click).
+// The Submissions panel keeps the advanced drill-down in reach: its left list shows every
+// benchmark for this model (other runs, other boards) and the detail pane holds per-case data.
+function openBestRun(model, runId) {
+  setSubs(model || null);
+  if (runId) openSubmission(runId);
+}
+
+function renderGlobalBoard(models) {
+  $("#board").innerHTML = models.map((m, i) => globalRow(m, i)).join("") || _boardEmpty();
+  $$("#board .mrow").forEach((row) => {
+    const open = () => openBestRun(row.dataset.model, row.dataset.run);
+    row.onclick = (ev) => {
+      if (ev.target.closest(".share-btn, .get-model-btn, .model-creator")) return;
+      open();
+    };
+    row.onkeydown = (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === row) { e.preventDefault(); open(); }
+    };
+  });
+  $$("#board .share-btn").forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
+  // instrument boot: the AEON headline counts up in sync with the dial sweeps — first load only
+  if ($("#board").classList.contains("fresh"))
+    $$("#board .aeon-val").forEach((el, i) => { if (models[i]) countUp(el, models[i].aeon_score ?? models[i].comp); });
+  models.forEach((m) => {
+    const cached = META.get(m.model);
+    if (cached && cached !== "pending") applyMeta(m.model, cached);
+    else if (!m.frontier) fetchMeta(m.model);
+  });
+}
+
 function renderBoard() {
-  const st = ST[active], cfg = BOARDS[active], cats = st.cats || [];
   renderFilters();
   const models = filteredModels();
+  if (active === "text") renderGlobalBoard(models);
+  else renderClassicBoard(models);
+}
+
+// classic wide cards — the VIDEO board keeps this view unchanged
+function renderClassicBoard(models) {
+  const st = ST[active], cfg = BOARDS[active], cats = st.cats || [];
   const speedDefs = cfg.speed || [];
   // Spacious wide cards (replaces the cramped fixed-width table): a big circular creator avatar,
   // the FULL model name (wraps, never truncates), and every metric LABELLED on the card — so no
@@ -290,10 +469,7 @@ function renderBoard() {
       <div class="mcard-comp ${band}" style="--pct:${m.comp.toFixed(1)}"><span class="composite">${fmtComp(m.comp)}</span><span class="mcard-complabel">composite</span></div>
       <div class="mcard-metrics">${catCells}${covCell}${spdCells}</div>
     </div>`;
-  }).join("") ||
-    `<div class="board-empty">${verifiedOnly
-      ? "No <b>verified</b> submissions yet. The global leaderboard ranks only models benchmarked through the controlled <b>HF-pull flow</b> — pulled fresh from Hugging Face → hash-verified → run through the harnesses → cryptographically signed. Direct-endpoint runs are stored as <b>local</b> (toggle off to see them)."
-      : "No models match these filters."}</div>`;
+  }).join("") || _boardEmpty();
   $$("#board .rsel").forEach((cb) => cb.onchange = () => {
     cb.checked ? st.selected.add(cb.dataset.model) : st.selected.delete(cb.dataset.model);
     renderChart();
@@ -415,15 +591,14 @@ async function loadModels() {
 
 async function loadBoard() {
   const cfg = BOARDS[active];
-  $("#arenaPanel").hidden = true;
-  $("#adminPanel").hidden = true;
-  $("#subsPanel").hidden = true;
-  $("#boardPanel").hidden = !!cfg.audio;
-  $("#audioPanel").hidden = !cfg.audio;
-  $("#detailPanel").hidden = true;
-  { const rp = $("#runPanel"); if (rp) rp.hidden = true; }
-  { const _r = $("#run"); if (_r) _r.style.display = cfg.audio ? "none" : ""; }   // launch button removed — guard
-  if (cfg.audio) return;
+  ["#arenaPanel", "#adminPanel", "#subsPanel", "#detailPanel", "#runPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  $("#boardPanel").hidden = false;
+  { const _r = $("#run"); if (_r) _r.style.display = ""; }   // launch button removed — guard
+  // the text board IS the Global Leaderboard (instrument rows); video keeps the classic cards
+  const isGlobal = active === "text";
+  $("#boardPanel").classList.toggle("global", isGlobal);
+  { const t = $("#boardTitle"); if (t) t.textContent = isGlobal ? "Global Leaderboard" : "Video"; }
   const st = ST[active];
   if (!st.selected) st.selected = new Set();
   if (!st.filters) st.filters = new Set();
@@ -460,7 +635,7 @@ function freshBoard() {
 
 async function reloadBoardData() {
   const cfg = BOARDS[active];
-  if (cfg.audio) return;
+  if (!cfg) return;
   ST[active].data = await api(cfg.lb);
   freshBoard();
   renderBoard();
@@ -468,7 +643,7 @@ async function reloadBoardData() {
 
 async function launch() {
   const cfg = BOARDS[active];
-  if (cfg.audio) return;
+  if (!cfg) return;
   const model = ($("#model") || {}).value || "";   // launch form removed — guard
   if (!model) { $("#status").innerHTML = `<span class="err">pick a model first</span>`; return; }
   $("#run").disabled = true;
@@ -495,7 +670,7 @@ async function launch() {
 }
 
 // (the manual audio-probe panel is gone: audio transport is probed automatically inside
-//  every bench — see the audioPanel explainer; a blocked declared-audio model shows the
+//  every bench; a blocked declared-audio model shows the
 //  red audio:BLOCKED stage chip on its job card)
 
 // ---- Generated-artifact arena (Apps / Games / Animations + human voting) ----
@@ -684,7 +859,7 @@ async function logout() {
 // ---- arena view (server-driven random matches across the category) ----
 async function setArena(kind) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.arena === kind));
-  $("#boardPanel").hidden = true; $("#audioPanel").hidden = true; $("#detailPanel").hidden = true;
+  $("#boardPanel").hidden = true; $("#detailPanel").hidden = true;
   $("#adminPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#arenaPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   if (!ARENA.byKind[kind]) await loadArenaMeta();
@@ -872,7 +1047,7 @@ const GAL_KINDS = [["game", "Games"], ["app", "Apps"], ["animation", "Animations
 function setGallery() {
   active = "gallery";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.gallery));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const gp = $("#galleryPanel"); if (gp) gp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
@@ -1033,7 +1208,7 @@ function closeGalPreview() {
 // ---- admin (integrity + moderation; tab visible only to AEON_ADMIN_USERS) ----
 async function setAdmin() {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.admin));
-  $("#boardPanel").hidden = true; $("#audioPanel").hidden = true; $("#detailPanel").hidden = true;
+  $("#boardPanel").hidden = true; $("#detailPanel").hidden = true;
   $("#arenaPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#adminPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   loadAdminBenches(); loadEvaluators(); loadAdminArtifacts();
@@ -1185,7 +1360,7 @@ const SUBS = { board: "", model: null, view: "cards", cards: null };
 
 function setSubs(model) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
-  ["#boardPanel", "#audioPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   SUBS.model = model || null;
   loadSubs();
@@ -1596,7 +1771,9 @@ function renderSubmissionDetail(d) {
       <div class="sub-a"><b>answered:</b><pre>${escH(c.answer)}</pre></div>
       <div class="sub-r"><b>judgement:</b> ${_rationale(c)}</div></div>`;
   }).join("");
-  $("#subsDetail").innerHTML = meta + _instrumentPanel(d) + repro + `<div class="sub-cases">${cases}</div>`;
+  $("#subsDetail").innerHTML = meta + _instrumentPanel(d)
+    + `<div id="subModalities" class="sib-boards"></div>` + repro + `<div class="sub-cases">${cases}</div>`;
+  renderRunModalities(r);
   const rc = $("#reproCopy");
   if (rc) rc.onclick = async () => {
     try { await navigator.clipboard.writeText(cmdText); } catch (e) { return; }
@@ -1606,6 +1783,36 @@ function renderSubmissionDetail(d) {
   const fb = $("#subFlag"); if (fb) fb.onclick = () => _flagRun(r.id, true);
   const ub = $("#subUnflag"); if (ub) ub.onclick = () => _flagRun(r.id, false);
   const rj = $("#subRejudge"); if (rj) rj.onclick = () => _rejudgeRun(r.id);
+}
+
+// ---- MULTIMODAL RESULTS inside the run detail -------------------------------------------------
+// A model's vision / audio / video runs must be visible FROM its detail view (the board's
+// modality dials point here — e.g. an audio run is one click past the audio dial): fetch the
+// model's other submissions and render one dial plate per modality board — the newest
+// succeeded run of each — that opens that run's own full detail.
+async function renderRunModalities(run) {
+  const host = document.getElementById("subModalities");
+  if (!host || !run || !run.model) return;
+  let d;
+  try { d = await api("/api/submissions?model=" + encodeURIComponent(run.model)); }
+  catch (e) { host.innerHTML = ""; return; }
+  if (document.getElementById("subModalities") !== host) return;   // detail re-rendered mid-fetch
+  const best = {};
+  (d.submissions || []).forEach((r) => {
+    if (!["vision", "audio", "video"].includes(r.board) || r.board === run.board) return;
+    if (r.harness || r.flagged || r.status !== "succeeded" || r.mean_score == null) return;
+    if (!best[r.board] || (r.started_at || 0) > (best[r.board].started_at || 0)) best[r.board] = r;
+  });
+  const plates = ["vision", "audio", "video"].filter((k) => best[k]).map((k) => {
+    const r = best[k];
+    return `<button class="sib-plate" data-run="${escA(r.id)}" title="open this ${k} run — every case, fully inspectable">
+      ${dial(r.mean_score, k, { size: 64 })}
+      <span class="sib-meta">${r.n_cases || "?"} cases · ${fmtDate(r.started_at)}</span></button>`;
+  });
+  if (!plates.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<span class="ip-sec">multimodal results — same model</span>
+    <div class="sib-row">${plates.join("")}</div>`;
+  host.querySelectorAll(".sib-plate").forEach((b) => b.onclick = () => openSubmission(b.dataset.run));
 }
 
 async function _flagRun(runId, flagged) {
@@ -1647,7 +1854,7 @@ const PERF_COLORS = { overall: "#e3e3ee", Math: "#5ee0ff", Coding: "#7dff9a", Re
 async function setPerf() {
   active = "perf";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.perf));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
    "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const pp = $("#perfPanel"); if (pp) pp.hidden = false;
@@ -2033,7 +2240,7 @@ function renderPerfDetail(m) {
 async function setHarness() {
   active = "harness";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.harness));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const hp = $("#harnessPanel"); if (hp) hp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
@@ -2172,7 +2379,7 @@ async function openHarnessCell(model, harness) {
   // switch to the submissions panel (reusing its detail pane) and open the newest run
   active = "subs";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
-  ["#boardPanel", "#audioPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
+  ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   SUBS.model = runs[0].model || model; loadSubs();
@@ -2184,7 +2391,7 @@ let CMP = { seeds: [], data: null };
 async function setCompare() {
   active = "compare";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.compare));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const cp = $("#comparePanel"); if (cp) cp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
@@ -2778,7 +2985,7 @@ let LIVE_TIMER = null;
 async function setLive() {
   active = "live";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.live));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const lp = $("#livePanel"); if (lp) lp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
@@ -3008,7 +3215,7 @@ function runStatus(msg, cls) {
 async function setRun() {
   active = "run";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.run));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const rp = $("#runPanel"); if (rp) rp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
@@ -4496,4 +4703,13 @@ async function init() {
   const ch = parseCompareHash();
   if (ch) { CC.pending = ch; setCompare(); }
 }
-init();
+// ---- Node test hook (test_dial_row.js) --------------------------------------------------------
+// Under `AEON_WEB_TEST=1 node …` export the pure renderers (dial/globalRow are plain string
+// builders) plus applyRole + CFG for the role-gating fixture, instead of booting the app.
+// In a browser `process` is undefined, so this branch is inert and init() runs as always.
+if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST === "1"
+    && typeof module !== "undefined") {
+  module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp };
+} else {
+  init();
+}

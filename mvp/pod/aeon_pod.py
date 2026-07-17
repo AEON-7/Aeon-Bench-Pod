@@ -687,6 +687,22 @@ def _arena_artifacts(target, alias, *, seed=None, per_kind=2):
 
 def _serve(recipe):
     """Launch the inference engine per the recipe (serves the verified weights on the GPU host)."""
+    # Keep catalog :latest ACTUALLY latest: `docker run` never re-checks a tag it already has
+    # locally, so a registry-hosted catalog image gets a best-effort pull first. Custom/local
+    # images (image_overridden) are skipped — they may exist nowhere but this machine — and an
+    # offline pull failure falls back to the local copy with a warning, never blocking the run.
+    img = recipe.get("image") or ""
+    if (recipe.get("serve_mode") == "docker" and not recipe.get("image_overridden")
+            and "/" in img and "." in img.split("/", 1)[0]):
+        print(f"[pod] refreshing engine image {img} (docker pull)")
+        try:
+            r = subprocess.run(["docker", "pull", img], capture_output=True, text=True,
+                               timeout=1800)
+            if r.returncode != 0:
+                print(f"[pod] image refresh failed ({(r.stderr or '').strip().splitlines()[-1] if r.stderr else 'unknown'}) "
+                      "— serving with the local copy")
+        except Exception as e:
+            print(f"[pod] image refresh skipped ({e}) — serving with the local copy")
     cmd = [str(x) for x in recipe["command"]]
     print(f"[pod] launching engine: {' '.join(cmd)}")
     return subprocess.Popen(cmd)
@@ -1081,6 +1097,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
           + (f"  [{recipe['reason']}]" if recipe.get("reason") else ""))
     if recipe.get("custom_flags"):
         print(f"[pod] recipe tuning applied: {' · '.join(recipe['custom_flags'])}")
+    if recipe.get("quant_guard"):
+        print(f"[pod] QUANT GUARD: {recipe['quant_guard']}")
     if recipe.get("no_harness"):                     # e.g. MLX: no served-alias contract for harnesses
         print("[pod] harness pass skipped for this engine (no served-alias contract)")
         harness_ids = []

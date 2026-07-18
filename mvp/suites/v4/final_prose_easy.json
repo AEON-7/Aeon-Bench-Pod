@@ -1,0 +1,80 @@
+[
+ {
+  "id": "v3.prose.easy.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "easy",
+  "prompt": "Write an acrostic poem about an autumn tree. The poem must have EXACTLY five lines, and the first letters of the lines, read top to bottom, must spell the word MAPLE: line 1 starts with capital M, line 2 with capital A, line 3 with capital P, line 4 with capital L, line 5 with capital E. Do not leave blank lines between the lines. Respond with ONLY the five lines of the poem and nothing else (no title, no commentary).",
+  "eval": {
+   "rubric": [
+    {
+     "id": "five_lines",
+     "question": "Does the poem contain exactly five non-empty lines?",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 5
+     }
+    },
+    {
+     "id": "acrostic_maple",
+     "question": "Do the initial letters of the five lines spell MAPLE in order?",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A\\s*M[^\\n]*\\n\\s*A[^\\n]*\\n\\s*P[^\\n]*\\n\\s*L[^\\n]*\\n\\s*E[^\\n]*\\s*\\Z",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "on_topic",
+     "question": "Is the poem coherently about an autumn tree (leaves, branches, seasonal imagery), not a list of unrelated words?",
+     "decision_rule": "True only if at least three of the five lines contain imagery clearly tied to a tree or autumn.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.easy.02",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "easy",
+  "prompt": "Write a single paragraph of EXACTLY four sentences describing a coastal night scene. Every sentence must begin with the exact three words \"Beneath the lighthouse\" (capital B, then lowercase \"the lighthouse\"). Each sentence must end with a period, and you must not use any other periods, question marks, or exclamation marks anywhere (so no abbreviations like \"Mr.\" and no decimal numbers). Respond with ONLY the paragraph and nothing else (no title, no commentary).",
+  "eval": {
+   "rubric": [
+    {
+     "id": "four_sentences",
+     "question": "Does the paragraph contain exactly four sentences?",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "anaphora_beneath",
+     "question": "Does every one of the four sentences begin with the exact phrase \"Beneath the lighthouse\" and end with a period?",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?:Beneath the lighthouse\\b[^.!?]*\\.\\s*){4}\\Z",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "vivid_scene",
+     "question": "Does the paragraph paint a coherent coastal night scene with concrete sensory imagery, rather than repeating near-identical filler sentences?",
+     "decision_rule": "True only if the four sentences describe distinct concrete details of a nighttime coast (e.g., waves, wind, light, rocks) and no two sentences are near-duplicates.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ }
+]

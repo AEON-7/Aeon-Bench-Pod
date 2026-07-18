@@ -22,6 +22,18 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine rejected a flag it doesn't recognize (see 'unrecognized arguments: --…' in the "
      "log). Remove that flag from RECIPE TUNING — it isn't supported by this engine build. If it "
      "came from a family preset, clear it there; the model still benches without it."),
+    (re.compile(r"object has no attribute .hc_mult.|dspark\.py.{0,400}?AttributeError", re.I),
+     "--speculative-config",
+     "The drafter card is a DFLASH drafter (z-lab DFlashDraftModel format) but the recipe's "
+     "--speculative-config says method 'dspark' — the DSpark loader expects DeepSeek-v4-style "
+     "drafter fields (hc_mult/hc-head) and always crashes on a DFlash card. Set method to "
+     "'dflash' for this drafter (updated pods auto-correct: SPEC METHOD GUARD in the log)."),
+    (re.compile(r"object has no attribute .(?:block_size|dflash_config|markov_rank).", re.I),
+     "--speculative-config",
+     "The drafter card looks like a DSPARK drafter (DeepSeek-v4 format) but the recipe's "
+     "--speculative-config says method 'dflash' — the DFlash loader expects z-lab drafter "
+     "fields (block_size/dflash_config) and crashes on a DSpark card. Set method to 'dspark' "
+     "for this drafter (updated pods auto-correct: SPEC METHOD GUARD in the log)."),
     (re.compile(r"Loading drafter model|self\.drafter\.load|qwen3_dflash|markov_head|"
                 r"drafter.*load_weights|EngineCore failed to start[\s\S]{0,400}?draft", re.I), None,
      "The DFlash / speculative-decode DRAFTER failed to load — its weights don't match this "

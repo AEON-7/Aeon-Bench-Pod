@@ -1,0 +1,34 @@
+[
+ {
+  "id": "v4.math.god_mode.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "A biased coin shows heads (H) with probability exactly 0.6 and tails (T) with probability exactly 0.4; flips are independent. The coin is flipped repeatedly, producing an unbounded sequence of outcomes. Consider two length-5 patterns: A = H,H,T,H,H and B = T,H,T,H,T. A pattern OCCURS at flip n (n >= 5) if flips n-4 through n, in order, exactly equal that pattern. The process stops the first time either pattern occurs; since A and B are distinct patterns of the same length they can never both complete on the same flip, so there are no ties. Compute the exact probability that A occurs before B. Warning: the coin is biased, so shortcut formulas that are valid only for fair coins do not apply here - set up the full first-passage computation (e.g. an absorbing Markov chain over pattern-prefix states) and solve it with exact rational arithmetic. Convert the exact probability to a decimal and round it to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no fraction, no percent sign, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.703518"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.god_mode.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "Let r1, r2, r3, r4, r5, r6 be the six complex roots (counted with multiplicity) of the polynomial p(x) = x^6 - 3x^5 + 2x^4 + 5x^3 - 7x^2 + 4x - 9. Define the power sum s_k = r1^k + r2^k + r3^k + r4^k + r5^k + r6^k. Because p is monic with integer coefficients, s_k is an exact integer for every k >= 1. Compute the exact integer value of s_12. Do NOT attempt floating-point root finding - it cannot certify an exact integer; instead derive s_1 through s_12 with exact integer arithmetic (Newton's identities, or the linear recurrence each root satisfies from p(r) = 0, extend to sums of powers). Carry every step exactly: signs alternate and intermediate values change sign along the way. Report the exact integer, including a leading minus sign if the value is negative. Put ONLY the final integer inside \\boxed{} - no commas, no decimal point, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-2874"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

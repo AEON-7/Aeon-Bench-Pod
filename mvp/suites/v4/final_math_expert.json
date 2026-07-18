@@ -1,0 +1,130 @@
+[
+ {
+  "id": "v4.math.expert.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Solve the initial value problem y'' + 4y' + 13y = 40*e^(-2t)*cos(3t) with y(0) = 1 and y'(0) = 0, where primes denote derivatives with respect to t. CAUTION: the forcing term is resonant with the homogeneous solution (the characteristic roots are -2 +/- 3i), so the particular solution requires the resonant ansatz with an extra factor of t. Find the exact solution, then evaluate y at t = 0.6 (all trigonometric arguments in radians). Carry at least 10 significant figures through the evaluation. Round y(0.6) to exactly 4 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no units, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1.3004"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Evaluate the improper definite integral I = \\int_0^\\infty e^(-4x) * sin^2(5x) / x dx. The integral converges and has an exact closed form (hint: write sin^2 with a double-angle identity and use a Frullani-type / differentiation-under-the-integral-sign argument on the Laplace transform of cos). Derive the closed form, then evaluate it numerically. Round the value to exactly 6 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no logarithms, no fractions, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.495250"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.03",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Evaluate the definite integral J = \\int_0^{2\\pi} d\\theta / (3.7 + 2.1*cos(\\theta))^2 exactly, for example by substituting z = e^(i\\theta) and applying the residue theorem to the resulting double pole inside the unit circle (or by differentiating the standard result \\int_0^{2\\pi} d\\theta/(a + b*cos\\theta) = 2\\pi/sqrt(a^2 - b^2) with respect to a). Evaluate the closed form numerically, carrying at least 10 significant figures. Round J to exactly 6 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no pi symbols, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.822356"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.04",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A gambler plays a sequence of independent rounds. In each round she wins 1 credit with probability p = 0.55 and loses 1 credit with probability 0.45. She starts with exactly 7 credits and stops as soon as she reaches either 0 credits (ruin) or 15 credits (target). Let E be the expected TOTAL number of rounds played until she stops. Compute E exactly (the standard absorbing-Markov-chain / difference-equation analysis gives a closed form involving powers of the ratio 0.45/0.55 = 9/11; solving the tridiagonal linear system exactly also works). Round E to exactly 4 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no fractions, no other digits).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "49.0516"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.05",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Consider the undirected simple graph G on the 8 vertices {0,1,2,3,4,5,6,7} whose 16 edges are exactly: (0,1), (1,2), (2,3), (3,4), (4,5), (5,6), (6,7), (7,0), (0,2), (1,3), (2,4), (3,5), (4,6), (5,7), (6,0), (7,1). (This is the circulant graph C8(1,2): every vertex i is joined to i+1 and i+2 modulo 8; every vertex has degree 4.) Compute the exact number of spanning trees of G using Kirchhoff's matrix-tree theorem: build the 8x8 Laplacian matrix L = D - A, delete any one row and the corresponding column, and evaluate the determinant of the remaining 7x7 integer matrix exactly (integer arithmetic throughout \u2014 the answer is an exact positive integer). Put ONLY that integer inside \\boxed{} (no commas or thousands separators, no other digits, no words).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "3528"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.06",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Compute the last six decimal digits of the tower 7^(7^7), i.e. the value of 7^(7^7) mod 1000000, reported as an ordinary integer between 0 and 999999. A workable route: note 7 is coprime to 10^6, compute the Carmichael function lambda(10^6) = lcm(lambda(2^6), lambda(5^6)) = lcm(16, 12500) = 50000, reduce the exponent 7^7 = 823543 modulo 50000, then evaluate the reduced power modulo 2^6 and modulo 5^6 separately (repeated squaring) and recombine with the Chinese Remainder Theorem. Every step is exact integer arithmetic. Put ONLY the resulting integer inside \\boxed{} (no leading zeros, no commas, no other digits, no words).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "132343"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.07",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "The transcendental equation tan(x) = x has infinitely many strictly positive solutions (x = 0 does not count). Find the SECOND-smallest strictly positive solution; it lies in the open interval (2*pi, 5*pi/2). Locate it to high precision, e.g. by Newton's method on f(x) = tan(x) - x (note f'(x) = tan^2(x), i.e. sec^2(x) - 1) or by bisection on the same interval, iterating until at least 8 significant figures are stable. All arguments are in radians. Round the root to exactly 6 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no other digits, no words).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "7.725252"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.expert.08",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Let M be the real symmetric 4x4 matrix with rows [5, 2, 1, 0], [2, 6, 3, 1], [1, 3, 7, 2], [0, 1, 2, 4]. All four eigenvalues of M are real. Compute the LARGEST eigenvalue of M to high precision \u2014 for example, expand the characteristic polynomial det(M - lambda*I) exactly (it has integer coefficients) and isolate its largest real root by bisection/Newton, or use a convergent power-iteration argument; carry at least 8 significant figures. Round the largest eigenvalue to exactly 5 decimal places and put ONLY that rounded number inside \\boxed{} (plain decimal notation, no other digits, no words).",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "10.93632"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

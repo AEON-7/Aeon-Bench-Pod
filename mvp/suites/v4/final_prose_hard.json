@@ -1,0 +1,397 @@
+[
+ {
+  "id": "v3.prose.hard.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "hard",
+  "prompt": "Write an acrostic poem of exactly 8 lines about a lighthouse keeper's final night on duty. Constraints: (1) The first letters of the 8 lines, read top to bottom, must spell MOONVEIL — each line must begin with the corresponding CAPITAL letter (M, O, O, N, V, E, I, L). (2) Every line must contain at least 5 words (a word is any run of characters separated by spaces; punctuation attaches to its word). (3) The poem must contain the word 'lantern' and the word 'tide' somewhere. Output ONLY the 8 lines of the poem — no title, no preamble, no commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 8 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "acrostic_moonveil",
+     "question": "Do the initial letters of the 8 lines spell MOONVEIL, each line starting with the capital letter?",
+     "decision_rule": "True iff line 1 starts with 'M', line 2 'O', line 3 'O', line 4 'N', line 5 'V', line 6 'E', line 7 'I', line 8 'L' (case-sensitive).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\AM[^\\n]*\\n+O[^\\n]*\\n+O[^\\n]*\\n+N[^\\n]*\\n+V[^\\n]*\\n+E[^\\n]*\\n+I[^\\n]*\\n+L[^\\n]*\\Z",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "min_words_per_line",
+     "question": "Does every line contain at least 5 space-separated words?",
+     "decision_rule": "True iff no line has 4 or fewer space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^\\S+(?:[ \\t]+\\S+){0,3}[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "has_lantern",
+     "question": "Does the poem contain the word 'lantern'?",
+     "decision_rule": "True iff /\\blantern\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\blantern\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_tide",
+     "question": "Does the poem contain the word 'tide'?",
+     "decision_rule": "True iff /\\btide\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\btide\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "quality_judge",
+     "question": "Does the poem read as coherent, evocative verse about a lighthouse keeper's final night, rather than filler strung together to satisfy the letter constraints?",
+     "decision_rule": "True iff the lines form connected imagery about a lighthouse/keeper/night and each line is a grammatical phrase, not word salad.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.hard.02",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "hard",
+  "prompt": "Write a tritina (a compact sestina variant) about an abandoned shipyard. Structure: exactly 4 stanzas separated by blank lines. Stanzas 1-3 have exactly 3 lines each; stanza 4 (the envoi) is a single line, so the poem has exactly 10 lines total. The three end-words are: copper, harbor, sparrow. Rotation: stanza 1's lines must END with copper, harbor, sparrow (in that order); stanza 2's lines end with sparrow, copper, harbor; stanza 3's lines end with harbor, sparrow, copper. Trailing punctuation after an end-word is allowed. The one-line envoi must contain all three end-words, appearing in this order: copper, then harbor, then sparrow. Every line (including the envoi) must contain at least 6 space-separated words. Output ONLY the poem — no title or commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "stanzas",
+     "question": "Does the response have exactly 4 stanzas separated by blank lines?",
+     "decision_rule": "Count blank-line-separated blocks; true iff exactly 4.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 10 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 10 (3+3+3+1).",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 10
+     }
+    },
+    {
+     "id": "endword_rotation",
+     "question": "Do the line end-words follow the tritina rotation (copper/harbor/sparrow, sparrow/copper/harbor, harbor/sparrow/copper) with an envoi containing copper then harbor then sparrow?",
+     "decision_rule": "True iff each of the 9 stanza lines ends with the scheduled end-word (optionally followed by punctuation) and the final single line contains copper, harbor, sparrow in that order.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[^\\n]*\\bcopper\\b[^\\w\\n]*\\n[^\\n]*\\bharbor\\b[^\\w\\n]*\\n[^\\n]*\\bsparrow\\b[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]*\\bsparrow\\b[^\\w\\n]*\\n[^\\n]*\\bcopper\\b[^\\w\\n]*\\n[^\\n]*\\bharbor\\b[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]*\\bharbor\\b[^\\w\\n]*\\n[^\\n]*\\bsparrow\\b[^\\w\\n]*\\n[^\\n]*\\bcopper\\b[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]*\\bcopper\\b[^\\n]*\\bharbor\\b[^\\n]*\\bsparrow\\b[^\\n]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_words_per_line",
+     "question": "Does every line contain at least 6 space-separated words?",
+     "decision_rule": "True iff no line has 5 or fewer space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^\\S+(?:[ \\t]+\\S+){0,4}[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "quality_judge",
+     "question": "Does the poem sustain a coherent scene of an abandoned shipyard across all four stanzas, with the end-words integrated naturally into grammatical lines?",
+     "decision_rule": "True iff the stanzas form connected imagery of a derelict shipyard and no line is nonsensical filler bolted onto its end-word.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.hard.03",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "hard",
+  "prompt": "Write a single prose paragraph of exactly 12 sentences about the fictional town of Quarryhaven preparing for a river flood. Constraints: (1) Every sentence must begin with the exact words 'Before the' (capital B). (2) The town name 'Quarryhaven' must appear at least 3 times. (3) The paragraph must be at least 120 words long (words are space-separated tokens). (4) The final sentence must end with the word 'began' followed by a period. (5) End sentences ONLY with periods — no '?' or '!', and no other periods anywhere (no abbreviations like 'Mr.', no decimal numbers). Output ONLY the paragraph as one single block of text with no line breaks, no title, no commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "sentences",
+     "question": "Does the paragraph contain exactly 12 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff exactly 12 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 12
+     }
+    },
+    {
+     "id": "single_line",
+     "question": "Is the response a single line with no line breaks?",
+     "decision_rule": "True iff there is exactly 1 non-empty line.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "anaphora_before_the",
+     "question": "Does every sentence begin with the exact words 'Before the'?",
+     "decision_rule": "True iff no sentence (text after start or after '.'/'!'/'?' plus whitespace) starts with anything other than 'Before the '.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?:\\A|[.!?]\\s+)(?!Before the )\\S",
+      "mode": "must_not_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "quarryhaven_x3",
+     "question": "Does the name 'Quarryhaven' appear at least 3 times?",
+     "decision_rule": "True iff 'Quarryhaven' occurs 3 or more times.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?s)\\bQuarryhaven\\b.*\\bQuarryhaven\\b.*\\bQuarryhaven\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_120_words",
+     "question": "Is the paragraph at least 120 words long?",
+     "decision_rule": "True iff there are at least 120 space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?s)\\A(?:\\S+\\s+){119,}\\S+",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "ends_with_began",
+     "question": "Does the paragraph end with the word 'began' followed by a period?",
+     "decision_rule": "True iff the text ends with 'began.'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bbegan\\.\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "quality_judge",
+     "question": "Do the twelve sentences build a coherent, escalating picture of a town preparing for a flood, rather than repeating near-identical clauses?",
+     "decision_rule": "True iff the sentences cover varied, plausible preparations and progress toward the flood's arrival without heavy repetition beyond the mandated opener.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.hard.04",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "hard",
+  "prompt": "Write a lipogram: a single prose paragraph describing a bustling midnight food bazaar, using ONLY words that contain no letter 'e' — the letter 'e' (and capital 'E') must not appear ANYWHERE in your output. Constraints: (1) at least 60 words long (words are space-separated tokens); (2) at least 5 sentences, each ending with a period; (3) the paragraph must include the exact word 'aroma' and the exact word 'moonlight'. Output ONLY the paragraph — no title, no preamble, no commentary (remember: the banned letter must not appear even in punctuation-adjacent text).",
+  "eval": {
+   "rubric": [
+    {
+     "id": "no_letter_e",
+     "question": "Is the output completely free of the letter 'e' (both cases)?",
+     "decision_rule": "True iff neither 'e' nor 'E' occurs anywhere in the text.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[eE]",
+      "mode": "must_not_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "min_sentences",
+     "question": "Does the paragraph contain at least 5 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff 5 or more sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": ">=",
+      "n": 5
+     }
+    },
+    {
+     "id": "single_paragraph",
+     "question": "Is the response a single paragraph (no blank-line breaks)?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "min_60_words",
+     "question": "Is the paragraph at least 60 words long?",
+     "decision_rule": "True iff there are at least 60 space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?s)\\A(?:\\S+\\s+){59,}\\S+",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_aroma",
+     "question": "Does the paragraph contain the exact word 'aroma'?",
+     "decision_rule": "True iff /\\baroma\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\baroma\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_moonlight",
+     "question": "Does the paragraph contain the exact word 'moonlight'?",
+     "decision_rule": "True iff /\\bmoonlight\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bmoonlight\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "quality_judge",
+     "question": "Does the lipogram read as natural, vivid prose about a night food market, without ungrammatical constructions forced by the letter ban?",
+     "decision_rule": "True iff sentences are grammatical and evocative and the e-avoidance does not produce broken syntax or nonsense words.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.hard.05",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "hard",
+  "prompt": "Write a 10-line micro-story about a clockmaker named Ilsabet who repairs a town's great tower clock before it strikes twelve. Formal constraints: (1) exactly 10 lines, one per row, with NO blank lines between them; (2) counting words as space-separated tokens (punctuation attaches to its word), each ODD-numbered line (1,3,5,7,9) must contain EXACTLY 4 words and each EVEN-numbered line (2,4,6,8,10) must contain EXACTLY 8 words; (3) line 1 must begin with the exact words 'The clockmaker'; (4) the name 'Ilsabet' must appear somewhere in the story; (5) the final word of line 10 must be 'midnight.' (the word midnight followed by a period). Output ONLY the 10 lines — no title, no commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 10 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 10.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 10
+     }
+    },
+    {
+     "id": "no_blank_lines",
+     "question": "Are the 10 lines contiguous with no blank lines between them?",
+     "decision_rule": "True iff the response is a single blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "alternating_word_counts",
+     "question": "Do odd lines have exactly 4 words and even lines exactly 8 words?",
+     "decision_rule": "True iff lines 1,3,5,7,9 each have exactly 4 space-separated tokens and lines 2,4,6,8,10 each have exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "opens_the_clockmaker",
+     "question": "Does line 1 begin with the exact words 'The clockmaker'?",
+     "decision_rule": "True iff the text starts with 'The clockmaker' (case-sensitive).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\AThe clockmaker\\b",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "has_ilsabet",
+     "question": "Does the story contain the name 'Ilsabet'?",
+     "decision_rule": "True iff /\\bIlsabet\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bIlsabet\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "ends_midnight",
+     "question": "Does the story end with the word 'midnight' followed by a period?",
+     "decision_rule": "True iff the text ends with 'midnight.'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bmidnight\\.\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "quality_judge",
+     "question": "Does the micro-story tell a coherent miniature narrative (setup, repair, resolution) rather than ten disconnected fragments?",
+     "decision_rule": "True iff the lines follow a readable arc about Ilsabet repairing the clock, with grammatical phrasing despite the word-count constraints.",
+     "required": false
+    }
+   ]
+  }
+ }
+]

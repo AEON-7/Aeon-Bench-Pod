@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=95" />
+  <link rel="stylesheet" href="/static/styles.css?v=96" />
 </head>
 <body>
   <header>
@@ -75,6 +75,13 @@
         <div id="board" class="mcards"></div>
         <div class="chartwrap"><div id="radar"></div><div id="chartNote" class="note"></div></div>
       </div>
+      <!-- EXPLORE THE DATA: the story behind each headline number — category × difficulty
+           heatmap + difficulty-decay line, filterable live. Hidden until /api/explorer
+           answers with data (old servers without the endpoint never show it). -->
+      <details class="explorer-wrap" id="explorerWrap" hidden>
+        <summary><span class="exp-mark">◈</span> Explore the data <span class="exp-sub">category × difficulty · where each model holds up and where it cracks</span></summary>
+        <div id="explorerBody" class="exp-body"></div>
+      </details>
     </section>
 
 
@@ -642,6 +649,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=95"></script>
+  <script src="/static/app.js?v=96"></script>
 </body>
 </html>

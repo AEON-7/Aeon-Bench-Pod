@@ -421,7 +421,7 @@ function _boardEmpty() {
 // The Submissions panel keeps the advanced drill-down in reach: its left list shows every
 // benchmark for this model (other runs, other boards) and the detail pane holds per-case data.
 function openBestRun(model, runId) {
-  setSubs(model || null);
+  setSubs(model || null, !!runId);        // openSubmission below writes the deep hash itself
   if (runId) openSubmission(runId);
 }
 
@@ -581,6 +581,222 @@ function renderChart() {
   });
 }
 
+// ---- EXPLORE THE DATA: the expandable board explorer ------------------------------------------
+// /api/explorer gives each board model's category × difficulty matrix (mean score · n ·
+// decode tok/s) off its BEST intelligence run. Two coordinated views over one selection:
+//   · HEATMAP (small multiples, ≤3 models): a luminance-ordered single-hue ramp — dark →
+//     bright cyan encodes magnitude perceptually; verdict green/amber/red stay reserved
+//     for verdicts. Cell numeral = the value (tabular mono); n rides the tooltip; a cell
+//     the run never scored is an honest dashed "—".
+//   · DIFFICULTY-DECAY LINE: x = tiers in order, y = case-weighted mean quality across
+//     the selected categories — one line per model in identity hues (cyan/magenta/gold).
+// Filters are live chips: models (max 3), categories, difficulty tiers (column toggles),
+// hardware bucket + trust tier (single-select facets over WHICH models are offered), and
+// metric QUALITY | SPEED (speed re-colors the heatmap as tok/s normalized to the fastest
+// cell SHOWN — labelled so). Each plate also carries its served-context (ctx_len) + rig
+// facts, so context is an explicit axis of every comparison, never hidden.
+// Old servers without the endpoint: the fetch rejects and the section stays hidden.
+const EXP = { data: null, sel: [], cats: null, diffs: null, metric: "quality",
+              hw: "all", trust: "all" };
+const EXP_COLORS = ["#00f0ff", "#ff5ea8", "#ffd166"];   // identity hues — never verdict colors
+const EXP_MAX = 3;
+
+// luminance band 0-4 for the single-hue ramp (null/NaN = -1: no band, honest gap)
+const expBand = (v) => v == null || Number.isNaN(+v) ? -1 : Math.min(4, Math.floor(+v / 20));
+
+// pure selection toggle: max `max` models, re-click removes, overflow is a no-op
+function expToggleModel(sel, canonical, max = EXP_MAX) {
+  return sel.includes(canonical) ? sel.filter((x) => x !== canonical)
+    : sel.length >= max ? sel : sel.concat(canonical);
+}
+
+// default selection = the single top model by the board's own ranking number
+function expDefaultSel(models) {
+  if (!models || !models.length) return [];
+  const top = models.slice().sort((a, b) =>
+    ((b.aeon_score ?? b.composite) || 0) - ((a.aeon_score ?? a.composite) || 0))[0];
+  return [top.canonical];
+}
+
+// pure facet filter: hardware bucket + trust tier gate WHICH models are offered ("all" = off)
+function expFacetFilter(models, hw, trust) {
+  return (models || []).filter((m) =>
+    (hw === "all" || (m.hw_bucket || "Unlabeled") === hw)
+    && (trust === "all" || (m.trust_tier || "self_reported") === trust));
+}
+
+// one heat plate's header line (pure): identity dot · name · AEON · served ctx · rig.
+// ctx_len is a first-class axis of the comparison — absent means NOT RECORDED, so the
+// fact simply doesn't render (no fake figure, mirrors the board's ctx chip rule).
+function expPlateHead(m, color) {
+  return `<div class="exp-plate-h"><i class="exp-dot" style="background:${color}"></i>`
+    + `<span class="exp-plate-name" title="${escA(m.model)}">${fmtModel(m.model)}</span>`
+    + (m.aeon_score != null ? `<span class="exp-plate-score mono">AEON ${fmtComp(m.aeon_score)}</span>` : "")
+    + (m.ctx_len != null ? `<span class="exp-plate-fact mono" title="max context length this benchmark was served at">${fmtCtx(m.ctx_len)} ctx</span>` : "")
+    + (m.hw_bucket ? `<span class="exp-plate-fact" title="benched on">${escH(m.hw_bucket)}</span>` : "")
+    + `</div>`;
+}
+
+// the fastest cell among the SELECTED models × categories — the speed ramp's honest 100%
+function expTpsMax(models, cats) {
+  let mx = 0;
+  (models || []).forEach((m) => (cats || []).forEach((c) => {
+    Object.values((m.cells || {})[c] || {}).forEach((cell) => {
+      if (cell && cell.tps != null && cell.tps > mx) mx = cell.tps;
+    });
+  }));
+  return mx;
+}
+
+// one model's category × difficulty heat table (pure string renderer)
+function expHeat(m, cats, diffs, metric, tpsMax) {
+  const head = `<tr><th></th>${diffs.map((d) =>
+    `<th class="exp-dh">${escH(diffLabel(d))}</th>`).join("")}</tr>`;
+  const rows = cats.map((c) => {
+    const byd = (m.cells || {})[c] || {};
+    return `<tr><th class="exp-cat">${escH(c)}</th>` + diffs.map((d) => {
+      const cell = byd[d];
+      const val = !cell ? null : metric === "speed" ? cell.tps : cell.score;
+      if (val == null) return `<td class="exp-na">—</td>`;
+      const lum = metric === "speed" ? (tpsMax ? 100 * val / tpsMax : 0) : val;
+      const num = metric === "speed" ? fmtTps(val) : String(Math.round(val));
+      const tip = `${c} × ${diffLabel(d)} — score ${cell.score} · n=${cell.n}`
+        + (cell.tps != null ? ` · ${fmtTps(cell.tps)} tok/s` : "");
+      return `<td class="xb${expBand(lum)}" style="--s:${(Math.min(100, Math.max(0, lum)) / 100).toFixed(3)}" title="${escA(tip)}">${num}</td>`;
+    }).join("") + `</tr>`;
+  }).join("");
+  return `<table class="exp-heat">${head}${rows}</table>`;
+}
+
+// difficulty-decay chart: pure SVG polylines, 3 faint reference lines (0/50/100), no box
+function expLine(models, cats, diffs) {
+  const W = 640, H = 240, L = 34, R = 14, T = 14, B = 30;
+  const x = (i) => L + (diffs.length < 2 ? 0 : i * (W - L - R) / (diffs.length - 1));
+  const y = (v) => T + (100 - v) * (H - T - B) / 100;
+  let g = "";
+  [0, 50, 100].forEach((v) => {
+    g += `<line class="exp-ref" x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"/>`
+      + `<text class="exp-axis" x="${L - 7}" y="${y(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${v}</text>`;
+  });
+  diffs.forEach((d, i) => {
+    g += `<text class="exp-axis" x="${x(i).toFixed(1)}" y="${H - B + 16}" text-anchor="middle">${escH(diffLabel(d))}</text>`;
+  });
+  (models || []).forEach((m, k) => {
+    const col = EXP_COLORS[k % EXP_COLORS.length];
+    const pts = [];
+    diffs.forEach((d, i) => {
+      let s = 0, n = 0;
+      cats.forEach((c) => {
+        const cell = ((m.cells || {})[c] || {})[d];
+        if (cell && cell.score != null && cell.n) { s += cell.score * cell.n; n += cell.n; }
+      });
+      if (n) pts.push({ x: x(i), y: y(s / n), v: s / n, d });
+    });
+    if (!pts.length) return;
+    g += `<polyline class="exp-series" points="${pts.map((p) => p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ")}" style="stroke:${col}"/>`;
+    pts.forEach((p) => {
+      g += `<circle class="exp-pt" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.6" style="fill:${col}"><title>${escH(String(m.model).split("/").pop())} · ${escH(diffLabel(p.d))}: ${p.v.toFixed(1)}</title></circle>`;
+    });
+  });
+  return `<svg class="exp-decay" viewBox="0 0 ${W} ${H}" role="img" aria-label="difficulty decay — mean quality by tier">${g}</svg>`;
+}
+
+function renderExplorer() {
+  const wrap = $("#explorerWrap"), body = $("#explorerBody");
+  if (!wrap || !body) return;
+  const d = EXP.data;
+  if (!d || !(d.models || []).length) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const visible = expFacetFilter(d.models, EXP.hw, EXP.trust);
+  const cats = (d.categories || []).filter((c) => EXP.cats.has(c));
+  const diffs = (d.difficulties || []).filter((k) => EXP.diffs.has(k));
+  const sel = visible.filter((m) => EXP.sel.includes(m.canonical));
+  const modelChips = visible.map((m) => {
+    const k = EXP.sel.indexOf(m.canonical);
+    const tip = `${m.model} — ${m.hw_bucket || "Unlabeled"} · ${(m.trust_tier || "self_reported").replace(/_/g, " ")}`
+      + (m.ctx_len != null ? ` · ${fmtCtx(m.ctx_len)} ctx` : "");
+    return `<button class="chip exp-mchip${k >= 0 ? " on" : ""}" data-c="${escA(m.canonical)}" title="${escA(tip)}">`
+      + (k >= 0 ? `<i class="exp-dot" style="background:${EXP_COLORS[k % EXP_COLORS.length]}"></i>` : "")
+      + escH(String(m.model).split("/").pop()) + `</button>`;
+  }).join("") || `<span class="exp-none">no board model matches this hardware × trust filter</span>`;
+  const catChips = (d.categories || []).map((c) =>
+    `<button class="chip exp-cchip${EXP.cats.has(c) ? " on" : ""}" data-cat="${escA(c)}">${escH(c)}</button>`).join("");
+  const diffChips = (d.difficulties || []).map((k) =>
+    `<button class="chip exp-dchip${EXP.diffs.has(k) ? " on" : ""}" data-v="${escA(k)}">${escH(diffLabel(k))}</button>`).join("");
+  // facet options come from the FULL payload (never the filtered view), "all" first
+  const seg = (cls, cur, opts) => ["all"].concat(opts).map((o) =>
+    `<button class="chip ${cls}${cur === o ? " on" : ""}" data-v="${escA(o)}">${escH(o.replace(/_/g, " "))}</button>`).join("");
+  const hwChips = seg("exp-hw", EXP.hw, [...new Set(d.models.map((m) => m.hw_bucket || "Unlabeled"))]);
+  const trustChips = seg("exp-tr", EXP.trust, [...new Set(d.models.map((m) => m.trust_tier || "self_reported"))]);
+  const tpsMax = expTpsMax(sel, cats);
+  const scaleNote = EXP.metric === "speed"
+    ? (tpsMax ? `heat = <b>tok/s vs fastest shown</b> · brightest = ${fmtTps(tpsMax)} tok/s (the fastest cell in this selection)`
+              : `no speed data recorded for this selection`)
+    : `heat = mean score 0–100 · brighter = higher · n per cell in the tooltip`;
+  const heats = !cats.length || !diffs.length
+    ? `<div class="board-empty">toggle at least one ${cats.length ? "difficulty" : "category"}</div>`
+    : sel.map((m, k) => `<div class="exp-plate">
+        ${expPlateHead(m, EXP_COLORS[k % EXP_COLORS.length])}
+        ${expHeat(m, cats, diffs, EXP.metric, tpsMax)}
+      </div>`).join("") || `<div class="board-empty">pick a model above</div>`;
+  body.innerHTML = `
+    <div class="exp-filters"><span class="flabel">models · max ${EXP_MAX}</span>${modelChips}</div>
+    <div class="exp-filters"><span class="flabel">categories</span>${catChips}
+      <span class="exp-metric"><span class="flabel">metric</span>
+        <button class="chip exp-met${EXP.metric === "quality" ? " on" : ""}" data-met="quality">quality</button>
+        <button class="chip exp-met${EXP.metric === "speed" ? " on" : ""}" data-met="speed">speed</button></span></div>
+    <div class="exp-filters"><span class="flabel">difficulty</span>${diffChips}
+      <span class="exp-fgroup"><span class="flabel">hardware</span>${hwChips}</span>
+      <span class="exp-fgroup"><span class="flabel">trust</span>${trustChips}</span></div>
+    <div class="exp-scale">${scaleNote}</div>
+    <div class="exp-heats">${heats}</div>
+    ${sel.length && cats.length && diffs.length ? `<div class="exp-sec"><span class="exp-sec-t">difficulty decay</span><span class="exp-sec-n">case-weighted mean quality across the selected categories — how each model degrades as questions get harder</span></div>` + expLine(sel, cats, diffs) : ""}`;
+  $$("#explorerBody .exp-mchip").forEach((b) => b.onclick = () => {
+    EXP.sel = expToggleModel(EXP.sel, b.dataset.c); renderExplorer();
+  });
+  $$("#explorerBody .exp-cchip").forEach((b) => b.onclick = () => {
+    EXP.cats.has(b.dataset.cat) ? EXP.cats.delete(b.dataset.cat) : EXP.cats.add(b.dataset.cat);
+    renderExplorer();
+  });
+  $$("#explorerBody .exp-dchip").forEach((b) => b.onclick = () => {
+    EXP.diffs.has(b.dataset.v) ? EXP.diffs.delete(b.dataset.v) : EXP.diffs.add(b.dataset.v);
+    renderExplorer();
+  });
+  $$("#explorerBody .exp-hw").forEach((b) => b.onclick = () => { EXP.hw = b.dataset.v; expReseat(); });
+  $$("#explorerBody .exp-tr").forEach((b) => b.onclick = () => { EXP.trust = b.dataset.v; expReseat(); });
+  $$("#explorerBody .exp-met").forEach((b) => b.onclick = () => {
+    EXP.metric = b.dataset.met; renderExplorer();
+  });
+}
+
+// a facet flip prunes the selection to the models still offered; if none survive, fall
+// back to the top visible model so the panel never strands on a blank view
+function expReseat() {
+  const vis = expFacetFilter((EXP.data || {}).models || [], EXP.hw, EXP.trust);
+  const have = new Set(vis.map((m) => m.canonical));
+  EXP.sel = EXP.sel.filter((c) => have.has(c));
+  if (!EXP.sel.length) EXP.sel = expDefaultSel(vis);
+  renderExplorer();
+}
+
+async function loadExplorer() {
+  const wrap = $("#explorerWrap");
+  if (!wrap) return;
+  try {
+    const d = await api("/api/explorer");
+    EXP.data = d;
+    if (!EXP.cats) EXP.cats = new Set(d.categories || []);
+    if (!EXP.diffs) EXP.diffs = new Set(d.difficulties || []);
+    const vis = expFacetFilter(d.models || [], EXP.hw, EXP.trust);
+    const have = new Set(vis.map((m) => m.canonical));
+    EXP.sel = EXP.sel.filter((c) => have.has(c));       // drop models that left the board/facets
+    if (!EXP.sel.length) EXP.sel = expDefaultSel(vis);
+    renderExplorer();
+  } catch (e) {
+    EXP.data = null; wrap.hidden = true;   // old server (no /api/explorer) or dead link
+  }
+}
+
 function renderWeights() {
   const st = ST[active], cats = st.cats || [];
   $("#weights").innerHTML = cats.map((c) =>
@@ -673,6 +889,7 @@ async function loadBoard() {
   renderEligBar();
   freshBoard();          // data arrived → one instrument-boot pass, then still
   renderBoard();
+  loadExplorer();        // EXPLORE THE DATA (fire-and-forget: 404 keeps the section hidden)
 }
 
 // Gate load choreography to DATA ARRIVAL only: slider drags / filter clicks re-render
@@ -689,6 +906,7 @@ async function reloadBoardData() {
   ST[active].data = await api(cfg.lb);
   freshBoard();
   renderBoard();
+  loadExplorer();
 }
 
 async function launch() {
@@ -912,6 +1130,7 @@ async function setArena(kind) {
   $("#boardPanel").hidden = true; $("#detailPanel").hidden = true;
   $("#adminPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#arenaPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("arena", kind);
   if (!ARENA.byKind[kind]) await loadArenaMeta();
   ARENA.kind = kind;
   $("#arenaTitle").textContent = ARENA.labels[kind] || "Generated";
@@ -1101,6 +1320,7 @@ function setGallery() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const gp = $("#galleryPanel"); if (gp) gp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("gallery");
   renderGalKinds();
   bindGalleryControls();
   loadGallery(GAL.kind);
@@ -1261,6 +1481,7 @@ async function setAdmin() {
   $("#boardPanel").hidden = true; $("#detailPanel").hidden = true;
   $("#arenaPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#adminPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("admin");
   loadAdminBenches(); loadEvaluators(); loadAdminArtifacts();
 }
 
@@ -1408,10 +1629,14 @@ async function loadAdminArtifacts() {
 //       "runs"  = the flat per-run pass list (the old view, kept behind the toggle)
 const SUBS = { board: "", model: null, view: "cards", cards: null };
 
-function setSubs(model) {
+// keepHash: a caller about to open a run detail (openBestRun) skips the plain
+// #/submissions write, so the detail's single pushState is the only history entry —
+// Back then returns to the view the row was clicked on (board / harnesses / …).
+function setSubs(model, keepHash) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
   ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  if (!keepHash) syncHash("submissions");
   SUBS.model = model || null;
   loadSubs();
 }
@@ -1666,6 +1891,7 @@ function renderSubsList(rows) {
 }
 
 async function openSubmission(runId) {
+  syncHash("submissions", runId, true);   // detail open → pushState (Back closes the detail)
   $("#subsDetail").innerHTML = `<div class="sub-cases">${skel(8, 16)}</div>`;
   let d; try { d = await api("/api/submissions/" + runId); }
   catch (e) { $("#subsDetail").innerHTML = `<p class="err">failed to load</p>`; return; }
@@ -1882,6 +2108,7 @@ async function _rejudgeRun(runId) {
 function setBoard(name) {
   active = name;
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.board === name));
+  syncHash("board");
   loadBoard();
 }
 
@@ -1910,13 +2137,17 @@ async function setPerf() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const pp = $("#perfPanel"); if (pp) pp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  // #/performance/<run-or-canonical> deep link: consume the router's pending drill-down
+  const deep = ROUTE.perfPending; ROUTE.perfPending = null;
+  syncHash("performance", deep);
   $("#perfBody").innerHTML = skel(6, 18);
   try { PERF = await api("/api/perf/board"); } catch (e) { PERF = null; }
   if (!PERF || !(PERF.models || []).length) {
     $("#perfBody").innerHTML = `<p class="note" style="text-align:left">No performance runs yet — the pod submits an <span class="mono">aeon-perf-v1</span> grid with every comprehensive benchmark.</p>`;
     return;
   }
-  PERF_SEL.model = null;               // the tab always opens on the ranked list (metric lens survives)
+  // the tab opens on the ranked list unless a deep link names a run/model (metric lens survives)
+  PERF_SEL.model = deep || null;
   renderPerf();
 }
 
@@ -2101,6 +2332,9 @@ function renderPerf() {
     ? (PERF.models.find((x) => x.run === PERF_SEL.model)
        || PERF.models.find((x) => x.canonical === PERF_SEL.model))
     : null;
+  // drill-down = a detail open → pushState (Back closes it); the list replaces. A stale
+  // deep link that matches nothing honestly falls back to the plain #/performance hash.
+  syncHash("performance", m ? PERF_SEL.model : null, !!m);
   if (m) renderPerfDetail(m); else renderPerfList();
 }
 
@@ -2295,6 +2529,7 @@ async function setHarness() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const hp = $("#harnessPanel"); if (hp) hp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("harnesses");
   $("#harnessMatrix").innerHTML = skel(5, 20);
   try { HARNESS = await api("/api/harness_board"); } catch (e) { HARNESS = null; }
   renderHarnessMatrix();
@@ -2446,6 +2681,10 @@ async function setCompare() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const cp = $("#comparePanel"); if (cp) cp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  // capture a still-set compare deep link BEFORE canonicalising the hash to plain #/compare;
+  // a pending deep state keeps its own hash (loadCardCompare/loadRunCompare write the final one)
+  const hashCards = parseCompareHash();
+  if (!CC.pending && !CMP.pendingRuns && !hashCards) syncHash("compare");
   // PRIMARY: whole-benchmark cards; secondary: run pickers (any two submissions) + seed A/Bs
   await populateCardPickers();
   await populateRunPickers();
@@ -2453,9 +2692,9 @@ async function setCompare() {
   const sel = $("#cmpSeed");
   const pick = document.querySelector(".cmp-seed-pick");
   const pending = CMP.pendingRuns; CMP.pendingRuns = null;
-  // deep link (or a still-set #compare= hash) restores the card compare — but an explicit
-  // "compare selected runs" request wins over a leftover hash (loadRunCompare then clears it)
-  const pendingCards = CC.pending || (pending ? null : parseCompareHash()); CC.pending = null;
+  // deep link (or a still-set compare hash) restores the card compare — but an explicit
+  // "compare selected runs" request wins over a leftover hash (loadRunCompare then resets it)
+  const pendingCards = CC.pending || (pending ? null : hashCards); CC.pending = null;
   if (!CMP.seeds.length) {
     if (pick) pick.hidden = true;                 // never show a dead, empty control
     if (sel) sel.innerHTML = "";
@@ -2514,7 +2753,7 @@ function openCompareRuns(a, b) {
 async function loadRunCompare(a, b) {
   if (!a || !b) return;
   if (a === b) { $("#cmpBody").innerHTML = `<p class="board-empty">Pick two different runs.</p>`; return; }
-  clearCompareHash();                               // cmpBody no longer shows the deep-linked card compare
+  syncHash("compare");                              // cmpBody no longer shows the deep-linked card compare
   $("#cmpBody").innerHTML = skel(10);
   let d;
   try { d = await api(`/api/compare_runs?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
@@ -2673,19 +2912,134 @@ async function populateCardPickers() {
   if (CC.cards.length > 1) sb.selectedIndex = 1;
 }
 
-// ---- minimal hash deep-link (#compare=cardA,cardB) — the SPA has no hash routing; this is
-// scoped to the job compare only so a comparison is shareable. replaceState: no history spam.
-function setCompareHash(a, b) {
-  const h = "#compare=" + encodeURIComponent(a) + "," + encodeURIComponent(b);
-  if (location.hash !== h) try { history.replaceState(null, "", h); } catch (e) {}
+// ============================================================================
+// HASH ROUTER — every tab has a shareable URL (static SPA: hash routes, no server changes).
+//   #/board (default) · #/performance[/<run-or-canonical>] · #/live · #/run · #/harnesses
+//   #/compare[/<cardA>,<cardB>] · #/submissions[/<run_id>] · #/arena/app|game|animation
+//   #/gallery · #/admin        LEGACY: #compare=A,B still works → redirects to #/compare/A,B.
+// History policy (judgement call, deliberate):
+//   · tab activations + compare loads → history.replaceState — tab hops and A/B picker
+//     iteration must never spam history (matches the old #compare= behavior)
+//   · detail opens (openSubmission run detail, perf model drill-down) → history.pushState,
+//     so Back closes the detail and returns to the view it was opened from
+// Loop guards: history.pushState/replaceState never fire hashchange; on top of that
+// syncHash never rewrites an identical hash, routeApply skips echoes of our own writes
+// (ROUTE.cur), and ROUTE.applying demotes pushes to replaces while a route is being
+// applied so a shared deep link never double-stacks history.
+const ROUTE = { applying: false, perfPending: null, cur: "" };
+const ARENA_KINDS = ["app", "game", "animation"];
+// route segment → the nav button's data-attribute (single source for gate + dispatch)
+const TAB_ATTR = {
+  board: "data-board", performance: "data-perf", live: "data-live", run: "data-run",
+  harnesses: "data-harness", compare: "data-compare", submissions: "data-subs",
+  arena: "data-arena", gallery: "data-gallery", admin: "data-admin",
+};
+
+// build a canonical hash for a view — run ids / model names / card ids are untrusted
+// strings, so every arg is encodeURIComponent'd (parseRoute decodes symmetrically)
+function routeHash(tab, arg) {
+  if (tab === "compare" && Array.isArray(arg))
+    return "#/compare/" + encodeURIComponent(arg[0]) + "," + encodeURIComponent(arg[1]);
+  return "#/" + tab + (arg != null && arg !== "" ? "/" + encodeURIComponent(arg) : "");
 }
-function clearCompareHash() {
-  if ((location.hash || "").startsWith("#compare="))
-    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+
+// parse ANY hash → { tab, arg, redirect } — never throws. Unknown/malformed/gated forms
+// land on the board with redirect:true so the router rewrites the bad hash honestly.
+function parseRoute(hash) {
+  const h = String(hash || "");
+  const dec = (s) => { try { return decodeURIComponent(s); } catch (e) { return null; } };
+  const board = (redirect) => ({ tab: "board", arg: null, redirect: !!redirect });
+  if (h === "" || h === "#" || h === "#/") return board(false);           // default view
+  const legacy = /^#compare=([^,]+),(.+)$/.exec(h);                       // pre-router deep link
+  if (legacy) {
+    const a = dec(legacy[1]), b = dec(legacy[2]);
+    return a != null && b != null ? { tab: "compare", arg: [a, b], redirect: true } : board(true);
+  }
+  const m = /^#\/([^/]+)(?:\/(.*))?$/.exec(h);
+  if (!m || !TAB_ATTR[m[1]]) return board(true);
+  const tab = m[1], raw = m[2] == null || m[2] === "" ? null : m[2];
+  if (tab === "compare" && raw != null) {
+    const p = /^([^,]+),(.+)$/.exec(raw);
+    if (!p) return board(true);
+    const a = dec(p[1]), b = dec(p[2]);
+    return a != null && b != null ? { tab, arg: [a, b], redirect: false } : board(true);
+  }
+  if (tab === "arena")                                                     // kind is a closed set
+    return raw != null && ARENA_KINDS.includes(raw) ? { tab, arg: raw, redirect: false } : board(true);
+  if (raw == null) return { tab, arg: null, redirect: false };
+  if (tab !== "performance" && tab !== "submissions") return board(true);  // no other tab takes an arg
+  const arg = dec(raw);
+  return arg != null ? { tab, arg, redirect: false } : board(true);        // bad %-escape → board
 }
+
+// ROLE GATING — the router respects the exact gates applyRole() draws: Live + Run are
+// POD-only, Admin only exists for a signed-in admin. A mothership visitor hitting #/run
+// or #/live is sent to #/board (redirect:true → the URL never claims a hidden view).
+function gateRoute(p, role, adminShown) {
+  if ((p.tab === "live" || p.tab === "run") && role !== "pod")
+    return { tab: "board", arg: null, redirect: true };
+  if (p.tab === "admin" && !adminShown)
+    return { tab: "board", arg: null, redirect: true };
+  return p;
+}
+
+// central hash writer — the ONLY place navigation touches the URL. push=true is the
+// detail-open path (see policy above); everything else replaces the current entry.
+function syncHash(tab, arg, push) {
+  const h = routeHash(tab, arg);
+  ROUTE.cur = h;
+  if (location.hash === h) return;                 // loop guard: identical hash never rewrites
+  const method = push && !ROUTE.applying ? "pushState" : "replaceState";
+  try { history[method](null, "", h); } catch (e) {}
+}
+
+// hide every auxiliary panel before a tab setter reveals its own (fixes panel stacking)
+function hideAuxPanels() {
+  ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#perfPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+}
+// the single tab dispatch — nav clicks AND the hash router go through here (no duplicate logic)
+function dispatchTab(t) {
+  hideAuxPanels();
+  return t.dataset.admin ? setAdmin() : t.dataset.subs ? setSubs(null)
+    : t.dataset.harness ? setHarness()
+    : t.dataset.compare ? setCompare()
+    : t.dataset.live ? setLive()
+    : t.dataset.run ? setRun()
+    : t.dataset.gallery ? setGallery()
+    : t.dataset.perf ? setPerf()
+    : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
+}
+
+// apply a hash: parse → gate → activate the tab through dispatchTab → open deep state
+// (#/submissions/<id> opens the run detail; #/performance/<x> arms the perf drill-down;
+// #/compare/<A>,<B> arms the card compare that setCompare() then loads).
+function routeApply(hash) {
+  if (hash === ROUTE.cur) return;                  // echo of our own write — nothing to do
+  ROUTE.cur = hash;
+  const adminTab = $("#adminTab");
+  let p = gateRoute(parseRoute(hash), CFG.role, !!(adminTab && !adminTab.hidden));
+  const sel = p.tab === "arena" ? `#tabs [data-arena="${p.arg}"]` : `#tabs [${TAB_ATTR[p.tab]}]`;
+  let t = document.querySelector(sel);
+  if (p.tab !== "board" && (!t || t.hidden)) {     // belt-and-braces: NEVER open a hidden tab
+    p = { tab: "board", arg: null, redirect: true };
+    t = document.querySelector("#tabs [data-board]");
+  }
+  ROUTE.applying = true;
+  try {
+    if (p.redirect) syncHash(p.tab, p.arg);        // rewrite gated/legacy/malformed hashes honestly
+    if (p.tab === "performance") ROUTE.perfPending = p.arg;
+    if (p.tab === "compare" && p.arg) CC.pending = p.arg;
+    if (t) dispatchTab(t); else setBoard("text");
+    if (p.tab === "submissions" && p.arg) openSubmission(p.arg);
+  } finally { ROUTE.applying = false; }
+}
+
+// compare deep-link helpers, now router-backed (kept: setCompare/loadCardCompare call them)
+function setCompareHash(a, b) { syncHash("compare", [a, b]); }
 function parseCompareHash() {
-  const m = /^#compare=([^,]+),(.+)$/.exec(location.hash || "");
-  return m ? [decodeURIComponent(m[1]), decodeURIComponent(m[2])] : null;
+  const p = parseRoute(location.hash);
+  return p.tab === "compare" && p.arg ? p.arg : null;
 }
 
 async function loadCardCompare(a, b, push = true) {
@@ -2976,7 +3330,7 @@ function renderCardCompare(data) {
 }
 
 async function loadCompare(seed) {
-  clearCompareHash();                               // cmpBody no longer shows the deep-linked card compare
+  syncHash("compare");                              // cmpBody no longer shows the deep-linked card compare
   $("#cmpBody").innerHTML = skel(10);
   let d; try { d = await api("/api/compare/" + encodeURIComponent(seed)); }
   catch (e) { $("#cmpBody").innerHTML = `<p class="err">failed to load</p>`; return; }
@@ -3040,6 +3394,7 @@ async function setLive() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const lp = $("#livePanel"); if (lp) lp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("live");
   await pollLive();
   if (LIVE_TIMER) clearInterval(LIVE_TIMER);
   LIVE_TIMER = setInterval(() => {                     // auto-refresh while the tab is active
@@ -3270,6 +3625,7 @@ async function setRun() {
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const rp = $("#runPanel"); if (rp) rp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("run");
   await loadSavedKeys();
   await loadFrontierModels();
   await loadEngines();
@@ -4663,26 +5019,22 @@ async function init() {
     try { localStorage.setItem("aeon_pod_token", $("#podToken").value.trim()); } catch (e) {}
     runStatus("pod token set", "ok"); loadSavedKeys();
   });
-  $$("#tabs .tab").forEach((t) => t.onclick = () => {
-    // hide ALL aux panels first — each setter then reveals its own (fixes panel stacking)
-    ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#perfPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
-    if (!t.dataset.compare) clearCompareHash();     // deep link only describes a visible comparison
-    return t.dataset.admin ? setAdmin() : t.dataset.subs ? setSubs(null)
-      : t.dataset.harness ? setHarness()
-      : t.dataset.compare ? setCompare()
-      : t.dataset.live ? setLive()
-      : t.dataset.run ? setRun()
-      : t.dataset.gallery ? setGallery()
-      : t.dataset.perf ? setPerf()
-      : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
-  });
+  // one dispatch for nav clicks and the hash router (dispatchTab pre-hides aux panels;
+  // each setter reveals its own panel and writes its route via syncHash)
+  $$("#tabs .tab").forEach((t) => t.onclick = () => dispatchTab(t));
   { const cs = $("#cmpSeed"); if (cs) cs.onchange = () => loadCompare(cs.value); }
   { const go = $("#cmpRunsGo"); if (go) go.onclick = () => loadRunCompare($("#cmpRunA").value, $("#cmpRunB").value); }
   { const go = $("#cmpCardsGo"); if (go) go.onclick = () => loadCardCompare($("#cmpCardA").value, $("#cmpCardB").value); }
-  // minimal #compare=cardA,cardB deep-link support (the SPA has no other hash routing)
+  // hash router: Back/Forward and pasted links land here (our own history writes never
+  // fire hashchange). A stray in-page href="#" click empties the hash — re-assert the
+  // current route instead of yanking the user to the default board.
   window.addEventListener("hashchange", () => {
-    const ch = parseCompareHash();
-    if (ch && (active !== "compare" || CC.a !== ch[0] || CC.b !== ch[1])) { CC.pending = ch; setCompare(); }
+    const h = location.hash || "";
+    if ((h === "" || h === "#" || h === "#/") && ROUTE.cur && ROUTE.cur !== h) {
+      try { history.replaceState(null, "", ROUTE.cur); } catch (e) {}
+      return;
+    }
+    routeApply(h);
   });
   $("#subsBoard").onchange = () => { SUBS.board = $("#subsBoard").value; loadSubs(); };
   $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); };
@@ -4785,17 +5137,24 @@ async function init() {
     setInterval(() => { if (active !== "live") pollLive(); }, 15000);
   }
   await loadBoard();                        // no loadModels(): the launch form is gone
-  // arrived on a shared #compare=cardA,cardB link — open the comparison directly
-  const ch = parseCompareHash();
-  if (ch) { CC.pending = ch; setCompare(); }
+  // apply the initial route — a refresh keeps you where you were, a shared link opens the
+  // exact view (#/submissions/<id> · #/compare/A,B · legacy #compare= · any tab). A plain,
+  // gated or malformed hash just canonicalises to #/board: the default board is already
+  // rendered above, so no double fetch.
+  const p0 = gateRoute(parseRoute(location.hash), CFG.role, !!(AUTH.user && AUTH.user.admin));
+  if (p0.tab === "board") syncHash("board");
+  else routeApply(location.hash);
 }
-// ---- Node test hook (test_dial_row.js) --------------------------------------------------------
+// ---- Node test hook (test_dial_row.js · test_routing.js) --------------------------------------
 // Under `AEON_WEB_TEST=1 node …` export the pure renderers (dial/globalRow are plain string
-// builders) plus applyRole + CFG for the role-gating fixture, instead of booting the app.
+// builders) plus applyRole + CFG for the role-gating fixture, and the router units
+// (parseRoute/routeHash/gateRoute/syncHash/ROUTE), instead of booting the app.
 // In a browser `process` is undefined, so this branch is inert and init() runs as always.
 if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST === "1"
     && typeof module !== "undefined") {
-  module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp, fmtCtx, ctxChip };
+  module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp,
+    fmtCtx, ctxChip, parseRoute, routeHash, gateRoute, syncHash, ROUTE,
+    expBand, expHeat, expLine, expToggleModel, expDefaultSel, expTpsMax, expFacetFilter, expPlateHead };
 } else {
   init();
 }

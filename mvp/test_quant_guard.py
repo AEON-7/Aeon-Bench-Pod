@@ -91,4 +91,54 @@ check(not (h and "tool-call-parser" in h),
 h = diagnostics.diagnose(["ValueError: invalid tool call parser: qwen9_coder (chose from hermes)"])
 check(bool(h) and "parser" in h, "a genuine tool-call-parser error still hints correctly")
 
+# ---- 4) spec-method guard: DFlash card under method 'dspark' (the second 27B failure) -------
+
+import json as _json
+import tempfile as _tf
+
+_dd = _tf.mkdtemp(prefix="aeon-drafter-")
+with open(os.path.join(_dd, "config.json"), "w", encoding="utf-8") as _f:
+    _json.dump({"architectures": ["DFlashDraftModel"], "model_type": "qwen3",
+                "block_size": 11, "dflash_config": {"target_layer_ids": [1, 16]},
+                "markov_rank": 256}, _f)
+
+SPEC_DSPARK = '{"method":"dspark","model":"/drafter","num_speculative_tokens":8}'
+f, n = engines.spec_method_guard(["--speculative-config", SPEC_DSPARK], _dd)
+_spec = _json.loads(f[f.index("--speculative-config") + 1])
+check(_spec["method"] == "dflash" and _spec["num_speculative_tokens"] == 8,
+      "dspark method on a DFlash card is corrected to dflash (nst 8 <= block 11-1 kept)")
+check(n and "DFlashDraftModel" in n, "spec guard note names the card's architecture")
+
+f, n = engines.spec_method_guard(
+    ["--speculative-config", '{"method":"dflash","model":"/drafter","num_speculative_tokens":15}'], _dd)
+_spec = _json.loads(f[f.index("--speculative-config") + 1])
+check(_spec["num_speculative_tokens"] == 10 and n and "block_size" in n,
+      "nst above the trained block is clamped to block_size-1")
+
+f, n = engines.spec_method_guard(
+    ["--speculative-config", '{"method":"dflash","model":"/drafter","num_speculative_tokens":8}'], _dd)
+check(n is None, "matching method + sane nst is untouched")
+
+f, n = engines.spec_method_guard(["--speculative-config", SPEC_DSPARK], None)
+check(n is None and f[1] == SPEC_DSPARK, "no drafter dir -> guard stays out (config unreadable)")
+
+f, n = engines.spec_method_guard(["--max-num-seqs", "64"], _dd)
+check(n is None and f == ["--max-num-seqs", "64"], "no spec config -> clean no-op")
+
+_dd2 = _tf.mkdtemp(prefix="aeon-drafter2-")
+with open(os.path.join(_dd2, "config.json"), "w", encoding="utf-8") as _f:
+    _json.dump({"architectures": ["Qwen3DSparkModel"], "hc_mult": 4, "hc_eps": 1e-5}, _f)
+f, n = engines.spec_method_guard(
+    ["--speculative-config", '{"method":"dflash","model":"/drafter","num_speculative_tokens":8}'], _dd2)
+_spec = _json.loads(f[f.index("--speculative-config") + 1])
+check(_spec["method"] == "dspark" and bool(n), "dflash method on a DSpark card corrects the other way")
+
+h = diagnostics.diagnose([
+    '(EngineCore pid=328)   File "/usr/local/lib/python3.12/site-packages/vllm/models/'
+    'deepseek_v4/nvidia/dspark.py", line 63, in __init__',
+    "(EngineCore pid=328) AttributeError: 'Qwen3Config' object has no attribute 'hc_mult'",
+])
+check(bool(h) and "dflash" in h.lower() and "dspark" in h.lower(),
+      "hc_mult crash hints the method mismatch (verbatim second-failure log)")
+
 print(f"\nOK  quant guard + diagnostics: {PASSED} checks passed")

@@ -72,13 +72,14 @@ _BUILTIN = [
 
 # The corpus (generated + adversarially verified; every gold answer independently
 # re-derived and executed through the real evaluators before admission) lives in
-# suites/cases.json — built by suites/build_all_cases.py from suites/v3/*.json.
-# v3 design: 155 cases, 5 categories x 6 difficulty tiers with an exponential hard
-# skew plus a mandatory GOD MODE sentinel (easy 2 / medium 3 / hard 5 / expert 8 /
-# frontier 12 / god_mode 1 per category). easy+medium are CANARIES (is the model
-# configured right / can a weak model score at all); the ranking signal lives in
-# hard->god_mode, which is most of the suite by count.
-# When the corpus is healthy it IS the whole suite (exactly 150). The tiny _BUILTIN
+# suites/cases.json — built by suites/build_all_cases.py from suites/v4/*.json.
+# v4 design: 160 cases, 5 categories x 6 difficulty tiers with an exponential hard
+# skew plus mandatory GOD MODE sentinels (easy 2 / medium 3 / hard 5 / expert 8 /
+# frontier 12 / god_mode 2 per category). easy/medium/hard are carried over from v3
+# UNCHANGED — easy+medium are CANARIES (is the model configured right / can a weak
+# model score at all); v4 dials up only the ranking tiers (all-new expert/frontier
+# cells + a second god_mode sentinel), which is most of the suite by count.
+# When the corpus is healthy it IS the whole suite (exactly 160). The tiny _BUILTIN
 # set is a FALLBACK only — a missing/malformed corpus degrades to built-ins so the
 # mock pipeline still works, never a half-merged hybrid.
 _CASES_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "suites", "cases.json")
@@ -107,9 +108,44 @@ def _load_cases():
 
 CASES = _load_cases()
 
+# Frozen corpora of LEGACY suite versions, composed on demand from their per-cell
+# suites/<ver>/ files (exactly what build_all_cases.py shipped from). Needed wherever a
+# legacy-fallback board must be JOINED against its own corpus (e.g. the explorer during the
+# window after a suite bump) — labeling old runs with the new suite's difficulty table would
+# be a mislabeled grid, and refusing entirely would hide runs the board honestly shows.
+_LEGACY_DIRS = {"aeon-suite-v3": "v3", "aeon-suite-v2": "v2", "aeon-suite-v1": "v1"}
+_LEGACY_CACHE: dict = {}
+
+
+def legacy_cases(suite_id):
+    """Corpus for `suite_id`: the live CASES when current, else the frozen legacy cells
+    (unknown version / missing dir -> empty list, never a raise)."""
+    if not suite_id or suite_id == SUITE_ID:
+        return CASES
+    if suite_id in _LEGACY_CACHE:
+        return _LEGACY_CACHE[suite_id]
+    out, seen = [], set()
+    ver = _LEGACY_DIRS.get(suite_id)
+    cell_dir = os.path.join(os.path.dirname(_CASES_FILE), ver) if ver else None
+    if cell_dir and os.path.isdir(cell_dir):
+        try:
+            for fn in sorted(os.listdir(cell_dir)):
+                if not fn.endswith(".json"):
+                    continue
+                with open(os.path.join(cell_dir, fn), "r", encoding="utf-8") as f:
+                    arr = json.load(f)
+                for c in arr if isinstance(arr, list) else []:
+                    if isinstance(c, dict) and all(k in c for k in _REQUIRED)                             and c["id"] not in seen:
+                        seen.add(c["id"])
+                        out.append(c)
+        except Exception:
+            out = []   # a bad legacy cell file yields an empty (honest) explorer, not a 500
+    _LEGACY_CACHE[suite_id] = out
+    return out
+
 # fixed order drives the radar axes; every generated category maps to one of these
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
-SUITE_ID = "aeon-suite-v3" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
+SUITE_ID = "aeon-suite-v4" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
 
 
 DIFFICULTIES = ["easy", "medium", "hard", "expert", "frontier", "god_mode"]

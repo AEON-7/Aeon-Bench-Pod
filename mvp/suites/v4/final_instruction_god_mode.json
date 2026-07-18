@@ -1,0 +1,92 @@
+[
+ {
+  "id": "v4.instruction.god_mode.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "Apply the following operations, IN ORDER, to the starting string cinnabarwolf (12 lowercase letters). After each operation, the result becomes the current string for the next operation.\n1. Reverse the entire string.\n2. Replace every occurrence of the letter n with the letter d.\n3. Rotate the string left by 3 positions: remove the first 3 characters and append them to the end, preserving their order.\n4. Replace every vowel with the next vowel in the cyclic order a->e, e->i, i->o, o->u, u->a.\n5. Delete the 5th character of the current string (1-indexed).\n6. Insert the two characters qz immediately after the 4th character of the current string (1-indexed), so that q becomes the 5th character and z the 6th.\n7. Convert to uppercase every letter at an odd 1-indexed position (positions 1, 3, 5, ...); characters at even positions are unchanged.\n8. Reverse, in place, the substring spanning positions 3 through 8 inclusive (1-indexed); all other characters keep their positions.\n9. Swap the case of every letter (uppercase becomes lowercase, lowercase becomes uppercase); non-letter characters are unchanged.\n10. Replace every lowercase vowel with a digit as follows: a becomes 1, e becomes 2, i becomes 3, o becomes 4, u becomes 5. Uppercase letters and all other characters are unchanged.\n11. Move the last 4 characters of the string to the front, preserving their order.\n12. Append to the end of the string, written in decimal, the sum of all digit characters currently in the string (computed before appending).\nReply with ONLY the final string on a single line: no quotes, no spaces, no explanation, nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "CfL5wRDdZqB2411",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.god_mode.02",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "Write a poem that satisfies ALL of these constraints simultaneously. Output ONLY the poem: no title, no preamble, no commentary, no code fences, no blank lines, no leading or trailing spaces on any line, single spaces between words.\n1. Exactly 6 lines.\n2. The word counts of the lines grow by one each line: line 1 has exactly 3 words, line 2 has exactly 4 words, line 3 has exactly 5 words, line 4 has exactly 6 words, line 5 has exactly 7 words, line 6 has exactly 8 words.\n3. The first letters of the 6 lines, in order, spell CIPHER: line 1 begins with capital 'C', line 2 with capital 'I', line 3 with capital 'P', line 4 with capital 'H', line 5 with capital 'E', line 6 with capital 'R'.\n4. Every line ends with a period, and the last word of every line (the word immediately before the period) is exactly 5 letters long.\n5. The ONLY uppercase letters in the poem are the six line-initial letters; every other letter is lowercase.\n6. The letter 'a' (uppercase or lowercase) never appears anywhere in the poem.\n7. The exact lowercase word 'frost' appears exactly TWICE in the poem, counted as a whole word ('frosts' or 'frosted' would NOT count).\n8. The word 'the' never appears as a whole word.\n9. No punctuation of any kind except the six line-ending periods, and periods appear ONLY at line ends.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "n": 6,
+     "op": "=="
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AC[a-z]*( [a-z]+){1} [a-z]{5}\\.\\nI[a-z]*( [a-z]+){2} [a-z]{5}\\.\\nP[a-z]*( [a-z]+){3} [a-z]{5}\\.\\nH[a-z]*( [a-z]+){4} [a-z]{5}\\.\\nE[a-z]*( [a-z]+){5} [a-z]{5}\\.\\nR[a-z]*( [a-z]+){6} [a-z]{5}\\.\\Z",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bfrost\\b.*?\\bfrost\\b",
+     "ignore_case": false,
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bfrost\\b.*?\\bfrost\\b.*?\\bfrost\\b",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "a",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bthe\\b",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z\\n .]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)\\.(?!$)",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)(?<=.)[A-Z]",
+     "ignore_case": false,
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?m)^[ \\t]",
+     "mode": "must_not_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "  ",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

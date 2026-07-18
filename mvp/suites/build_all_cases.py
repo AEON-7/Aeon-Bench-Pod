@@ -2,16 +2,19 @@
 
     python suites/build_all_cases.py            (from mvp/, or anywhere)
 
-The v3 corpus lives as per-cell files in suites/v3/final_<category>_<difficulty>.json —
+The v4 corpus lives as per-cell files in suites/v4/final_<category>_<difficulty>.json —
 each authored by a generator agent and then ADVERSARIALLY VERIFIED (every gold answer
 independently re-derived; the verifier's own solution executed through the real
-aeon.evaluators and required to score 1.0) before landing here. This script is the
-single, reproducible path from those files to the cases.json the suite loads:
+aeon.evaluators and required to score 1.0) before landing here. v4 carries v3's
+easy/medium/hard cells UNCHANGED (they are canaries) and dials up only the ranking
+tiers: brand-new expert/frontier cells plus a second god_mode sentinel per category.
+This script is the single, reproducible path from those files to the cases.json the
+suite loads:
 
-  1. loads every suites/v3/final_*.json
+  1. loads every suites/v4/final_*.json
   2. validates schema, id uniqueness, category/difficulty enums, checker types
-  3. enforces the v3 design: 5 categories x (easy 2 / medium 3 / hard 5 / expert 8 /
-     frontier 12 / god_mode 1) = exactly 155 cases
+  3. enforces the v4 design: 5 categories x (easy 2 / medium 3 / hard 5 / expert 8 /
+     frontier 12 / god_mode 2) = exactly 160 cases
   4. smoke-tests every case through evaluators.evaluate() with a dummy answer
      (no checker may crash on arbitrary input; score just has to come back 0/None-ish)
   5. writes suites/cases.json (sorted by category, difficulty rank, id — stable diffs)
@@ -32,9 +35,9 @@ sys.path.insert(0, MVP)
 from aeon import evaluators  # noqa: E402  (the REAL checkers — smoke-test target)
 
 OUT = os.path.join(HERE, "cases.json")
-SRC = os.path.join(HERE, "v3")
+SRC = os.path.join(HERE, "v4")
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
-DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12, "god_mode": 1}
+DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12, "god_mode": 2}
 DIFF_RANK = {d: i for i, d in enumerate(DIFF_COUNTS)}
 REQUIRED = ("id", "category", "tier", "prompt", "eval")
 KNOWN_CHECKERS = set(evaluators.CHECKERS)

@@ -1,0 +1,718 @@
+[
+ {
+  "id": "v4.prose.expert.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a 12-line poem about a glassblower working through a night shift. Constraints: exactly 12 lines with no blank lines between them; the first letters of the lines, read top to bottom, must spell GLASSFURNACE (line 1 starts with G, line 2 with L, line 3 with A, line 4 with S, line 5 with S, line 6 with F, line 7 with U, line 8 with R, line 9 with N, line 10 with A, line 11 with C, line 12 with E); every line must contain exactly 8 words, where a word is any run of characters separated by spaces (hyphenated compounds count as one word, and punctuation attached to a word does not split it); every line must contain exactly one comma character — no line may have zero commas or more than one; and the poem must contain the words 'molten' and 'anneal'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_12",
+     "question": "Does the poem have exactly 12 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 12.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 12
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "acrostic",
+     "question": "Do the first letters of the 12 lines spell GLASSFURNACE?",
+     "decision_rule": "True iff line initials are G,L,A,S,S,F,U,R,N,A,C,E (case-insensitive).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^\\s*G[^\\n]*\\n\\s*L[^\\n]*\\n\\s*A[^\\n]*\\n\\s*S[^\\n]*\\n\\s*S[^\\n]*\\n\\s*F[^\\n]*\\n\\s*U[^\\n]*\\n\\s*R[^\\n]*\\n\\s*N[^\\n]*\\n\\s*A[^\\n]*\\n\\s*C[^\\n]*\\n\\s*E[^\\n]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "eight_words_each",
+     "question": "Does every one of the 12 lines contain exactly 8 whitespace-separated words?",
+     "decision_rule": "True iff each line has exactly 8 space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*\\n){11}[ \\t]*\\S+(?:[ \\t]+\\S+){7}[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "one_comma_each",
+     "question": "Does every line contain exactly one comma?",
+     "decision_rule": "True iff each of the 12 lines contains exactly one ',' character.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:[^,\\n]*,[^,\\n]*\\n){11}[^,\\n]*,[^,\\n]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_molten",
+     "question": "Does the poem contain the word 'molten'?",
+     "decision_rule": "True iff /molten/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "molten",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_anneal",
+     "question": "Does the poem contain the word 'anneal'?",
+     "decision_rule": "True iff /anneal/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "anneal",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_craft",
+     "question": "Do the lines read as coherent, grammatical verse about glassblowing, with the commas placed at natural phrase breaks rather than inserted arbitrarily?",
+     "decision_rule": "True iff the poem is fluent and on-theme with natural comma placement.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.02",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a single-paragraph story (one block, no blank lines) of exactly 10 sentences about a fisherman keeping watch over his lines on a frozen river at night, under ALL of these constraints: the letter 'a' (uppercase or lowercase) must not appear anywhere in your output; the first letters of the 10 sentences, in order, must spell NIGHTFROST (sentence 1 starts with N, 2 with I, 3 with G, 4 with H, 5 with T, 6 with F, 7 with R, 8 with O, 9 with S, 10 with T); every sentence must end with a period, exclamation mark, or question mark, and the characters '.', '!' and '?' must not appear anywhere else (no abbreviations, no decimal numbers, no ellipses); the story must contain the words 'frost' and 'river'; and it must be at least 80 words long. Output only the story: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_block",
+     "question": "Is the story a single paragraph with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences_10",
+     "question": "Does the story have exactly 10 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff exactly 10 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 10
+     }
+    },
+    {
+     "id": "no_letter_a",
+     "question": "Is the text completely free of the letter 'a' (either case)?",
+     "decision_rule": "True iff /a/i does not match anywhere.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "a",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "sentence_acrostic",
+     "question": "Do the first letters of the 10 sentences spell NIGHTFROST?",
+     "decision_rule": "True iff sentence initials are N,I,G,H,T,F,R,O,S,T in order (case-insensitive), with '.', '!', '?' used only as sentence terminators.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^N[^.!?]*[.!?]\\s+I[^.!?]*[.!?]\\s+G[^.!?]*[.!?]\\s+H[^.!?]*[.!?]\\s+T[^.!?]*[.!?]\\s+F[^.!?]*[.!?]\\s+R[^.!?]*[.!?]\\s+O[^.!?]*[.!?]\\s+S[^.!?]*[.!?]\\s+T[^.!?]*[.!?]$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_frost",
+     "question": "Does the story contain the word 'frost'?",
+     "decision_rule": "True iff /frost/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "frost",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_river",
+     "question": "Does the story contain the word 'river'?",
+     "decision_rule": "True iff /river/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "river",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_80_words",
+     "question": "Is the story at least 80 words long?",
+     "decision_rule": "True iff there are 80 or more whitespace-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?:\\S+\\s+){79}\\S+",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_narrative",
+     "question": "Does the story read as one connected, grammatical scene on the frozen river rather than strained fragments assembled to dodge the letter 'a'?",
+     "decision_rule": "True iff the sentences form a coherent narrative in fluent English.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.07",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a single-paragraph story (one block, no blank lines) of exactly 8 sentences about a harbor town wrapped in night fog. Hidden-phrase constraint: reading the FIRST word of each sentence in order must give exactly 'Some Nights The Harbor Counts Its Own Bells' — that is, sentence 1 must begin with the word 'Some', sentence 2 with 'Nights', sentence 3 with 'The', sentence 4 with 'Harbor', sentence 5 with 'Counts', sentence 6 with 'Its', sentence 7 with 'Own', and sentence 8 with 'Bells', each capitalized exactly as shown. Length constraint: every sentence must contain at least 12 and at most 16 words, where a word is any run of characters containing no spaces and no sentence-ending punctuation. Every sentence must end with a period, exclamation mark, or question mark, and the characters '.', '!' and '?' must not appear anywhere except at the ends of sentences (no abbreviations, no decimal numbers, no ellipses). The story must contain the words 'fog' and 'ferrymen'. Output only the story: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_block",
+     "question": "Is the story a single paragraph with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences_8",
+     "question": "Does the story have exactly 8 sentences?",
+     "decision_rule": "Split on terminal punctuation; true iff exactly 8 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "hidden_phrase_openers",
+     "question": "Do the 8 sentences begin, in order, with the words Some, Nights, The, Harbor, Counts, Its, Own, Bells?",
+     "decision_rule": "Case-sensitive: sentence k opens with the k-th word of 'Some Nights The Harbor Counts Its Own Bells', with '.', '!', '?' only at sentence ends.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^Some\\b[^.!?]*[.!?]\\s+Nights\\b[^.!?]*[.!?]\\s+The\\b[^.!?]*[.!?]\\s+Harbor\\b[^.!?]*[.!?]\\s+Counts\\b[^.!?]*[.!?]\\s+Its\\b[^.!?]*[.!?]\\s+Own\\b[^.!?]*[.!?]\\s+Bells\\b[^.!?]*[.!?]$",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "word_band_12_16",
+     "question": "Does every sentence contain between 12 and 16 words inclusive?",
+     "decision_rule": "True iff the text is exactly 8 sentences of 12-16 words each, with '.', '!', '?' only at sentence ends.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:(?:[^\\s.!?]+\\s+){11,15}[^\\s.!?]+[.!?](?:\\s+|$)){8}$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_fog",
+     "question": "Does the story contain the word 'fog'?",
+     "decision_rule": "True iff /fog/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "fog",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_ferrymen",
+     "question": "Does the story contain the word 'ferrymen'?",
+     "decision_rule": "True iff /ferrymen/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "ferrymen",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_seam",
+     "question": "Do the mandated opening words sit naturally inside their sentences, so the story reads as continuous prose rather than eight forced constructions?",
+     "decision_rule": "True iff each sentence is grammatical and the paragraph flows as one scene.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.08",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a villanelle about a harbor and what the tide takes away, using EXACTLY these two refrain lines, letter for letter (a refrain line may be followed by trailing punctuation, but no extra words, and capitalisation must match exactly): Refrain A: 'The tide writes nothing that it does not erase' — Refrain B: 'and every harbor keeps an empty place'. Structure: exactly 19 lines arranged as 6 stanzas separated by blank lines — five tercets (3 lines each) followed by one quatrain (4 lines). Refrain placement: stanza 1 is Refrain A, then one free line, then Refrain B; stanzas 2, 3, 4 and 5 are each two free lines followed by a refrain as the stanza's last line (stanza 2 ends with Refrain A, stanza 3 with Refrain B, stanza 4 with Refrain A, stanza 5 with Refrain B); stanza 6, the quatrain, is two free lines followed by Refrain A and then Refrain B as the poem's final line. Every line must contain at least 6 words. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_19",
+     "question": "Does the poem have exactly 19 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 19.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 19
+     }
+    },
+    {
+     "id": "stanzas_6",
+     "question": "Does the poem have exactly 6 blank-line-separated stanzas?",
+     "decision_rule": "Count blank-line-separated blocks; true iff exactly 6.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 6
+     }
+    },
+    {
+     "id": "refrain_placement",
+     "question": "Do the two refrain lines appear verbatim in the exact villanelle positions (lines 1, 6, 12, 18 for Refrain A; lines 3, 9, 15, 19 for Refrain B) within the 3-3-3-3-3-4 stanza layout?",
+     "decision_rule": "Case-sensitive: refrains appear letter-for-letter (optionally followed by punctuation) exactly where the villanelle scheme requires.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^The tide writes nothing that it does not erase[^\\w\\n]*\\n[^\\n]+\\n[ \\t]*and every harbor keeps an empty place[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]+\\n[^\\n]+\\n[ \\t]*The tide writes nothing that it does not erase[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]+\\n[^\\n]+\\n[ \\t]*and every harbor keeps an empty place[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]+\\n[^\\n]+\\n[ \\t]*The tide writes nothing that it does not erase[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]+\\n[^\\n]+\\n[ \\t]*and every harbor keeps an empty place[^\\w\\n]*\\n(?:[ \\t]*\\n)+[^\\n]+\\n[^\\n]+\\n[ \\t]*The tide writes nothing that it does not erase[^\\w\\n]*\\n[ \\t]*and every harbor keeps an empty place[^\\w\\n]*$",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "min_6_words",
+     "question": "Does every line contain at least 6 words?",
+     "decision_rule": "True iff no line has 5 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,4}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "judge_free_lines",
+     "question": "Do the free (non-refrain) lines develop one coherent harbor elegy in grammatical verse, with the refrains landing as conclusions to their stanzas rather than interruptions?",
+     "decision_rule": "True iff the free lines form a connected poem into which the refrains fit naturally.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.09",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a 9-line poem about a salt marsh from first light to nightfall, built on a strict alliteration schedule. The schedule letters, line by line, spell SALTMARSH: line 1's letter is S, line 2's is A, line 3's is L, line 4's is T, line 5's is M, line 6's is A, line 7's is R, line 8's is S, and line 9's is H. Constraints: exactly 9 lines with no blank lines between them; every line must contain exactly 6 words, where a word is any run of characters separated by spaces (hyphenated compounds count as one word); EVERY word in a line must begin with that line's schedule letter (either case) — the first character of each word must be the letter itself, so no word may start with a quotation mark or other punctuation, though punctuation at the end of a word is fine; and the poem must contain the words 'saltmarsh' and 'heron'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_9",
+     "question": "Does the poem have exactly 9 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 9.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 9
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "alliteration_schedule",
+     "question": "Does every word of line k begin with the k-th letter of SALTMARSH, with exactly 6 words per line?",
+     "decision_rule": "True iff each of the 9 lines has exactly 6 whitespace-separated words and every word's first character is that line's schedule letter (case-insensitive).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^[ \\t]*s\\S*(?:[ \\t]+s\\S*){5}[ \\t]*\\n[ \\t]*a\\S*(?:[ \\t]+a\\S*){5}[ \\t]*\\n[ \\t]*l\\S*(?:[ \\t]+l\\S*){5}[ \\t]*\\n[ \\t]*t\\S*(?:[ \\t]+t\\S*){5}[ \\t]*\\n[ \\t]*m\\S*(?:[ \\t]+m\\S*){5}[ \\t]*\\n[ \\t]*a\\S*(?:[ \\t]+a\\S*){5}[ \\t]*\\n[ \\t]*r\\S*(?:[ \\t]+r\\S*){5}[ \\t]*\\n[ \\t]*s\\S*(?:[ \\t]+s\\S*){5}[ \\t]*\\n[ \\t]*h\\S*(?:[ \\t]+h\\S*){5}[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "six_words_each",
+     "question": "Does every one of the 9 lines contain exactly 6 whitespace-separated words?",
+     "decision_rule": "True iff each line has exactly 6 space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:[ \\t]*\\S+(?:[ \\t]+\\S+){5}[ \\t]*\\n){8}[ \\t]*\\S+(?:[ \\t]+\\S+){5}[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_saltmarsh",
+     "question": "Does the poem contain the word 'saltmarsh'?",
+     "decision_rule": "True iff /saltmarsh/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "saltmarsh",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_heron",
+     "question": "Does the poem contain the word 'heron'?",
+     "decision_rule": "True iff /heron/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "heron",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_sense",
+     "question": "Do the alliterating lines still read as grammatical English phrases tracing the marsh from dawn to dark, rather than dictionary strings of same-letter words?",
+     "decision_rule": "True iff each line parses as a phrase or clause and the imagery follows the day.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.11",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write a 10-line poem that interleaves two simultaneous narratives aboard a ship riding out a storm: the odd-numbered lines (1, 3, 5, 7, 9) follow the crew on deck, and the even-numbered lines (2, 4, 6, 8, 10) follow the people sheltering below. Constraints: exactly 10 lines with no blank lines; every odd-numbered line must begin with the exact opener 'Above, ' (capital A, then a comma, then a single space) and the letter 'i' (uppercase or lowercase) must not appear anywhere in any odd-numbered line; every even-numbered line must begin with the exact opener 'Below, ' (capital B, then a comma, then a single space) and the letter 'a' (uppercase or lowercase) must not appear anywhere in any even-numbered line; every line must contain at least 7 words, where a word is any run of characters separated by spaces (the opener counts as the line's first word); and the poem must contain the words 'storm' and 'lantern'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_10",
+     "question": "Does the poem have exactly 10 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 10.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 10
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "thread_alternation",
+     "question": "Do the 10 lines alternate openers exactly — 'Above, ' on lines 1,3,5,7,9 and 'Below, ' on lines 2,4,6,8,10?",
+     "decision_rule": "Case-sensitive: odd lines start 'Above, ' and even lines start 'Below, ', for all 10 lines in order.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^Above, [^\\n]*\\n[ \\t]*Below, [^\\n]*\\n[ \\t]*Above, [^\\n]*\\n[ \\t]*Below, [^\\n]*\\n[ \\t]*Above, [^\\n]*\\n[ \\t]*Below, [^\\n]*\\n[ \\t]*Above, [^\\n]*\\n[ \\t]*Below, [^\\n]*\\n[ \\t]*Above, [^\\n]*\\n[ \\t]*Below, [^\\n]*$",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "odd_no_letter_i",
+     "question": "Is every odd-numbered ('Above,') line completely free of the letter 'i' (either case)?",
+     "decision_rule": "True iff no line beginning 'Above,' contains an i or I anywhere.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*Above,[^\\n]*i",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "even_no_letter_a",
+     "question": "Is every even-numbered ('Below,') line completely free of the letter 'a' (either case)?",
+     "decision_rule": "True iff no line beginning 'Below,' contains an a or A anywhere.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*Below,[^\\n]*a",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "min_7_words",
+     "question": "Does every line contain at least 7 words?",
+     "decision_rule": "True iff no line has 6 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,5}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "has_storm",
+     "question": "Does the poem contain the word 'storm'?",
+     "decision_rule": "True iff /storm/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "storm",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_lantern",
+     "question": "Does the poem contain the word 'lantern'?",
+     "decision_rule": "True iff /lantern/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "lantern",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_two_threads",
+     "question": "Do the odd lines and the even lines each form their own continuous narrative (deck versus shelter) that also converse with each other, rather than ten disconnected lines?",
+     "decision_rule": "True iff each thread is coherent on its own and the interleaving reads as counterpoint.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.12",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write an 8-line poem (one block, no blank lines) about a swimmer crossing a river at dusk, with a BURIED acrostic: the first letters of the FOURTH word of each line, read top to bottom, must spell UNDERTOW — that is, the 4th word of line 1 begins with U, the 4th word of line 2 with N, of line 3 with D, of line 4 with E, of line 5 with R, of line 6 with T, of line 7 with O, and of line 8 with W (either case). Every line must contain exactly 7 words, where a word is any run of characters separated by spaces (hyphenated compounds count as one word; punctuation attached to the end of a word does not split it, and no word may begin with punctuation). The poem must contain the words 'undertow' and 'dusk'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_8",
+     "question": "Does the poem have exactly 8 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "seven_words_each",
+     "question": "Does every one of the 8 lines contain exactly 7 whitespace-separated words?",
+     "decision_rule": "True iff each line has exactly 7 space-separated tokens.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:[ \\t]*\\S+(?:[ \\t]+\\S+){6}[ \\t]*\\n){7}[ \\t]*\\S+(?:[ \\t]+\\S+){6}[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "buried_acrostic",
+     "question": "Do the fourth words of the 8 lines begin, top to bottom, with U,N,D,E,R,T,O,W?",
+     "decision_rule": "True iff each line has exactly 7 words and the 4th word's first character is the required letter (case-insensitive).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^[ \\t]*(?:\\S+[ \\t]+){3}u\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}n\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}d\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}e\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}r\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}t\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}o\\S*(?:[ \\t]+\\S+){3}[ \\t]*\\n[ \\t]*(?:\\S+[ \\t]+){3}w\\S*(?:[ \\t]+\\S+){3}[ \\t]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_undertow",
+     "question": "Does the poem contain the word 'undertow'?",
+     "decision_rule": "True iff /undertow/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "undertow",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_dusk",
+     "question": "Does the poem contain the word 'dusk'?",
+     "decision_rule": "True iff /dusk/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "dusk",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_crossing",
+     "question": "Does the poem narrate one continuous crossing — entry, mid-river struggle, far bank — in grammatical verse, with the mandated fourth words unobtrusive?",
+     "decision_rule": "True iff the poem is coherent, on-theme, and the buried letters do not distort the syntax.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.expert.13",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "expert",
+  "prompt": "Write an 8-line CHAIN poem (one block, no blank lines) about an old water mill working from dawn to dark, in which the lines are linked word to word. Chain rule: the LAST word of every line must reappear as the FIRST word of the next line — line 1's last word is line 2's first word, line 2's last word is line 3's first word, and so on through line 8. Closing the circle: the LAST word of line 8 must be the same word as the FIRST word of line 1. The repeated word must be exactly the same word each time (capitalization may differ, but 'stone' and 'stones' do NOT count as the same word). Every line's first word and last word must be plain alphabetic words with no hyphens, apostrophes, or digits; punctuation such as a comma or period directly after a word is allowed and is ignored when identifying a line's last word. Every line must contain at least 7 words, where a word is any run of characters separated by spaces. The poem must contain the words 'millstone' and 'grain'. Output only the poem: no title, no explanation, no markdown.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines_8",
+     "question": "Does the poem have exactly 8 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem a single block with no blank lines?",
+     "decision_rule": "True iff there is exactly 1 blank-line-separated block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "chain_links",
+     "question": "Does the last word of each of lines 1-7 reappear, as the same whole word, as the first word of the following line?",
+     "decision_rule": "For every consecutive line pair the trailing word of the upper line (ignoring trailing punctuation) equals the leading word of the lower line, case-insensitive, as a whole word — a prefix, suffix or inflected variant does not count.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^(?:[^\\n]*\\b(\\w+)[^\\w\\n]*\\n[ \\t]*(?=\\1\\b)){7}[^\\n]+$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "loop_closure",
+     "question": "Is the last word of line 8 (ignoring trailing punctuation) the same word as the first word of line 1?",
+     "decision_rule": "True iff the poem's final word equals its opening word, case-insensitive, as a whole word.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "^[ \\t]*([A-Za-z]+)\\b[\\s\\S]*\\b\\1[^\\w\\n]*$",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_7_words",
+     "question": "Does every line contain at least 7 words?",
+     "decision_rule": "True iff no line has 6 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,5}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "has_millstone",
+     "question": "Does the poem contain the word 'millstone'?",
+     "decision_rule": "True iff /millstone/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "millstone",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "has_grain",
+     "question": "Does the poem contain the word 'grain'?",
+     "decision_rule": "True iff /grain/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "grain",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "judge_chain_flow",
+     "question": "Do the chained words sit naturally at both ends of their lines, so the poem reads as one continuous turning movement of the mill rather than eight sentences bolted together at the joints?",
+     "decision_rule": "True iff each line is grammatical, the repeated words feel motivated, and the poem coheres from dawn to dark.",
+     "required": false
+    }
+   ]
+  }
+ }
+]

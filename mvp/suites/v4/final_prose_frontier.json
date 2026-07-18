@@ -1,0 +1,951 @@
+[
+ {
+  "id": "v4.prose.frontier.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write an acrostic LIPOGRAM poem about a harbor at night that satisfies ALL of these constraints simultaneously:\n- Exactly 10 lines, no blank lines.\n- The first letters of the 10 lines, top to bottom, must spell DARKHARBOR (line 1 starts with D, line 2 with A, line 3 with R, line 4 with K, line 5 with H, line 6 with A, line 7 with R, line 8 with B, line 9 with O, line 10 with R). Each line must begin directly with its required letter (no leading punctuation).\n- The letter 'e' (upper or lower case) must NOT appear anywhere in the poem. This is a strict lipogram.\n- Every line must contain between 6 and 9 words (inclusive; a word is any whitespace-separated token).\n- The word 'harbor' must appear at least once.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the poem have exactly 10 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 10.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 10
+     }
+    },
+    {
+     "id": "acrostic",
+     "question": "Do the 10 lines begin with D, A, R, K, H, A, R, B, O, R in that order?",
+     "decision_rule": "True iff line k begins with the k-th letter of DARKHARBOR.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[ \\t]*D[^\\n]*\\n[ \\t]*A[^\\n]*\\n[ \\t]*R[^\\n]*\\n[ \\t]*K[^\\n]*\\n[ \\t]*H[^\\n]*\\n[ \\t]*A[^\\n]*\\n[ \\t]*R[^\\n]*\\n[ \\t]*B[^\\n]*\\n[ \\t]*O[^\\n]*\\n[ \\t]*R[^\\n]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_e",
+     "question": "Is the letter 'e' (either case) completely absent?",
+     "decision_rule": "True iff /e/i never matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "e",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "min_words",
+     "question": "Does every line contain at least 6 words?",
+     "decision_rule": "True iff no line has 5 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,4}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "max_words",
+     "question": "Does every line contain at most 9 words?",
+     "decision_rule": "True iff no line has 10 or more whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){9,}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "harbor",
+     "question": "Does the poem contain the word 'harbor'?",
+     "decision_rule": "True iff /\\bharbor\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bharbor\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "scene",
+     "question": "Does the poem sustain one coherent night-harbor scene rather than disconnected filler lines?",
+     "decision_rule": "True iff the ten lines build a single continuous setting.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.02",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a single MELTING-SNOWBALL sentence about a night voyage, of exactly 17 words: word 1 has exactly 1 letter, word 2 exactly 2 letters, and so on, growing one letter per word up to word 9 with exactly 9 letters, then shrinking one letter per word down to word 17 with exactly 1 letter. The 17 letter-counts, in order, are: 1,2,3,4,5,6,7,8,9,8,7,6,5,4,3,2,1.\n- Word 9 (the peak word) must be exactly: moonlight\n- Words contain letters only (no hyphens, apostrophes, or digits). Commas and semicolons between words are allowed.\n- The sentence must end with a single period and be written on one line.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_line",
+     "question": "Is the response a single non-empty line?",
+     "decision_rule": "Count non-empty lines; true iff exactly 1.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "snowball_melt",
+     "question": "Do the 17 words have letter-lengths 1,2,3,4,5,6,7,8,9,8,7,6,5,4,3,2,1 with word 9 being 'moonlight', ending in a period?",
+     "decision_rule": "True iff the k-th alphabetic word has exactly the k-th required letter count and word 9 is 'moonlight'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[^A-Za-z]*[A-Za-z]{1}[^A-Za-z]+[A-Za-z]{2}[^A-Za-z]+[A-Za-z]{3}[^A-Za-z]+[A-Za-z]{4}[^A-Za-z]+[A-Za-z]{5}[^A-Za-z]+[A-Za-z]{6}[^A-Za-z]+[A-Za-z]{7}[^A-Za-z]+[A-Za-z]{8}[^A-Za-z]+moonlight[^A-Za-z]+[A-Za-z]{8}[^A-Za-z]+[A-Za-z]{7}[^A-Za-z]+[A-Za-z]{6}[^A-Za-z]+[A-Za-z]{5}[^A-Za-z]+[A-Za-z]{4}[^A-Za-z]+[A-Za-z]{3}[^A-Za-z]+[A-Za-z]{2}[^A-Za-z]+[A-Za-z]{1}\\.\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "moonlight",
+     "question": "Does the sentence contain the word 'moonlight'?",
+     "decision_rule": "True iff /\\bmoonlight\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bmoonlight\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "grammatical",
+     "question": "Is the sentence grammatically plausible English (allowing poetic word order)?",
+     "decision_rule": "True iff the sentence parses as a meaningful English statement, not a bare word list.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.03",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a single prose paragraph describing a harbor before dawn, under ALL of these constraints:\n- Neither the letter 'a' nor the letter 'e' (upper or lower case) may appear ANYWHERE in your text. This is a strict double lipogram: only the vowels i, o, u (and y) are available.\n- The paragraph must contain between 60 and 90 words (inclusive).\n- It must consist of exactly 6 sentences. End sentences only with '.', '!' or '?', and do not use periods anywhere else (no abbreviations, no digits).\n- It must include each of these words at least once: fog, moon, wind, hulls.\n- One paragraph only: no blank lines, no headings, no list items.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_para",
+     "question": "Is the response a single paragraph (no blank-line breaks)?",
+     "decision_rule": "Split on blank lines; true iff exactly 1 block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences",
+     "question": "Does the paragraph consist of exactly 6 sentences?",
+     "decision_rule": "Split on ./!/? terminators; true iff exactly 6 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 6
+     }
+    },
+    {
+     "id": "no_a_no_e",
+     "question": "Are the letters 'a' and 'e' (either case) completely absent?",
+     "decision_rule": "True iff /[ae]/i never matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[ae]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "no_digits",
+     "question": "Are digits absent?",
+     "decision_rule": "True iff no digit characters appear.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "min_words",
+     "question": "Does the paragraph contain at least 60 words?",
+     "decision_rule": "True iff there are 60 or more whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?:\\S+\\s+){59}\\S",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "max_words",
+     "question": "Does the paragraph contain at most 90 words?",
+     "decision_rule": "True iff there are 90 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?:\\S+\\s+){90}",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "required_words",
+     "question": "Does the text include all of: fog, moon, wind, hulls?",
+     "decision_rule": "True iff each word appears at least once as a whole word.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*\\bfog\\b)(?=[\\s\\S]*\\bmoon\\b)(?=[\\s\\S]*\\bwind\\b)(?=[\\s\\S]*\\bhulls\\b)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "vivid",
+     "question": "Is the paragraph coherent, grammatical prose that vividly evokes a harbor before dawn?",
+     "decision_rule": "True iff it reads as natural descriptive prose, not disconnected constraint-satisfying words.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.04",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a passage of EXACTLY 26 words about a fishing village at night, in which word 1 begins with A, word 2 with B, word 3 with C, and so on through word 26 beginning with Z: each successive word starts with the next letter of the alphabet, using all 26 letters in order.\n- The passage must consist of exactly 2 sentences: sentence 1 ends immediately after word 12 (the L-word), and sentence 2 is words 13 through 26.\n- Word 13 (the M-word, opening sentence 2) must be exactly: midnight\n- Words consist of letters only (no hyphens, apostrophes, or digits); punctuation marks between words are allowed.\n- Write the passage on a single line.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_line",
+     "question": "Is the response a single non-empty line?",
+     "decision_rule": "Count non-empty lines; true iff exactly 1.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences",
+     "question": "Does the passage consist of exactly 2 sentences?",
+     "decision_rule": "Split on ./!/? terminators; true iff exactly 2 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 2
+     }
+    },
+    {
+     "id": "abc_order",
+     "question": "Do the 26 words begin with A through Z in strict alphabetical order, with a sentence break after word 12 and word 13 being 'midnight'?",
+     "decision_rule": "True iff word k starts with the k-th letter of the alphabet for k = 1..26, a sentence terminator directly follows word 12, and word 13 is 'midnight'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[^A-Za-z]*A[A-Za-z]*[^A-Za-z]+B[A-Za-z]*[^A-Za-z]+C[A-Za-z]*[^A-Za-z]+D[A-Za-z]*[^A-Za-z]+E[A-Za-z]*[^A-Za-z]+F[A-Za-z]*[^A-Za-z]+G[A-Za-z]*[^A-Za-z]+H[A-Za-z]*[^A-Za-z]+I[A-Za-z]*[^A-Za-z]+J[A-Za-z]*[^A-Za-z]+K[A-Za-z]*[^A-Za-z]+L[A-Za-z]*[ \\t]*[.!?][^A-Za-z]*midnight[^A-Za-z]+N[A-Za-z]*[^A-Za-z]+O[A-Za-z]*[^A-Za-z]+P[A-Za-z]*[^A-Za-z]+Q[A-Za-z]*[^A-Za-z]+R[A-Za-z]*[^A-Za-z]+S[A-Za-z]*[^A-Za-z]+T[A-Za-z]*[^A-Za-z]+U[A-Za-z]*[^A-Za-z]+V[A-Za-z]*[^A-Za-z]+W[A-Za-z]*[^A-Za-z]+X[A-Za-z]*[^A-Za-z]+Y[A-Za-z]*[^A-Za-z]+Z[A-Za-z]*[^A-Za-z]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "midnight",
+     "question": "Does the passage contain the word 'midnight'?",
+     "decision_rule": "True iff /\\bmidnight\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bmidnight\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "sense",
+     "question": "Is the passage grammatical, coherent English about a fishing village (allowing slightly formal or poetic phrasing)?",
+     "decision_rule": "True iff both sentences parse as meaningful English, not an alphabetical word list.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.05",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a single sentence about a lighthouse keeper in a storm whose 15 words have EXACTLY these letter counts, in order: 3,1,4,1,5,9,2,6,5,3,5,8,9,7,9 (word 1 has 3 letters, word 2 has 1 letter, word 3 has 4 letters, and so on, through word 15 with 9 letters).\n- Word 6 (the first 9-letter word) must be exactly: nightfall\n- Words contain letters only (no hyphens, apostrophes, or digits). Commas and semicolons between words are allowed.\n- The sentence must end with a single period and be written on one line.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_line",
+     "question": "Is the response a single non-empty line?",
+     "decision_rule": "Count non-empty lines; true iff exactly 1.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "length_sequence",
+     "question": "Do the 15 words have letter counts 3,1,4,1,5,9,2,6,5,3,5,8,9,7,9 in order, with word 6 being 'nightfall', ending in a period?",
+     "decision_rule": "True iff the k-th alphabetic word has exactly the k-th required letter count and word 6 is 'nightfall'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[^A-Za-z]*[A-Za-z]{3}[^A-Za-z]+[A-Za-z]{1}[^A-Za-z]+[A-Za-z]{4}[^A-Za-z]+[A-Za-z]{1}[^A-Za-z]+[A-Za-z]{5}[^A-Za-z]+nightfall[^A-Za-z]+[A-Za-z]{2}[^A-Za-z]+[A-Za-z]{6}[^A-Za-z]+[A-Za-z]{5}[^A-Za-z]+[A-Za-z]{3}[^A-Za-z]+[A-Za-z]{5}[^A-Za-z]+[A-Za-z]{8}[^A-Za-z]+[A-Za-z]{9}[^A-Za-z]+[A-Za-z]{7}[^A-Za-z]+[A-Za-z]{9}\\.\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "nightfall",
+     "question": "Does the sentence contain the word 'nightfall'?",
+     "decision_rule": "True iff /\\bnightfall\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bnightfall\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "grammatical",
+     "question": "Is the sentence grammatically plausible English about a lighthouse keeper in a storm?",
+     "decision_rule": "True iff the sentence parses as a meaningful English statement, not a bare word list.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.06",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a poem about the tide consisting of exactly 4 three-line stanzas (12 lines total), with stanzas separated by single blank lines, obeying this ALTERNATING LIPOGRAM scheme:\n- Stanzas 1 and 3 must not contain the letter 'o' (upper or lower case) anywhere.\n- Stanzas 2 and 4 must not contain the letter 'a' (upper or lower case) anywhere.\n- Every line must contain between 6 and 9 words (inclusive; a word is any whitespace-separated token).\n- The word 'tide' must appear at least once and the word 'moon' must appear at least once (place each one only where its stanza's rule allows it).\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "stanzas",
+     "question": "Does the poem have exactly 4 blank-line-separated stanzas?",
+     "decision_rule": "Split on blank lines; true iff exactly 4 blocks.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "lines",
+     "question": "Does the poem have exactly 12 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 12.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 12
+     }
+    },
+    {
+     "id": "alternating_lipogram",
+     "question": "Do stanzas 1 and 3 avoid the letter 'o' entirely and stanzas 2 and 4 avoid the letter 'a' entirely, each stanza being exactly 3 lines?",
+     "decision_rule": "True iff the four 3-line stanzas obey the o/a/o/a exclusion scheme.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[ \\t]*[^o\\n]+\\n[^o\\n]+\\n[^o\\n]+\\n[ \\t]*\\n+[^a\\n]+\\n[^a\\n]+\\n[^a\\n]+\\n[ \\t]*\\n+[^o\\n]+\\n[^o\\n]+\\n[^o\\n]+\\n[ \\t]*\\n+[^a\\n]+\\n[^a\\n]+\\n[^a\\n]+[ \\t]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "min_words",
+     "question": "Does every line contain at least 6 words?",
+     "decision_rule": "True iff no line has 5 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,4}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "max_words",
+     "question": "Does every line contain at most 9 words?",
+     "decision_rule": "True iff no line has 10 or more whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){9,}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "required_words",
+     "question": "Do 'tide' and 'moon' both appear as whole words?",
+     "decision_rule": "True iff both words occur.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*\\btide\\b)(?=[\\s\\S]*\\bmoon\\b)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "coherent",
+     "question": "Does the poem develop one continuous portrait of the tide across all four stanzas?",
+     "decision_rule": "True iff the stanzas connect into a single scene rather than unrelated filler.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.07",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write an 8-line poem about navigating by the stars in which the SECOND word of each line carries a hidden acrostic: reading the first letter of the SECOND word of each line, top to bottom, must spell LODESTAR.\n  Line 1: second word starts with L\n  Line 2: second word starts with O\n  Line 3: second word starts with D\n  Line 4: second word starts with E\n  Line 5: second word starts with S\n  Line 6: second word starts with T\n  Line 7: second word starts with A\n  Line 8: second word starts with R\n- Every line must contain EXACTLY 8 words (a word is any whitespace-separated token).\n- Lines 1 through 7 must each END with a comma (the comma is the last character of the line); line 8 must END with a period.\n- No digits anywhere.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the poem have exactly 8 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "second_word_acrostic",
+     "question": "Does the second word of each line start with L, O, D, E, S, T, A, R in order, with lines 1-7 ending in a comma and line 8 in a period?",
+     "decision_rule": "True iff each line's second whitespace-separated token starts with the required letter and terminal punctuation matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[ \\t]*\\S+[ \\t]+L[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+O[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+D[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+E[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+S[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+T[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+A[^\\n]*,[ \\t]*\\n[ \\t]*\\S+[ \\t]+R[^\\n]*\\.[ \\t]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "exact_min",
+     "question": "Does every line contain at least 8 words?",
+     "decision_rule": "True iff no line has 7 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,6}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "exact_max",
+     "question": "Does every line contain at most 8 words?",
+     "decision_rule": "True iff no line has 9 or more whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){8,}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "no_digits",
+     "question": "Are digits absent?",
+     "decision_rule": "True iff no digit characters appear.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "navigation",
+     "question": "Does the poem cohere as one scene of navigating by the stars?",
+     "decision_rule": "True iff the eight lines build a single continuous voyage scene.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.09",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Compose a WORD-LEVEL palindrome sentence of exactly 21 words: the sequence of words must read identically forwards and backwards (word 1 = word 21, word 2 = word 20, and so on; capitalization may differ), with word 11 as the pivot.\n- Word 11 (the center word) must be exactly 'turns'.\n- Word 6 must be exactly 'under' (and therefore word 16 must also be 'under').\n- The word 'silver' must appear somewhere in the sentence.\n- The letter 'c' (upper or lower case) must NOT appear anywhere.\n- No word may be immediately repeated (word k must differ from word k+1).\n- Words consist of letters only: no hyphens, apostrophes, or digits. Punctuation between words and a final period are allowed.\n- Output the sentence on a single line.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_line",
+     "question": "Is the response a single non-empty line?",
+     "decision_rule": "Count non-empty lines; true iff exactly 1.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "palindrome",
+     "question": "Is the 21-word sequence a palindrome with 'turns' as word 11 and 'under' as words 6 and 16?",
+     "decision_rule": "True iff word k equals word 22-k (case-insensitive) for all k, word 11 is 'turns', and word 6 is 'under'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[^A-Za-z]*([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+(under)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+([A-Za-z]+)[^A-Za-z]+turns[^A-Za-z]+\\10[^A-Za-z]+\\9[^A-Za-z]+\\8[^A-Za-z]+\\7[^A-Za-z]+\\6[^A-Za-z]+\\5[^A-Za-z]+\\4[^A-Za-z]+\\3[^A-Za-z]+\\2[^A-Za-z]+\\1[^A-Za-z]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "silver",
+     "question": "Does the word 'silver' appear?",
+     "decision_rule": "True iff /\\bsilver\\b/i matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\bsilver\\b",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_c",
+     "question": "Is the letter 'c' (either case) completely absent?",
+     "decision_rule": "True iff /c/i never matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "c",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "no_adjacent_repeat",
+     "question": "Is no word immediately followed by the same word?",
+     "decision_rule": "True iff no two consecutive words are identical.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\b([A-Za-z]+)[^A-Za-z]+\\1\\b",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "grammatical",
+     "question": "Is the palindrome sentence grammatically plausible English (allowing poetic word order)?",
+     "decision_rule": "True iff the sentence parses as a meaningful English utterance, not an arbitrary word list.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.12",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a passage about a fishing fleet riding out a gale in which the words strictly ALTERNATE initial letters: every odd-numbered word (1st, 3rd, 5th, ...) begins with 'f' and every even-numbered word (2nd, 4th, 6th, ...) begins with 's' (either case).\n- EXACTLY 24 words (a word is any whitespace-separated token), so the pattern is f,s repeated 12 times.\n- Exactly 3 sentences. End sentences only with '.', '!' or '?'.\n- Must include the words 'fog' and 'salt'.\n- No digits and no hyphenated words.\n- One paragraph only: no blank lines.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "one_para",
+     "question": "Is the response a single paragraph (no blank-line breaks)?",
+     "decision_rule": "Split on blank lines; true iff exactly 1 block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "sentences",
+     "question": "Does the passage consist of exactly 3 sentences?",
+     "decision_rule": "Split on ./!/? terminators; true iff exactly 3 sentences.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "sentence",
+      "op": "==",
+      "n": 3
+     }
+    },
+    {
+     "id": "alternation",
+     "question": "Do the 24 words strictly alternate f-initial (odd positions) and s-initial (even positions)?",
+     "decision_rule": "True iff word k starts with 'f' for odd k and 's' for even k, for exactly 24 words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[^A-Za-z]*(?:F[A-Za-z]*[^A-Za-z]+S[A-Za-z]*[^A-Za-z]+){11}F[A-Za-z]*[^A-Za-z]+S[A-Za-z]*[^A-Za-z]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "required_words",
+     "question": "Do 'fog' and 'salt' both appear as whole words?",
+     "decision_rule": "True iff both words occur.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*\\bfog\\b)(?=[\\s\\S]*\\bsalt\\b)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_digits_hyphens",
+     "question": "Are digits and intra-word hyphens absent?",
+     "decision_rule": "True iff no digit appears and no letter-hyphen-letter sequence appears.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]|[A-Za-z]-[A-Za-z]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "sense",
+     "question": "Is the passage coherent, grammatical English about a fleet in a gale despite the alternation constraint?",
+     "decision_rule": "True iff the three sentences parse as English and describe the scene.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.13",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a univocalic ACROSTIC poem about a frozen midnight, using 'i' as the ONLY vowel, satisfying ALL of these constraints simultaneously:\n- The letters 'a', 'e', 'o', 'u' (upper or lower case) must NOT appear anywhere. Only the vowel 'i' is allowed ('y' is permitted).\n- Exactly 8 lines, no blank lines.\n- The first letters of the 8 lines, top to bottom, must spell MIDNIGHT (line 1 starts with M, line 2 with I, line 3 with D, line 4 with N, line 5 with I, line 6 with G, line 7 with H, line 8 with T). Each line must begin directly with its required letter (no leading punctuation).\n- The lines must have EXACTLY these word counts, in order: line 1: 5 words, line 2: 6, line 3: 7, line 4: 8, line 5: 8, line 6: 7, line 7: 6, line 8: 5. A word is any whitespace-separated token; attached punctuation counts as part of the word.\n- The words 'midnight', 'winds', and 'mist' must each appear at least once.\n- No digits.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the poem have exactly 8 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 8.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 8
+     }
+    },
+    {
+     "id": "only_i",
+     "question": "Are the letters a, e, o, u (either case) completely absent?",
+     "decision_rule": "True iff /[aeou]/i never matches.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[aeou]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "acrostic_counts",
+     "question": "Do the 8 lines begin with M, I, D, N, I, G, H, T in order AND have exactly 5, 6, 7, 8, 8, 7, 6, 5 words respectively, with no blank lines?",
+     "decision_rule": "True iff line k starts with the k-th letter of MIDNIGHT and contains exactly the k-th required number of whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[ \\t]*M\\S*(?:[ \\t]+\\S+){4}[ \\t]*\\n[ \\t]*I\\S*(?:[ \\t]+\\S+){5}[ \\t]*\\n[ \\t]*D\\S*(?:[ \\t]+\\S+){6}[ \\t]*\\n[ \\t]*N\\S*(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*I\\S*(?:[ \\t]+\\S+){7}[ \\t]*\\n[ \\t]*G\\S*(?:[ \\t]+\\S+){6}[ \\t]*\\n[ \\t]*H\\S*(?:[ \\t]+\\S+){5}[ \\t]*\\n[ \\t]*T\\S*(?:[ \\t]+\\S+){4}[ \\t]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "required_words",
+     "question": "Does the text include all of: midnight, winds, mist?",
+     "decision_rule": "True iff each word appears at least once as a whole word.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*\\bmidnight\\b)(?=[\\s\\S]*\\bwinds\\b)(?=[\\s\\S]*\\bmist\\b)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_digits",
+     "question": "Are digits absent?",
+     "decision_rule": "True iff no digit characters appear.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "coherent",
+     "question": "Is the poem grammatical and coherent as a portrait of a frozen midnight, rather than a list of disconnected i-vowel words?",
+     "decision_rule": "True iff the eight lines parse as English and build one continuous winter-night scene.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.15",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a 6-line poem about a harbor going dark at dusk in which EVERY line is a PERFECT ISOGRAM: within any single line, no letter of the alphabet may appear more than once, counting upper and lower case as the same letter (if a line contains 'T', no other 't' or 'T' may appear anywhere in that line). Letters may repeat freely across DIFFERENT lines.\n- Exactly 6 lines, no blank lines.\n- Every line must contain between 4 and 6 words (inclusive; a word is any whitespace-separated token).\n- Every line must end with a period (the period is the last character of the line).\n- The words 'wind', 'dusk', and 'fog' must each appear at least once somewhere in the poem.\n- No digits.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the poem have exactly 6 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 6.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 6
+     }
+    },
+    {
+     "id": "one_block",
+     "question": "Is the poem one unbroken block (no blank lines)?",
+     "decision_rule": "Split on blank lines; true iff exactly 1 block.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 1
+     }
+    },
+    {
+     "id": "isogram_lines",
+     "question": "Is every line a perfect isogram, with no letter occurring twice within the same line (case-insensitive)?",
+     "decision_rule": "True iff no line contains any letter twice, comparing case-insensitively.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "([A-Za-z])[^\\n]*\\1",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "line_periods",
+     "question": "Does every line end with a period as its last character?",
+     "decision_rule": "True iff no line's final non-whitespace character is anything other than '.'.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[^\\n]*[^.\\s][ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "min_words",
+     "question": "Does every line contain at least 4 words?",
+     "decision_rule": "True iff no line has 3 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,2}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "max_words",
+     "question": "Does every line contain at most 6 words?",
+     "decision_rule": "True iff no line has 7 or more whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){6,}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "required_words",
+     "question": "Does the text include all of: wind, dusk, fog?",
+     "decision_rule": "True iff each word appears at least once as a whole word.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*\\bwind\\b)(?=[\\s\\S]*\\bdusk\\b)(?=[\\s\\S]*\\bfog\\b)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_digits",
+     "question": "Are digits absent?",
+     "decision_rule": "True iff no digit characters appear.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "scene",
+     "question": "Do the six lines cohere as one harbor-at-dusk scene in grammatical English, rather than disconnected letter-juggling?",
+     "decision_rule": "True iff the lines parse as English and together evoke the darkening harbor.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v4.prose.frontier.16",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "frontier",
+  "prompt": "Write a PANTOUM about a night ferry crossing: a poem of exactly 4 four-line stanzas (16 lines) in which whole lines RECUR according to the classic interlocking scheme. Number the lines of stanza k as k.1, k.2, k.3, k.4. Required repetition scheme (a repeated line must repeat LETTER-FOR-LETTER; only its capitalization and the punctuation after its last word may differ):\n  Line 2.1 = line 1.2 and line 2.3 = line 1.4\n  Line 3.1 = line 2.2 and line 3.3 = line 2.4\n  Line 4.1 = line 3.2 and line 4.3 = line 3.4\n  Line 4.2 = line 1.3 and line 4.4 = line 1.1 (the poem closes on its opening line)\n- The poem therefore contains exactly 8 distinct lines, each appearing EXACTLY TWICE. The 8 distinct lines must genuinely differ from one another: no line text may appear three or more times anywhere in the poem.\n- Exactly 4 stanzas of 4 lines each, stanzas separated by single blank lines; no other blank lines.\n- Every line must contain between 6 and 9 words (inclusive; a word is any whitespace-separated token).\n- Every line must begin and end with a letter apart from optional punctuation after its last word (no leading punctuation or quote marks).\n- The words 'ferry' and 'tide' must each appear at least once.\n- No digits.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the poem have exactly 16 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 16.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 16
+     }
+    },
+    {
+     "id": "stanzas",
+     "question": "Does the poem have exactly 4 blank-line-separated stanzas?",
+     "decision_rule": "Split on blank lines; true iff exactly 4 blocks.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "stanza",
+      "op": "==",
+      "n": 4
+     }
+    },
+    {
+     "id": "pantoum_schedule",
+     "question": "Do the 16 lines follow the pantoum repetition scheme letter-for-letter (2.1=1.2, 2.3=1.4, 3.1=2.2, 3.3=2.4, 4.1=3.2, 4.3=3.4, 4.2=1.3, 4.4=1.1), ignoring only capitalization and end-of-line punctuation?",
+     "decision_rule": "True iff each scheduled position repeats the earlier line's text exactly (case-insensitive), with only trailing punctuation free to differ.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*\\n[ \\t]*\\2[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*\\4[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*\\n[ \\t]*\\5[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*\\6[^A-Za-z\\n]*\\n[ \\t]*([A-Za-z][^\\n]*[A-Za-z])[^A-Za-z\\n]*\\n[ \\t]*\\n[ \\t]*\\7[^A-Za-z\\n]*\\n[ \\t]*\\3[^A-Za-z\\n]*\\n[ \\t]*\\8[^A-Za-z\\n]*\\n[ \\t]*\\1[^A-Za-z\\n]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_line_thrice",
+     "question": "Is every distinct line used at most twice (no line text occurs three or more times)?",
+     "decision_rule": "True iff no line body appears three times anywhere in the poem (case-insensitive, ignoring end-of-line punctuation).",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*([^\\n]*[A-Za-z])[^A-Za-z\\n]*$[\\s\\S]*?^[ \\t]*\\1[^A-Za-z\\n]*$[\\s\\S]*?^[ \\t]*\\1[^A-Za-z\\n]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "min_words",
+     "question": "Does every line contain at least 6 words?",
+     "decision_rule": "True iff no line has 5 or fewer whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){0,4}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "max_words",
+     "question": "Does every line contain at most 9 words?",
+     "decision_rule": "True iff no line has 10 or more whitespace-separated words.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "(?m)^[ \\t]*(?:\\S+[ \\t]+){9,}\\S+[ \\t]*$",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "required_words",
+     "question": "Do 'ferry' and 'tide' both appear as whole words?",
+     "decision_rule": "True iff both words occur at least once.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*\\bferry\\b)(?=[\\s\\S]*\\btide\\b)",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "no_digits",
+     "question": "Are digits absent?",
+     "decision_rule": "True iff no digit characters appear.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "[0-9]",
+      "mode": "must_not_match"
+     }
+    },
+    {
+     "id": "double_duty",
+     "question": "Does each repeated line read naturally in BOTH of its contexts, and do the four stanzas cohere as one continuous night-crossing scene?",
+     "decision_rule": "True iff the recurring lines are grammatical in both surrounding stanzas and the poem builds a single voyage rather than disconnected filler.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ }
+]

@@ -2880,6 +2880,92 @@ select:focus {
 .sib-plate:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 .sib-meta { font-family: var(--sans); font-size: 10px; color: var(--faint); }
 
+/* ---- EXPLORE THE DATA: expandable board explorer (heatmap + decay line) ---- */
+.explorer-wrap { margin: 16px 0 4px; }
+.explorer-wrap > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: baseline; gap: 9px;
+  padding: 9px 16px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.explorer-wrap > summary::-webkit-details-marker { display: none; }
+.explorer-wrap > summary:hover { color: var(--text); border-color: var(--border-strong); }
+.explorer-wrap[open] > summary { color: var(--accent); border-color: var(--accent); }
+.exp-mark { color: var(--accent); }
+.exp-sub {
+  font-family: var(--sans); font-size: 10.5px; font-weight: 400; letter-spacing: .02em;
+  text-transform: none; color: var(--faint);
+}
+.exp-body { padding: 14px 2px 4px; }
+
+/* filter chips row (reuses the site-wide .chip grammar; cyan = interactive only) */
+.exp-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.exp-filters .flabel { margin-right: 4px; }
+.exp-metric { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.exp-dot { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; }
+.exp-scale { font-family: var(--sans); font-size: 11px; color: var(--faint); margin: 2px 0 10px; }
+
+/* small-multiple heat plates: side by side when 2-3 models are selected */
+.exp-heats { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+.exp-plate { flex: 1 1 320px; min-width: 0; }
+.exp-plate-h { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; min-width: 0; }
+.exp-plate-name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exp-plate-score { font-size: 10px; color: var(--faint); letter-spacing: .08em; }
+.exp-plate-fact {                            /* served ctx + rig: quiet plate facts */
+  font-size: 10px; color: var(--faint); letter-spacing: .04em; white-space: nowrap;
+  padding-left: 7px; border-left: 1px solid var(--line);
+}
+
+/* hardware / trust facet groups ride the difficulty row, separated by a hairline */
+.exp-fgroup {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--line);
+}
+.exp-none { font-family: var(--sans); font-size: 11px; color: var(--faint); }
+
+/* the heatmap itself: a LUMINANCE-ordered single-hue ramp (dark → bright cyan = higher).
+   Verdict green/amber/red are reserved for verdicts — magnitude is brightness here. */
+.exp-heat { border-collapse: collapse; font-family: ui-monospace, monospace; width: 100%; }
+.exp-heat th { padding: 3px 6px; }
+.exp-heat .exp-dh { text-align: center; }
+.exp-heat .exp-cat { text-align: right; padding-right: 9px; white-space: nowrap; }
+.exp-heat .exp-dh, .exp-heat .exp-cat {
+  text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
+  font-size: 9.5px; color: var(--faint);
+}
+.exp-heat td {
+  min-width: 44px; padding: 6px 4px; text-align: center; border: 1px solid var(--bg);
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.exp-heat td.xb0 { background: color-mix(in srgb, var(--accent) 5%, var(--well)); color: var(--muted); }
+.exp-heat td.xb1 { background: color-mix(in srgb, var(--accent) 15%, var(--well)); }
+.exp-heat td.xb2 { background: color-mix(in srgb, var(--accent) 28%, var(--well)); }
+.exp-heat td.xb3 { background: color-mix(in srgb, var(--accent) 46%, var(--well)); }
+.exp-heat td.xb4 { background: color-mix(in srgb, var(--accent) 78%, var(--well)); color: var(--accent-ink); }
+.exp-heat td.exp-na {                        /* never scored: an honest gap, not a zero */
+  background: none; border: 1px dashed var(--line); color: var(--faint); font-weight: 400;
+}
+
+/* difficulty-decay line: gridless, three faint reference lines, identity-hue series */
+.exp-sec { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 16px 0 4px; }
+.exp-sec-t {
+  text-transform: uppercase; letter-spacing: .12em; font-weight: 700;
+  font-size: 10px; color: var(--faint);
+}
+.exp-sec-n { font-family: var(--sans); font-size: 11px; color: var(--faint); }
+.exp-decay { display: block; width: 100%; max-width: 720px; height: auto; }
+.exp-decay .exp-ref { stroke: #17223f; stroke-width: 1; }
+.exp-decay .exp-axis { fill: #55607f; font-family: ui-monospace, monospace; font-size: 10px; }
+.exp-decay .exp-series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+
+@media (max-width: 860px) {
+  .exp-plate { flex-basis: 100%; }
+  .exp-metric { margin-left: 0; }
+  .exp-fgroup { margin-left: 0; padding-left: 0; border-left: none; }
+}
+
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

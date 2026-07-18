@@ -1,0 +1,82 @@
+[
+ {
+  "id": "v3.instruction.hard.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a poem about a lighthouse keeper named Orvath. Hard constraints: (1) exactly 5 lines, no blank lines; (2) every line contains exactly 7 words, separated by single spaces, with no leading or trailing spaces (punctuation attached to a word counts as part of that word); (3) every line ends with a period; (4) the word 'lantern' appears at least once; (5) the word 'sea' does not appear anywhere, in any casing. Output ONLY the poem - no title, no commentary.",
+  "eval": {
+   "checkers": [
+    {"type": "structural_count", "unit": "line", "n": 5, "op": "=="},
+    {"type": "regex_constraint", "pattern": "(?m)^(?!\\S+(?: \\S+){6}$).+$", "mode": "must_not_match"},
+    {"type": "regex_constraint", "pattern": "(?m)^.*[^.]$", "mode": "must_not_match"},
+    {"type": "regex_constraint", "pattern": "\\blantern\\b", "mode": "must_match"},
+    {"type": "regex_constraint", "pattern": "\\bsea\\b", "mode": "must_not_match"}
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.hard.02",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Describe a midnight robbery of a bank vault in exactly 3 sentences. Hard constraints: (1) exactly 3 sentences, each ending with a period; (2) the letter 'e' (uppercase or lowercase) must not appear anywhere in your reply - a full lipogram; (3) the word 'vault' must appear; (4) the word 'moon' must appear. Output ONLY the 3-sentence description - no preamble, no commentary.",
+  "eval": {
+   "checkers": [
+    {"type": "structural_count", "unit": "sentence", "n": 3, "op": "=="},
+    {"type": "regex_constraint", "pattern": "e", "mode": "must_not_match"},
+    {"type": "regex_constraint", "pattern": "\\bvault\\b", "mode": "must_match"},
+    {"type": "regex_constraint", "pattern": "\\bmoon\\b", "mode": "must_match"}
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.hard.03",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write exactly 4 lines of verse about walking through a city at night. Hard constraints: (1) exactly 4 lines, no blank lines; (2) every line begins with the word 'Under' - capital U, the rest lowercase, followed by a single space; (3) the third word of every line is exactly 'silver' (all lowercase, no punctuation attached); (4) every line contains at least 6 space-separated words; (5) no commas anywhere. Output ONLY the 4 lines - no title, no commentary.",
+  "eval": {
+   "checkers": [
+    {"type": "structural_count", "unit": "line", "n": 4, "op": "=="},
+    {"type": "regex_constraint", "pattern": "(?m)^(?!Under ).*\\S", "mode": "must_not_match", "ignore_case": false},
+    {"type": "regex_constraint", "pattern": "(?m)^Under \\S+ (?!silver )", "mode": "must_not_match", "ignore_case": false},
+    {"type": "regex_constraint", "pattern": "(?m)^\\S+(?: \\S+){0,4}$", "mode": "must_not_match"},
+    {"type": "regex_constraint", "pattern": ",", "mode": "must_not_match"}
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.hard.04",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Consider these five words: plinth, caravel, mist, obsidian, fern. Step 1: sort them by word length in DESCENDING order; break any length ties alphabetically (ascending A-Z). Step 2: convert every word to uppercase. Step 3: join the words with single hyphens, no spaces. Reply with ONLY the resulting string - no quotes, no explanation, no punctuation other than the hyphens.",
+  "eval": {
+   "checkers": [
+    {"type": "exact_match", "value": "OBSIDIAN-CARAVEL-PLINTH-FERN-MIST", "ignore_case": false}
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.hard.05",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a poem about a harbor at dusk, structured as exactly 3 stanzas separated by single blank lines, where each stanza has exactly 2 lines (6 lines total). Hard constraints: (1) the final word of every line ends with the letters 'ight' (examples: night, light, flight, sight) and has NO punctuation or spaces after it - each line ends with the bare word; (2) the word 'moon' appears exactly once in the whole poem (any casing); (3) no blank lines inside a stanza. Output ONLY the poem - no title, no commentary.",
+  "eval": {
+   "checkers": [
+    {"type": "structural_count", "unit": "stanza", "n": 3, "op": "=="},
+    {"type": "structural_count", "unit": "line", "n": 6, "op": "=="},
+    {"type": "regex_constraint", "pattern": "(?m)^(?=.*\\S)(?!.*ight$).*$", "mode": "must_not_match"},
+    {"type": "regex_constraint", "pattern": "\\bmoon\\b", "mode": "must_match"},
+    {"type": "regex_constraint", "pattern": "(?s)\\bmoon\\b.*\\bmoon\\b", "mode": "must_not_match"}
+   ],
+   "combine": "all"
+  }
+ }
+]

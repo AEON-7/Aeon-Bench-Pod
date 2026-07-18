@@ -1,0 +1,138 @@
+[
+ {
+  "id": "v4.coding.expert.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef solve_2sat(n: int, clauses: list[tuple[int, int]]) -> list[int] | None\n\nYou get a 2-SAT instance over n boolean variables numbered 1..n. Each clause is a pair of nonzero integer literals (u, v) meaning (u OR v): literal k > 0 stands for 'variable k is true', literal -k for 'variable k is false'; both literals may reference the same variable, e.g. (3, 3) forces variable 3 true. If the instance is satisfiable, return ANY satisfying assignment as a list of n ints, each 0 or 1, where element i-1 is the value of variable i - the grader re-verifies your assignment clause by clause, it does not compare against one fixed assignment. If the instance is unsatisfiable, return None.\n\nConstraints: 1 <= n <= 20000; 0 <= len(clauses) <= 60000. Use the implication graph (~u -> v and ~v -> u per clause) plus strongly connected components; a variable is unsatisfiable iff x and ~x share an SCC, and the assignment follows from the SCC topological order. Hidden tests are large enough that a RECURSIVE DFS blows Python's recursion stack - implement the SCC pass iteratively. Target O(n + m).\n\nExamples: solve_2sat(2, [(1, 2), (-1, 2)]) may return [1, 1] or [0, 1] (both satisfy); solve_2sat(1, [(1, 1), (-1, -1)]) == None. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _ok2(n, clauses, asg):\n    if asg is None or len(asg) != n or any(v not in (0, 1) for v in asg):\n        return False\n    return all((asg[abs(u) - 1] == (1 if u > 0 else 0)) or (asg[abs(v) - 1] == (1 if v > 0 else 0)) for u, v in clauses)\ndef _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_c1 = [(1, 2), (-1, 2), (-2, 3), (-3, -1)]\nassert _ok2(3, _c1, solve_2sat(3, _c1))\nassert solve_2sat(1, []) is not None and _ok2(1, [], solve_2sat(1, []))\nassert solve_2sat(3, [(1, 1), (-1, 2), (-2, -2)]) is None\nassert solve_2sat(2, [(1, 2), (1, -2), (-1, 2), (-1, -2)]) is None\n_c2 = [(1, 1), (-1, 2), (-2, 3), (-3, 4)]\nassert solve_2sat(4, _c2) == [1, 1, 1, 1]\n_g = _rnd(987654321)\n_n = 20000\n_plant = [next(_g) & 1 for _ in range(_n)]\n_cl = []\nfor _ in range(60000):\n    _u = 1 + next(_g) % _n\n    _v = 1 + next(_g) % _n\n    _su = 1 if (next(_g) & 1) else -1\n    if (_plant[_u - 1] == 1) == (_su == 1):\n        _sv = 1 if (next(_g) & 1) else -1\n    else:\n        _sv = 1 if _plant[_v - 1] == 1 else -1\n    _cl.append((_su * _u, _sv * _v))\nassert _ok2(_n, _cl, solve_2sat(_n, _cl))\n_g = _rnd(13571113)\n_cu = []\nfor _ in range(3200):\n    _u = (1 + next(_g) % 800) * (1 if next(_g) & 1 else -1)\n    _v = (1 + next(_g) % 800) * (1 if next(_g) & 1 else -1)\n    _cu.append((_u, _v))\nassert solve_2sat(800, _cu) is None",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.02",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef max_flow_node_caps(n: int, cap: list[int], edges: list[tuple[int, int, int]], s: int, t: int) -> int\n\nDirected flow network with nodes 0..n-1. Each entry (u, v, c) of edges is a directed edge of integer capacity c >= 0; parallel edges are distinct (their capacities add up) and self-loops may appear (they can never carry useful flow). IN ADDITION every node w has a capacity cap[w] >= 0 limiting the total flow that may pass THROUGH w - except the source s and the sink t, whose cap entries must be IGNORED (treat them as unlimited). Return the value of a maximum s->t flow. s != t is guaranteed. The classic reduction is node splitting: replace w by w_in -> w_out with capacity cap[w], route incoming edges into w_in and outgoing edges out of w_out, then run a proper max-flow algorithm (e.g. Dinic's) on the doubled graph.\n\nConstraints: 2 <= n <= 600; 0 <= len(edges) <= 3100; edge and node capacities up to 10**9, so the answer needs exact integer arithmetic and augmenting must use bottleneck values, never unit steps.\n\nExamples: max_flow_node_caps(4, [99, 5, 7, 99], [(0, 1, 100), (1, 3, 100), (0, 2, 100), (2, 3, 100)], 0, 3) == 12 (5 through node 1 plus 7 through node 2); max_flow_node_caps(2, [1, 1], [(0, 1, 5)], 0, 1) == 5 (s and t caps ignored). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert max_flow_node_caps(2, [1, 1], [(0, 1, 5)], 0, 1) == 5\nassert max_flow_node_caps(4, [99, 5, 7, 99], [(0, 1, 100), (1, 3, 100), (0, 2, 100), (2, 3, 100)], 0, 3) == 12\nassert max_flow_node_caps(3, [99, 5, 99], [(0, 1, 3), (0, 1, 4), (1, 2, 10)], 0, 2) == 5\nassert max_flow_node_caps(3, [99, 100, 99], [(0, 1, 3), (0, 1, 4), (1, 2, 10)], 0, 2) == 7\nassert max_flow_node_caps(5, [9, 9, 1, 9, 9], [(0, 1, 5), (1, 2, 5), (2, 3, 5), (3, 4, 5), (1, 3, 2)], 0, 4) == 3\nassert max_flow_node_caps(7, [999, 10, 10, 3, 10, 10, 999], [(0, 1, 8), (0, 2, 8), (1, 3, 8), (2, 3, 8), (3, 4, 8), (3, 5, 8), (4, 6, 8), (5, 6, 8), (1, 4, 2), (2, 5, 1)], 0, 6) == 6\nassert max_flow_node_caps(4, [5, 5, 5, 5], [(1, 0, 9), (3, 2, 9)], 0, 3) == 0\ndef _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(777001)\n_n = 600\n_cap = [1 + next(_g) % 1000 for _ in range(_n)]\n_es = []\nfor _ in range(3000):\n    _es.append((next(_g) % _n, next(_g) % _n, 1 + next(_g) % 1000))\nfor _i in range(1, 9):\n    _es.append((0, _i, 500 + next(_g) % 500))\n    _es.append((_n - 1 - _i, _n - 1, 500 + next(_g) % 500))\nassert max_flow_node_caps(_n, _cap, _es, 0, _n - 1) == 3322",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.03",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef total_occurrences(text: str, patterns: list[str]) -> int\n\nReturn the TOTAL number of pattern occurrences in text, i.e. the number of pairs (i, p) with p in patterns and text starting an exact copy of p at index i. Occurrences may overlap each other freely, and one position can start occurrences of several patterns - count them all. patterns are distinct non-empty lowercase strings; text is lowercase.\n\nConstraints: 0 <= len(text) <= 200000; 1 <= len(patterns) <= 1000; total pattern length <= 400000. WARNING: hidden tests push the total occurrence count above 1.5 * 10**8, so ANY approach that spends a Python-level step per occurrence (repeated str.find, regex finditer, per-position probing) cannot finish. Build an Aho-Corasick automaton and aggregate: count how many times each automaton node is visited while scanning text once, then add visits * (number of patterns ending on the node's suffix-link chain) - or equivalently use a suffix automaton of text where each pattern contributes its end-state's occurrence count in O(len(pattern)).\n\nExamples: total_occurrences(\"aaaa\", [\"a\", \"aa\", \"aaa\", \"aaaa\"]) == 10; total_occurrences(\"abababa\", [\"aba\", \"ba\", \"z\"]) == 6. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert total_occurrences(\"abababa\", [\"aba\", \"ba\", \"z\"]) == 6\nassert total_occurrences(\"aaaa\", [\"a\", \"aa\", \"aaa\", \"aaaa\"]) == 10\nassert total_occurrences(\"abb\", [\"ab\", \"b\"]) == 3\nassert total_occurrences(\"\", [\"a\"]) == 0\nassert total_occurrences(\"mississippi\", [\"iss\", \"ss\", \"i\", \"ppi\"]) == 9\n_t1 = \"a\" * 200000\n_p1 = [\"a\" * _k for _k in range(1, 801)]\nassert total_occurrences(_t1, _p1) == 159680400\ndef _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(90210)\n_t2 = \"\".join(\"ab\"[next(_g) & 1] for _ in range(200000))\n_p2 = []\n_seen = set()\nwhile len(_p2) < 300:\n    _L = 1 + next(_g) % 12\n    _w = \"\".join(\"ab\"[next(_g) & 1] for _ in range(_L))\n    if _w not in _seen:\n        _seen.add(_w)\n        _p2.append(_w)\nassert total_occurrences(_t2, _p2) == 1123049",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.04",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef dl_distance(a: str, b: str) -> int\n\nReturn the TRUE (unrestricted) Damerau-Levenshtein distance between a and b: the minimum number of edit operations transforming a into b, where one operation is inserting a character, deleting a character, substituting a character, or transposing two ADJACENT characters. Operations are applied sequentially to the evolving string, and - unlike the common 'optimal string alignment' (OSA) simplification - later operations MAY edit around and between previously transposed characters. Consequently dl_distance('ca', 'abc') == 2 ('ca' -> 'ac' -> 'abc'), where OSA would report 3: an OSA implementation (the well-known d[i-2][j-2] + 1 special case alone) WILL BE REJECTED by the hidden tests. Implement the full algorithm with the last-occurrence table (Lowrance-Wagner), which charges a transposition d[k-1][l-1] + (i-k-1) + 1 + (j-l-1) over the last position k where a matched b[j] and the last position l where b matched a[i].\n\nConstraints: 0 <= len(a), len(b) <= 700, lowercase letters only; O(len(a) * len(b)) time is required and sufficient.\n\nExamples: dl_distance('ab', 'ba') == 1; dl_distance('kitten', 'sitting') == 3; dl_distance('ca', 'abc') == 2. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert dl_distance(\"\", \"\") == 0\nassert dl_distance(\"abc\", \"\") == 3\nassert dl_distance(\"\", \"ab\") == 2\nassert dl_distance(\"abcdef\", \"abcdef\") == 0\nassert dl_distance(\"ab\", \"ba\") == 1\nassert dl_distance(\"ca\", \"abc\") == 2\nassert dl_distance(\"ab\", \"bca\") == 2\nassert dl_distance(\"ac\", \"cbba\") == 3\nassert dl_distance(\"cb\", \"baac\") == 3\nassert dl_distance(\"kitten\", \"sitting\") == 3\ndef _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(31415)\n_a = \"\".join(\"abcde\"[next(_g) % 5] for _ in range(700))\n_b = \"\".join(\"abcde\"[next(_g) % 5] for _ in range(700))\n_g = _rnd(2718281)\n_c = \"\".join(\"ab\"[next(_g) & 1] for _ in range(500))\n_d = \"\".join(\"ab\"[next(_g) & 1] for _ in range(500))\nassert dl_distance(_a, _b) == 413\nassert dl_distance(_c, _d) == 154",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.06",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef range_ops(n: int, ops: list[tuple]) -> int\n\nStart from an array a of n zeros and process ops in order. An op is either (\"add\", l, r, v): add the integer v (possibly negative) to every a[i] with l <= i <= r (0-based, INCLUSIVE bounds), or (\"min\", l, r): compute min(a[l..r]) (inclusive). Fold the query answers into a running checksum: starting from total = 0, after the k-th query (k = 1, 2, ... counting \"min\" ops only) set total = (total + k * answer) % (2**61 - 1) using Python's % (which keeps total non-negative even when the answer is negative). Return the final total (return 0 if there are no queries).\n\nConstraints: 1 <= n <= 150000; 1 <= len(ops) <= 150000; |v| <= 10**6; ranges are wide (average length ~n/3), so a per-op O(n) scan is ~10**10 element updates and hopeless. You need O(log n) per operation: a segment tree with lazy propagation supporting range-add and range-min.\n\nExample: range_ops(5, [(\"add\", 1, 3, 5), (\"min\", 0, 4), (\"min\", 1, 3), (\"add\", 2, 2, -7), (\"min\", 0, 4)]) == 4, because the query answers are 0, 5, -2 and (1*0 + 2*5 + 3*(-2)) % (2**61 - 1) == 4. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 15-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert range_ops(1, [(\"add\", 0, 0, 5), (\"min\", 0, 0)]) == 5\nassert range_ops(3, [(\"min\", 0, 2)]) == 0\nassert range_ops(5, [(\"add\", 1, 3, 5), (\"min\", 0, 4), (\"min\", 1, 3), (\"add\", 2, 2, -7), (\"min\", 0, 4)]) == 4\nassert range_ops(4, [(\"add\", 0, 3, -3), (\"min\", 1, 2)]) == (2 ** 61 - 1 - 3) % (2 ** 61 - 1)\ndef _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(60601)\n_n = 150000\n_ops = []\nfor _ in range(150000):\n    _l = next(_g) % _n\n    _r = next(_g) % _n\n    if _l > _r:\n        _l, _r = _r, _l\n    if next(_g) % 3 == 0:\n        _ops.append((\"min\", _l, _r))\n    else:\n        _ops.append((\"add\", _l, _r, next(_g) % 2000001 - 1000000))\nassert range_ops(_n, _ops) == 2194729703651191790",
+     "timeout": 15
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.07",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef min_adjacent_swaps(a: list[int], b: list[int]) -> int\n\nReturn the minimum number of swaps of ADJACENT elements needed to transform list a into list b, or -1 if it is impossible (the lists differ in length or are not permutations of the same multiset). Values are integers up to 10**9 and DUPLICATES are common - handle them optimally: pair the k-th occurrence (left to right) of each value in a with the k-th occurrence of the same value in b (crossing two equal values never helps), build the array target[i] = destination index of a[i], and the answer is the number of inversions of target, counted with a Fenwick tree (binary indexed tree) or a merge-sort inversion count.\n\nConstraints: 0 <= len(a), len(b) <= 200000. An O(n^2) bubble-sort simulation is hopeless at this size; O(n log n) is required.\n\nExamples: min_adjacent_swaps([2, 1], [1, 2]) == 1; min_adjacent_swaps([1, 1, 2], [2, 1, 1]) == 2; min_adjacent_swaps([3, 1, 3], [3, 3, 1]) == 1 (pairing the two 3s stably is what makes it 1, not 2); min_adjacent_swaps([1, 2], [1, 1]) == -1. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert min_adjacent_swaps([1, 2, 3], [1, 2, 3]) == 0\nassert min_adjacent_swaps([2, 1], [1, 2]) == 1\nassert min_adjacent_swaps([1, 1, 2], [2, 1, 1]) == 2\nassert min_adjacent_swaps([3, 1, 3], [3, 3, 1]) == 1\nassert min_adjacent_swaps([1, 2], [1, 1]) == -1\nassert min_adjacent_swaps([1], [1, 2]) == -1\nassert min_adjacent_swaps([], []) == 0\nassert min_adjacent_swaps([5, 4, 3, 2, 1], [1, 2, 3, 4, 5]) == 10\ndef _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(424243)\n_n = 200000\n_a = [next(_g) % 50 for _ in range(_n)]\n_b = list(_a)\nfor _i in range(_n - 1, 0, -1):\n    _j = next(_g) % (_i + 1)\n    _b[_i], _b[_j] = _b[_j], _b[_i]\n_c = sorted(_a[:100000])\nassert min_adjacent_swaps(_a, _b) == 183535294\nassert min_adjacent_swaps(_c, _c[::-1]) == 4899953298",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.08",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef run_vm(program: list[tuple], limit: int) -> list[int] | None\n\nImplement a small stack virtual machine. program is a list of instruction tuples; execution starts at pc = 0 with an empty stack of arbitrary-precision Python ints. Instructions:\n('PUSH', k) push the integer k; ('POP',) discard the top element; ('ADD',) / ('SUB',) / ('MUL',) pop y (the top), then pop x, then push x+y / x-y / x*y; ('DUP',) push a copy of the top element; ('OVER',) push a copy of the SECOND element from the top; ('SWAP',) exchange the two top elements; ('JMP', k) set pc = k; ('JZ', k) pop v (v is ALWAYS popped), then set pc = k if v == 0, otherwise fall through; ('HALT',) stop - the machine accepts and run_vm returns the whole stack as a list, bottom element first (an empty stack gives []). After every instruction except JMP, taken JZ and HALT, pc advances by 1.\n\nReturn None (an error) in exactly these situations: any instruction finds too few operands on the stack (POP/DUP need 1; ADD/SUB/MUL/OVER/SWAP need 2; JZ needs 1); the machine must fetch an instruction while pc is outside 0..len(program)-1 (covers jumps out of range, running past the last instruction without HALT, and the empty program); or gas runs out - executing ANY instruction (jumps and HALT included) costs exactly 1 step, and if HALT has not executed within the first `limit` steps the result is None (limit == 0 means nothing can execute).\n\nConstraints: 0 <= len(program) <= 50; 0 <= limit <= 10**6; hidden tests include million-step loops, EXACT gas boundaries (limit exactly sufficient, and exactly one step short), and every error mode - follow the spec to the letter.\n\nExamples: run_vm([('PUSH', 7), ('PUSH', 3), ('SUB',), ('HALT',)], 10) == [4]; run_vm([('PUSH', 5), ('PUSH', 3), ('JZ', 0), ('HALT',)], 10) == [5] (JZ pops the 3 even though it does not jump); run_vm([('HALT',)], 0) == None but run_vm([('HALT',)], 1) == []. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "_SUM = [(\"PUSH\", 0), (\"PUSH\", 1000), (\"DUP\",), (\"JZ\", 11), (\"SWAP\",), (\"OVER\",), (\"ADD\",), (\"SWAP\",), (\"PUSH\", 1), (\"SUB\",), (\"JMP\", 2), (\"POP\",), (\"HALT\",)]\nassert run_vm(_SUM, 9006) == [500500]\nassert run_vm(_SUM, 9005) is None\n_FACT = [(\"PUSH\", 1), (\"PUSH\", 20), (\"DUP\",), (\"JZ\", 11), (\"SWAP\",), (\"OVER\",), (\"MUL\",), (\"SWAP\",), (\"PUSH\", 1), (\"SUB\",), (\"JMP\", 2), (\"POP\",), (\"HALT\",)]\nassert run_vm(_FACT, 10 ** 6) == [2432902008176640000]\n_BIG = [(\"PUSH\", 0), (\"PUSH\", 100000), (\"DUP\",), (\"JZ\", 11), (\"SWAP\",), (\"OVER\",), (\"ADD\",), (\"SWAP\",), (\"PUSH\", 1), (\"SUB\",), (\"JMP\", 2), (\"POP\",), (\"HALT\",)]\nassert run_vm(_BIG, 10 ** 6) == [5000050000]\nassert run_vm([(\"PUSH\", 7), (\"PUSH\", 3), (\"SUB\",), (\"HALT\",)], 10) == [4]\nassert run_vm([(\"PUSH\", 2), (\"PUSH\", 10), (\"PUSH\", 4), (\"SUB\",), (\"MUL\",), (\"HALT\",)], 10) == [12]\nassert run_vm([(\"PUSH\", 5), (\"PUSH\", 3), (\"JZ\", 0), (\"HALT\",)], 10) == [5]\nassert run_vm([(\"PUSH\", 8), (\"PUSH\", 2), (\"OVER\",), (\"SUB\",), (\"HALT\",)], 10) == [8, -6]\nassert run_vm([(\"POP\",)], 10) is None\nassert run_vm([(\"PUSH\", 1)], 10) is None\nassert run_vm([(\"JMP\", 2), (\"HALT\",)], 10) is None\nassert run_vm([(\"PUSH\", 0), (\"JZ\", -1), (\"HALT\",)], 10) is None\nassert run_vm([], 5) is None\nassert run_vm([(\"HALT\",)], 0) is None\nassert run_vm([(\"HALT\",)], 1) == []\nassert run_vm([(\"PUSH\", 1), (\"SWAP\",), (\"HALT\",)], 10) is None\nassert run_vm([(\"JMP\", 0)], 100000) is None",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.expert.09",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a Python function with the exact signature:\n\ndef gap_multiples(L: int, R: int, m: int) -> tuple[int, int]\n\nCall a positive integer a gap number if, written in ordinary decimal without leading zeros, every pair of ADJACENT digits differs by at least 2 in absolute value; every single-digit number 1-9 qualifies vacuously. So 13, 20, 97531 and 864208642086420864 are gap numbers, while 10, 21, 335 and 100 are not (100 ends in the adjacent pair 0, 0). Consider all gap numbers x with L <= x <= R that are also divisible by m, and return the tuple (c, s): c is their EXACT count as a plain Python int (never reduced), and s is their sum modulo 998244353 (so 0 <= s < 998244353). Return (0, 0) if nothing qualifies.\n\nConstraints: 1 <= L <= R <= 10**18; 1 <= m <= 100. Hidden tests include ranges spanning the full domain, e.g. L = 1 with R = 10**18, where the correct count alone exceeds 4 * 10**15. At that scale every per-candidate strategy is dead on arrival: stepping through the range is ~10**18 iterations, stepping through only the multiples of m is >= 10**16 iterations, and generating only the gap numbers is >= 4 * 10**15 candidates. Both endpoints are inclusive, and off-by-one at the lower boundary is tested.\n\nExamples: gap_multiples(1, 50, 7) == (6, 175) - qualifying are 7, 14, 28, 35, 42, 49, while 21 fails because |2 - 1| = 1; gap_multiples(10, 20, 1) == (8, 132) - 13 through 20 qualify, 10, 11, 12 do not; gap_multiples(21, 21, 7) == (0, 0). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 10-second limit, so an approach that cannot handle the full-domain ranges in time scores zero. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert gap_multiples(1, 50, 7) == (6, 175)\nassert gap_multiples(10, 20, 1) == (8, 132)\nassert gap_multiples(1, 9, 3) == (3, 18)\nassert gap_multiples(21, 21, 7) == (0, 0)\nassert gap_multiples(864208642086420864, 864208642086420864, 2) == (1, 826820949)\nassert gap_multiples(1, 300000, 37) == (1857, 266342650)\nassert gap_multiples(4021, 285714, 3) == (20306, 812452742)\nassert gap_multiples(123456789, 987654321, 41) == (1598996, 317687416)\nassert gap_multiples(10**12, 10**13, 83) == (2145899001, 271385946)\nassert gap_multiples(1, 10**18, 97) == (41812891925401, 605291877)\nassert gap_multiples(1, 10**18, 99) == (40967502588925, 173142684)\nassert gap_multiples(1, 10**18, 100) == (0, 0)\nassert gap_multiples(1, 10**18, 1) == (4055850520619176, 575796785)\nassert gap_multiples(10**17 + 11, 979797979797979797, 59) == (59221832561122, 503394825)",
+     "timeout": 10
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

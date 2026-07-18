@@ -1099,6 +1099,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         print(f"[pod] recipe tuning applied: {' · '.join(recipe['custom_flags'])}")
     if recipe.get("quant_guard"):
         print(f"[pod] QUANT GUARD: {recipe['quant_guard']}")
+    if recipe.get("spec_method_guard"):
+        print(f"[pod] SPEC METHOD GUARD: {recipe['spec_method_guard']}")
     if recipe.get("no_harness"):                     # e.g. MLX: no served-alias contract for harnesses
         print("[pod] harness pass skipped for this engine (no served-alias contract)")
         harness_ids = []

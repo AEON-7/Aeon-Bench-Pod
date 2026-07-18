@@ -145,6 +145,14 @@ def leaderboard(suite: str | None = None):
     return scoring.leaderboard(suite=suite)
 
 
+@app.get("/api/explorer")
+def explorer():
+    """EXPLORE THE DATA — per board model (its best intelligence run): the category ×
+    difficulty matrix of mean score / case count / decode tok/s. Drives the expandable
+    explorer section under the Global Leaderboard (heatmap + difficulty-decay line)."""
+    return scoring.explorer_matrix()
+
+
 @app.get("/api/perf/board")
 def perf_board():
     """PERFORMANCE board / recipe-discovery: per model, the latest perf run's direct grid

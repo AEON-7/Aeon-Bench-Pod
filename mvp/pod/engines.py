@@ -386,6 +386,67 @@ def quant_guard(extra: list[str] | None, derived: str | None) -> tuple[list[str]
     return out, note
 
 
+def _drafter_format(cfg: dict) -> str | None:
+    """Classify a drafter checkpoint's speculative-decode FORMAT from its config.json.
+    DFlash (z-lab: DFlashDraftModel, dflash_config, markov head) vs DSpark (DeepSeek-v4:
+    *DSpark* archs, hc_mult/hc-head + MTP layers). None = unrecognized (guard stays out)."""
+    arch = " ".join(cfg.get("architectures") or [])
+    if "dflash" in arch.lower() or "dflash_config" in cfg:
+        return "dflash"
+    if "dspark" in arch.lower() or "hc_mult" in cfg:
+        return "dspark"
+    return None
+
+
+def spec_method_guard(extra: list[str] | None, drafter_dir: str | None) -> tuple[list[str], str | None]:
+    """Fix an operator --speculative-config whose METHOD contradicts the drafter card's actual
+    architecture — each method routes to a different loader, and the wrong one always crashes
+    at engine init (a DFlash card under method 'dspark' dies on config.hc_mult; field failure
+    2026-07-17, Qwen3.6-27B-Ultimate). Rewrites the method to the card's format (and clamps
+    num_speculative_tokens to the card's trained block_size-1 when declared). The card's own
+    config is ground truth; everything else in the config is preserved. Returns
+    (flags, note|None)."""
+    if not extra:
+        return list(extra or []), None
+    toks = [str(t) for t in extra]
+    try:
+        i = toks.index("--speculative-config")
+        spec = json.loads(toks[i + 1])
+    except (ValueError, IndexError, json.JSONDecodeError):
+        return toks, None
+    if not isinstance(spec, dict):
+        return toks, None
+    method = str(spec.get("method") or "").lower()
+    mpath = str(spec.get("model") or "")
+    cfg_dir = drafter_dir if (mpath == "/drafter" and drafter_dir) else (mpath if os.path.isdir(mpath) else None)
+    if method not in ("dflash", "dspark") or not cfg_dir:
+        return toks, None
+    try:
+        with open(os.path.join(cfg_dir, "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return toks, None
+    fmt = _drafter_format(cfg)
+    notes = []
+    if fmt and fmt != method:
+        spec["method"] = fmt
+        notes.append(f"speculative method '{method}' contradicts the drafter card's architecture "
+                     f"({(cfg.get('architectures') or ['?'])[0]}) — corrected to '{fmt}' "
+                     "(the wrong loader always crashes at engine init)")
+        method = fmt
+    if method == "dflash":
+        bs = cfg.get("block_size")
+        nst = spec.get("num_speculative_tokens")
+        if isinstance(bs, int) and isinstance(nst, int) and nst > bs - 1:
+            spec["num_speculative_tokens"] = bs - 1
+            notes.append(f"num_speculative_tokens {nst} exceeds the drafter's trained block_size "
+                         f"{bs} — clamped to {bs - 1}")
+    if not notes:
+        return toks, None
+    toks[i + 1] = json.dumps(spec)
+    return toks, "; ".join(notes)
+
+
 #: the served-context bench floor — Hermes refuses models reporting less, which would silently
 #: burn a whole run's harness pass. Overrides BELOW the floor are raised back to it.
 CTX_FLOOR = 65536
@@ -706,12 +767,15 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
             # tuning still overrides via merge_flags.
             flags += ["--limit-mm-per-prompt", '{"image":4,"audio":4}']
         extra_flags, _qnote = quant_guard(extra_flags, quant)
+        extra_flags, _snote = spec_method_guard(extra_flags, drafter_dir)
         flags, applied = merge_flags(flags, extra_flags)
         flags = _floor_ctx(flags, "vllm")
         cmd = docker + ["--entrypoint", "vllm", img, "serve", model_path] + flags
         srv = {"flags": flags}                          # vllm-style flags: the repro card renders these
         if _qnote:
             srv["quant_guard"] = _qnote
+        if _snote:
+            srv["spec_method_guard"] = _snote
     elif e["style"] == "sglang":
         args = ["--model-path", model_path, "--served-model-name", alias,
                 "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]

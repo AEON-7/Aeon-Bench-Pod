@@ -5,6 +5,9 @@
 //   · dial()       the reusable SVG arc gauge: value bands, honest null state
 //   · globalRow()  instrument row WITH the new `dials` leaderboard contract and
 //                  WITHOUT it (old-server compat), escaping, best-run target
+//   · explorer     EXPLORE THE DATA pure renderers: expHeat (cell count, luminance
+//                  bands, honest dashes, speed re-color), expLine (polylines +
+//                  reference lines), expToggleModel / expDefaultSel filter fns
 //   · applyRole()  mothership vs pod nav gating (Live/Run tabs + pod CTA)
 // Run:  node mvp/web/test_dial_row.js
 // (sets AEON_WEB_TEST=1 itself; app.js then exports its pure renderers instead
@@ -156,6 +159,107 @@ ok(!rowOld.includes("mcard-ctx") && !rowNew.includes("mcard-ctx"),
 ok(app.fmtCtx(65536) === "64K" && app.fmtCtx(131072) === "128K" && app.fmtCtx(512) === "512",
    "fmtCtx: /1024 rounded + K, sub-1K literal");
 ok(app.ctxChip(null) === "" && app.ctxChip(undefined) === "", "ctxChip is empty for null/undefined");
+
+// ------------------------------------------------ EXPLORE THE DATA (pure fns)
+console.log("explorer — expBand()");
+ok(app.expBand(null) === -1, "null → -1 (no band, honest gap)");
+ok(app.expBand(0) === 0 && app.expBand(19.9) === 0, "0-19.9 → band 0");
+ok(app.expBand(20) === 1 && app.expBand(55) === 2, "band edges (20 → 1, 55 → 2)");
+ok(app.expBand(80) === 4 && app.expBand(100) === 4, "80-100 → band 4 (brightest)");
+
+console.log("explorer — expHeat()");
+const DIFFS = ["easy", "medium", "hard", "expert", "frontier", "god_mode"];
+const CATS = ["Math", "Coding"];
+const M1 = {
+  model: "org/model-a", canonical: "org/model-a", aeon_score: 88, composite: 90,
+  cells: {
+    Math:   { easy: { score: 92.5, n: 5, tps: 100.0 }, medium: { score: 55, n: 4, tps: 50.0 },
+              hard: { score: 12, n: 5, tps: 25.0 } },
+    Coding: { easy: { score: 71, n: 5, tps: 80.0 } },
+  },
+};
+const heat = app.expHeat(M1, CATS, DIFFS, "quality", 100);
+ok((heat.match(/<td/g) || []).length === 12, "cell count = cats × diffs (2×6 = 12), got " + (heat.match(/<td/g) || []).length);
+ok((heat.match(/exp-na/g) || []).length === 8, "8 never-scored cells render the dashed honest —");
+ok(/class="xb4"[^>]*>93</.test(heat), "92.5 → brightest luminance band xb4, numeral rounds to 93");
+ok(/class="xb2"[^>]*>55</.test(heat), "55 → mid band xb2");
+ok(/class="xb0"[^>]*>12</.test(heat), "12 → darkest band xb0 (luminance-ordered, no verdict hues)");
+ok(/n=5/.test(heat) && /n=4/.test(heat), "n rides the tooltip, never the cell");
+ok(!/pass|part|fail/.test(heat), "heatmap never borrows the verdict classes");
+
+const heatSpd = app.expHeat(M1, CATS, DIFFS, "speed", 100);
+ok(/class="xb4"[^>]*>100</.test(heatSpd), "speed: 100 tok/s at max → brightest band, numeral = tok/s");
+ok(/class="xb2"[^>]*>50/.test(heatSpd), "speed: 50 of 100 tok/s → mid band (normalized to fastest shown)");
+ok((heatSpd.match(/exp-na/g) || []).length === 8, "speed mode keeps the honest dashes for missing cells");
+
+const heatX = app.expHeat({ model: "m", cells: { Math: { easy: { score: 50, n: 1, tps: null } } } },
+  ['<img src=x onerror=alert(1)>'], DIFFS, "quality", 0);
+ok(!heatX.includes("<img"), "category labels are escaped (XSS guard)");
+
+console.log("explorer — expLine()");
+const M2 = { model: "org/model-b", canonical: "org/model-b",
+  cells: { Math: { easy: { score: 80, n: 5, tps: null }, hard: { score: 40, n: 5, tps: null } } } };
+const line = app.expLine([M1, M2], CATS, DIFFS);
+ok((line.match(/<polyline/g) || []).length === 2, "one series polyline per selected model");
+ok((line.match(/exp-ref/g) || []).length === 3, "exactly 3 faint reference lines (0/50/100), no axis box");
+ok(/viewBox=/.test(line) && !/<rect/.test(line), "pure SVG, gridless — no chart-junk frame");
+ok(/god_mode|GOD MODE/i.test(line), "x axis names the difficulty tiers in order");
+
+console.log("explorer — filter fns");
+let sel = app.expDefaultSel([
+  { canonical: "a", aeon_score: 70, composite: 90 },
+  { canonical: "b", aeon_score: 91, composite: 50 },
+]);
+ok(sel.length === 1 && sel[0] === "b", "default selection = top 1 by aeon_score");
+ok(app.expDefaultSel([{ canonical: "x", composite: 60 }, { canonical: "y", composite: 80 }])
+    .join(",") === "y", "old-server rows without aeon_score fall back to composite");
+ok(app.expDefaultSel([]).length === 0, "empty board → empty default selection");
+sel = ["b"];
+sel = app.expToggleModel(sel, "a");
+sel = app.expToggleModel(sel, "c");
+ok(sel.join(",") === "b,a,c", "toggling adds models in click order");
+ok(app.expToggleModel(sel, "d").join(",") === "b,a,c", "a 4th model is a no-op (max 3)");
+ok(app.expToggleModel(sel, "a").join(",") === "b,c", "re-click removes a selected model");
+ok(app.expTpsMax([M1], CATS) === 100, "expTpsMax finds the fastest cell in the selection");
+
+console.log("explorer — facet filters (hardware bucket × trust tier)");
+const FM = [
+  { canonical: "a", model: "o/a", hw_bucket: "NVIDIA RTX 5090", trust_tier: "attested",
+    aeon_score: 90, composite: 90, ctx_len: 65536, cells: {} },
+  { canonical: "b", model: "o/b", hw_bucket: "DGX Spark", trust_tier: "attested",
+    aeon_score: 80, composite: 80, cells: {} },
+  { canonical: "c", model: "o/c", trust_tier: "self_reported",
+    aeon_score: 95, composite: 95, cells: {} },          // no hw_bucket recorded
+];
+ok(app.expFacetFilter(FM, "all", "all").length === 3, "all × all offers every board model");
+ok(app.expFacetFilter(FM, "NVIDIA RTX 5090", "all").map((m) => m.canonical).join(",") === "a",
+   "hardware-bucket filter isolates its rig");
+ok(app.expFacetFilter(FM, "all", "attested").map((m) => m.canonical).join(",") === "a,b",
+   "trust-tier filter keeps only attested rows");
+ok(app.expFacetFilter(FM, "Unlabeled", "all").map((m) => m.canonical).join(",") === "c",
+   "a model without hw_bucket buckets as Unlabeled (honest, never guessed)");
+ok(app.expFacetFilter(FM, "DGX Spark", "self_reported").length === 0,
+   "hardware and trust facets compose (AND)");
+
+console.log("explorer — difficulty columns are a live filter axis");
+const heatD = app.expHeat(M1, CATS, ["easy", "hard"], "quality", 100);
+ok((heatD.match(/<td/g) || []).length === 4, "toggled-off tiers drop their columns (2 cats × 2 diffs)");
+ok(!/medium/i.test(heatD), "an untoggled tier never renders anywhere in the table");
+const lineD = app.expLine([M1], CATS, ["easy", "hard"]);
+ok(/>easy</.test(lineD) && />hard</.test(lineD) && !/GOD MODE/.test(lineD),
+   "decay x-axis follows the toggled tiers only");
+
+console.log("explorer — expPlateHead() (served-ctx axis + rig facts)");
+const ph = app.expPlateHead(FM[0], "#00f0ff");
+ok(/>64K ctx</.test(ph), "plate carries the served-context fact (65536 → 64K ctx)");
+ok(/max context length this benchmark was served at/.test(ph), "ctx fact keeps the board's tooltip");
+ok(/NVIDIA RTX 5090/.test(ph), "plate names the rig the run was benched on");
+ok(/AEON 90\.0/.test(ph), "plate keeps the AEON headline");
+const ph2 = app.expPlateHead({ model: "o/c", aeon_score: null, cells: {} }, "#fff");
+ok(!/ctx/.test(ph2) && !/benched on/.test(ph2) && !/AEON/.test(ph2),
+   "nothing recorded → no fact rendered (absence, never a fabricated figure)");
+const ph3 = app.expPlateHead({ model: "m", hw_bucket: '<img src=x onerror=alert(1)>' }, "#fff");
+ok(!ph3.includes("<img"), "rig label is escaped (XSS guard)");
 
 // ---------------------------------------------------------------- applyRole()
 console.log("applyRole() — two-role nav gating");

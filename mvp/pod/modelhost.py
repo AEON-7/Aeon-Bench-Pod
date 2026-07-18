@@ -314,11 +314,14 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     if quant:
         flags += ["--quantization", str(quant)]
     extra_flags, _qnote = engmod.quant_guard(extra_flags, quant)
+    extra_flags, _snote = engmod.spec_method_guard(extra_flags, drafter_dir)
     flags, applied = engmod.merge_flags(flags, extra_flags)   # recipe tuning on the bare path too
     cmd = [launcher, "serve", local_dir] + flags
     recipe = {**base, "engine": eng, "serve_mode": "bare", "command": cmd, "flags": flags}
     if _qnote:
         recipe["quant_guard"] = _qnote
+    if _snote:
+        recipe["spec_method_guard"] = _snote
     if applied:
         recipe["custom_flags"] = applied
     if use_ultimate and engine is None:

@@ -26,7 +26,8 @@ MIN_SUITE_COVERAGE = 0.9
 
 
 def _avg(xs):
-    xs = [x for x in xs if x is not None]
+    # numeric-only: a malformed speed blob (string tps etc.) must skip, never 500 a board
+    xs = [x for x in xs if isinstance(x, (int, float))]
     return round(sum(xs) / len(xs), 1) if xs else None
 
 
@@ -135,7 +136,7 @@ def _run_summary(info):
 # When a NEW suite version ships, the default board scopes to it — which is empty until
 # models re-run. Rather than a blank public leaderboard, fall back to the newest legacy
 # suite that HAS runs, honestly labeled via suite_shown/legacy so the UI can badge it.
-_LEGACY_SUITES = ["aeon-suite-v2", "aeon-suite-v1"]
+_LEGACY_SUITES = ["aeon-suite-v3", "aeon-suite-v2", "aeon-suite-v1"]
 
 
 def leaderboard(suite=None):
@@ -916,6 +917,92 @@ def compare_by_seed(seed, board="text"):
     return {"seed": seed, "board": board, "categories": suite_mod.CATEGORIES,
             "difficulties": suite_mod.DIFFICULTIES, "models": models, "cases": cases,
             "suite_consistent": len(shashes) <= 1, "suite_hash": shashes[0] if shashes else None}
+
+
+def explorer_matrix():
+    """EXPLORE THE DATA — the category × difficulty matrix behind each board model's
+    headline number. One entry per leaderboard model, computed from its BEST
+    intelligence run (the exact run the board's intelligence dial opens — eligible
+    runs win over self-reported ones, seeded fast-bench draws never qualify):
+
+        cells[category][difficulty] = {score: mean 0-100, n: cases, tps: mean decode_tps}
+
+    Difficulty comes from the corpus of the suite the board is SHOWING (case_id
+    join): current suite normally, the legacy corpus during a fallback window — so
+    legacy runs are labeled by their own suite's table, never the new one's. Malformed rows (unknown
+    case ids, unscored rows, junk speed blobs) are skipped, never raised. Cheap
+    computed-on-read like every other board payload.
+
+    Each entry also carries the explorer's model-level filter facets: trust_tier +
+    ctx_len ride along from the board row (same values the board displays), and
+    hw_bucket/hw_family are the SOURCE RUN's benched rig (detected label wins over
+    the operator claim) normalized through hwnorm — the same clustering the perf
+    board groups on, so 'Unlabeled' is an honest bucket, never a guess."""
+    lb = leaderboard()
+    # Join against the corpus of the suite the BOARD IS SHOWING: during a legacy-fallback
+    # window (fresh suite bump, no new runs yet) the board displays legacy runs, and the
+    # explorer must label them with THEIR OWN corpus — not the new suite's table (mislabeled
+    # grid) and not nothing (rows the board shows would silently vanish here).
+    shown = lb.get("suite_shown") or suite_mod.SUITE_ID
+    corpus = suite_mod.legacy_cases(shown)
+    diff_of = {c["id"]: c.get("difficulty") for c in corpus}
+    cat_of = {c["id"]: c["category"] for c in corpus}
+    # one flat read, indexed by run — only unseeded, harness-free CURRENT-suite rows
+    rows_by_run = {}
+    for r in db.all_results_with_runs():
+        if r.get("harness") or r.get("bench_seed"):
+            continue
+        if (r.get("suite_id") or shown) != shown:
+            continue
+        rows_by_run.setdefault(r["run"], []).append(r)
+    models = []
+    for m in lb.get("models") or []:
+        run_id = m.get("best_intelligence_run") or m.get("best_run")
+        src_rows = rows_by_run.get(run_id, ())
+        agg = {}
+        for r in src_rows:
+            cid = r.get("case_id")
+            cat, d = cat_of.get(cid), diff_of.get(cid)
+            if cat is None or d not in suite_mod.DIFFICULTIES:
+                continue                     # not a graded corpus case — never guessed
+            sc = r.get("score")
+            if not isinstance(sc, (int, float)):
+                continue                     # error / no_answer row — an honest gap
+            sp = r.get("speed")
+            tps = sp.get("decode_tps") if isinstance(sp, dict) else None
+            cell = agg.setdefault(cat, {}).setdefault(d, {"s": [], "t": []})
+            cell["s"].append(sc)
+            if isinstance(tps, (int, float)):
+                cell["t"].append(tps)
+        cells = {}
+        for cat, byd in agg.items():
+            for d, cell in byd.items():
+                cells.setdefault(cat, {})[d] = {
+                    "score": round(100 * sum(cell["s"]) / len(cell["s"]), 1),
+                    "n": len(cell["s"]),
+                    "tps": round(sum(cell["t"]) / len(cell["t"]), 1) if cell["t"] else None,
+                }
+        if not cells:
+            continue                         # nothing joinable (e.g. legacy run) — skip
+        # model-level facets for the explorer's filters: the source run's benched rig
+        # (env hardware, detected label first) bucketed exactly like the perf board
+        env = {}
+        try:
+            env = json.loads(src_rows[0].get("env_json") or "{}") if src_rows else {}
+        except Exception:
+            env = {}
+        hwn = hwnorm.normalize_label(_hw_label(env if isinstance(env, dict) else {}))
+        models.append({
+            "model": m["model"], "canonical": m["canonical"], "run": run_id,
+            "record_eligible": bool(m.get("record_eligible")),
+            "trust_tier": m.get("trust_tier") or "self_reported",
+            "hw_bucket": hwn["bucket"], "hw_family": hwn["family"],
+            "ctx_len": m.get("ctx_len"),     # served context of the board row (null = not recorded)
+            "composite": m["composite"], "aeon_score": m.get("aeon_score"),
+            "cells": cells,
+        })
+    return {"suite_id": shown, "categories": suite_mod.CATEGORIES,
+            "difficulties": suite_mod.DIFFICULTIES, "models": models}
 
 
 def _modality_board(board, categories, ttft_key, tag_board, **tag_kw):

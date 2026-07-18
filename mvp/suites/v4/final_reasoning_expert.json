@@ -1,0 +1,142 @@
+[
+ {
+  "id": "v4.reasoning.expert.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "On an island, every inhabitant is either a knight (always tells the truth) or a knave (always lies). Nine islanders — Havel, Ines, Jasper, Katya, Lorne, Mirra, Noor, Osric, and Priya — each make one statement. 'Or' is always inclusive, 'if P then Q' is the material conditional (false only when P is true and Q is false), and 'P if and only if Q' is true exactly when P and Q have the same truth value. Zero counts as an even number.\n\n- Havel: \"Exactly three of Ines, Katya, Mirra, and Osric are knights.\"\n- Ines: \"Jasper is a knave if and only if Noor is a knight.\"\n- Jasper: \"Katya and Lorne are of different types.\"\n- Katya: \"If Priya is a knight, then Havel is a knave.\"\n- Lorne: \"An even number of the nine of us are knaves.\"\n- Mirra: \"Noor is a knight, or Ines is a knight, or both.\"\n- Noor: \"Exactly five of the nine of us are knights.\"\n- Osric: \"Havel and Priya are not both knaves.\"\n- Priya: \"Mirra is a knight if and only if exactly two of Jasper, Lorne, and Osric are knights.\"\n\nExactly one assignment of types is consistent with all nine statements. How many of the nine islanders are knights? Put the final number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "6"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A moderator picks two integers x and y with 2 <= x < y <= 12. Two perfect logicians, Ada and Bram, both know that x and y satisfy exactly these bounds and that x < y. Privately, Ada is told only the difference y - x, and Bram is told only the product x*y. Each knows what kind of information the other received. They then speak, strictly in this order, each statement being truthful and heard by both:\n\n1. Ada: \"I do not know the numbers.\"\n2. Bram: \"I do not know the numbers.\"\n3. Ada: \"I still do not know the numbers.\"\n4. Bram: \"I still do not know the numbers.\"\n5. Ada: \"Now I know the numbers.\"\n\nEach statement means exactly this: the speaker can (or cannot) uniquely determine the pair (x, y) from their private value combined with everything announced so far, with both reasoning as perfect logicians about all pairs consistent with the setup. Exactly one pair (x, y) is consistent with this entire conversation. What is x + y? Put the final number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "11"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.03",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "You have three jugs with capacities 13 litres, 9 litres, and 5 litres. Initially the 13-litre jug is completely full of water and the other two jugs are empty. There is no tap and no drain: water may never be added or discarded, only transferred between the jugs. A POUR consists of choosing one jug and pouring water from it into one other jug until either the source jug becomes empty or the destination jug becomes full, whichever happens first; stopping a pour partway is not allowed. Jugs have no markings, so these full-or-empty pours are the only allowed moves.\n\nWhat is the minimum number of pours needed to reach a state in which the 9-litre jug contains exactly 2 litres of water? Put the final number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "10"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.04",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Eight delegates — Odell, Pasha, Quilla, Renn, Sable, Tazio, Ursa, and Vinn — are to be seated in a single row of 8 chairs numbered 1 through 8, one delegate per chair. Two chairs are ADJACENT exactly when their numbers differ by 1. A seating must satisfy ALL of the following constraints:\n(a) Odell and Pasha do not sit in adjacent chairs;\n(b) Quilla's chair number is lower than Renn's chair number;\n(c) Sable sits in none of chairs 1, 2, or 8;\n(d) Tazio and Ursa sit in adjacent chairs;\n(e) the chair numbers of Vinn and Odell differ by exactly 2;\n(f) Renn and Tazio do not sit in adjacent chairs.\n\nHow many distinct seatings satisfy all six constraints? Give the exact integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "308"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.05",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "A control panel has seven independent toggles, described by seven atomic propositions: P, Q, R, S, T, U, W (each is either true or false, so there are 2^7 = 128 possible truth assignments). All conditionals are material conditionals and 'or' is inclusive. The following six premises all hold:\n\nP1. If P is true, then Q is true or R is true (or both).\nP2. Q and S are not both true.\nP3. R is true if and only if T is true.\nP4. If T is true, then U is true or W is true (or both).\nP5. P and U are not both true.\nP6. S is true or P is true (or both).\n\nExactly how many of the 128 truth assignments to P, Q, R, S, T, U, W make all six premises true simultaneously? Put the final count inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "12"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.06",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Consider strings of length 12 over the alphabet {0, 1, 2, 3}. Call a string ADMISSIBLE if it satisfies ALL FOUR conditions:\n(a) every pair of adjacent characters differs by at most 1 in numeric value (so 0 may be followed by 0 or 1; 1 by 0, 1, or 2; 2 by 1, 2, or 3; 3 by 2 or 3);\n(b) the string does NOT contain \"010\" as a contiguous substring;\n(c) the string does NOT contain \"232\" as a contiguous substring;\n(d) the first character and the last character are different.\n\nHow many admissible strings of length 12 are there? Give the exact integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "51050"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.07",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Six market stalls stand in a row, numbered 1 (leftmost) to 6 (rightmost). Each stall has exactly one keeper (Odalys, Petrin, Quenby, Rufus, Salome, Tibor), sells exactly one ware (amber, brocade, cardamom, damask, ebony, figs), and flies exactly one banner (crimson, indigo, jade, ochre, pearl, russet); each keeper, ware, and banner is used exactly once. 'Directly next to' means the stall numbers differ by exactly 1; 'somewhere to the left of' means a strictly lower stall number, not necessarily adjacent.\n\nClues:\n1. Petrin's stall is directly next to the stall selling brocade.\n2. Odalys sells cardamom.\n3. Tibor's stall is directly next to the stall selling ebony.\n4. Rufus sells ebony.\n5. Salome's stall is directly next to the stall selling cardamom.\n6. The brocade stall is stall 6.\n7. The stall selling damask is directly next to the stall flying the ochre banner.\n8. The stall selling brocade is directly next to the stall flying the russet banner.\n9. The stall selling amber is directly next to the stall flying the crimson banner.\n10. The stall selling cardamom flies the ochre banner.\n11. The stall selling figs is directly next to the stall flying the indigo banner.\n12. The stall selling ebony is directly next to the stall flying the crimson banner.\n13. The stall selling ebony flies the pearl banner.\n\nExactly one full arrangement satisfies all clues. Who keeps the stall that flies the russet banner? End your response with the answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name}, and use \\boxed{} only once.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Petrin\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(Odalys|Quenby|Rufus|Salome|Tibor)[^{}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.expert.08",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Five teams — the Kestrels, Lynxes, Martens, Nighthawks, and Otters — played a single round-robin tournament: each pair of teams met exactly once, for 10 matches in total. A win is worth 3 points, a draw 1 point to each team, and a loss 0 points. The final point totals were: Kestrels 7, Lynxes 3, Martens 6, Nighthawks 7, Otters 5. In addition, all of the following are known:\n\n1. The Otters beat the Lynxes.\n2. The Nighthawks beat the Lynxes.\n3. The Martens beat the Lynxes.\n\nExactly one complete set of 10 match results is consistent with the point totals and the three facts above. In that unique set of results, what was the outcome of the match between the Martens and the Otters? If one side won, answer with that team's name; if the match was drawn, answer with the single word Draw. End your response with the answer as exactly one word inside \\boxed{}, e.g. \\boxed{Answer}, and use \\boxed{} only once.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Martens\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(Kestrels|Lynxes|Nighthawks|Otters|Draw)[^{}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

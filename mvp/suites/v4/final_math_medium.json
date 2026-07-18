@@ -1,0 +1,50 @@
+[
+ {
+  "id": "v3.math.medium.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Solve the linear system: 7x + 3y = 94 and 2x - 5y = -61. Both x and y are integers. Compute the product x*y. Give an exact integer. Put ONLY that final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "105"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.medium.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "A triangle has sides a = 13.4 and b = 21.7, and the angle between them is C = 51.2 degrees. Using the law of cosines, compute the length of the third side c. Round to 3 decimal places. Put ONLY the final rounded number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "16.913"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.math.medium.03",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "A planet has mass M = 4.7e24 kg and radius r = 5.9e6 m. Using the gravitational constant G = 6.674e-11 N m^2 kg^-2, compute the escape velocity v = sqrt(2GM/r) at the planet's surface, expressed in km/s. Round to 3 decimal places. Put ONLY the final rounded number inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "10.312"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

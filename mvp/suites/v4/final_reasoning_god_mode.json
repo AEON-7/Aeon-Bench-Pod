@@ -1,0 +1,35 @@
+[
+ {
+  "id": "v4.reasoning.god_mode.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "Count the strings of length 17 over the alphabet {P, Q, R, S} that satisfy ALL five conditions simultaneously:\n(a) no two adjacent letters are equal;\n(b) the letter R appears exactly five times;\n(c) the letter P is never immediately followed by the letter Q (the substring \"PQ\" never occurs);\n(d) the first letter and the last letter of the string are different;\n(e) the letter Q appears an even number of times (zero counts as even).\nGive the exact count. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "4709533"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.god_mode.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "A referee chooses two integers x and y with 2 <= x < y <= 25. The referee privately tells Petra the product x*y and privately tells Sorin the sum x+y. Petra and Sorin are perfect logicians: each instantly draws every deduction that logically follows from what they know. Everything in this paragraph — the bounds, the strict inequality x < y, who was told what — is common knowledge between them. They then speak in the fixed order below. Every statement is truthful, and each statement is heard and fully incorporated into common knowledge before the next statement is made. \"Knowing the numbers\" means being able to deduce the pair {x, y} with certainty from everything known so far.\n1. Petra: \"I do not know the two numbers.\"\n2. Sorin: \"I do not know the two numbers.\"\n3. Petra: \"I do not know the two numbers.\"\n4. Sorin: \"I do not know the two numbers.\"\n5. Petra: \"I do not know the two numbers.\"\n6. Sorin: \"I do not know the two numbers.\"\n7. Petra: \"I do not know the two numbers.\"\n8. Sorin: \"Now I know the two numbers.\"\n9. Petra: \"Now I also know the two numbers.\"\nThis transcript determines the pair {x, y} uniquely. Find x and y. Put ONLY the two numbers, separated by a comma, inside \\boxed{} — for example \\boxed{3,7} — with nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "11,24",
+     "as_set": true
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

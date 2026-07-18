@@ -289,7 +289,9 @@ def main():
 
     # ---- no_answer: coverage counting --------------------------------------------------------
     floor = scoring.MIN_SUITE_COVERAGE * len(cases)
-    n_na = 16
+    # smallest no_answer count that drops scored-only coverage below the floor while
+    # scored+no_answer still clears it (16 on the 155-case v3 suite, 17 on 160-case v4)
+    n_na = int(len(cases) - floor) + 1
     assert len(cases) - n_na < floor <= len(cases), "coverage fixture math off"
     _text_run(COVER, score=1.0, no_answer_ids={c["id"] for c in cases[:n_na]})
     lb3 = scoring.leaderboard()

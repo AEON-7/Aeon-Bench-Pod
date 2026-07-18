@@ -1,0 +1,86 @@
+[
+ {
+  "id": "v3.reasoning.hard.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "On a remote island every inhabitant is either a knight, who always tells the truth, or a knave, who always lies. You meet five islanders: Tovren, Marisol, Quibb, Essa, and Dalior. They make these statements:\n- Tovren: \"Essa and Quibb are of different types (one is a knight and the other is a knave).\"\n- Marisol: \"Dalior is a knave.\"\n- Quibb: \"Marisol is a knave or Essa is a knight (or both).\"\n- Essa: \"Exactly two of the five of us are knights.\"\n- Dalior: \"Tovren and Marisol are both knaves.\"\nExactly one assignment of types is consistent with all five statements, and under it exactly one of the five islanders is a knight. Determine who that knight is. Give your final answer as exactly one name inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*(?:\\\\text(?:bf|rm|tt)?\\{)?\\s*Marisol\\s*\\}?\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.hard.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Six colleagues - Priya, Oskar, Lenka, Marek, Sana, and Teodor - sit around a circular table with six seats numbered 1 through 6 clockwise. Two seats are adjacent when their numbers differ by 1, and seats 1 and 6 are also adjacent. Two seats are directly opposite when their numbers differ by 3 (the pairs are 1-4, 2-5, 3-6). \"Immediately clockwise of seat k\" means seat k+1, and seat 1 is immediately clockwise of seat 6.\nClues:\n1. Priya sits in seat 1.\n2. Oskar sits directly opposite Lenka.\n3. Sana sits immediately clockwise of Oskar.\n4. Teodor sits adjacent to Priya.\n5. Marek sits directly opposite Teodor.\nExactly one seating arrangement satisfies all five clues. In that arrangement, who sits in seat 4? Give your final answer as exactly one name inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*(?:\\\\text(?:bf|rm|tt)?\\{)?\\s*Sana\\s*\\}?\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.hard.03",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Consider five basic statements about an incident at a records office:\nS: the archive was sealed.  L: the ledger was copied.  V: the vault stayed open.  C: the courier left early.  M: the manifest was signed.\nAll of the following premises are true:\n1. If the archive was sealed, then the ledger was copied.\n2. Exactly one of the following two is true: the ledger was copied; the vault stayed open.\n3. If the vault stayed open, then the courier left early.\n4. If the courier left early, then the manifest was signed.\n5. The manifest was signed only if the archive was not sealed.\n6. The archive was sealed or the vault stayed open (or both).\n7. The manifest was not signed.\nExactly one of the following five conclusions is logically entailed by the premises (that is, it must be true in every situation consistent with all seven premises):\nA. The vault stayed open.\nB. The courier left early.\nC. The archive was not sealed.\nD. The ledger was not copied.\nE. The archive was sealed.\nWhich one is entailed? Give your final answer as exactly one capital letter inside \\boxed{}, for example \\boxed{A}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*(?:\\\\text(?:bf|rm|tt)?\\{)?\\s*\\(?E\\)?\\s*\\}?\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.hard.04",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Count the strings of length 6 over the four-letter alphabet {P, Q, R, S} that satisfy BOTH of the following conditions:\n(a) no two adjacent characters of the string are equal, and\n(b) the letter P appears in the string exactly twice.\nGive the exact count as an integer. Put the final answer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "402"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.hard.05",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Four analysts - Ilse, Bram, Cato, and Femke - work on four different floors of a building (floors 2, 3, 4, and 5; exactly one analyst per floor). Each drinks a different beverage: matcha, espresso, rooibos, or oolong (exactly one each).\nClues:\n1. Bram works exactly two floors below Femke.\n2. Ilse does not work on floor 2.\n3. Cato drinks espresso.\n4. The matcha drinker works on floor 5.\n5. The rooibos drinker works exactly one floor above Cato.\n6. The oolong drinker works on floor 4.\nExactly one assignment of floors and beverages satisfies all six clues. In that assignment, who works on floor 3? Give your final answer as exactly one name inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*(?:\\\\text(?:bf|rm|tt)?\\{)?\\s*Bram\\s*\\}?\\s*\\}",
+     "mode": "must_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

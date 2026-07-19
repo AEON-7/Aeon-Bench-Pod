@@ -217,4 +217,37 @@ db.finish_run(rid_v, "interrupted")
 old, done = _resume_anchor("mock-good")
 ok(old is None and not done, "anchor guard: results outside the current plan never resume into it")
 
+# ---- stale mid-stream ingest sweep (the PrismaAURA zombie: final commit never arrived) ------
+
+import time as _time  # noqa: E402
+
+def _mk_running(age_h, with_rows=True):
+    rid = uuid.uuid4().hex[:10]
+    db.create_run(rid, model=f"zombie/{rid}", target_url="pod-submission", judge_model=None,
+                  judge_is_self=False, suite_id=suite_mod.SUITE_ID, suite_hash="h",
+                  n_cases=3, params={}, env={}, trust_tier="attested")
+    if with_rows:
+        db.save_result(rid, "case-a", category="Math", tier=1, status="scored", score=0.9,
+                       raw_output="ok", evidence={}, speed={})
+    with db.connect() as c:
+        c.execute("UPDATE runs SET status='running', finished_at=NULL, started_at=? WHERE id=?",
+                  (_time.time() - age_h * 3600, rid))
+    return rid
+
+
+stale_rows = _mk_running(72)                 # >48h + rows  -> finalized
+fresh_rows = _mk_running(2)                  # <48h         -> untouched (may still be streaming)
+stale_bare = _mk_running(72, with_rows=False)  # >48h, no rows -> untouched (nothing to show)
+
+healed = ingest.sweep_stale_running()
+ok(stale_rows in healed and len([h for h in healed if h == stale_rows]) == 1,
+   "sweep finalizes a >48h running ingest that has stored rows")
+ok(db.get_run(stale_rows)["status"] == "succeeded" and db.get_run(stale_rows)["finished_at"],
+   "finalized zombie is 'succeeded' with a finished_at (renders + ranks via coverage floor)")
+ok(fresh_rows not in healed and db.get_run(fresh_rows)["status"] == "running",
+   "a fresh running ingest is untouched — it may still be checkpoint-streaming")
+ok(stale_bare not in healed and db.get_run(stale_bare)["status"] == "running",
+   "a rowless zombie stays untouched (nothing to surface)")
+ok(ingest.sweep_stale_running() == [], "sweep is idempotent — second pass finds nothing")
+
 print(f"\nOK  resume + deferred idempotent submission: {PASS} checks passed")

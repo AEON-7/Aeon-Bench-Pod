@@ -143,6 +143,27 @@ def legacy_cases(suite_id):
     _LEGACY_CACHE[suite_id] = out
     return out
 
+
+def all_known_cases():
+    """Current corpus + every shipped legacy corpus, current-first (an id in multiple
+    versions keeps its CURRENT definition — carried cases are byte-identical anyway).
+    For display joins that must label runs from ANY suite era: a v3 run's expert/frontier
+    ids must not vanish from a difficulty breakdown just because v4 replaced those cells."""
+    out = {c["id"]: c for c in CASES}
+    for sid in _LEGACY_DIRS:
+        for c in legacy_cases(sid):
+            out.setdefault(c["id"], c)
+    return list(out.values())
+
+
+def corpus_size_for(suite_id):
+    """Authoritative case count for a run's OWN suite — coverage floors must measure a run
+    against the corpus it actually ran (a full 155-case v3 pass is 100% coverage forever,
+    not 155/160 of a suite that did not exist yet). Unknown/unshipped versions fall back to
+    the current corpus size (conservative: partial mystery runs never sneak past the gate)."""
+    cases = legacy_cases(suite_id)
+    return len(cases) if cases else len(CASES)
+
 # fixed order drives the radar axes; every generated category maps to one of these
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
 SUITE_ID = "aeon-suite-v4" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"

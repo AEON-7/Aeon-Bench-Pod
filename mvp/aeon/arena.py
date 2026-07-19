@@ -85,7 +85,7 @@ _BUILTIN_PROMPTS = {
                    "paddle at the bottom (moved with the mouse or arrow keys) bounces a ball into rows of colored "
                    "bricks that disappear when hit. Track score, handle losing the ball (lives) and clearing all "
                    "bricks (win), and allow restart."},
-        {"difficulty": "easy", "id": "game.memory", "title": "Memory match",
+        {"difficulty": "medium", "id": "game.memory", "title": "Memory match",
          "brief": "Grid of cards, flip to find matching pairs, move counter, win state.",
          "prompt": "Build a memory matching game as a single self-contained HTML file: a 4x4 grid of face-down "
                    "cards hiding 8 pairs of symbols. Clicking flips a card; two matching cards stay face-up, a "
@@ -134,8 +134,9 @@ def _load_prompts():
                     continue
                 seen.add(p["id"])
                 entry = {k: p[k] for k in ("id", "title", "brief", "prompt")}
-                if p.get("difficulty") in ("easy", "medium", "hard"):
-                    entry["difficulty"] = p["difficulty"]   # closed set — garbage never reaches the UI
+                if p.get("difficulty") in ("easy", "medium", "hard", "expert", "frontier", "god_mode"):
+                    entry["difficulty"] = p["difficulty"]   # closed set (full 6-tier platform scale) —
+                    # garbage never reaches the UI, and the god-slot draw keys off this field
                 if p.get("agent_only"):
                     entry["agent_only"] = True   # gallery/match group only — never the chat-generation pool
                 out[p["kind"]].append(entry)

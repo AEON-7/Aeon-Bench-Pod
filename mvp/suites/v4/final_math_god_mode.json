@@ -1,34 +1,66 @@
 [
- {
-  "id": "v4.math.god_mode.01",
-  "category": "Math",
-  "tier": 0,
-  "difficulty": "god_mode",
-  "prompt": "A biased coin shows heads (H) with probability exactly 0.6 and tails (T) with probability exactly 0.4; flips are independent. The coin is flipped repeatedly, producing an unbounded sequence of outcomes. Consider two length-5 patterns: A = H,H,T,H,H and B = T,H,T,H,T. A pattern OCCURS at flip n (n >= 5) if flips n-4 through n, in order, exactly equal that pattern. The process stops the first time either pattern occurs; since A and B are distinct patterns of the same length they can never both complete on the same flip, so there are no ties. Compute the exact probability that A occurs before B. Warning: the coin is biased, so shortcut formulas that are valid only for fair coins do not apply here - set up the full first-passage computation (e.g. an absorbing Markov chain over pattern-prefix states) and solve it with exact rational arithmetic. Convert the exact probability to a decimal and round it to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no fraction, no percent sign, no words.",
-  "eval": {
-   "checkers": [
-    {
-     "type": "numeric_tolerance",
-     "value": "0.703518"
+  {
+    "id": "v4.math.god_mode.01",
+    "category": "Math",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "A biased coin shows heads (H) with probability exactly 0.6 and tails (T) with probability exactly 0.4; flips are independent. The coin is flipped repeatedly, producing an unbounded sequence of outcomes. Consider two length-5 patterns: A = H,H,T,H,H and B = T,H,T,H,T. A pattern OCCURS at flip n (n >= 5) if flips n-4 through n, in order, exactly equal that pattern. The process stops the first time either pattern occurs; since A and B are distinct patterns of the same length they can never both complete on the same flip, so there are no ties. Compute the exact probability that A occurs before B. Warning: the coin is biased, so shortcut formulas that are valid only for fair coins do not apply here - set up the full first-passage computation (e.g. an absorbing Markov chain over pattern-prefix states) and solve it with exact rational arithmetic. Convert the exact probability to a decimal and round it to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no fraction, no percent sign, no words.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "0.703518"
+        }
+      ],
+      "combine": "all"
     }
-   ],
-   "combine": "all"
-  }
- },
- {
-  "id": "v4.math.god_mode.02",
-  "category": "Math",
-  "tier": 0,
-  "difficulty": "god_mode",
-  "prompt": "Let r1, r2, r3, r4, r5, r6 be the six complex roots (counted with multiplicity) of the polynomial p(x) = x^6 - 3x^5 + 2x^4 + 5x^3 - 7x^2 + 4x - 9. Define the power sum s_k = r1^k + r2^k + r3^k + r4^k + r5^k + r6^k. Because p is monic with integer coefficients, s_k is an exact integer for every k >= 1. Compute the exact integer value of s_12. Do NOT attempt floating-point root finding - it cannot certify an exact integer; instead derive s_1 through s_12 with exact integer arithmetic (Newton's identities, or the linear recurrence each root satisfies from p(r) = 0, extend to sums of powers). Carry every step exactly: signs alternate and intermediate values change sign along the way. Report the exact integer, including a leading minus sign if the value is negative. Put ONLY the final integer inside \\boxed{} - no commas, no decimal point, no words.",
-  "eval": {
-   "checkers": [
-    {
-     "type": "numeric_tolerance",
-     "value": "-2874"
+  },
+  {
+    "id": "v4.math.god_mode.02",
+    "category": "Math",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Let r1, r2, r3, r4, r5, r6 be the six complex roots (counted with multiplicity) of the polynomial p(x) = x^6 - 3x^5 + 2x^4 + 5x^3 - 7x^2 + 4x - 9. Define the power sum s_k = r1^k + r2^k + r3^k + r4^k + r5^k + r6^k. Because p is monic with integer coefficients, s_k is an exact integer for every k >= 1. Compute the exact integer value of s_12. Do NOT attempt floating-point root finding - it cannot certify an exact integer; instead derive s_1 through s_12 with exact integer arithmetic (Newton's identities, or the linear recurrence each root satisfies from p(r) = 0, extend to sums of powers). Carry every step exactly: signs alternate and intermediate values change sign along the way. Report the exact integer, including a leading minus sign if the value is negative. Put ONLY the final integer inside \\boxed{} - no commas, no decimal point, no words.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "-2874"
+        }
+      ],
+      "combine": "all"
     }
-   ],
-   "combine": "all"
+  },
+  {
+    "id": "v4.math.god_mode.03",
+    "category": "Math",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Two players alternate moves in an impartial stone game. A position is a finite collection of piles of stones; piles are unordered, and several piles may have the same size. The player who makes the last legal move wins: if it is your turn and no legal move exists anywhere in the position, you lose. A move consists of choosing exactly ONE pile, say of size n, and applying exactly one of the following two operations to that pile (all other piles are untouched). TAKE: remove exactly d stones from the chosen pile, where d is a prime number that divides n (if n itself is prime, d = n is such a divisor, and taking it removes the pile from the table; a pile reduced to size 0 is removed). SPLIT: replace the chosen pile by two piles of sizes a and b, where a >= 1, b >= 1, a + b = n, and gcd(a, b) = 1. Note that a pile of size 1 admits no operation of either kind (1 has no prime divisor, and 1 cannot be split into two nonempty piles), so piles of size 1 remain on the table as dead piles. Calibration facts, all derivable by hand - use them to validate your reading of the rules before going further: under perfect play, a single pile of 4 is a LOSS for the player to move; a single pile of 30 is a LOSS for the player to move; and the two-pile position {2, 5} is a LOSS for the player to move, even though {2} alone and {5} alone are each a WIN for the player to move. Now define W as the set of all integers n with 1 <= n <= 3000 such that the three-pile starting position {n, n+1, n+2} is a LOSS for the player to move under perfect play by both sides. Compute S, the sum of all elements of W. S is a single positive integer, and it is uniquely determined by the rules above. Put ONLY that integer inside \\boxed{} - no commas, no separators, no words.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "48097"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "v4.math.god_mode.04",
+    "category": "Math",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "A random process starts at the integer X_0 = 720720 = 2^4 * 3^2 * 5 * 7 * 11 * 13, which has 240 positive divisors. At each step t = 1, 2, 3, ..., the current value X_{t-1} is replaced by X_t, a divisor of X_{t-1} chosen uniformly at random from the set of ALL positive divisors of X_{t-1}: the divisors 1 and X_{t-1} itself are both included, so the value can remain unchanged, and such a step still counts as one step. Choices at different steps are independent. Let T = min{ t >= 1 : X_t = 1 } be the number of steps until the value first equals 1 (T is finite with probability 1, and both E[T] and E[T^2] are exact rational numbers). Calibration facts, all derivable by hand - use them to validate your setup before going further: if the process instead started at X_0 = 2, then E[T] = 2 and E[T^2] = 6 exactly; if it started at X_0 = 4, then E[T] = 5/2 and E[T^2] = 9 exactly; if it started at X_0 = 12, then E[T] = 91/30 exactly. For the actual start X_0 = 720720, compute the STANDARD DEVIATION of T, that is sqrt( E[T^2] - (E[T])^2 ), working exactly until the final square root, and round the result to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no fractions, no radicals, no words.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "1.872615"
+        }
+      ],
+      "combine": "all"
+    }
   }
- }
 ]

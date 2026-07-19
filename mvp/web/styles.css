@@ -3010,6 +3010,15 @@ select:focus {
 .gal-diff.gd-easy   { color: var(--good); border-color: rgba(61, 220, 133, .45); }
 .gal-diff.gd-medium { color: var(--warn); border-color: rgba(255, 180, 84, .45); }
 .gal-diff.gd-hard   { color: var(--bad);  border-color: rgba(255, 93, 122, .5); }
+/* the upper tiers escalate past the verdict hues: crimson → magenta → white-hot */
+.gal-diff.gd-expert   { color: #ff4d4d; border-color: rgba(255, 77, 77, .55); }
+.gal-diff.gd-frontier { color: #ff2e97; border-color: rgba(255, 46, 151, .55);
+  text-shadow: 0 0 8px rgba(255, 46, 151, .5); }
+.gal-diff.gd-god_mode {
+  color: #fff; border-color: rgba(255, 255, 255, .7); background: rgba(255, 255, 255, .06);
+  text-shadow: 0 0 10px rgba(255, 255, 255, .8), 0 0 22px rgba(0, 240, 255, .5);
+  letter-spacing: .2em;
+}
 .gal-title .gal-diff { vertical-align: 2px; margin-left: 2px; }
 
 /* ---------------------------------------------------------------- reduced motion (keep last) */

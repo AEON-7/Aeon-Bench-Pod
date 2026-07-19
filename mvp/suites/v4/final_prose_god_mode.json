@@ -1,209 +1,291 @@
 [
- {
-  "id": "v4.prose.god_mode.01",
-  "category": "Prose",
-  "tier": 1,
-  "difficulty": "god_mode",
-  "prompt": "Write a single paragraph of nocturnal prose describing a fishing town after dark, under ALL of these constraints:\n- The letter 'e' (upper or lower case) must NOT appear anywhere in your text. This is a strict lipogram.\n- The paragraph must consist of exactly 9 sentences. End sentences only with '.', '!' or '?', and do not use those three characters anywhere else (no abbreviations written with periods, no ellipses, and no digits at all anywhere in the text).\n- The first letters of the 9 sentences, in order, must spell NOCTURNAL (sentence 1 begins with capital N, sentence 2 with O, sentence 3 with C, sentence 4 with T, sentence 5 with U, sentence 6 with R, sentence 7 with N, sentence 8 with A, sentence 9 with L). Each sentence must begin directly with its required capital letter: no leading punctuation or quotation marks.\n- The paragraph must contain between 110 and 150 words (inclusive; a word is any whitespace-separated token).\n- It must include each of these words at least once: fog, salt, midnight, harbor.\n- It must include the exact phrase: night is a black harbor\n- One paragraph only: no blank lines, no headings, no list items.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
-  "eval": {
-   "rubric": [
-    {
-     "id": "one_para",
-     "question": "Is the response a single paragraph (no blank-line breaks)?",
-     "decision_rule": "Split on blank lines; true iff exactly 1 block.",
-     "required": true,
-     "tier0_check": {
-      "type": "structural_count",
-      "unit": "stanza",
-      "op": "==",
-      "n": 1
-     }
-    },
-    {
-     "id": "sentences",
-     "question": "Does the paragraph consist of exactly 9 sentences?",
-     "decision_rule": "Split on ./!/? terminators; true iff exactly 9 sentences.",
-     "required": true,
-     "tier0_check": {
-      "type": "structural_count",
-      "unit": "sentence",
-      "op": "==",
-      "n": 9
-     }
-    },
-    {
-     "id": "no_e",
-     "question": "Is the letter 'e' (either case) completely absent?",
-     "decision_rule": "True iff /e/i never matches.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "e",
-      "mode": "must_not_match"
-     }
-    },
-    {
-     "id": "sentence_acrostic",
-     "question": "Do the first letters of the 9 sentences spell NOCTURNAL?",
-     "decision_rule": "True iff sentence initials are N O C T U R N A L, in order, uppercase.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\A\\s*N[^.!?]*[.!?]\\s*O[^.!?]*[.!?]\\s*C[^.!?]*[.!?]\\s*T[^.!?]*[.!?]\\s*U[^.!?]*[.!?]\\s*R[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*A[^.!?]*[.!?]\\s*L[^.!?]*[.!?]\\s*\\Z",
-      "mode": "must_match",
-      "ignore_case": false
-     }
-    },
-    {
-     "id": "min_words",
-     "question": "Does the paragraph contain at least 110 words?",
-     "decision_rule": "True iff there are 110 or more whitespace-separated words.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\A(?:\\S+\\s+){109}\\S",
-      "mode": "must_match"
-     }
-    },
-    {
-     "id": "max_words",
-     "question": "Does the paragraph contain at most 150 words?",
-     "decision_rule": "True iff there are 150 or fewer whitespace-separated words.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\A(?:\\S+\\s+){150}",
-      "mode": "must_not_match"
-     }
-    },
-    {
-     "id": "required_words",
-     "question": "Does the text include all of: fog, salt, midnight, harbor?",
-     "decision_rule": "True iff each word appears at least once as a whole word.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\A(?=[\\s\\S]*\\bfog\\b)(?=[\\s\\S]*\\bsalt\\b)(?=[\\s\\S]*\\bmidnight\\b)(?=[\\s\\S]*\\bharbor\\b)",
-      "mode": "must_match"
-     }
-    },
-    {
-     "id": "required_phrase",
-     "question": "Does the text include the exact phrase 'night is a black harbor'?",
-     "decision_rule": "True iff the phrase appears literally (any capitalization).",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\bnight is a black harbor\\b",
-      "mode": "must_match"
-     }
-    },
-    {
-     "id": "no_digits",
-     "question": "Are digits absent from the text?",
-     "decision_rule": "True iff no digit characters 0-9 appear.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "[0-9]",
-      "mode": "must_not_match"
-     }
-    },
-    {
-     "id": "vivid",
-     "question": "Is the paragraph coherent, grammatical prose that vividly evokes the fishing town at night, rather than a list of disconnected constraint-satisfying words?",
-     "decision_rule": "True iff the nine sentences read as one continuous nocturnal scene in natural English.",
-     "required": false,
-     "weight": 0.5
+  {
+    "id": "v4.prose.god_mode.01",
+    "category": "Prose",
+    "tier": 1,
+    "difficulty": "god_mode",
+    "prompt": "Write a single paragraph of nocturnal prose describing a fishing town after dark, under ALL of these constraints:\n- The letter 'e' (upper or lower case) must NOT appear anywhere in your text. This is a strict lipogram.\n- The paragraph must consist of exactly 9 sentences. End sentences only with '.', '!' or '?', and do not use those three characters anywhere else (no abbreviations written with periods, no ellipses, and no digits at all anywhere in the text).\n- The first letters of the 9 sentences, in order, must spell NOCTURNAL (sentence 1 begins with capital N, sentence 2 with O, sentence 3 with C, sentence 4 with T, sentence 5 with U, sentence 6 with R, sentence 7 with N, sentence 8 with A, sentence 9 with L). Each sentence must begin directly with its required capital letter: no leading punctuation or quotation marks.\n- The paragraph must contain between 110 and 150 words (inclusive; a word is any whitespace-separated token).\n- It must include each of these words at least once: fog, salt, midnight, harbor.\n- It must include the exact phrase: night is a black harbor\n- One paragraph only: no blank lines, no headings, no list items.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "one_para",
+          "question": "Is the response a single paragraph (no blank-line breaks)?",
+          "decision_rule": "Split on blank lines; true iff exactly 1 block.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "stanza",
+            "op": "==",
+            "n": 1
+          }
+        },
+        {
+          "id": "sentences",
+          "question": "Does the paragraph consist of exactly 9 sentences?",
+          "decision_rule": "Split on ./!/? terminators; true iff exactly 9 sentences.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "sentence",
+            "op": "==",
+            "n": 9
+          }
+        },
+        {
+          "id": "no_e",
+          "question": "Is the letter 'e' (either case) completely absent?",
+          "decision_rule": "True iff /e/i never matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "e",
+            "mode": "must_not_match"
+          }
+        },
+        {
+          "id": "sentence_acrostic",
+          "question": "Do the first letters of the 9 sentences spell NOCTURNAL?",
+          "decision_rule": "True iff sentence initials are N O C T U R N A L, in order, uppercase.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\A\\s*N[^.!?]*[.!?]\\s*O[^.!?]*[.!?]\\s*C[^.!?]*[.!?]\\s*T[^.!?]*[.!?]\\s*U[^.!?]*[.!?]\\s*R[^.!?]*[.!?]\\s*N[^.!?]*[.!?]\\s*A[^.!?]*[.!?]\\s*L[^.!?]*[.!?]\\s*\\Z",
+            "mode": "must_match",
+            "ignore_case": false
+          }
+        },
+        {
+          "id": "min_words",
+          "question": "Does the paragraph contain at least 110 words?",
+          "decision_rule": "True iff there are 110 or more whitespace-separated words.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\A(?:\\S+\\s+){109}\\S",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "max_words",
+          "question": "Does the paragraph contain at most 150 words?",
+          "decision_rule": "True iff there are 150 or fewer whitespace-separated words.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\A(?:\\S+\\s+){150}",
+            "mode": "must_not_match"
+          }
+        },
+        {
+          "id": "required_words",
+          "question": "Does the text include all of: fog, salt, midnight, harbor?",
+          "decision_rule": "True iff each word appears at least once as a whole word.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\A(?=[\\s\\S]*\\bfog\\b)(?=[\\s\\S]*\\bsalt\\b)(?=[\\s\\S]*\\bmidnight\\b)(?=[\\s\\S]*\\bharbor\\b)",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "required_phrase",
+          "question": "Does the text include the exact phrase 'night is a black harbor'?",
+          "decision_rule": "True iff the phrase appears literally (any capitalization).",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\bnight is a black harbor\\b",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "no_digits",
+          "question": "Are digits absent from the text?",
+          "decision_rule": "True iff no digit characters 0-9 appear.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "[0-9]",
+            "mode": "must_not_match"
+          }
+        },
+        {
+          "id": "vivid",
+          "question": "Is the paragraph coherent, grammatical prose that vividly evokes the fishing town at night, rather than a list of disconnected constraint-satisfying words?",
+          "decision_rule": "True iff the nine sentences read as one continuous nocturnal scene in natural English.",
+          "required": false,
+          "weight": 0.5
+        }
+      ]
     }
-   ]
-  }
- },
- {
-  "id": "v4.prose.god_mode.02",
-  "category": "Prose",
-  "tier": 1,
-  "difficulty": "god_mode",
-  "prompt": "Write a SNOWBALL PARAGRAPH about mapmaking and the limits of maps: a single paragraph of exactly 12 sentences in which sentence 1 contains exactly 1 word, sentence 2 exactly 2 words, sentence 3 exactly 3 words, and so on, adding one word per sentence up to sentence 12 with exactly 12 words (78 words in total). Constraints:\n- The first letters of the 12 sentences, in order, must spell CARTOGRAPHER (sentence 1 begins with capital C, sentence 2 with A, sentence 3 with R, sentence 4 with T, sentence 5 with O, sentence 6 with G, sentence 7 with R, sentence 8 with A, sentence 9 with P, sentence 10 with H, sentence 11 with E, sentence 12 with R). Each sentence must begin directly with its required capital letter: no leading punctuation or quotation marks.\n- Counting rules: a word is any run of characters containing no spaces and no sentence-ending punctuation; each sentence must end with '.', '!' or '?', and those three characters must not appear anywhere except at the ends of sentences (no abbreviations written with periods, no ellipses). Commas, semicolons, colons, hyphens, and apostrophes inside a sentence are fine and do not split or end a word.\n- The word 'cartographer' must appear somewhere in the paragraph.\n- The exact phrase 'every map forgets its maker' must appear (any capitalization).\n- No digits anywhere.\n- One paragraph only: no blank lines.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
-  "eval": {
-   "rubric": [
-    {
-     "id": "one_para",
-     "question": "Is the response a single paragraph (no blank-line breaks)?",
-     "decision_rule": "Split on blank lines; true iff exactly 1 block.",
-     "required": true,
-     "tier0_check": {
-      "type": "structural_count",
-      "unit": "stanza",
-      "op": "==",
-      "n": 1
-     }
-    },
-    {
-     "id": "sentences",
-     "question": "Does the paragraph consist of exactly 12 sentences?",
-     "decision_rule": "Split on ./!/? terminators; true iff exactly 12 sentences.",
-     "required": true,
-     "tier0_check": {
-      "type": "structural_count",
-      "unit": "sentence",
-      "op": "==",
-      "n": 12
-     }
-    },
-    {
-     "id": "snowball_acrostic",
-     "question": "Does sentence k contain exactly k words for k = 1..12, with the sentence initials spelling CARTOGRAPHER and '.', '!', '?' appearing only as sentence terminators?",
-     "decision_rule": "True iff the paragraph is exactly 12 sentences whose word counts are 1,2,...,12 in order, sentence k begins with the k-th capital letter of CARTOGRAPHER, and no sentence-ending punctuation appears inside a sentence.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\AC[^\\s.!?]*[.!?]\\s+A[^\\s.!?]*(?:\\s+[^\\s.!?]+){1}[.!?]\\s+R[^\\s.!?]*(?:\\s+[^\\s.!?]+){2}[.!?]\\s+T[^\\s.!?]*(?:\\s+[^\\s.!?]+){3}[.!?]\\s+O[^\\s.!?]*(?:\\s+[^\\s.!?]+){4}[.!?]\\s+G[^\\s.!?]*(?:\\s+[^\\s.!?]+){5}[.!?]\\s+R[^\\s.!?]*(?:\\s+[^\\s.!?]+){6}[.!?]\\s+A[^\\s.!?]*(?:\\s+[^\\s.!?]+){7}[.!?]\\s+P[^\\s.!?]*(?:\\s+[^\\s.!?]+){8}[.!?]\\s+H[^\\s.!?]*(?:\\s+[^\\s.!?]+){9}[.!?]\\s+E[^\\s.!?]*(?:\\s+[^\\s.!?]+){10}[.!?]\\s+R[^\\s.!?]*(?:\\s+[^\\s.!?]+){11}[.!?]\\Z",
-      "mode": "must_match",
-      "ignore_case": false
-     }
-    },
-    {
-     "id": "cartographer",
-     "question": "Does the paragraph contain the word 'cartographer'?",
-     "decision_rule": "True iff /\\bcartographer\\b/i matches.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\bcartographer\\b",
-      "mode": "must_match"
-     }
-    },
-    {
-     "id": "required_phrase",
-     "question": "Does the text include the exact phrase 'every map forgets its maker'?",
-     "decision_rule": "True iff the phrase appears literally (any capitalization).",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "\\bevery map forgets its maker\\b",
-      "mode": "must_match"
-     }
-    },
-    {
-     "id": "no_digits",
-     "question": "Are digits absent from the text?",
-     "decision_rule": "True iff no digit characters 0-9 appear.",
-     "required": true,
-     "tier0_check": {
-      "type": "regex_constraint",
-      "pattern": "[0-9]",
-      "mode": "must_not_match"
-     }
-    },
-    {
-     "id": "meditation",
-     "question": "Does the paragraph read as one coherent meditation on mapmaking and the limits of maps, with each sentence following from the last, rather than twelve disconnected fragments?",
-     "decision_rule": "True iff the twelve sentences develop a single connected line of thought about maps and territory in natural English.",
-     "required": false,
-     "weight": 0.5
+  },
+  {
+    "id": "v4.prose.god_mode.02",
+    "category": "Prose",
+    "tier": 1,
+    "difficulty": "god_mode",
+    "prompt": "Write a SNOWBALL PARAGRAPH about mapmaking and the limits of maps: a single paragraph of exactly 12 sentences in which sentence 1 contains exactly 1 word, sentence 2 exactly 2 words, sentence 3 exactly 3 words, and so on, adding one word per sentence up to sentence 12 with exactly 12 words (78 words in total). Constraints:\n- The first letters of the 12 sentences, in order, must spell CARTOGRAPHER (sentence 1 begins with capital C, sentence 2 with A, sentence 3 with R, sentence 4 with T, sentence 5 with O, sentence 6 with G, sentence 7 with R, sentence 8 with A, sentence 9 with P, sentence 10 with H, sentence 11 with E, sentence 12 with R). Each sentence must begin directly with its required capital letter: no leading punctuation or quotation marks.\n- Counting rules: a word is any run of characters containing no spaces and no sentence-ending punctuation; each sentence must end with '.', '!' or '?', and those three characters must not appear anywhere except at the ends of sentences (no abbreviations written with periods, no ellipses). Commas, semicolons, colons, hyphens, and apostrophes inside a sentence are fine and do not split or end a word.\n- The word 'cartographer' must appear somewhere in the paragraph.\n- The exact phrase 'every map forgets its maker' must appear (any capitalization).\n- No digits anywhere.\n- One paragraph only: no blank lines.\nOutput ONLY the piece itself in plain ASCII text: no title, no preamble, no explanation, no markdown code fences, no trailing commentary.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "one_para",
+          "question": "Is the response a single paragraph (no blank-line breaks)?",
+          "decision_rule": "Split on blank lines; true iff exactly 1 block.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "stanza",
+            "op": "==",
+            "n": 1
+          }
+        },
+        {
+          "id": "sentences",
+          "question": "Does the paragraph consist of exactly 12 sentences?",
+          "decision_rule": "Split on ./!/? terminators; true iff exactly 12 sentences.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "sentence",
+            "op": "==",
+            "n": 12
+          }
+        },
+        {
+          "id": "snowball_acrostic",
+          "question": "Does sentence k contain exactly k words for k = 1..12, with the sentence initials spelling CARTOGRAPHER and '.', '!', '?' appearing only as sentence terminators?",
+          "decision_rule": "True iff the paragraph is exactly 12 sentences whose word counts are 1,2,...,12 in order, sentence k begins with the k-th capital letter of CARTOGRAPHER, and no sentence-ending punctuation appears inside a sentence.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\AC[^\\s.!?]*[.!?]\\s+A[^\\s.!?]*(?:\\s+[^\\s.!?]+){1}[.!?]\\s+R[^\\s.!?]*(?:\\s+[^\\s.!?]+){2}[.!?]\\s+T[^\\s.!?]*(?:\\s+[^\\s.!?]+){3}[.!?]\\s+O[^\\s.!?]*(?:\\s+[^\\s.!?]+){4}[.!?]\\s+G[^\\s.!?]*(?:\\s+[^\\s.!?]+){5}[.!?]\\s+R[^\\s.!?]*(?:\\s+[^\\s.!?]+){6}[.!?]\\s+A[^\\s.!?]*(?:\\s+[^\\s.!?]+){7}[.!?]\\s+P[^\\s.!?]*(?:\\s+[^\\s.!?]+){8}[.!?]\\s+H[^\\s.!?]*(?:\\s+[^\\s.!?]+){9}[.!?]\\s+E[^\\s.!?]*(?:\\s+[^\\s.!?]+){10}[.!?]\\s+R[^\\s.!?]*(?:\\s+[^\\s.!?]+){11}[.!?]\\Z",
+            "mode": "must_match",
+            "ignore_case": false
+          }
+        },
+        {
+          "id": "cartographer",
+          "question": "Does the paragraph contain the word 'cartographer'?",
+          "decision_rule": "True iff /\\bcartographer\\b/i matches.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\bcartographer\\b",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "required_phrase",
+          "question": "Does the text include the exact phrase 'every map forgets its maker'?",
+          "decision_rule": "True iff the phrase appears literally (any capitalization).",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\bevery map forgets its maker\\b",
+            "mode": "must_match"
+          }
+        },
+        {
+          "id": "no_digits",
+          "question": "Are digits absent from the text?",
+          "decision_rule": "True iff no digit characters 0-9 appear.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "[0-9]",
+            "mode": "must_not_match"
+          }
+        },
+        {
+          "id": "meditation",
+          "question": "Does the paragraph read as one coherent meditation on mapmaking and the limits of maps, with each sentence following from the last, rather than twelve disconnected fragments?",
+          "decision_rule": "True iff the twelve sentences develop a single connected line of thought about maps and territory in natural English.",
+          "required": false,
+          "weight": 0.5
+        }
+      ]
     }
-   ]
+  },
+  {
+    "id": "v4.prose.god_mode.03",
+    "category": "Prose",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Below is a paragraph template with four blanks. Complete it by replacing each blank with a number written out in English words, so that every claim the finished paragraph makes about itself is exactly true. Exactly one completion is true.\n\nTEMPLATE (reproduce it exactly, character for character, changing only the four blanks):\nmy ledger of letters is sealed: it holds exactly ___ letters all told, and among them the letter e occurs exactly ___ times, the letter n occurs exactly ___ times, and the letter s occurs exactly ___ times.\n\nRULES:\n1. A letter is any of the twenty-six characters a-z, counted case-insensitively. Spaces, hyphens, colons, commas, and periods are not letters. Every count refers to the ENTIRE finished paragraph, including all the letters inside the spelled-out numbers themselves.\n2. Write each number in lowercase English words, American style, with no 'and': join tens and units with a hyphen (forty-two, ninety-seven); join all other parts with single spaces (one hundred forty-two, two hundred seven, three hundred).\n3. All four claims must be true simultaneously.\nOutput ONLY the finished paragraph on a single line, in lowercase, with no title, no quotes, and no commentary.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "exact_match",
+          "value": "my ledger of letters is sealed: it holds exactly one hundred ninety-eight letters all told, and among them the letter e occurs exactly thirty-seven times, the letter n occurs exactly eleven times, and the letter s occurs exactly thirteen times.",
+          "normalize": true,
+          "ignore_case": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "v4.prose.god_mode.04",
+    "category": "Prose",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Below is a one-paragraph seascape with twenty numbered slots, then three choices for each slot. Build the finished paragraph by choosing EXACTLY ONE of the three given words for every slot and reproducing every other character unchanged: same words, same single spaces, same punctuation, no brackets, no slot numbers.\n\nTEMPLATE:\nthe [1] lamp of the lighthouse [2] over the [3] harbor, and its [4] beam [5] across the [6] water. a [7] keeper [8] the [9] stair, [10] the [11] lens, and [12] the [13] ships as they [14] past the [15] rocks. beyond the [16] wall the [17] sea [18] its [19] salt against the [20] stones.\n\nCHOICES:\n[1] bright | pale | golden\n[2] glowed | wavered | shone\n[3] sleeping | silent | shrouded\n[4] slow | thin | patient\n[5] swept | flickered | wandered\n[6] black | cold | silver\n[7] tired | lonely | watchful\n[8] climbed | mounted | ascended\n[9] winding | narrow | crooked\n[10] polished | wiped | dusted\n[11] great | heavy | massive\n[12] counted | watched | followed\n[13] distant | passing | laden\n[14] slipped | hurried | labored\n[15] sunken | hidden | ragged\n[16] outer | ancient | broken\n[17] restless | heaving | midnight\n[18] threw | ground | pressed\n[19] gray | sharp | bitter\n[20] patient | weary | barnacled\n\nCONSTRAINT: counting case-insensitively over the whole finished paragraph (spaces, commas, and periods are not letters), the paragraph must contain EXACTLY\na=26, b=6, c=6, d=15, e=39, f=2, g=7, h=20, i=15, j=0, k=5, l=14, m=3, n=17, o=14, p=6, q=0, r=19, s=23, t=29, u=3, v=2, w=5, x=0, y=3, z=0.\nAll twenty-six counts must hold at once; exactly one combination of choices achieves this.\nOutput ONLY the finished paragraph on a single line, in lowercase, with no title, no quotes, and no commentary.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "exact_match",
+          "value": "the pale lamp of the lighthouse glowed over the silent harbor, and its thin beam flickered across the silver water. a tired keeper ascended the narrow stair, polished the great lens, and watched the distant ships as they labored past the sunken rocks. beyond the broken wall the midnight sea ground its gray salt against the barnacled stones.",
+          "normalize": true,
+          "ignore_case": true
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "v4.prose.god_mode.05",
+    "category": "Prose",
+    "tier": 1,
+    "difficulty": "god_mode",
+    "prompt": "A self-enumerating sentence. Take the template below and replace each of the twelve NUMBER slots with an English number word so that every claim the finished sentence makes about itself is true.\n\nTEMPLATE (one single line):\nThis aeon ledger measures itself: NUMBER e's, NUMBER g's, NUMBER i's, NUMBER n's, NUMBER o's, NUMBER r's, NUMBER s's, NUMBER t's, NUMBER u's, NUMBER v's, NUMBER w's, and NUMBER x's.\n\nRules:\n1. Truth condition: for each listed letter, the inserted number word must equal the total number of occurrences of that letter in the ENTIRE finished sentence - the template words, the twelve letter labels, and all twelve inserted number words all count. Counting is case-insensitive and counts letters a-z only (apostrophes, hyphens, commas, the colon, the period and spaces are not letters).\n2. Number words: every count is at least one and at most sixty, written as a lowercase English number word using exactly these spellings: one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen, fifteen, sixteen, seventeen, eighteen, nineteen, twenty, thirty, forty, fifty, sixty. Numbers from twenty-one to fifty-nine join the tens word and the units word with a single hyphen (for example fifty-seven). No digits anywhere. Never write 'and' inside a number word.\n3. Fidelity: every character of the template outside the NUMBER slots must be kept exactly as given - same words, same casing, same commas, same apostrophe-s letter labels, the colon, the single 'and', and the final period. Plain ASCII. One single line.\nUnder these rules the system has exactly one solution.\nOutput ONLY the finished sentence on one line: no title, no reasoning, no quotation marks, no code fences, nothing before it and nothing after it.",
+    "eval": {
+      "rubric": [
+        {
+          "id": "one_line",
+          "question": "Is the response a single block with no blank-line breaks?",
+          "decision_rule": "Split on blank lines; true iff exactly 1 block.",
+          "required": true,
+          "tier0_check": {
+            "type": "structural_count",
+            "unit": "stanza",
+            "op": "==",
+            "n": 1
+          }
+        },
+        {
+          "id": "no_digits",
+          "question": "Are digit characters completely absent?",
+          "decision_rule": "True iff no 0-9 appears anywhere.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "[0-9]",
+            "mode": "must_not_match"
+          }
+        },
+        {
+          "id": "self_enumeration_exact",
+          "question": "Is the response exactly the completed template whose twelve number words make every letter-count claim true of the sentence itself?",
+          "decision_rule": "The count system has a unique solution under the stated number-word grammar (proven by exhaustive search over [1,60]^12 with sound interval propagation); true iff the response is that sentence character-for-character (whitespace runs equivalent, ASCII or typographic apostrophes accepted). Any other count word, any altered template character, or any surrounding text fails.",
+          "required": true,
+          "tier0_check": {
+            "type": "regex_constraint",
+            "pattern": "\\AThis\\s+aeon\\s+ledger\\s+measures\\s+itself:\\s+twenty\\-three\\s+e['’]s,\\s+two\\s+g['’]s,\\s+seven\\s+i['’]s,\\s+ten\\s+n['’]s,\\s+five\\s+o['’]s,\\s+six\\s+r['’]s,\\s+nineteen\\s+s['’]s,\\s+eleven\\s+t['’]s,\\s+three\\s+u['’]s,\\s+five\\s+v['’]s,\\s+four\\s+w['’]s,\\s+and\\s+two\\s+x['’]s\\.\\Z",
+            "mode": "must_match",
+            "ignore_case": false
+          }
+        }
+      ]
+    }
   }
- }
 ]

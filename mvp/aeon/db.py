@@ -776,6 +776,20 @@ def perf_results():
 
 # ---- arena artifacts ----
 
+def artifact_stored(*, kind, prompt_id, model, html):
+    """True when an identical artifact (same generation, byte-equal html) is already stored —
+    the checkpoint-resend dedup key. Artifact ids are minted at ingest, so identity across
+    cumulative checkpoint bundles is CONTENT, not id. (Distinct from artifact_exists() below,
+    the model-level presence probe.) Table is small (hundreds of rows, ≤12 candidates per
+    bundle), so the equality scan is cheap."""
+    init_db()
+    with connect() as c:
+        row = c.execute(
+            "SELECT 1 FROM arena_artifacts WHERE kind=? AND prompt_id=? AND model=? AND html=? LIMIT 1",
+            (kind, prompt_id, model, html)).fetchone()
+    return row is not None
+
+
 def save_artifact(aid, *, kind, prompt_id, model, html, ok=True, gen_ms=None, bogus=False):
     init_db()
     with connect() as c:

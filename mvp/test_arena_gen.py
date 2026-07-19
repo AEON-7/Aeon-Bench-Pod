@@ -57,6 +57,37 @@ ok(ids_m1 == ids_m2, "seed: same seed -> identical prompt_ids across models")
 ok(ids_m1 != ids_s2, "seed: different seed -> different prompt_ids")
 ok(all(arena.find_prompt(a["kind"], a["prompt_id"]) for a in arts), "seed: picks are real prompts")
 
+# ---------- (b2) guaranteed god slot ----------
+# When a kind carries god_mode prompts, every draw reserves ONE slot for a god challenge —
+# god-tier generation is a reliable part of every bench, not a lottery ticket.
+_saved_prompts = arena.PROMPTS
+arena.PROMPTS = {
+    "app": ([{"id": "god.x%d" % i, "title": "G%d" % i, "brief": "b", "prompt": "p",
+              "difficulty": "god_mode"} for i in range(2)]
+            + [{"id": "app.n%d" % i, "title": "N%d" % i, "brief": "b", "prompt": "p",
+                "difficulty": "medium"} for i in range(6)]),
+    "game": [{"id": "game.n%d" % i, "title": "N%d" % i, "brief": "b", "prompt": "p"}
+             for i in range(4)],                     # no god prompts -> classic draw
+    "animation": [{"id": "anim.g0", "title": "G", "brief": "b", "prompt": "p",
+                   "difficulty": "god_mode", "agent_only": True}],  # agent_only never draws
+}
+try:
+    for s in (1, 2, 3, 99):
+        sel = arena_gen.pick_prompts(per_kind=3, seed=s)
+        app_picks = [p for k, p in sel if k == "app"]
+        ok(sum(1 for p in app_picks if p["id"].startswith("god.")) == 1 and len(app_picks) == 3,
+           "god slot: seed %d draw has exactly one god pick among 3 (cost unchanged)" % s)
+    g1 = [p["id"] for k, p in arena_gen.pick_prompts(per_kind=3, seed=5)]
+    g2 = [p["id"] for k, p in arena_gen.pick_prompts(per_kind=3, seed=5)]
+    ok(g1 == g2, "god slot: draw stays deterministic per seed")
+    game_picks = [p for k, p in arena_gen.pick_prompts(per_kind=3, seed=5) if k == "game"]
+    ok(len(game_picks) == 3 and all(not p["id"].startswith("god.") for p in game_picks),
+       "god slot: a kind without god prompts draws exactly as before")
+    anim_picks = [p for k, p in arena_gen.pick_prompts(per_kind=1, seed=5) if k == "animation"]
+    ok(anim_picks == [], "god slot: agent_only god prompts stay out of the direct pool")
+finally:
+    arena.PROMPTS = _saved_prompts
+
 # ---------- failure path: broken target never raises ----------
 class _Boom:
     def chat(self, *a, **k):
@@ -89,8 +120,10 @@ artifacts = [
     art(5, html=BIG_HTML),                         # saved TRUNCATED to 200KB
     art(6, kind="weird"),                          # skipped: unknown kind
     art(7, prompt_id="<img src=x>"),               # saved with sanitized prompt_id
-] + [art(10 + i, kind="animation", prompt_id="anim.balls") for i in range(5)]  # 5 more good -> 12 items
-base_saved = 9                                      # items 1,2,5,7 + 5 animations
+] + [art(10 + i, kind="animation", prompt_id="anim.balls",           # 5 DISTINCT generations of one
+         html=GOOD_HTML.replace("hi", "hi v%d" % i)) for i in range(5)]  # prompt — all must save
+artifacts.append(art(20))                           # byte-identical resend of item 1 -> content-deduped
+base_saved = 9                                      # items 1,2,5,7 + 5 animations (dupe of 1 skipped)
 base_len = len(artifacts)
 # Add enough valid extras to prove the configurable MAX_ARTIFACTS cap still applies.
 for i in range(max(0, ingest.MAX_ARTIFACTS - base_len + 1)):
@@ -103,13 +136,16 @@ results = [{"case_id": "c1", "category": "math", "score": 1.0},
            {"case_id": "c2", "category": "code", "score": 0.5}]
 bundle = {"results": results, "artifacts": artifacts}
 
+# Artifacts persist on EVERY checkpoint (content-deduped) — riding only the final commit
+# lost a real submission's gallery items when its last POST never arrived (PrismaAURA).
 ingest._commit(pod, bundle, final=False)           # checkpoint 1
-ok(db.list_artifacts() == [], "ingest: final=False saves NO artifacts")
+rows = db.list_artifacts(with_html=True)
+ok(len(rows) == expected_saved, "ingest: FIRST checkpoint already saves artifacts (%d, got %d)" % (expected_saved, len(rows)))
 ingest._commit(pod, bundle, final=False)           # checkpoint resend
-ok(db.list_artifacts() == [], "ingest: checkpoint resend still saves NO artifacts")
+ok(len(db.list_artifacts()) == expected_saved, "ingest: checkpoint resend dedups by content (no duplicates)")
 ingest._commit(pod, bundle, final=True)            # final commit
 rows = db.list_artifacts(with_html=True)
-ok(len(rows) == expected_saved, "ingest: final commit saved exactly %d (caps + skips enforced, got %d)" % (expected_saved, len(rows)))
+ok(len(rows) == expected_saved, "ingest: final commit adds nothing new (still exactly %d, got %d)" % (expected_saved, len(rows)))
 ok(all(not set('<>"\'`') & set(r["model"]) and len(r["model"]) <= 80 for r in rows),
    "ingest: model sanitized (no markup, <=80 chars)")
 ok(all(not set('<>"\'`') & set(r["prompt_id"]) for r in rows), "ingest: prompt_id sanitized")

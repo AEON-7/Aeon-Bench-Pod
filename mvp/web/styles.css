@@ -1035,7 +1035,12 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
    Selected = solid cyan fill + inset glow + lit corner reticle (clip-path clips outer shadows,
    so all depth is inset). Unselected still reads clickable: visible border, facet edges,
    hover lift + cyan border shift. */
-.gal-kinds { display: flex; gap: 10px; flex-wrap: wrap; }
+.gal-kinds {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  /* CENTERED on its own full-width row — right-anchored in the header, the three plates
+     pushed past the viewport edge when a wide kind was active */
+  justify-content: center; width: 100%; max-width: 100%; min-width: 0;
+}
 .gal-kind {
   position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   padding: 10px 26px; cursor: pointer; user-select: none;
@@ -1088,6 +1093,20 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
   .gal-kinds { width: 100%; gap: 8px; }
   .gal-kind { flex: 1 1 0; min-width: 0; padding: 10px 8px; font-size: 13px; letter-spacing: .09em; }
 }
+/* placement numerals — the SAME ghost grammar as the global board's giant ranks */
+.gal-rank {
+  font-size: 44px; font-weight: 800; line-height: .85; letter-spacing: -3px;
+  font-variant-numeric: tabular-nums; user-select: none; flex: none; margin-right: 4px;
+  color: transparent; -webkit-text-stroke: 1.3px rgba(148, 148, 184, .42);
+}
+@supports not (-webkit-text-stroke: 1px transparent) {
+  .gal-rank { color: rgba(148, 148, 184, .2); }
+}
+.gal-card.gp1 .gal-rank { -webkit-text-stroke-color: rgba(232, 194, 104, .85);
+  text-shadow: 0 0 16px rgba(232, 194, 104, .25); }
+.gal-card.gp2 .gal-rank { -webkit-text-stroke-color: rgba(170, 180, 200, .65); }
+.gal-card.gp3 .gal-rank { -webkit-text-stroke-color: rgba(201, 138, 94, .65); }
+
 .gal-tools { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; flex-wrap: wrap; }
 .gal-tools input { min-width: min(420px, 100%); flex: 1 1 280px; }
 .gal-sec { margin-top: 20px; }
@@ -1112,9 +1131,9 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
 /* rank #1 — the subtle gold of the rank metals, spent on the top card only */
 .gal-card.first { border-color: rgba(232, 194, 104, .5); box-shadow: inset 3px 0 0 var(--r1), inset 0 0 30px rgba(232, 194, 104, .05); }
 .gal-card.first:hover { border-color: rgba(232, 194, 104, .7); box-shadow: inset 3px 0 0 var(--r1), inset 0 0 30px rgba(232, 194, 104, .05), inset 0 1px 0 rgba(255, 255, 255, .07); }
-.gal-card.first .gal-rank { color: var(--r1); }
-.gal-card-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.gal-rank { font-weight: 700; font-size: 13px; color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
+
+.gal-card-h { align-items: center; display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* (rank styling lives in the ghost-numeral block above — board grammar) */
 .gal-ava .model-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
 .gal-model { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
 .gal-stats { display: flex; align-items: baseline; gap: 8px; min-height: 19px; font-size: 12px; }
@@ -2967,28 +2986,58 @@ select:focus {
 }
 
 /* ---- RUN BENCH — the one launch control on the pod: loud, machined, impossible to miss ---- */
-.run-bench-btn {
-  font-family: var(--sans); font-size: 19px; font-weight: 800; letter-spacing: .14em;
-  padding: 16px 46px; border: none; cursor: pointer; color: #041016;
-  background: linear-gradient(135deg, var(--accent) 0%, #7df9ff 55%, var(--accent) 100%);
+button.run-bench-btn {
+  font-family: var(--sans); font-size: 20px; font-weight: 900; letter-spacing: .16em;
+  padding: 18px 52px; cursor: pointer; color: #fff;
+  background:
+    repeating-linear-gradient(45deg, transparent 0 12px, rgba(0, 0, 0, .16) 12px 24px),
+    linear-gradient(180deg, #ff3b30 0%, #d81f14 55%, #a80f08 100%);
+  border: 1px solid #ff6b60; border-bottom-color: #7c0a05;
   clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
-  box-shadow: 0 0 22px rgba(0, 240, 255, .45), 0 0 60px rgba(0, 240, 255, .18);
-  text-shadow: none; transition: transform var(--t-fast), box-shadow var(--t-fast), filter var(--t-fast);
-  animation: rbb-pulse 2.6s ease-in-out infinite;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .28), inset 0 -4px 0 rgba(0, 0, 0, .35),
+              0 0 26px rgba(255, 59, 48, .5), 0 0 70px rgba(255, 59, 48, .2);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .5);
+  transition: transform var(--t-fast), box-shadow var(--t-fast), filter var(--t-fast);
+  animation: rbb-pulse-red 2.4s ease-in-out infinite;
 }
-.run-bench-btn:hover {
-  transform: translateY(-1px) scale(1.02); filter: brightness(1.08);
-  box-shadow: 0 0 30px rgba(0, 240, 255, .65), 0 0 90px rgba(0, 240, 255, .28);
+button.run-bench-btn:hover {
+  transform: translateY(-1px) scale(1.02); filter: brightness(1.1);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .3), inset 0 -4px 0 rgba(0, 0, 0, .35),
+              0 0 36px rgba(255, 59, 48, .75), 0 0 110px rgba(255, 59, 48, .3);
 }
-.run-bench-btn:active { transform: translateY(0) scale(.99); }
-.run-bench-btn:disabled {
+button.run-bench-btn:active { transform: translateY(0) scale(.99); }
+button.run-bench-btn:disabled {
   animation: none; filter: grayscale(.6) brightness(.7); box-shadow: none; cursor: not-allowed;
 }
-.run-bench-btn .rbb-mark { font-size: 15px; margin-right: 6px; }
+button.run-bench-btn .rbb-mark { font-size: 15px; margin-right: 6px; }
 @keyframes rbb-pulse {
   0%, 100% { box-shadow: 0 0 22px rgba(0, 240, 255, .45), 0 0 60px rgba(0, 240, 255, .18); }
   50%      { box-shadow: 0 0 34px rgba(0, 240, 255, .7), 0 0 100px rgba(0, 240, 255, .3); }
 }
+@keyframes rbb-pulse-red {
+  0%, 100% { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .28), inset 0 -4px 0 rgba(0, 0, 0, .35),
+                         0 0 26px rgba(255, 59, 48, .5), 0 0 70px rgba(255, 59, 48, .2); }
+  50%      { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .28), inset 0 -4px 0 rgba(0, 0, 0, .35),
+                         0 0 40px rgba(255, 59, 48, .8), 0 0 120px rgba(255, 59, 48, .32); }
+}
+
+/* SIMPLE / ADVANCED — the two form modes, unmissable machined toggle */
+.run-mode { display: flex; gap: 0; margin-bottom: 14px; }
+.rm-btn {
+  font-family: ui-monospace, monospace; font-size: 13px; font-weight: 800; letter-spacing: .18em;
+  padding: 10px 30px; cursor: pointer; color: var(--muted);
+  background: var(--panel2); border: 1px solid var(--border-strong);
+  transition: color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+}
+.rm-btn:first-child { clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px); }
+.rm-btn:last-child { clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); margin-left: -1px; }
+.rm-btn.active {
+  color: #051318; background: var(--accent); border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(0, 240, 255, .4);
+}
+.rm-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+/* simple mode: every .adv block collapses — the essentials + the big red button remain */
+#runPanel.simple .adv { display: none !important; }
 
 /* ---- gallery card provenance chips: date · NEW pulse · prompt difficulty ---- */
 .gal-meta { display: flex; align-items: center; gap: 7px; margin-top: 4px; min-height: 15px; }

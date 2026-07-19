@@ -1399,7 +1399,7 @@ function galCard(a, p, i) {
   const hchip = a.harness
     ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
     : "";
-  return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
+  return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}${i < 3 ? " gp" + (i + 1) : ""}">
     <div class="gal-card-h">
       <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
       <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
@@ -2146,6 +2146,24 @@ const PERF_METRICS = [
 const PERF_COLORS = { overall: "#e3e3ee", Math: "#5ee0ff", Coding: "#7dff9a", Reasoning: "#ffd166", Instruction: "#ff8fa3", Prose: "#c39bff" };
 
 let GOD = null;
+
+// SIMPLE / ADVANCED form modes on the Run tab: simple shows the essentials (link + local
+// weights + validation + Test plan + RUN BENCH); advanced reveals every knob. Persisted.
+function applyRunMode(mode) {
+  const rp = $("#runPanel");
+  if (!rp) return;
+  rp.classList.toggle("simple", mode !== "advanced");
+  $$("#runMode .rm-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode
+    || (mode !== "advanced" && b.dataset.mode === "simple")));
+  try { localStorage.setItem("aeon_runmode", mode); } catch (e) {}
+}
+
+function wireRunMode() {
+  let mode = "simple";
+  try { mode = localStorage.getItem("aeon_runmode") || "simple"; } catch (e) {}
+  applyRunMode(mode);
+  $$("#runMode .rm-btn").forEach((b) => b.onclick = () => applyRunMode(b.dataset.mode));
+}
 
 async function setGod() {
   active = "god";
@@ -3694,6 +3712,7 @@ function runStatus(msg, cls) {
 }
 
 async function setRun() {
+  wireRunMode();
   active = "run";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.run));
   ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#livePanel"]

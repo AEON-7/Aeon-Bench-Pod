@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=97" />
+  <link rel="stylesheet" href="/static/styles.css?v=98" />
 </head>
 <body>
   <header>
@@ -39,6 +39,7 @@
       <span class="tabgroup" data-label="Boards">
         <button class="tab active" data-board="text">Global Leaderboard</button>
         <button class="tab" data-perf="1">Performance</button>
+        <button class="tab god-tab" data-god="1" title="the hardest class only — god sentinels, god agentic tasks, god-tier code generation">GOD MODE</button>
       </span>
       <span class="tabgroup" data-label="Your lab">
         <button class="tab" data-live="1">Live</button>
@@ -84,6 +85,15 @@
       </details>
     </section>
 
+
+    <section class="panel" id="godPanel" hidden>
+      <div class="lbhead"><h2 class="god-title">GOD MODE BENCH</h2></div>
+      <p class="lede">The hardest class, exclusively — <b>god sentinels</b> (atomic all-or-nothing), <b>god agentic tasks</b> through every harness, and <b>god-tier code generation</b> in the arena. Beyond-frontier by construction; most models should fail most of it.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">A <b>GOD MODE</b> bench run (Run tab → Test plan → GOD MODE BENCH) serves the model through the same verified HF-pull flow, then runs ONLY the god tier: every god sentinel (scored by atomic checkers — a 90%-right answer scores 0), the god agentic tasks through Hermes / OpenClaw / OpenCode, and god-tier arena challenges (those artifacts land in the Code Gallery for human votes). <b>GOD SCORE = 0.6 × sentinels + 0.4 × agentic</b>, renormalized when a component is untested. Attested runs only; partial god passes never rank.</p>
+      </details>
+      <div id="godBody"></div>
+    </section>
 
     <section class="panel" id="perfPanel" hidden>
       <div class="lbhead"><h2>Performance</h2></div>
@@ -282,6 +292,7 @@
               <option value="comprehensive" selected>Comprehensive — text · 3 harnesses · vision · audio · video · arena · perf</option>
               <option value="">Text suite only — quick quality score, no harness/perf boards</option>
               <option value="hard-bench">Hard Bench — hard+expert tiers through every harness</option>
+              <option value="god-mode">GOD MODE BENCH — god sentinels · god agentic · god code-gen (own board)</option>
             </select></label>
             <label>Scope<select id="hfDiff">
               <option value="">Full suite</option><option value="easy">Easy</option>
@@ -649,6 +660,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=97"></script>
+  <script src="/static/app.js?v=98"></script>
 </body>
 </html>

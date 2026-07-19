@@ -668,7 +668,7 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, harn
     return st, r
 
 
-def _arena_artifacts(target, alias, *, seed=None, per_kind=2):
+def _arena_artifacts(target, alias, *, seed=None, per_kind=2, only_difficulty=None):
     """Game/app/animation artifacts from the served model (part of EVERY benchmark). Seeded so
     every model in a sweep answers the IDENTICAL prompts. Returned for the signed submit bundle."""
     from pod import arena_gen
@@ -679,7 +679,7 @@ def _arena_artifacts(target, alias, *, seed=None, per_kind=2):
         _stage("arena", d, tot)
 
     arts = arena_gen.generate_for_model(target, alias, per_kind=per_kind, seed=seed,
-                                        progress_cb=_acb)
+                                        progress_cb=_acb, only_difficulty=only_difficulty)
     ok = sum(1 for a in arts if a.get("ok"))
     print(f"[pod] arena: {ok}/{len(arts)} artifacts generated")
     return arts
@@ -860,7 +860,10 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             print(f"[pod] local env stamp failed (non-fatal): {e}")
         # ARENA generation (games/apps/animations) ships INSIDE the signed text bundle.
         artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
-                                     per_kind=arena_per_kind) if arena_per_kind else []
+                                     per_kind=arena_per_kind,
+                                     # a pure-god scope draws ONLY god-tier challenges
+                                     only_difficulty=("god_mode" if (difficulty or "").strip() == "god_mode"
+                                                      else None)) if arena_per_kind else []
         # Mirror the artifacts into the pod's own arena/gallery (the mothership saves its
         # copy from the signed bundle; the pod keeps its own).
         try:
@@ -1449,7 +1452,7 @@ def main():
         "(e.g. 'hard,expert' for the rapid bench); applies to the graded suite-v2 cases")
     ap.add_argument("--category", default=None, help="only cases whose category is in this comma-list "
         "(e.g. 'codegen') — applied ALONGSIDE --difficulty on the text suite; default: all categories")
-    ap.add_argument("--preset", default=None, choices=("comprehensive", "hard-bench"),
+    ap.add_argument("--preset", default=None, choices=("comprehensive", "hard-bench", "god-mode"),
         help="one-shot bundle: 'comprehensive' = everything on (all harnesses + vision + audio + video "
         "+ arena + perf); 'hard-bench' = the hard,expert tiers through all harnesses only "
         "(no vision/audio/video/arena/perf)")
@@ -1532,6 +1535,16 @@ def main():
         a.no_audio = True
         a.no_video = True
         a.arena = 0
+        a.perf = False
+    elif a.preset == "god-mode":                  # GOD MODE BENCH - its own board: exclusively the
+        a.difficulty = "god_mode"                 # god sentinels + god agentic tasks through every
+        a.harness = a.harness or "all"            # harness + god-tier code-gen arena challenges
+        a.board = "god"
+        a.no_vision = True
+        a.no_audio = True
+        a.no_video = True
+        if a.arena == 0:
+            a.arena = 2                           # 2 god challenges per kind (draw pool = god tier)
         a.perf = False
 
     # EXPLICIT modality toggles (GUI chips / --modalities / AEON_MODALITIES) win over both the

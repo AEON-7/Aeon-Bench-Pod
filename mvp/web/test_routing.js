@@ -174,5 +174,15 @@ ok(eq(last(), ["replace", "#/submissions/r-9"]),
 ROUTE.applying = false;
 
 // ----------------------------------------------------------------
+
+// ---- GOD MODE board route ----
+console.log("#/god route");
+ok(app.parseRoute("#/god").tab === "god", "#/god parses to the god tab");
+ok(app.routeHash("god") === "#/god", "routeHash emits #/god");
+{ const g = app.gateRoute({ tab: "god", arg: null }, "mothership", false);
+  ok(g.tab === "god" && !g.redirect, "god board is public on the mothership (no gate)"); }
+{ const g = app.gateRoute({ tab: "god", arg: null }, "pod", false);
+  ok(g.tab === "god", "god board reachable on the pod too"); }
+
 if (fails) { console.error("\n" + fails + " assertion(s) FAILED"); process.exit(1); }
 console.log("\nall assertions passed");

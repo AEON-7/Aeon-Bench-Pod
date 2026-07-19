@@ -1318,7 +1318,7 @@ function setGallery() {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.gallery));
   ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
-  const gp = $("#galleryPanel"); if (gp) gp.hidden = false;
+  const gp = $("#galleryPanel", "#godPanel"); if (gp) gp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   syncHash("gallery");
   renderGalKinds();
@@ -2145,11 +2145,69 @@ const PERF_METRICS = [
 ];
 const PERF_COLORS = { overall: "#e3e3ee", Math: "#5ee0ff", Coding: "#7dff9a", Reasoning: "#ffd166", Instruction: "#ff8fa3", Prose: "#c39bff" };
 
+let GOD = null;
+
+async function setGod() {
+  active = "god";
+  $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.god));
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
+   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel", "#perfPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  const gp = $("#godPanel"); if (gp) gp.hidden = false;
+  { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("god");
+  $("#godBody").innerHTML = skel(4, 14);
+  try { GOD = await api("/api/god/board"); } catch (e) { GOD = null; }
+  const ms = (GOD && GOD.models) || [];
+  if (!ms.length) {
+    $("#godBody").innerHTML = `<p class="note" style="text-align:left">No GOD MODE runs yet — launch one from the pod: <b>Run tab → Test plan → GOD MODE BENCH</b>. Only the god tier runs; only attested full passes rank.</p>`;
+    return;
+  }
+  $("#godBody").innerHTML = `<div class="mcards god-board">` + ms.map((m, i) => godRow(m, i)).join("") + `</div>`;
+  $$("#godBody .grow[data-run]").forEach((r) => {
+    r.onclick = () => openSubmission(r.dataset.run);
+    r.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSubmission(r.dataset.run); } };
+  });
+}
+
+// one GOD MODE board row: rank · white-hot GOD SCORE · sentinel cells · agentic harness chips.
+// Absent components render honestly (untested), never as zeros.
+function godRow(m, i) {
+  const s = m.sentinels;
+  const ag = m.agentic;
+  const prov = !!m.god_provisional;
+  const badge = m.record_eligible
+    ? `<span class="elig-badge verified" title="verified HF-pull controlled run">✓ verified</span>`
+    : `<span class="elig-badge local" title="not an attested run — shown, not record-eligible">local</span>`;
+  const cats = s && s.categories
+    ? Object.entries(s.categories).map(([c, v]) =>
+        `<span class="god-cat"><b class="god-cat-n ${v >= 80 ? "pass" : v >= 40 ? "part" : "fail"}">${fmtComp(v)}</b>${escH(c)}</span>`).join("")
+    : `<span class="god-untested">sentinels not yet tested</span>`;
+  const harn = ag && ag.harnesses
+    ? Object.entries(ag.harnesses).map(([h, v]) =>
+        `<span class="god-harn" title="god agentic through ${escA(h)}">${escH(h)} <b>${fmtComp(v)}</b></span>`).join("")
+    : `<span class="god-untested">agentic not yet tested</span>`;
+  const cov = s ? `<span class="god-cov" title="god sentinels attempted of the run's suite">${s.n_attempted}/${s.n_total} sentinels</span>` : "";
+  return `<div class="grow${i === 0 ? " top" : ""}" ${s && s.run ? `data-run="${escA(s.run)}"` : ""} tabindex="0" role="button" aria-label="open the god run for ${escA(m.model)}">
+    <div class="god-rank">${String(i + 1).padStart(2, "0")}</div>
+    <div class="god-score-wrap${prov ? " prov" : ""}" title="GOD SCORE — 0.6 × sentinels + 0.4 × agentic${prov ? " (renormalized: a component is untested)" : ""}">
+      <span class="god-score">${m.god_score != null ? m.god_score.toFixed(1) : "—"}</span>
+      <span class="god-score-lbl">god score</span>
+      ${prov ? `<span class="aeon-prov">not fully tested</span>` : ""}
+    </div>
+    <div class="god-id">
+      <span class="mrow-model">${fmtModel(m.model)}</span> ${badge} ${cov}
+      <div class="god-cats">${cats}</div>
+      <div class="god-harns">${harn}</div>
+    </div>
+  </div>`;
+}
+
 async function setPerf() {
   active = "perf";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.perf));
   ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
-   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel"]
+   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel", "#godPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const pp = $("#perfPanel"); if (pp) pp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
@@ -2946,7 +3004,7 @@ const ROUTE = { applying: false, perfPending: null, cur: "" };
 const ARENA_KINDS = ["app", "game", "animation"];
 // route segment → the nav button's data-attribute (single source for gate + dispatch)
 const TAB_ATTR = {
-  board: "data-board", performance: "data-perf", live: "data-live", run: "data-run",
+  board: "data-board", performance: "data-perf", god: "data-god", live: "data-live", run: "data-run",
   harnesses: "data-harness", compare: "data-compare", submissions: "data-subs",
   arena: "data-arena", gallery: "data-gallery", admin: "data-admin",
 };
@@ -3011,7 +3069,7 @@ function syncHash(tab, arg, push) {
 
 // hide every auxiliary panel before a tab setter reveals its own (fixes panel stacking)
 function hideAuxPanels() {
-  ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#perfPanel"]
+  ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#godPanel", "#perfPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
 }
 // the single tab dispatch — nav clicks AND the hash router go through here (no duplicate logic)
@@ -3023,6 +3081,7 @@ function dispatchTab(t) {
     : t.dataset.live ? setLive()
     : t.dataset.run ? setRun()
     : t.dataset.gallery ? setGallery()
+    : t.dataset.god ? setGod()
     : t.dataset.perf ? setPerf()
     : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
 }
@@ -5169,7 +5228,7 @@ async function init() {
 if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST === "1"
     && typeof module !== "undefined") {
   module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp,
-    fmtCtx, ctxChip, parseRoute, routeHash, gateRoute, syncHash, ROUTE,
+    fmtCtx, ctxChip, parseRoute, routeHash, gateRoute, syncHash, ROUTE, godRow,
     expBand, expHeat, expLine, expToggleModel, expDefaultSel, expTpsMax, expFacetFilter, expPlateHead, galCard };
 } else {
   init();

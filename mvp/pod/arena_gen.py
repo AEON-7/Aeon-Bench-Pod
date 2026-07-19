@@ -29,7 +29,7 @@ def _cap_html(html: str, limit: int = MAX_HTML_BYTES) -> str:
     return b[:limit].decode("utf-8", "ignore")
 
 
-def pick_prompts(per_kind: int = 2, seed=None):
+def pick_prompts(per_kind: int = 2, seed=None, only_difficulty=None):
     """Deterministically pick `per_kind` prompts per kind from aeon.arena.PROMPTS.
 
     Same seed (and same prompt corpus) -> same selection, independent of the model —
@@ -41,6 +41,8 @@ def pick_prompts(per_kind: int = 2, seed=None):
     for kind in arena.KINDS:
         pool = sorted((p for p in arena.PROMPTS.get(kind, []) if not p.get("agent_only")),
                       key=lambda p: p["id"])
+        if only_difficulty:                       # GOD MODE BENCH: the draw pool IS the god tier
+            pool = [p for p in pool if p.get("difficulty") == only_difficulty]
         n = min(per_kind, len(pool))
         if n <= 0:
             continue
@@ -90,7 +92,8 @@ def _make_target(target_url, alias, api_key):
 
 
 def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None,
-                       max_tokens=8000, temperature=0.4, progress_cb=None):
+                       max_tokens=8000, temperature=0.4, progress_cb=None,
+                       only_difficulty=None):
     """Generate arena artifacts for one model. NEVER raises.
 
     Returns a list of {kind, prompt_id, title, html, ok, gen_ms, bytes} dicts —
@@ -98,7 +101,7 @@ def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None
     generation (target error, empty/non-HTML output) yields ok=False, html="".
     `progress_cb(done, total, item)` (optional) is called after each artifact.
     """
-    selection = pick_prompts(per_kind=per_kind, seed=seed)
+    selection = pick_prompts(per_kind=per_kind, seed=seed, only_difficulty=only_difficulty)
     total = len(selection)
     out = []
     try:

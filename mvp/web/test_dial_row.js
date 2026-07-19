@@ -284,6 +284,32 @@ const gcXss = app.galCard(
 ok(!gcXss.includes("onerror") && !/gal-diff/.test(gcXss),
    "a non-closed-set difficulty renders NO chip at all (class tokens never carry input)");
 
+// ---------------------------------------------------------------- godRow()
+console.log("godRow() — GOD MODE board rows");
+const gFull = app.godRow({
+  canonical: "o/god-9b", model: "o/god-9b", run: "r-god-1", god_score: 28.4,
+  god_provisional: false, record_eligible: true,
+  sentinels: { run: "r-god-1", composite: 22.0, categories: { Math: 25, Coding: 0 },
+               n_attempted: 24, n_total: 24 },
+  agentic: { score: 38, harnesses: { hermes: 41, opencode: 35 } },
+}, 0);
+ok(/god-score">28.4</.test(gFull), "GOD SCORE renders");
+ok(/data-run="r-god-1"/.test(gFull), "row opens the sentinel run");
+ok(/24\/24 sentinels/.test(gFull), "sentinel coverage disclosed");
+ok(/hermes <b>41(\.0)?</.test(gFull), "per-harness god agentic chips");
+ok(!/aeon-prov/.test(gFull), "full row carries no provisional chip");
+const gProv = app.godRow({
+  canonical: "o/god-4b", model: "o/god-4b", god_score: 10.0, god_provisional: true,
+  record_eligible: true, sentinels: { run: "r-g2", composite: 10.0, categories: { Math: 10 },
+  n_attempted: 24, n_total: 24 }, agentic: null,
+}, 1);
+ok(/aeon-prov/.test(gProv) && /agentic not yet tested/.test(gProv),
+   "missing agentic dims honestly (provisional + untested label, never 0)");
+const gX = app.godRow({ canonical: "e", model: '<img src=x onerror=1>', god_score: 1,
+  god_provisional: true, record_eligible: false, sentinels: null, agentic: null }, 2);
+ok(!gX.includes("<img"), "model name escaped (XSS guard)");
+ok(/sentinels not yet tested/.test(gX), "absent sentinels render the honest untested label");
+
 // ---------------------------------------------------------------- applyRole()
 console.log("applyRole() — two-role nav gating");
 app.CFG.role = "mothership";

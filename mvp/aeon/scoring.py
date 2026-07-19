@@ -926,6 +926,116 @@ def compare_by_seed(seed, board="text"):
             "suite_consistent": len(shashes) <= 1, "suite_hash": shashes[0] if shashes else None}
 
 
+def _god_cases_for(suite_id):
+    """The god_mode case-id set of a run's OWN suite (suite-era aware, like every join)."""
+    return {c["id"] for c in suite_mod.legacy_cases(suite_id) if c.get("difficulty") == "god_mode"}
+
+
+def god_leaderboard():
+    """GOD MODE BENCH — a first-class scoreboard of its OWN (board='god'), exclusively the
+    hardest tier: the god sentinels, god agentic tasks through the harnesses, and god-tier
+    code-gen arena challenges (artifacts ride to the gallery/human votes; this board ranks
+    the deterministic components).
+
+    Per canonical model:
+      sentinels — the BEST attested god text run: per-category means over god cells with the
+        same no_answer ¼-rule as the global board; coverage-gated at ≥90% of the run's OWN
+        suite's god-cell count (a full sweep of a smaller legacy god tier stays covered).
+      agentic — god agentic tasks through each harness: mean per harness, then mean across.
+      GOD SCORE = 0.6·sentinels + 0.4·agentic, renormalized over present components;
+      provisional (not fully tested) when agentic is absent. Attested-only ranks; seeded
+      draws never rank. Same honesty grammar as everything else: absent = null, never 0."""
+    rows = db.all_results_with_runs(board="god")
+    by_run = {}
+    for r in rows:
+        if r.get("bench_seed"):
+            continue
+        by_run.setdefault(r["run"], {
+            "run": r["run"], "model": r["model"],
+            "canonical": r.get("canonical_id") or r["model"],
+            "harness": r.get("harness"), "suite_id": r.get("suite_id"),
+            "trust_tier": r.get("trust_tier") or "self_reported",
+            "started_at": r["started_at"], "results": []})["results"].append(r)
+
+    sentinels, agentic = {}, {}
+    for info in by_run.values():
+        canon = info["canonical"]
+        if info["harness"]:
+            sc = [r["score"] for r in info["results"] if r["score"] is not None]
+            if sc:
+                h = agentic.setdefault(canon, {})
+                cur = h.get(info["harness"])
+                if not cur or (info["started_at"] or 0) > (cur["started_at"] or 0):
+                    h[info["harness"]] = {"score": round(100 * sum(sc) / len(sc), 1),
+                                          "n": len(sc), "started_at": info["started_at"],
+                                          "trust_tier": info["trust_tier"]}
+            continue
+        god_ids = _god_cases_for(info["suite_id"])
+        if not god_ids:
+            continue
+        cats, noans = {}, {}
+        attempted = 0
+        for r in info["results"]:
+            if r["case_id"] not in god_ids:
+                continue
+            if r["score"] is not None:
+                cats.setdefault(r["category"], []).append(r["score"])
+                attempted += 1
+            elif (r.get("status") or "") == "no_answer":
+                noans[r["category"]] = noans.get(r["category"], 0) + 1
+                attempted += 1
+        if attempted < MIN_SUITE_COVERAGE * len(god_ids):
+            continue                       # partial god pass — never a quality-of-record
+        cat_scores = {}
+        for c in list(cats) + [c for c in noans if c not in cats]:
+            sc = cats.get(c, [])
+            denom = len(sc) + 0.25 * noans.get(c, 0)
+            cat_scores[c] = round(100 * sum(sc) / denom, 1) if denom else 0.0
+        comp = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
+        entry = {"run": info["run"], "model": info["model"], "composite": comp,
+                 "categories": cat_scores, "n_attempted": attempted, "n_total": len(god_ids),
+                 "trust_tier": info["trust_tier"], "eligible": info["trust_tier"] in ELIGIBLE_TIERS,
+                 "started_at": info["started_at"], "suite_id": info["suite_id"]}
+        cur = sentinels.get(canon)
+        if (not cur or (entry["eligible"], entry["composite"])
+                > (cur["eligible"], cur["composite"])):
+            sentinels[canon] = entry
+
+    models = []
+    for canon in set(sentinels) | set(agentic):
+        s = sentinels.get(canon)
+        h = agentic.get(canon)
+        ag_score = round(sum(v["score"] for v in h.values()) / len(h), 1) if h else None
+        parts, weights = [], []
+        if s:
+            parts.append(s["composite"]); weights.append(0.6)
+        if ag_score is not None:
+            parts.append(ag_score); weights.append(0.4)
+        if not parts:
+            continue
+        wsum = sum(weights)
+        god_score = round(sum(p * w for p, w in zip(parts, weights)) / wsum, 1)
+        models.append({
+            "canonical": canon,
+            "model": (s or {}).get("model") or canon,
+            "run": (s or {}).get("run"),
+            "god_score": god_score,
+            "god_provisional": not (s and ag_score is not None),
+            "sentinels": s and {k: s[k] for k in ("run", "composite", "categories",
+                                                  "n_attempted", "n_total", "suite_id")},
+            "agentic": ({"score": ag_score,
+                         "harnesses": {k: v["score"] for k, v in h.items()}} if h else None),
+            "trust_tier": (s or {}).get("trust_tier")
+                          or next(iter(h.values()))["trust_tier"],
+            "record_eligible": bool(s and s["eligible"]),
+            "started_at": (s or {}).get("started_at")
+                          or max(v["started_at"] or 0 for v in h.values()),
+        })
+    models.sort(key=lambda m: -m["god_score"])
+    return {"models": models, "weights": {"sentinels": 0.6, "agentic": 0.4},
+            "god_corpus": len(_god_cases_for(suite_mod.SUITE_ID))}
+
+
 def explorer_matrix():
     """EXPLORE THE DATA — the category × difficulty matrix behind each board model's
     headline number. One entry per leaderboard model, computed from its BEST

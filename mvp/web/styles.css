@@ -3021,6 +3021,77 @@ select:focus {
 }
 .gal-title .gal-diff { vertical-align: 2px; margin-left: 2px; }
 
+/* ---- GOD MODE BENCH — the hardest-class board: white-hot over void ---- */
+.god-tab {
+  color: #fff; letter-spacing: .12em; font-weight: 800;
+  text-shadow: 0 0 10px rgba(255, 255, 255, .75), 0 0 24px rgba(0, 240, 255, .45);
+}
+.god-tab.active { box-shadow: inset 0 -2px 0 #fff; }
+.god-title {
+  color: #fff; letter-spacing: .18em;
+  text-shadow: 0 0 14px rgba(255, 255, 255, .8), 0 0 40px rgba(0, 240, 255, .5);
+}
+.god-board { display: flex; flex-direction: column; gap: 10px; }
+.grow {
+  display: grid; grid-template-columns: max-content max-content minmax(0, 1fr);
+  grid-template-areas: "rank score id"; align-items: center; column-gap: 26px;
+  padding: 18px 24px; background: #0a0a12; border-radius: var(--r-m); cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07);
+  transition: box-shadow var(--t-fast), transform var(--t-fast);
+}
+.grow:hover { transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3), 0 0 24px rgba(255, 255, 255, .06); }
+.grow:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff; }
+.grow.top {
+  border-radius: 0;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  box-shadow: inset 3px 0 0 #fff, inset 0 0 48px rgba(255, 255, 255, .05);
+}
+.god-rank {
+  grid-area: rank; font-size: 64px; font-weight: 800; line-height: .9; letter-spacing: -4px;
+  font-variant-numeric: tabular-nums; color: transparent;
+  -webkit-text-stroke: 1.5px rgba(255, 255, 255, .35); user-select: none;
+}
+.grow.top .god-rank { -webkit-text-stroke-color: rgba(255, 255, 255, .85);
+  text-shadow: 0 0 26px rgba(255, 255, 255, .25); }
+.god-score-wrap { grid-area: score; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.god-score {
+  font: 800 44px/1 ui-monospace, monospace; letter-spacing: -2px; color: #fff;
+  text-shadow: 0 0 18px rgba(255, 255, 255, .85), 0 0 50px rgba(0, 240, 255, .4);
+  font-variant-numeric: tabular-nums;
+}
+.god-score-lbl {
+  font-family: var(--sans); font-size: 9px; font-weight: 700; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--faint);
+}
+.god-score-wrap.prov .god-score { opacity: .55; text-shadow: none; }
+.god-id { grid-area: id; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.god-cov { font: 600 10px/1 ui-monospace, monospace; color: var(--muted); letter-spacing: .04em; }
+.god-cats, .god-harns { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.god-cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--sans); font-size: 10px; font-weight: 600; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--faint);
+}
+.god-cat-n { font: 800 15px/1 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.god-cat-n.pass { color: var(--good); text-shadow: 0 0 10px rgba(61, 220, 133, .45); }
+.god-cat-n.part { color: var(--warn); }
+.god-cat-n.fail { color: var(--bad); }
+.god-harn {
+  font: 600 11px/1.4 ui-monospace, monospace; color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, .14); padding: 3px 9px; border-radius: 2px;
+}
+.god-harn b { color: #fff; }
+.god-untested {
+  font-family: var(--sans); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--faint); opacity: .7;
+}
+@media (max-width: 640px) {
+  .grow { grid-template-columns: max-content minmax(0, 1fr); grid-template-areas: "rank score" "id id"; }
+  .god-rank { font-size: 44px; }
+  .god-score { font-size: 34px; }
+}
+
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

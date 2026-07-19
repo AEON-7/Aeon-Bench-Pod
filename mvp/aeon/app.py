@@ -153,6 +153,12 @@ def explorer():
     return scoring.explorer_matrix()
 
 
+@app.get("/api/god/board")
+def god_board():
+    """GOD MODE BENCH — the dedicated hardest-tier scoreboard (board='god' runs only)."""
+    return scoring.god_leaderboard()
+
+
 @app.get("/api/perf/board")
 def perf_board():
     """PERFORMANCE board / recipe-discovery: per model, the latest perf run's direct grid
@@ -1690,7 +1696,7 @@ class PodEndpointRunBody(BaseModel):
     model: str
     difficulty: str | None = None       # None = full suite; "hard" / "hard,expert" = named tiers
     category: str | None = None         # None = all categories; comma-list scopes the text suite
-    preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
+    preset: str | None = None           # None | "comprehensive" | "hard-bench" | "god-mode" (one-shot bundle)
     api_key_name: str | None = None     # name of a saved pod secret to send as the endpoint's api key
     engine: str | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
@@ -1717,7 +1723,7 @@ class PodVerifiedRunBody(BaseModel):
     hf_link: str
     difficulty: str | None = None
     category: str | None = None         # None = all categories; comma-list scopes the text suite
-    preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
+    preset: str | None = None           # None | "comprehensive" | "hard-bench" | "god-mode" (one-shot bundle)
     hf_token_name: str | None = None    # saved secret name for a gated/private repo token
     engine: str | None = None           # catalog engine id (pod.engines) — the Run-tab dropdown
     engine_image: str | None = None     # custom container image override (recorded with the run)
@@ -1789,8 +1795,8 @@ def pod_run_endpoint(body: PodEndpointRunBody, request: Request):
         return g
     if not (body.model or "").strip() or not (body.base_url or "").strip():
         return JSONResponse({"error": "model and base_url are required"}, status_code=400)
-    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
-        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench", "god-mode"):
+        return JSONResponse({"error": "preset must be 'comprehensive', 'hard-bench' or 'god-mode'"}, status_code=400)
     from pod import jobs
     jid = jobs.submit_endpoint(body.base_url.strip(), body.model.strip(),
         difficulty=(body.difficulty or None), category=(body.category or None),
@@ -1828,8 +1834,8 @@ def pod_run_frontier(body: PodFrontierRunBody, request: Request):
         return g
     if (g := _require_pod_token(request)):
         return g
-    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
-        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench", "god-mode"):
+        return JSONResponse({"error": "preset must be 'comprehensive', 'hard-bench' or 'god-mode'"}, status_code=400)
     from pod import jobs
     try:
         jid = jobs.submit_frontier((body.frontier_id or "").strip(),
@@ -1851,8 +1857,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         return g
     if not (body.hf_link or "").strip():
         return JSONResponse({"error": "hf_link is required"}, status_code=400)
-    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
-        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench", "god-mode"):
+        return JSONResponse({"error": "preset must be 'comprehensive', 'hard-bench' or 'god-mode'"}, status_code=400)
     from pod import jobs
     jid = jobs.submit_verified(body.hf_link.strip(), difficulty=(body.difficulty or None),
         category=(body.category or None), preset=(body.preset or None),

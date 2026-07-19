@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=96" />
+  <link rel="stylesheet" href="/static/styles.css?v=97" />
 </head>
 <body>
   <header>
@@ -300,7 +300,7 @@
               </span>
             </label>
             <label class="greedy-label" title="greedy / deterministic decoding (temperature 0, argmax) — the default; gives reproducible, attestation-friendly results. Uncheck to sample at the temperature on the left."><input id="hfGreedy" type="checkbox" checked /> greedy</label>
-            <button id="hfLaunch" class="primary">▶ Launch validated bench</button>
+            <button id="hfLaunch" class="primary run-bench-btn"><span class="rbb-mark">▶</span> RUN BENCH</button>
           </div>
           <div class="row hostprep-row">
             <label class="c2-only" title="stop EVERY other running container before serving (the pod, its serve and harness containers are never touched) — a clean GPU and port without visiting the host. Containers listed in AEON_PAUSE_CONTAINERS are always paused regardless."><input type="checkbox" id="hfPauseAll" checked> clear host: stop other containers during the bench</label>
@@ -649,6 +649,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=96"></script>
+  <script src="/static/app.js?v=97"></script>
 </body>
 </html>

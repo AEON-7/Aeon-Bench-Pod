@@ -261,6 +261,29 @@ ok(!/ctx/.test(ph2) && !/benched on/.test(ph2) && !/AEON/.test(ph2),
 const ph3 = app.expPlateHead({ model: "m", hw_bucket: '<img src=x onerror=alert(1)>' }, "#fff");
 ok(!ph3.includes("<img"), "rig label is escaped (XSS guard)");
 
+// ---------------------------------------------------------------- galCard()
+console.log("galCard() — gallery provenance chips");
+const NOW_S = Math.floor(Date.now() / 1000);
+const gcNew = app.galCard(
+  { id: "a1", model: "org/m", created_at: NOW_S - 3600, unrated: true, bytes: 9000, gen_ms: 4200 },
+  { id: "p1", title: "Orbital Toy", brief: "b", difficulty: "hard" }, 2);
+ok(/gal-date/.test(gcNew) && new RegExp(new Date((NOW_S - 3600) * 1000).toISOString().slice(0, 10)).test(gcNew),
+   "card shows the submission date (ISO day)");
+ok(/gal-new/.test(gcNew), "an artifact <48h old gets the bright NEW badge");
+ok(/gal-diff gd-hard/.test(gcNew) && />hard</.test(gcNew), "prompt difficulty chip renders with its band hue");
+const gcOld = app.galCard(
+  { id: "a2", model: "org/m", created_at: NOW_S - 5 * 86400, elo: 1210, w: 3, l: 1, t: 0, votes: 4 },
+  { id: "p2", title: "T", brief: "b" }, 0);
+ok(!/gal-new/.test(gcOld), "older artifacts carry no NEW badge");
+ok(!/gal-diff/.test(gcOld), "difficulty chip omitted when the prompt has no rating (old payloads)");
+const gcBare = app.galCard({ id: "a3", model: "org/m" }, { id: "p3", title: "T", brief: "b" }, 1);
+ok(!/gal-date/.test(gcBare) && !/gal-new/.test(gcBare), "missing created_at renders no date and no NEW");
+const gcXss = app.galCard(
+  { id: "a4", model: "org/m", created_at: NOW_S },
+  { id: "p4", title: "T", brief: "b", difficulty: '"><img src=x onerror=alert(1)>' }, 1);
+ok(!gcXss.includes("onerror") && !/gal-diff/.test(gcXss),
+   "a non-closed-set difficulty renders NO chip at all (class tokens never carry input)");
+
 // ---------------------------------------------------------------- applyRole()
 console.log("applyRole() — two-role nav gating");
 app.CFG.role = "mothership";

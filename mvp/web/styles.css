@@ -2966,6 +2966,52 @@ select:focus {
   .exp-fgroup { margin-left: 0; padding-left: 0; border-left: none; }
 }
 
+/* ---- RUN BENCH — the one launch control on the pod: loud, machined, impossible to miss ---- */
+.run-bench-btn {
+  font-family: var(--sans); font-size: 19px; font-weight: 800; letter-spacing: .14em;
+  padding: 16px 46px; border: none; cursor: pointer; color: #041016;
+  background: linear-gradient(135deg, var(--accent) 0%, #7df9ff 55%, var(--accent) 100%);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  box-shadow: 0 0 22px rgba(0, 240, 255, .45), 0 0 60px rgba(0, 240, 255, .18);
+  text-shadow: none; transition: transform var(--t-fast), box-shadow var(--t-fast), filter var(--t-fast);
+  animation: rbb-pulse 2.6s ease-in-out infinite;
+}
+.run-bench-btn:hover {
+  transform: translateY(-1px) scale(1.02); filter: brightness(1.08);
+  box-shadow: 0 0 30px rgba(0, 240, 255, .65), 0 0 90px rgba(0, 240, 255, .28);
+}
+.run-bench-btn:active { transform: translateY(0) scale(.99); }
+.run-bench-btn:disabled {
+  animation: none; filter: grayscale(.6) brightness(.7); box-shadow: none; cursor: not-allowed;
+}
+.run-bench-btn .rbb-mark { font-size: 15px; margin-right: 6px; }
+@keyframes rbb-pulse {
+  0%, 100% { box-shadow: 0 0 22px rgba(0, 240, 255, .45), 0 0 60px rgba(0, 240, 255, .18); }
+  50%      { box-shadow: 0 0 34px rgba(0, 240, 255, .7), 0 0 100px rgba(0, 240, 255, .3); }
+}
+
+/* ---- gallery card provenance chips: date · NEW pulse · prompt difficulty ---- */
+.gal-meta { display: flex; align-items: center; gap: 7px; margin-top: 4px; min-height: 15px; }
+.gal-date {
+  font: 600 10px/1 ui-monospace, monospace; color: var(--faint); letter-spacing: .04em;
+  font-variant-numeric: tabular-nums;
+}
+.gal-new {
+  font-family: var(--sans); font-size: 9px; font-weight: 800; letter-spacing: .16em;
+  color: #041016; background: var(--accent); padding: 2px 7px;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  box-shadow: 0 0 12px rgba(0, 240, 255, .55);
+  animation: rbb-pulse 2.6s ease-in-out infinite;
+}
+.gal-diff {
+  font-family: var(--sans); font-size: 9px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; padding: 2px 8px; border: 1px solid; border-radius: 2px;
+}
+.gal-diff.gd-easy   { color: var(--good); border-color: rgba(61, 220, 133, .45); }
+.gal-diff.gd-medium { color: var(--warn); border-color: rgba(255, 180, 84, .45); }
+.gal-diff.gd-hard   { color: var(--bad);  border-color: rgba(255, 93, 122, .5); }
+.gal-title .gal-diff { vertical-align: 2px; margin-left: 2px; }
+
 /* ---------------------------------------------------------------- reduced motion (keep last) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -1380,6 +1380,20 @@ function galCard(a, p, i) {
   const stats = a.unrated
     ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
     : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+  // provenance chips: submission date on every card, a bright NEW pulse for <48h arrivals
+  // (fresh work otherwise hides at the tail of the Elo-sorted strip), and the PROMPT's
+  // difficulty tag (verdict hues: easy green / medium amber / hard red)
+  const ts = a.created_at ? new Date(a.created_at * 1000) : null;
+  const isNew = ts && (Date.now() - ts.getTime()) < 48 * 3600 * 1000;
+  const dateChip = ts
+    ? `<span class="gal-date" title="submitted ${escA(ts.toLocaleString())}">${ts.toISOString().slice(0, 10)}</span>`
+    : "";
+  const newChip = isNew ? `<span class="gal-new" title="submitted in the last 48 hours">NEW</span>` : "";
+  // difficulty is a CLOSED SET (it feeds a class token) — unknown/garbage values render nothing
+  const diff = /^(easy|medium|hard)$/.test(p.difficulty || "") ? p.difficulty : null;
+  const diffChip = diff
+    ? `<span class="gal-diff gd-${diff}" title="prompt difficulty: ${diff}">${diff}</span>`
+    : "";
   const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
   const hchip = a.harness
     ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
@@ -1392,6 +1406,7 @@ function galCard(a, p, i) {
       <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
     </div>
     <div class="gal-stats">${stats}</div>
+    <div class="gal-meta">${newChip}${dateChip}${diffChip}</div>
     <div class="gal-acts">
       <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
       <a class="act-btn act-dl gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">Code</a>
@@ -1421,7 +1436,7 @@ function renderGallery(d) {
   // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
   $("#galleryBody").innerHTML = filtered.map((p) =>
     `<div class="gal-sec">
-      <h3 class="gal-title">${escH(p.title)} <span class="note">${escH(p.brief)}</span></h3>
+      <h3 class="gal-title">${escH(p.title)}${/^(easy|medium|hard)$/.test(p.difficulty || "") ? ` <span class="gal-diff gd-${p.difficulty}">${p.difficulty}</span>` : ""} <span class="note">${escH(p.brief)}</span></h3>
       <div class="gal-row">` + p.artifacts.map((a, i) => galCard(a, p, i)).join("") + `</div></div>`).join("");
   $$("#galleryBody .gal-prev").forEach((b) =>
     b.onclick = () => openGalPreview(b.dataset.id, b.dataset.title, b.dataset.model));
@@ -5154,7 +5169,7 @@ if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST =
     && typeof module !== "undefined") {
   module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp,
     fmtCtx, ctxChip, parseRoute, routeHash, gateRoute, syncHash, ROUTE,
-    expBand, expHeat, expLine, expToggleModel, expDefaultSel, expTpsMax, expFacetFilter, expPlateHead };
+    expBand, expHeat, expLine, expToggleModel, expDefaultSel, expTpsMax, expFacetFilter, expPlateHead, galCard };
 } else {
   init();
 }

@@ -1647,6 +1647,23 @@ def _require_pod():
 
 
 @app.on_event("startup")
+def _mothership_ingest_sweep():
+    """Finalize checkpoint-submitted runs whose FINAL commit never arrived (>48h stale
+    'running' with stored rows) — attested data that would otherwise stay invisible while
+    dedup blocks the submitter's retry. ingest is mothership-only, so this is a no-op on
+    pods (their local running runs belong to the resume flow)."""
+    if ingest is None:
+        return
+    try:
+        healed = ingest.sweep_stale_running()
+        if healed:
+            print(f"[mothership] finalized {len(healed)} stale mid-stream submission(s): "
+                  + ", ".join(healed))
+    except Exception as e:                       # a sweep failure must never block serving
+        print(f"[mothership] stale-ingest sweep failed (non-fatal): {e}")
+
+
+@app.on_event("startup")
 def _pod_boot_reconcile():
     """A pod boot proves no bench job is alive — heal what a mid-run kill leaves behind
     (orphaned aeon-bench-serve, paused-but-never-restored production containers, stranded

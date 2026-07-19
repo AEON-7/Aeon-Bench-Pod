@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=98" />
+  <link rel="stylesheet" href="/static/styles.css?v=99" />
 </head>
 <body>
   <header>
@@ -177,7 +177,11 @@
         <div class="run-card vcard">
           <h3>◉ Validated bench</h3>
           <p class="note">Pull (or reuse) → hash-validate → serve in your engine → benchmark → sign → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result.</p>
-          <div class="row" id="tplRow" hidden>
+          <div class="run-mode" id="runMode" role="tablist" aria-label="form complexity">
+            <button type="button" class="rm-btn active" data-mode="simple" title="just the essentials: paste a link, pick a plan, RUN — the pod auto-derives everything else">SIMPLE</button>
+            <button type="button" class="rm-btn" data-mode="advanced" title="every knob: templates, champion recipes, engine, recipe tuning, spec decode, modalities, scope, budgets">ADVANCED</button>
+          </div>
+          <div class="row adv" id="tplRow" hidden>
             <label class="grow">↺ Template — start from a prior run <span class="note">(prefills every setting below; tweak one thing, relaunch)</span><select id="tplSel"></select></label>
           </div>
           <div class="row">
@@ -198,20 +202,20 @@
               <select id="scanSel"></select></label>
           </div>
           <div id="valStrip" class="val-strip idle" aria-live="polite"><span class="val-dot"></span><span class="val-msg">MODEL VALIDATION — paste an HF link to begin</span></div>
-          <div id="champRow" class="preset-row champ-row" hidden>
+          <div id="champRow" class="preset-row champ-row adv" hidden>
             <div class="preset-head"><span class="preset-star">★</span> <b>CHAMPION RECIPES</b>
               <span class="preset-conf" id="champHw">your hardware</span>
               <select id="champSel" class="champ-sel" title="the winning recipe per model on hardware like yours, pulled from the mothership — apply it, then tweak anything before launch"></select>
               <button id="champApply" class="ghost preset-apply" title="fill engine + Recipe Tuning + spec decode with this champion's exact winning recipe — editable before launch">apply template →</button></div>
             <div id="champProv" class="preset-notes mono"></div>
           </div>
-          <div class="row">
+          <div class="row adv">
             <label>Engine<select id="veEngine" title="the inference container the model runs in"></select></label>
             <label class="grow">Custom image <span class="note">(optional)</span><input id="veImage" type="text" placeholder="override the engine's container image, e.g. my/vllm:nightly" /></label>
             <label>HF token <span class="note">(gated repos)</span><select id="hfKey"></select></label>
           </div>
-          <div id="engInfo" class="eng-info note"></div>
-          <details class="tune-wrap" id="tuneWrap" open>
+          <div id="engInfo" class="eng-info note adv"></div>
+          <details class="tune-wrap adv" id="tuneWrap" open>
             <summary><span class="tune-t">⚙ RECIPE TUNING</span> <span class="note">startup flags — dial in the optimal recipe for this system</span><span id="tuneCount" class="tune-count" hidden></span></summary>
             <!-- last-failed-bench hint lives WHERE THE FIX HAPPENS (filled by renderTuneAlert) -->
             <div id="tuneAlert" class="tune-alert" hidden></div>
@@ -280,7 +284,7 @@
             <pre class="repro-cmd" id="mlxCmd"></pre>
             <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
           </div>
-          <div class="row mod-row" id="modRow" hidden>
+          <div class="row mod-row adv" id="modRow" hidden>
             <span class="mod-t" title="which multimodal suites this launch runs — auto-populated from the model's config at validation (lit = declared). Toggle a chip to force-enable a modality the config hides, or to skip a flaky one; each suite is still capability-probed at run time, so a forced-on modality that the serve rejects simply records capability_absent.">MODALITIES</span>
             <button type="button" class="mod-chip" data-mod="vision">VISION</button>
             <button type="button" class="mod-chip" data-mod="audio">AUDIO</button>
@@ -294,16 +298,16 @@
               <option value="hard-bench">Hard Bench — hard+expert tiers through every harness</option>
               <option value="god-mode">GOD MODE BENCH — god sentinels · god agentic · god code-gen (own board)</option>
             </select></label>
-            <label>Scope<select id="hfDiff">
+            <label class="adv">Scope<select id="hfDiff">
               <option value="">Full suite</option><option value="easy">Easy</option>
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
               <option value="god_mode">GOD MODE</option>
             </select></label>
-            <label>Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
-            <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
-            <label>Token budget<input id="hfMaxTok" type="number" placeholder="32768 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
-            <label>Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
+            <label class="adv">Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
+            <label class="adv">Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
+            <label class="adv">Token budget<input id="hfMaxTok" type="number" placeholder="32768 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
+            <label class="adv">Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
             <label class="temp-label" title="sampling temperature for every scored answer — 0 is greedy/deterministic (reproducible, the bench default); higher = more random. Greedy is recommended for attested, replicable runs.">Temperature
               <span class="temp-ctl">
                 <input id="hfTemp" type="range" min="0" max="2" step="0.05" value="1" disabled />
@@ -660,6 +664,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=98"></script>
+  <script src="/static/app.js?v=99"></script>
 </body>
 </html>

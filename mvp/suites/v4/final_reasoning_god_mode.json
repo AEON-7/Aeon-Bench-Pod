@@ -1,35 +1,98 @@
 [
- {
-  "id": "v4.reasoning.god_mode.01",
-  "category": "Reasoning",
-  "tier": 0,
-  "difficulty": "god_mode",
-  "prompt": "Count the strings of length 17 over the alphabet {P, Q, R, S} that satisfy ALL five conditions simultaneously:\n(a) no two adjacent letters are equal;\n(b) the letter R appears exactly five times;\n(c) the letter P is never immediately followed by the letter Q (the substring \"PQ\" never occurs);\n(d) the first letter and the last letter of the string are different;\n(e) the letter Q appears an even number of times (zero counts as even).\nGive the exact count. Put the final integer inside \\boxed{}.",
-  "eval": {
-   "checkers": [
-    {
-     "type": "numeric_tolerance",
-     "value": "4709533"
+  {
+    "id": "v4.reasoning.god_mode.01",
+    "category": "Reasoning",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Count the strings of length 17 over the alphabet {P, Q, R, S} that satisfy ALL five conditions simultaneously:\n(a) no two adjacent letters are equal;\n(b) the letter R appears exactly five times;\n(c) the letter P is never immediately followed by the letter Q (the substring \"PQ\" never occurs);\n(d) the first letter and the last letter of the string are different;\n(e) the letter Q appears an even number of times (zero counts as even).\nGive the exact count. Put the final integer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "4709533"
+        }
+      ],
+      "combine": "all"
     }
-   ],
-   "combine": "all"
-  }
- },
- {
-  "id": "v4.reasoning.god_mode.02",
-  "category": "Reasoning",
-  "tier": 0,
-  "difficulty": "god_mode",
-  "prompt": "A referee chooses two integers x and y with 2 <= x < y <= 25. The referee privately tells Petra the product x*y and privately tells Sorin the sum x+y. Petra and Sorin are perfect logicians: each instantly draws every deduction that logically follows from what they know. Everything in this paragraph — the bounds, the strict inequality x < y, who was told what — is common knowledge between them. They then speak in the fixed order below. Every statement is truthful, and each statement is heard and fully incorporated into common knowledge before the next statement is made. \"Knowing the numbers\" means being able to deduce the pair {x, y} with certainty from everything known so far.\n1. Petra: \"I do not know the two numbers.\"\n2. Sorin: \"I do not know the two numbers.\"\n3. Petra: \"I do not know the two numbers.\"\n4. Sorin: \"I do not know the two numbers.\"\n5. Petra: \"I do not know the two numbers.\"\n6. Sorin: \"I do not know the two numbers.\"\n7. Petra: \"I do not know the two numbers.\"\n8. Sorin: \"Now I know the two numbers.\"\n9. Petra: \"Now I also know the two numbers.\"\nThis transcript determines the pair {x, y} uniquely. Find x and y. Put ONLY the two numbers, separated by a comma, inside \\boxed{} — for example \\boxed{3,7} — with nothing else inside the braces.",
-  "eval": {
-   "checkers": [
-    {
-     "type": "numeric_tolerance",
-     "value": "11,24",
-     "as_set": true
+  },
+  {
+    "id": "v4.reasoning.god_mode.02",
+    "category": "Reasoning",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "A referee chooses two integers x and y with 2 <= x < y <= 25. The referee privately tells Petra the product x*y and privately tells Sorin the sum x+y. Petra and Sorin are perfect logicians: each instantly draws every deduction that logically follows from what they know. Everything in this paragraph — the bounds, the strict inequality x < y, who was told what — is common knowledge between them. They then speak in the fixed order below. Every statement is truthful, and each statement is heard and fully incorporated into common knowledge before the next statement is made. \"Knowing the numbers\" means being able to deduce the pair {x, y} with certainty from everything known so far.\n1. Petra: \"I do not know the two numbers.\"\n2. Sorin: \"I do not know the two numbers.\"\n3. Petra: \"I do not know the two numbers.\"\n4. Sorin: \"I do not know the two numbers.\"\n5. Petra: \"I do not know the two numbers.\"\n6. Sorin: \"I do not know the two numbers.\"\n7. Petra: \"I do not know the two numbers.\"\n8. Sorin: \"Now I know the two numbers.\"\n9. Petra: \"Now I also know the two numbers.\"\nThis transcript determines the pair {x, y} uniquely. Find x and y. Put ONLY the two numbers, separated by a comma, inside \\boxed{} — for example \\boxed{3,7} — with nothing else inside the braces.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "11,24",
+          "as_set": true
+        }
+      ],
+      "combine": "all"
     }
-   ],
-   "combine": "all"
+  },
+  {
+    "id": "v4.reasoning.god_mode.03",
+    "category": "Reasoning",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Consider an n x n grid of lamps, one lamp per cell, each lamp either ON or OFF. Pressing the lamp in row i, column j toggles that lamp AND every lamp orthogonally adjacent to it (cells sharing an edge: interior lamps have 4 neighbours, edge lamps 3, corner lamps 2; toggling means ON<->OFF, and nothing else changes). All n^2 lamps start OFF. A lighting pattern is an assignment of ON/OFF to every lamp; a pattern is achievable if some finite sequence of presses turns the all-OFF grid into exactly that pattern. It is a theorem, which you may use without proof, that for every n the number of achievable patterns equals 2^(n^2 - delta(n)) for a unique integer delta(n) >= 0. Compute delta(n) for the three sizes n = 30047, n = 34649, and n = 46409. Every value must be exact - no approximation is meaningful here. Give the three values in the same order as the sizes above, comma-separated, inside \\boxed{} - for example \\boxed{3,1,4} - with nothing else inside the braces.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "62,98,714",
+          "as_set": true
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*62\\s*,\\s*98\\s*,\\s*714\\s*\\.?\\s*\\}"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "v4.reasoning.god_mode.04",
+    "category": "Reasoning",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Let N be the smallest prime number strictly greater than 3^37; determining N exactly is part of the problem. Call a string over the four-letter alphabet {A, B, C, D} admissible if it satisfies BOTH of the following conditions simultaneously: (i) none of these six words occurs anywhere in it as a contiguous substring: AAB, ABBA, BAAA, BBB, CDC, DCC; (ii) the total number of positions holding the letter C is congruent to 2 modulo 3. Let T be the number of admissible strings whose length is exactly N. Compute T modulo 998244353. The answer is a single exact integer in the range [0, 998244352]. Put ONLY that final integer inside \\boxed{}.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "476967796"
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "v4.reasoning.god_mode.05",
+    "category": "Reasoning",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Define a finite set S of positive integers in two parts:\n(1) S contains every odd prime p with 3 <= p <= 97 such that 2 is a primitive root modulo p - that is, the multiplicative order of 2 modulo p equals p - 1 (equivalently, the powers 2^1, 2^2, ..., 2^(p-1), each reduced modulo p, visit all p - 1 nonzero residues). Deriving these primes is part of the problem.\n(2) S also contains the eight perfect squares 4, 9, 16, 25, 36, 49, 64 and 81.\nNothing else is in S.\nTwo players play the following game with three piles of stones of sizes a, b and c. Players alternate turns. On each turn the player to move chooses exactly one pile and removes exactly k stones from that pile, where k is an element of S and k does not exceed the current size of the chosen pile. Piles may reach size 0. A player who has no legal move on their turn loses the game (their opponent wins). Both players always play perfectly.\nCount the exact number of triples (a, b, c) with 1 <= a < b < c <= 20000 for which the player ABOUT TO MOVE loses under perfect play from the starting position (a, b, c). Put ONLY the final integer inside \\boxed{} - plain digits only, no commas, no separators, no words.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "numeric_tolerance",
+          "value": "201348854923"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{\\s*201348854923\\s*\\}",
+          "mode": "must_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\\\boxed\\{(?!\\s*201348854923\\s*\\})[^{}]*\\}",
+          "mode": "must_not_match"
+        }
+      ],
+      "combine": "all"
+    }
   }
- }
 ]

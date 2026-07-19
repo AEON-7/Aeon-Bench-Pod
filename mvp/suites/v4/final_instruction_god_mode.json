@@ -1,92 +1,126 @@
 [
- {
-  "id": "v4.instruction.god_mode.01",
-  "category": "Instruction",
-  "tier": 0,
-  "difficulty": "god_mode",
-  "prompt": "Apply the following operations, IN ORDER, to the starting string cinnabarwolf (12 lowercase letters). After each operation, the result becomes the current string for the next operation.\n1. Reverse the entire string.\n2. Replace every occurrence of the letter n with the letter d.\n3. Rotate the string left by 3 positions: remove the first 3 characters and append them to the end, preserving their order.\n4. Replace every vowel with the next vowel in the cyclic order a->e, e->i, i->o, o->u, u->a.\n5. Delete the 5th character of the current string (1-indexed).\n6. Insert the two characters qz immediately after the 4th character of the current string (1-indexed), so that q becomes the 5th character and z the 6th.\n7. Convert to uppercase every letter at an odd 1-indexed position (positions 1, 3, 5, ...); characters at even positions are unchanged.\n8. Reverse, in place, the substring spanning positions 3 through 8 inclusive (1-indexed); all other characters keep their positions.\n9. Swap the case of every letter (uppercase becomes lowercase, lowercase becomes uppercase); non-letter characters are unchanged.\n10. Replace every lowercase vowel with a digit as follows: a becomes 1, e becomes 2, i becomes 3, o becomes 4, u becomes 5. Uppercase letters and all other characters are unchanged.\n11. Move the last 4 characters of the string to the front, preserving their order.\n12. Append to the end of the string, written in decimal, the sum of all digit characters currently in the string (computed before appending).\nReply with ONLY the final string on a single line: no quotes, no spaces, no explanation, nothing else.",
-  "eval": {
-   "checkers": [
-    {
-     "type": "exact_match",
-     "value": "CfL5wRDdZqB2411",
-     "ignore_case": false
+  {
+    "id": "v4.instruction.god_mode.01",
+    "category": "Instruction",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Apply the following operations, IN ORDER, to the starting string cinnabarwolf (12 lowercase letters). After each operation, the result becomes the current string for the next operation.\n1. Reverse the entire string.\n2. Replace every occurrence of the letter n with the letter d.\n3. Rotate the string left by 3 positions: remove the first 3 characters and append them to the end, preserving their order.\n4. Replace every vowel with the next vowel in the cyclic order a->e, e->i, i->o, o->u, u->a.\n5. Delete the 5th character of the current string (1-indexed).\n6. Insert the two characters qz immediately after the 4th character of the current string (1-indexed), so that q becomes the 5th character and z the 6th.\n7. Convert to uppercase every letter at an odd 1-indexed position (positions 1, 3, 5, ...); characters at even positions are unchanged.\n8. Reverse, in place, the substring spanning positions 3 through 8 inclusive (1-indexed); all other characters keep their positions.\n9. Swap the case of every letter (uppercase becomes lowercase, lowercase becomes uppercase); non-letter characters are unchanged.\n10. Replace every lowercase vowel with a digit as follows: a becomes 1, e becomes 2, i becomes 3, o becomes 4, u becomes 5. Uppercase letters and all other characters are unchanged.\n11. Move the last 4 characters of the string to the front, preserving their order.\n12. Append to the end of the string, written in decimal, the sum of all digit characters currently in the string (computed before appending).\nReply with ONLY the final string on a single line: no quotes, no spaces, no explanation, nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "exact_match",
+          "value": "CfL5wRDdZqB2411",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
     }
-   ],
-   "combine": "all"
-  }
- },
- {
-  "id": "v4.instruction.god_mode.02",
-  "category": "Instruction",
-  "tier": 0,
-  "difficulty": "god_mode",
-  "prompt": "Write a poem that satisfies ALL of these constraints simultaneously. Output ONLY the poem: no title, no preamble, no commentary, no code fences, no blank lines, no leading or trailing spaces on any line, single spaces between words.\n1. Exactly 6 lines.\n2. The word counts of the lines grow by one each line: line 1 has exactly 3 words, line 2 has exactly 4 words, line 3 has exactly 5 words, line 4 has exactly 6 words, line 5 has exactly 7 words, line 6 has exactly 8 words.\n3. The first letters of the 6 lines, in order, spell CIPHER: line 1 begins with capital 'C', line 2 with capital 'I', line 3 with capital 'P', line 4 with capital 'H', line 5 with capital 'E', line 6 with capital 'R'.\n4. Every line ends with a period, and the last word of every line (the word immediately before the period) is exactly 5 letters long.\n5. The ONLY uppercase letters in the poem are the six line-initial letters; every other letter is lowercase.\n6. The letter 'a' (uppercase or lowercase) never appears anywhere in the poem.\n7. The exact lowercase word 'frost' appears exactly TWICE in the poem, counted as a whole word ('frosts' or 'frosted' would NOT count).\n8. The word 'the' never appears as a whole word.\n9. No punctuation of any kind except the six line-ending periods, and periods appear ONLY at line ends.",
-  "eval": {
-   "checkers": [
-    {
-     "type": "structural_count",
-     "unit": "line",
-     "n": 6,
-     "op": "=="
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "\\AC[a-z]*( [a-z]+){1} [a-z]{5}\\.\\nI[a-z]*( [a-z]+){2} [a-z]{5}\\.\\nP[a-z]*( [a-z]+){3} [a-z]{5}\\.\\nH[a-z]*( [a-z]+){4} [a-z]{5}\\.\\nE[a-z]*( [a-z]+){5} [a-z]{5}\\.\\nR[a-z]*( [a-z]+){6} [a-z]{5}\\.\\Z",
-     "ignore_case": false,
-     "mode": "must_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "(?s)\\bfrost\\b.*?\\bfrost\\b",
-     "ignore_case": false,
-     "mode": "must_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "(?s)\\bfrost\\b.*?\\bfrost\\b.*?\\bfrost\\b",
-     "ignore_case": false,
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "a",
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "\\bthe\\b",
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "[^A-Za-z\\n .]",
-     "ignore_case": false,
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "(?m)\\.(?!$)",
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "(?m)(?<=.)[A-Z]",
-     "ignore_case": false,
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "(?m)^[ \\t]",
-     "mode": "must_not_match"
-    },
-    {
-     "type": "regex_constraint",
-     "pattern": "  ",
-     "mode": "must_not_match"
+  },
+  {
+    "id": "v4.instruction.god_mode.02",
+    "category": "Instruction",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Write a poem that satisfies ALL of these constraints simultaneously. Output ONLY the poem: no title, no preamble, no commentary, no code fences, no blank lines, no leading or trailing spaces on any line, single spaces between words.\n1. Exactly 6 lines.\n2. The word counts of the lines grow by one each line: line 1 has exactly 3 words, line 2 has exactly 4 words, line 3 has exactly 5 words, line 4 has exactly 6 words, line 5 has exactly 7 words, line 6 has exactly 8 words.\n3. The first letters of the 6 lines, in order, spell CIPHER: line 1 begins with capital 'C', line 2 with capital 'I', line 3 with capital 'P', line 4 with capital 'H', line 5 with capital 'E', line 6 with capital 'R'.\n4. Every line ends with a period, and the last word of every line (the word immediately before the period) is exactly 5 letters long.\n5. The ONLY uppercase letters in the poem are the six line-initial letters; every other letter is lowercase.\n6. The letter 'a' (uppercase or lowercase) never appears anywhere in the poem.\n7. The exact lowercase word 'frost' appears exactly TWICE in the poem, counted as a whole word ('frosts' or 'frosted' would NOT count).\n8. The word 'the' never appears as a whole word.\n9. No punctuation of any kind except the six line-ending periods, and periods appear ONLY at line ends.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "structural_count",
+          "unit": "line",
+          "n": 6,
+          "op": "=="
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\AC[a-z]*( [a-z]+){1} [a-z]{5}\\.\\nI[a-z]*( [a-z]+){2} [a-z]{5}\\.\\nP[a-z]*( [a-z]+){3} [a-z]{5}\\.\\nH[a-z]*( [a-z]+){4} [a-z]{5}\\.\\nE[a-z]*( [a-z]+){5} [a-z]{5}\\.\\nR[a-z]*( [a-z]+){6} [a-z]{5}\\.\\Z",
+          "ignore_case": false,
+          "mode": "must_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "(?s)\\bfrost\\b.*?\\bfrost\\b",
+          "ignore_case": false,
+          "mode": "must_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "(?s)\\bfrost\\b.*?\\bfrost\\b.*?\\bfrost\\b",
+          "ignore_case": false,
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "a",
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "\\bthe\\b",
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "[^A-Za-z\\n .]",
+          "ignore_case": false,
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "(?m)\\.(?!$)",
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "(?m)(?<=.)[A-Z]",
+          "ignore_case": false,
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "(?m)^[ \\t]",
+          "mode": "must_not_match"
+        },
+        {
+          "type": "regex_constraint",
+          "pattern": "  ",
+          "mode": "must_not_match"
+        }
+      ],
+      "combine": "all"
     }
-   ],
-   "combine": "all"
+  },
+  {
+    "id": "v4.instruction.god_mode.03",
+    "category": "Instruction",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Simulate the following deterministic procedure EXACTLY. The state is a string; every operation preserves its length of 18 characters. All positions are 1-indexed. The vowels are exactly the letters a, e, i, o, u.\nInitial state: obsidianravencrest\nRun 60 rounds, numbered r = 1, 2, ..., 60. Every round performs Steps A, B, C in this order:\nStep A. Let v be the number of vowel characters in the current string, counted with multiplicity. If r + v is even, rotate the string LEFT by (r mod 5) + 1 positions; otherwise rotate the string RIGHT by (v mod 4) + 2 positions. (Rotating left by n moves the first n characters, in order, to the end of the string; rotating right by n moves the last n characters, in order, to the front.)\nStep B. Let p = ((r * 7) mod 18) + 1 and q = ((r * 11) mod 18) + 1. Let c be the character at position p and d the character at position q of the current string. If c and d are different letters, exchange them EVERYWHERE: every occurrence of c becomes d and every occurrence of d becomes c, simultaneously. If c and d are the same letter, instead replace the single character at position p with the next letter of the alphabet cyclically (a becomes b, b becomes c, ..., y becomes z, z becomes a).\nStep C. If the current string contains at least one letter z, swap the characters at positions 1 and 18; otherwise swap the characters at positions 6 and 13.\nAfter all 60 rounds are complete, let L be the total number of rounds in which Step A rotated LEFT.\nOutput the final 18-character string, then a single colon, then L in decimal.\nReply with ONLY that single line: no spaces, no quotes, no explanation, nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "exact_match",
+          "value": "bswjofepcibrdetnnn:31",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
+    "id": "v4.instruction.god_mode.04",
+    "category": "Instruction",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Execute the following deterministic procedure EXACTLY, then report the result.\nStart with this 40-character lowercase string (call it the current string):\nobsidianfluxcrownedjackalsvowmidnightrun\nRun exactly 100 rounds, numbered r = 1, 2, ..., 100. Every round transforms the current string into a new current string; the string always consists of exactly 40 lowercase letters.\nDefinitions: letters are numbered a=0, b=1, c=2, ..., z=25; 'x mod m' means the remainder of x on division by m, in the range 0 to m-1; positions in the string are 1-indexed.\nRound r consists of Step A then Step B:\nStep A. Let S be the sum of the letter numbers of all 40 characters of the current string. Let K = (S + 7*r) mod 97. Let B = K mod 4.\nStep B. Apply exactly ONE operation to the current string, chosen by B:\n- If B = 0: rotate the string left by n = (K mod 39) + 1 positions: remove the first n characters and append them to the end in the same order.\n- If B = 1: replace every character simultaneously: the letter with number x becomes the letter with number (5*x + K) mod 26.\n- If B = 2: let i = (K mod 40) + 1 and j = ((K*K) mod 40) + 1, where K*K means K multiplied by itself. If i > j, swap i and j so that i <= j. Reverse the order of the characters from position i to position j inclusive; all other positions are unchanged. (If i = j the string is unchanged.)\n- If B = 3: for every k from 1 to 20, swap the characters at positions 2k-1 and 2k.\nThe result of Step B is the current string for the next round.\nVerification anchors so you can confirm you understand the rules:\n- after round 1 completes, the current string is exactly: boisidnalfxurcwoenjdcaakslovmwdiinhgrtnu\n- after round 2 completes, the current string is exactly: boisjneowcruxflandidcaakslovmwdiinhgrtnu\n- after round 3 completes, the current string is exactly: sfbzgahftxujymqnacbcxnnlzqfovtcbbawrueaj\nCompute the current string after round 100 completes. Reply with ONLY that final 40-character lowercase string on a single line: no quotes, no spaces, no commentary, nothing else.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "exact_match",
+          "value": "suyjjtdgoqoopiuycmhtijnzxggltrruxatakcob",
+          "ignore_case": false
+        }
+      ],
+      "combine": "all"
+    }
   }
- }
 ]

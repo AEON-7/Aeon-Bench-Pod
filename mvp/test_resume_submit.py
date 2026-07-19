@@ -250,4 +250,25 @@ ok(stale_bare not in healed and db.get_run(stale_bare)["status"] == "running",
    "a rowless zombie stays untouched (nothing to surface)")
 ok(ingest.sweep_stale_running() == [], "sweep is idempotent — second pass finds nothing")
 
+# ---- artifacts checkpoint with rows (content dedup — the PrismaAURA artifact loss) ---------
+
+_ART = {"ok": True, "kind": "game", "prompt_id": "game.snake",
+        "html": "<!DOCTYPE html><html><body>sentinel-artifact</body></html>", "gen_ms": 1200}
+_POD = {"run_id": uuid.uuid4().hex[:12], "model": "lab/ckpt-artifact-model",
+        "suite_id": suite_mod.SUITE_ID, "board": "text"}
+_BUNDLE = {"results": [{"case_id": "case-1", "category": "Math", "tier": 1,
+                        "status": "scored", "score": 1.0, "raw_output": "ok"}],
+           "artifacts": [_ART], "suite_hash": "h"}
+
+n1 = ingest._save_artifacts(_POD, _BUNDLE)
+n2 = ingest._save_artifacts(_POD, _BUNDLE)   # checkpoint resend — content-identical
+ok(n1 == 1 and n2 == 0, "artifact saves once, checkpoint resend dedups by content")
+ok(len([a for a in db.list_artifacts(kind="game") if a["model"] == "lab/ckpt-artifact-model"]) == 1,
+   "exactly one stored artifact after two checkpoint commits")
+ingest._commit(_POD, _BUNDLE, final=False)
+run_mid = db.get_run(_POD["run_id"])
+ok(run_mid and run_mid["status"] == "running"
+   and len([a for a in db.list_artifacts(kind="game") if a["model"] == "lab/ckpt-artifact-model"]) == 1,
+   "a NON-final commit already persists artifacts (no more final-commit-only loss)")
+
 print(f"\nOK  resume + deferred idempotent submission: {PASS} checks passed")

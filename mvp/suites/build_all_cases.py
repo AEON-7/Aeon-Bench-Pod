@@ -37,7 +37,10 @@ from aeon import evaluators  # noqa: E402  (the REAL checkers — smoke-test tar
 OUT = os.path.join(HERE, "cases.json")
 SRC = os.path.join(HERE, "v4")
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
+# god_mode is the ADDITIVE sentinel tier: a floor of 2 per category, growable — new
+# gauntlet-forged sentinels join the cell rather than replacing it (owner call, 2026-07-19).
 DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12, "god_mode": 2}
+GROWABLE = {"god_mode"}
 DIFF_RANK = {d: i for i, d in enumerate(DIFF_COUNTS)}
 REQUIRED = ("id", "category", "tier", "prompt", "eval")
 KNOWN_CHECKERS = set(evaluators.CHECKERS)
@@ -96,10 +99,15 @@ def main():
     for cat in CATEGORIES:
         for d, want in DIFF_COUNTS.items():
             got = counts.get((cat, d), 0)
-            if got != want:
+            if d in GROWABLE:
+                if got < want:
+                    fail(f"cell {cat}/{d}: {got} cases, design floor is {want}")
+            elif got != want:
                 fail(f"cell {cat}/{d}: {got} cases, design wants {want}")
-    if len(cases) != sum(DIFF_COUNTS.values()) * len(CATEGORIES):
-        fail(f"total {len(cases)} != {sum(DIFF_COUNTS.values()) * len(CATEGORIES)}")
+    fixed = sum(v for k, v in DIFF_COUNTS.items() if k not in GROWABLE) * len(CATEGORIES)
+    grow = sum(n for (cat, d), n in counts.items() if d in GROWABLE)
+    if len(cases) != fixed + grow:
+        fail(f"total {len(cases)} != {fixed} fixed + {grow} growable")
 
     # smoke-test: no checker may crash on arbitrary text (judge=None: subjective
     # tier-1 criteria return pending — that's fine, we only require no exception)

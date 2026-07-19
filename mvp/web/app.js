@@ -1389,10 +1389,11 @@ function galCard(a, p, i) {
     ? `<span class="gal-date" title="submitted ${escA(ts.toLocaleString())}">${ts.toISOString().slice(0, 10)}</span>`
     : "";
   const newChip = isNew ? `<span class="gal-new" title="submitted in the last 48 hours">NEW</span>` : "";
-  // difficulty is a CLOSED SET (it feeds a class token) — unknown/garbage values render nothing
-  const diff = /^(easy|medium|hard)$/.test(p.difficulty || "") ? p.difficulty : null;
+  // difficulty is a CLOSED SET (it feeds a class token) — unknown/garbage values render nothing.
+  // Full platform tier scale: the arena rates prompts on the same 6 tiers as the text suite.
+  const diff = /^(easy|medium|hard|expert|frontier|god_mode)$/.test(p.difficulty || "") ? p.difficulty : null;
   const diffChip = diff
-    ? `<span class="gal-diff gd-${diff}" title="prompt difficulty: ${diff}">${diff}</span>`
+    ? `<span class="gal-diff gd-${diff}" title="prompt difficulty: ${diff}">${diff.replace("_", " ")}</span>`
     : "";
   const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
   const hchip = a.harness
@@ -1436,7 +1437,7 @@ function renderGallery(d) {
   // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
   $("#galleryBody").innerHTML = filtered.map((p) =>
     `<div class="gal-sec">
-      <h3 class="gal-title">${escH(p.title)}${/^(easy|medium|hard)$/.test(p.difficulty || "") ? ` <span class="gal-diff gd-${p.difficulty}">${p.difficulty}</span>` : ""} <span class="note">${escH(p.brief)}</span></h3>
+      <h3 class="gal-title">${escH(p.title)}${/^(easy|medium|hard|expert|frontier|god_mode)$/.test(p.difficulty || "") ? ` <span class="gal-diff gd-${p.difficulty}">${p.difficulty.replace("_", " ")}</span>` : ""} <span class="note">${escH(p.brief)}</span></h3>
       <div class="gal-row">` + p.artifacts.map((a, i) => galCard(a, p, i)).join("") + `</div></div>`).join("");
   $$("#galleryBody .gal-prev").forEach((b) =>
     b.onclick = () => openGalPreview(b.dataset.id, b.dataset.title, b.dataset.model));

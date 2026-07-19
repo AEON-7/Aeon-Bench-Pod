@@ -45,7 +45,18 @@ def pick_prompts(per_kind: int = 2, seed=None):
         if n <= 0:
             continue
         rng = random.Random() if seed is None else random.Random(f"aeon-arena|{seed}|{kind}")
-        out.extend((kind, p) for p in rng.sample(pool, n))
+        # GUARANTEED GOD SLOT: when the kind has god_mode prompts, one draw slot is always
+        # a god challenge (seeded choice among them) — god-tier generation is a reliable
+        # part of every bench, not a lottery ticket, at identical total cost. The remaining
+        # slots draw from the rest of the pool exactly as before.
+        gods = [p for p in pool if p.get("difficulty") == "god_mode"]
+        if gods and n >= 1:
+            god_pick = rng.choice(gods)
+            rest = [p for p in pool if p["id"] != god_pick["id"]]
+            picks = [god_pick] + (rng.sample(rest, min(n - 1, len(rest))) if n > 1 else [])
+        else:
+            picks = rng.sample(pool, n)
+        out.extend((kind, p) for p in picks)
     return out
 
 

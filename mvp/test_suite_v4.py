@@ -1,15 +1,17 @@
 """Self-test for the v4 TEXT suite corpus — runs GREEN locally, no GPU/model.
 
 Guards the aeon-suite-v4 bump (2026-07):
-  1. Corpus shape: 160 cases = 5 categories x (easy 2 / medium 3 / hard 5 /
-     expert 8 / frontier 12 / god_mode 2); unique ids; SUITE_ID + stable hash.
+  1. Corpus shape: 174 cases = 5 categories x (easy 2 / medium 3 / hard 5 /
+     expert 8 / frontier 12) + the GROWABLE god_mode sentinel tier (floor 2 per
+     category; currently Math 4 / Instruction 4 / Reasoning 5 / Coding 6 / Prose 5 —
+     sentinels ship ADDITIVELY); unique ids; SUITE_ID + stable hash.
   2. Carry-over contract: easy/medium/hard cells are v3's, byte-identical
      (v4 dialed up ONLY expert/frontier/god_mode — all-new v4.* top-tier cases).
   3. Every case's eval spec parses and each checker type exists in
      aeon.evaluators.CHECKERS; required rubric criteria are tier0-shadowed;
      evaluate() never crashes on arbitrary text (judge=None).
   4. Arena prompts: 24 new v4-* entries appended (8 per kind), no id
-     collisions, total 140.
+     collisions, total 152 (140 + the 12 god.* real-world-tool challenges).
   5. Board fallback: 'aeon-suite-v3' heads _LEGACY_SUITES so the public board
      falls back to v3 runs until v4 runs exist.
 
@@ -35,7 +37,8 @@ from aeon import suite as suite_mod  # noqa: E402
 FAILURES = []
 
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
-DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12, "god_mode": 2}
+DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12}
+GOD_CELLS = {"Math": 4, "Instruction": 4, "Reasoning": 5, "Coding": 6, "Prose": 5}   # additive tier
 CARRIED = ("easy", "medium", "hard")                     # v3 cells, unchanged in v4
 DIALED = ("expert", "frontier", "god_mode")              # all-new v4.* cells
 
@@ -48,12 +51,12 @@ def check(name, cond, detail=""):
 
 
 # ---------------------------------------------------------------- 1. shape
-print("== 1. corpus shape: 160 cases, 5 cats x (2/3/5/8/12/2), unique ids ==")
+print("== 1. corpus shape: 174 cases, fixed tiers (2/3/5/8/12) + growable god cells ==")
 cases = suite_mod.CASES
 check("suite id", suite_mod.SUITE_ID == "aeon-suite-v4", suite_mod.SUITE_ID)
 h1, h2 = suite_mod.suite_hash(), suite_mod.suite_hash()
 check("suite_hash stable", bool(h1) and h1 == h2, f"{h1} vs {h2}")
-check("total 160 cases", len(cases) == 160, str(len(cases)))
+check("total 174 cases", len(cases) == 174, str(len(cases)))
 ids = [c["id"] for c in cases]
 check("ids unique", len(ids) == len(set(ids)), f"{len(ids)} ids, {len(set(ids))} unique")
 
@@ -64,8 +67,12 @@ for cat in CATEGORIES:
     for d, want in DIFF_COUNTS.items():
         got = len(cells.get((cat, d), []))
         check(f"cell {cat}/{d} == {want}", got == want, str(got))
-check("no stray cells", set(cells) == {(c, d) for c in CATEGORIES for d in DIFF_COUNTS},
-      str(sorted(set(cells) - {(c, d) for c in CATEGORIES for d in DIFF_COUNTS})))
+    gg = len(cells.get((cat, "god_mode"), []))
+    check(f"cell {cat}/god_mode == {GOD_CELLS[cat]} (floor 2, additive)",
+          gg == GOD_CELLS[cat] and gg >= 2, str(gg))
+_alltiers = set(DIFF_COUNTS) | {"god_mode"}
+check("no stray cells", set(cells) == {(c, d) for c in CATEGORIES for d in _alltiers},
+      str(sorted(set(cells) - {(c, d) for c in CATEGORIES for d in _alltiers})))
 
 # id conventions: carried tiers keep their v3.* ids, dialed-up tiers are all-new v4.*
 for c in cases:
@@ -132,11 +139,15 @@ check("all eval specs valid + evaluate() crash-free",
       not [f for f in FAILURES if "checker" in f or "evaluate" in f or "criterion" in f], "see above")
 
 # --------------------------------------------------- 4. arena prompts
-print("== 4. arena prompts: +24 v4-* (8 per kind), no collisions, total 140 ==")
+print("== 4. arena prompts: +24 v4-* (8 per kind) +12 god.*, no collisions, total 152 ==")
 with open(os.path.join(_SUITES, "arena_prompts.json"), encoding="utf-8") as f:
     prompts = json.load(f)
 pids = [p["id"] for p in prompts]
-check("arena total 140", len(prompts) == 140, str(len(prompts)))
+check("arena total 152", len(prompts) == 152, str(len(prompts)))
+check("12 god.* real-world-tool challenges present",
+      sum(1 for x in prompts if x["id"].startswith("god.")) == 12
+      and all(x.get("difficulty") == "god_mode" for x in prompts if x["id"].startswith("god.")),
+      "god.* namespace")
 check("arena ids unique", len(pids) == len(set(pids)), f"{len(pids)} vs {len(set(pids))} unique")
 v4p = [p for p in prompts if p["id"].startswith("v4-")]
 check("24 v4-* prompts", len(v4p) == 24, str(len(v4p)))

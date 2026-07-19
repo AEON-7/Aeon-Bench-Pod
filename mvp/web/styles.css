@@ -1037,9 +1037,9 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
    hover lift + cyan border shift. */
 .gal-kinds {
   display: flex; gap: 10px; flex-wrap: wrap;
-  /* CENTERED on its own full-width row — right-anchored in the header, the three plates
-     pushed past the viewport edge when a wide kind was active */
-  justify-content: center; width: 100%; max-width: 100%; min-width: 0;
+  /* LEFT-aligned on its own full-width row — right-anchoring overflowed the viewport, and
+     centering drifted with page content width; a fixed left edge stays put */
+  justify-content: flex-start; width: 100%; max-width: 100%; min-width: 0;
 }
 .gal-kind {
   position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px;

@@ -202,7 +202,11 @@ def _leaderboard_scoped(suite=None):
     if scope == COMPREHENSIVE:
         expected = len(suite_mod.CASES)
     else:
-        expected = max((r["n_scored"] + r["n_no_answer"] for r in runs), default=0)
+        # legacy suite scopes: the FROZEN corpus is authoritative when still shipped; only
+        # unshipped scopes (tier boards, pre-v3 suites) calibrate off the largest committed pass
+        frozen = suite_mod.legacy_cases(scope) if scope != suite_mod.SUITE_ID else suite_mod.CASES
+        expected = (len(frozen) if frozen
+                    else max((r["n_scored"] + r["n_no_answer"] for r in runs), default=0))
     runs = [r for r in runs
             if (r["n_scored"] + r["n_no_answer"]) >= MIN_SUITE_COVERAGE * expected]
 
@@ -452,11 +456,13 @@ def _quality_index():
             "run": r["run"], "model": r["model"], "canonical": r.get("canonical_id") or r["model"],
             "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
             "trust_tier": r.get("trust_tier") or "self_reported", "started_at": r["started_at"],
+            "suite_id": r.get("suite_id"),
             "env_json": r.get("env_json"), "results": []})["results"].append(r)
     idx = {}
-    floor = MIN_SUITE_COVERAGE * len(suite_mod.CASES)
     for info in by_run.values():
-        # attempted = covered: no_answer rows count toward the floor (same rule as the board)
+        # attempted = covered: no_answer rows count toward the floor (same rule as the board);
+        # the floor is the run's OWN corpus size — a full legacy pass stays covered forever
+        floor = MIN_SUITE_COVERAGE * suite_mod.corpus_size_for(info.get("suite_id"))
         if sum(1 for r in info["results"]
                if r["score"] is not None or (r.get("status") or "") == "no_answer") < floor:
             continue
@@ -894,8 +900,9 @@ def compare_by_seed(seed, board="text"):
         k = run["canonical"]
         if k not in latest or (run["started_at"] or 0) > (latest[k]["started_at"] or 0):
             latest[k] = run
-    diff = {c["id"]: c.get("difficulty") for c in suite_mod.CASES}
-    cat_of = {c["id"]: c["category"] for c in suite_mod.CASES}
+    known = suite_mod.all_known_cases()      # seed compares can span suite eras
+    diff = {c["id"]: c.get("difficulty") for c in known}
+    cat_of = {c["id"]: c["category"] for c in known}
     models, case_scores = [], {}
     for run in latest.values():
         summ = _run_summary(run)

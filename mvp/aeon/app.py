@@ -824,7 +824,7 @@ def _difficulty_map():
     """case_id -> difficulty class (easy/medium/hard/expert/frontier) from every suite that
     declares one — shown on each prompt in the submission detail explorer."""
     dm = {}
-    for c in suite_mod.CASES:
+    for c in suite_mod.all_known_cases():   # current + legacy corpora: old runs keep labels
         if c.get("difficulty"):
             dm[c["id"]] = c["difficulty"]
     for c in agentic_v2.CASES:

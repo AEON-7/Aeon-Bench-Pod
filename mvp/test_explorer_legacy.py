@@ -90,6 +90,12 @@ check(missing == [],
 check(dm.get("v3.math.expert.01") or any(k.startswith("v3.") and ".expert." in k for k in dm),
       "spot-check: a v3 expert id resolves a difficulty label")
 
+from aeon.app import _prompt_map  # noqa: E402
+pmap = _prompt_map("text")
+no_prompt = [c["id"] for c in V3 if not pmap.get(c["id"])]
+check(no_prompt == [],
+      "submission-detail 'asked' prompt resolves for EVERY v3 case (none blank after the bump)")
+
 check(suite_mod.corpus_size_for("aeon-suite-v3") == 155
       and suite_mod.corpus_size_for(suite_mod.SUITE_ID) == len(suite_mod.CASES)
       and suite_mod.corpus_size_for("aeon-suite-v0") == len(suite_mod.CASES),

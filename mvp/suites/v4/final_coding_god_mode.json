@@ -51,6 +51,23 @@
     }
   },
   {
+    "id": "v4.coding.god_mode.04",
+    "category": "Coding",
+    "tier": 0,
+    "difficulty": "god_mode",
+    "prompt": "Write a Python function with the exact signature:\n\ndef min_square_partition(a: list[int], k: int) -> int\n\nSplit the list a into exactly k non-empty contiguous segments (order preserved, every element in exactly one segment). The cost of a segment is the SQUARE of its element sum; the total cost is the sum over the k segments. Return the minimum possible total cost as an exact Python int.\n\nConstraints: 1 <= k <= len(a) <= 100000; 0 <= a[i] <= 10**4. Hidden tests run the full 100000-element scale with k in the tens of thousands, and the arrays are adversarial: long runs of zeros and long blocks of equal values create enormous families of tied optima, including tested values of k that sit at the exact edge of a flat stretch of the cost-versus-k curve, where the correct answer must be assembled from the tie structure rather than read off any single naturally-found optimal partition. The classic exactly-k dynamic program is Theta(n*k) - beyond 3*10**9 transitions here even with the strongest per-layer speedups, hopeless in pure Python within the limit - so the 'exactly k' requirement needs a fundamentally cheaper handle, and the tie-heavy tests are precisely where sloppy versions of that handle return answers that are wrong by a few parts in 10**12. Keep every comparison in exact integer arithmetic: answers exceed 10**17, so floating point anywhere (costs, intersections, thresholds) silently corrupts them.\n\nExamples: min_square_partition([1, 2, 3], 2) == 18; min_square_partition([0, 0, 0, 5], 3) == 25; min_square_partition([2, 0, 2], 2) == 8. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 90-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+    "eval": {
+      "checkers": [
+        {
+          "type": "unit_test",
+          "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(777003)\n_a = []\nwhile len(_a) < 100000:\n    _r = next(_g) % 100\n    if _r < 28:\n        _a.extend([0] * (1 + next(_g) % 350))\n    elif _r < 56:\n        _v = next(_g) % 10001\n        _a.extend([_v] * (1 + next(_g) % 250))\n    else:\n        for _ in range(1 + next(_g) % 120):\n            _a.append(next(_g) % 10001)\n_a = _a[:100000]\n_b = _a[:3000]\nassert min_square_partition([1, 2, 3], 2) == 18\nassert min_square_partition([0, 0, 0, 5], 3) == 25\nassert min_square_partition([2, 0, 2], 2) == 8\nassert min_square_partition([5], 1) == 25\nassert min_square_partition([7, 7, 7], 3) == 147\nassert min_square_partition([1, 1, 1, 1], 2) == 8\nassert min_square_partition([0, 0], 1) == 0\nassert min_square_partition(_b, 1) == 112658757930889\nassert min_square_partition(_b, 2) == 56329383528665\nassert min_square_partition(_b, 737) == 155785763611\nassert min_square_partition(_b, 2061) == 72954662933\nassert min_square_partition(_b, 2971) == 72952339669\nassert min_square_partition(_b, 3000) == 72952339669\nassert min_square_partition(_a, 33337) == 2603957582601\nassert min_square_partition(_a, 59787) == 1889787460001\nassert min_square_partition(_a, 60424) == 1889787446753",
+          "timeout": 90
+        }
+      ],
+      "combine": "all"
+    }
+  },
+  {
     "id": "v4.coding.god_mode.05",
     "category": "Coding",
     "tier": 0,

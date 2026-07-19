@@ -1,7 +1,7 @@
 """Self-test for the v4 TEXT suite corpus — runs GREEN locally, no GPU/model.
 
 Guards the aeon-suite-v4 bump (2026-07):
-  1. Corpus shape: 174 cases = 5 categories x (easy 2 / medium 3 / hard 5 /
+  1. Corpus shape: 173 cases = 5 categories x (easy 2 / medium 3 / hard 5 /
      expert 8 / frontier 12) + the GROWABLE god_mode sentinel tier (floor 2 per
      category; currently Math 4 / Instruction 4 / Reasoning 5 / Coding 6 / Prose 5 —
      sentinels ship ADDITIVELY); unique ids; SUITE_ID + stable hash.
@@ -38,7 +38,7 @@ FAILURES = []
 
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
 DIFF_COUNTS = {"easy": 2, "medium": 3, "hard": 5, "expert": 8, "frontier": 12}
-GOD_CELLS = {"Math": 4, "Instruction": 4, "Reasoning": 5, "Coding": 6, "Prose": 5}   # additive tier
+GOD_CELLS = {"Math": 4, "Instruction": 4, "Reasoning": 5, "Coding": 5, "Prose": 5}   # additive tier
 CARRIED = ("easy", "medium", "hard")                     # v3 cells, unchanged in v4
 DIALED = ("expert", "frontier", "god_mode")              # all-new v4.* cells
 
@@ -51,12 +51,12 @@ def check(name, cond, detail=""):
 
 
 # ---------------------------------------------------------------- 1. shape
-print("== 1. corpus shape: 174 cases, fixed tiers (2/3/5/8/12) + growable god cells ==")
+print("== 1. corpus shape: 173 cases, fixed tiers (2/3/5/8/12) + growable god cells ==")
 cases = suite_mod.CASES
 check("suite id", suite_mod.SUITE_ID == "aeon-suite-v4", suite_mod.SUITE_ID)
 h1, h2 = suite_mod.suite_hash(), suite_mod.suite_hash()
 check("suite_hash stable", bool(h1) and h1 == h2, f"{h1} vs {h2}")
-check("total 174 cases", len(cases) == 174, str(len(cases)))
+check("total 173 cases", len(cases) == 173, str(len(cases)))
 ids = [c["id"] for c in cases]
 check("ids unique", len(ids) == len(set(ids)), f"{len(ids)} ids, {len(set(ids))} unique")
 

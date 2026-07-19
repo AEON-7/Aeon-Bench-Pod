@@ -811,7 +811,9 @@ class AdminRunBody(BaseModel):
 
 
 def _prompt_map(board):
-    cases = vision_suite.CASES if board == "vision" else suite_mod.CASES
+    # all_known_cases: current + legacy corpora — a v3 run's replaced expert/frontier cases
+    # must still show WHAT WAS ASKED (the answer renders from the stored row either way)
+    cases = vision_suite.CASES if board == "vision" else suite_mod.all_known_cases()
     pm = {c["id"]: c.get("prompt", "") for c in cases}
     # Harness (agentic-v2) runs are stored under the text board but their case ids come from
     # agentic_v2.CASES — fold them in so harness-case prompts resolve in the transparency drill-down.

@@ -4340,6 +4340,14 @@ async function scanEndpoints() {
   renderScanEndpoints(d);
 }
 
+function epSourceLabel(src) {
+  if (!src) return "";
+  if (src === "served-root" || src === "served-id") return "from the serve";
+  if (src === "docker-model-arg") return "from the container";
+  if (src.indexOf("docker-mount") === 0) return "from the model folder";
+  return src;
+}
+
 function renderScanEndpoints(d) {
   const out = $("#scanEndpointsResult"); if (!out) return;
   const eps = (d && d.endpoints) || [];
@@ -4350,44 +4358,79 @@ function renderScanEndpoints(d) {
   }
   out.innerHTML = eps.map((ep) => {
     const url = ep.url || "";
-    const models = Array.isArray(ep.models) ? ep.models : [];
-    const mlabel = models.length ? models.map(escH).join(" · ") : "no model id reported";
-    // a lone served id is prefilled as a verification hint (data-model); ≥2 ids stay ambiguous
-    const one = models.length === 1 ? models[0] : "";
-    return `<div class="scan-ep-row">` +
-      `<div class="scan-ep-meta"><span class="scan-ep-url mono">${escH(url)}</span>` +
-      `<span class="scan-ep-models">${mlabel}</span></div>` +
-      `<button type="button" class="ghost scan-ep-use" data-url="${escA(url)}" data-model="${escA(one)}">use this</button>` +
-      `</div>`;
+    // new pods send ep.served (one entry per physical model — aliases folded — with the HF repo
+    // autodetected); fall back to the flat id list for an older pod that predates autodetect
+    const served = Array.isArray(ep.served) && ep.served.length
+      ? ep.served
+      : (Array.isArray(ep.models) ? ep.models : []).map((id) => ({ ids: [id] }));
+    const rows = served.map((s) => {
+      const ids = Array.isArray(s.ids) ? s.ids : [];
+      const label = ids.length ? ids.map(escH).join(" · ") : "no model id reported";
+      const one = ids.length === 1 ? ids[0] : "";
+      const hf = s.hf_guess || "";
+      let chip;
+      if (hf) {
+        chip = `<span class="scan-ep-guess ${escA(s.confidence || "")}">✓ <span class="mono">${escH(hf)}</span>` +
+          `<em>· auto ${escH(epSourceLabel(s.source))}</em></span>`;
+      } else if (s.local_name) {
+        chip = `<span class="scan-ep-guess local">local model <span class="mono">${escH(s.local_name)}</span> · HF link needed</span>`;
+      } else {
+        chip = `<span class="scan-ep-guess none">HF repo not exposed · paste the link</span>`;
+      }
+      return `<div class="scan-ep-row">` +
+        `<div class="scan-ep-meta"><span class="scan-ep-models">${label}</span>${chip}</div>` +
+        `<button type="button" class="ghost scan-ep-use" data-url="${escA(url)}" data-hf="${escA(hf)}"` +
+        ` data-rev="${escA(s.hf_revision || "")}" data-source="${escA(s.source || "")}"` +
+        ` data-conf="${escA(s.confidence || "")}" data-localname="${escA(s.local_name || "")}"` +
+        ` data-model="${escA(one)}">use this</button>` +
+        `</div>`;
+    }).join("");
+    return `<div class="scan-ep-ep"><div class="scan-ep-url mono">${escH(url)}</div>${rows}</div>`;
   }).join("");
   $$("#scanEndpointsResult .scan-ep-use").forEach((b) =>
-    b.onclick = () => useScannedEndpoint(b.dataset.url, b.dataset.model));
+    b.onclick = () => useScannedEndpoint(b.dataset));
 }
 
 // Wire a scanned endpoint into verified-target mode: serve URL + fingerprint on, operator-serve
-// block revealed, then hand the operator the ONE remaining step — the HF link to verify against.
-function useScannedEndpoint(url, modelId) {
-  const su = $("#veServeUrl"); if (su) su.value = url || "";
+// block revealed, and — when the pod autodetected the HF repo — the link prefilled, leaving the
+// operator nothing to do but launch. A guess only PREFILLS: the launch still pulls+hashes those
+// weights and fingerprints the endpoint against them, so a wrong guess fails verification, never
+// a false attestation. `ds` is the picked row's dataset {url, hf, rev, source, conf, localname, model}.
+function useScannedEndpoint(ds) {
+  ds = ds || {};
+  const su = $("#veServeUrl"); if (su) su.value = ds.url || "";
   const ve = $("#verifyEndpoint"); if (ve) ve.checked = true;
   const mh = $("#mlxHelp"); if (mh) mh.hidden = false;    // reveal the operator-serve block if collapsed
   const prompt = $("#verifyHfPrompt");
   const link = $("#hfLink");
-  // AUTO-RESOLVE: when the served id is already an org/model HF path (a slash, HF-legal chars,
-  // not a bare alias like "aeon-ultimate"), fill the HF link so verification is zero-friction —
-  // the pod pulls+hashes those weights and fingerprints the endpoint against them. An alias id
-  // can't be resolved, so we prompt for the link instead. Either way the user can edit it.
-  const isHfPath = typeof modelId === "string"
-    && /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/.test(modelId) && !modelId.includes(" ");
-  if (isHfPath && link && !link.value.trim()) {
-    link.value = modelId;
-    try { delete link.dataset.auto; } catch (e) {}
+  const hf = (ds.hf || "").trim();
+  const model = (ds.model || "").trim();
+  const localName = (ds.localname || "").trim();
+  // fill ONLY when empty or still auto-filled — a hand-typed link is the user's override and wins
+  const canFill = link && (!link.value.trim() || link.dataset.auto === "1");
+  let filled = "";
+  if (hf && canFill) {
+    link.value = hf + (ds.rev ? "@" + ds.rev : "");
+    link.dataset.auto = "1";
+    filled = hf;
+    if (typeof scheduleValidate === "function") scheduleValidate();
+  } else if (!hf && model && canFill
+             && /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/.test(model) && !model.includes(" ")) {
+    link.value = model;                                  // back-compat: served id is itself a repo
+    link.dataset.auto = "1";
+    filled = model;
+    if (typeof scheduleValidate === "function") scheduleValidate();
   }
   if (prompt) {
     prompt.hidden = false;
-    prompt.innerHTML = isHfPath
-      ? `HF link auto-resolved from the served id <span class="mono">${escH(modelId)}</span> — launch to verify (edit if the repo differs)`
-      : modelId
-      ? `provide the Hugging Face link for <span class="mono">${escH(modelId)}</span> to verify this live model`
+    prompt.innerHTML = filled
+      ? (ds.conf === "medium"
+          ? `HF repo <span class="mono">${escH(filled)}</span> inferred from the serve's model folder — <b>confirm it's the exact repo</b>, then launch to verify`
+          : `✓ HF repo auto-detected from the running serve: <span class="mono">${escH(filled)}</span> — launch to verify (edit if the repo differs)`)
+      : localName
+      ? `detected local model <span class="mono">${escH(localName)}</span> — the serve doesn't expose its HF repo; paste the Hugging Face link to verify it`
+      : model
+      ? `provide the Hugging Face link for <span class="mono">${escH(model)}</span> to verify this live model`
       : "provide the Hugging Face link for this model to verify it";
   }
   if (link) link.focus();

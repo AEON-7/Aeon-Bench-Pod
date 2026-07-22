@@ -121,6 +121,50 @@ def _reconcile(path: str, root: dict, rel: str):
     return None, None, None
 
 
+def reconcile_path(path: str):
+    """Best local-only HF repo guess for a model dir given ONLY its path (no scan-root context) —
+    the reusable twin of `_reconcile` for callers that have a bare directory (e.g. the endpoint
+    scanner resolving a serve's `--model` mount). Returns (repo, revision, source) or Nones.
+    Exception-safe; reads breadcrumbs, never hashes. Skips the LM Studio branch (which needs the
+    scan-root split); covers sidecar metadata, HF-cache layout, the org__name convention, and the
+    config.json _name_or_path fallback."""
+    try:
+        path = os.path.abspath(os.path.expanduser(path))
+    except Exception:
+        return None, None, None
+    # 1) the pod's own pull metadata — exact
+    try:
+        mref = json.load(open(os.path.join(path, ".aeon-modelref.json"), encoding="utf-8"))
+        if mref.get("repo"):
+            return mref["repo"], mref.get("revision"), "aeon-modelref"
+    except Exception:
+        pass
+    # 2) HF hub cache snapshot layout: .../models--org--name/snapshots/<sha>/ — exact repo + sha
+    try:
+        parts = path.replace("\\", "/").split("/")
+        if "snapshots" in parts:
+            i = parts.index("snapshots")
+            if i >= 1 and parts[i - 1].startswith("models--") and i + 1 < len(parts):
+                return parts[i - 1][len("models--"):].replace("--", "/", 1), parts[i + 1], "hf-cache-layout"
+    except Exception:
+        pass
+    # 3) AEON pull convention: org__name
+    base = os.path.basename(path.rstrip("/\\"))
+    if "__" in base:
+        cand = base.replace("__", "/", 1)
+        if _ORG_NAME_RE.match(cand):
+            return cand, None, "aeon-layout"
+    # 4) config.json breadcrumb
+    try:
+        cfg = json.load(open(os.path.join(path, "config.json"), encoding="utf-8"))
+        nop = cfg.get("_name_or_path") or ""
+        if _ORG_NAME_RE.match(nop):
+            return nop, None, "config.json"
+    except Exception:
+        pass
+    return None, None, None
+
+
 def _scan_hf_cache(root: str, out: list):
     """HF hub cache: models--org--name/snapshots/<sha>/ — identity is exact from the layout."""
     try:

@@ -1990,15 +1990,26 @@ select:focus {
 /* live-endpoint scan: running OpenAI-compatible serves found on the host / LAN nodes */
 #scanEndpoints { margin: 8px 0 0; }
 .scan-ep-result:not(:empty) { margin: 8px 0 2px; }
+/* one card per running endpoint: a URL header, then a row per physical model it serves */
+.scan-ep-ep { border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel2);
+  margin-bottom: 8px; overflow: hidden; }
+.scan-ep-ep:last-child { margin-bottom: 0; }
+.scan-ep-ep > .scan-ep-url { padding: 7px 10px; font-size: 12.5px; overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, .015); }
 .scan-ep-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 8px 10px; border: 1px solid var(--line); border-top: 0; background: var(--panel2); }
-.scan-ep-row:first-child { border-top: 1px solid var(--line); border-radius: var(--r-s) var(--r-s) 0 0; }
-.scan-ep-row:last-child { border-radius: 0 0 var(--r-s) var(--r-s); }
-.scan-ep-row:only-child { border-radius: var(--r-s); }
-.scan-ep-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+  padding: 8px 10px; border-top: 1px solid var(--line); }
+.scan-ep-row:first-of-type { border-top: 0; }
+.scan-ep-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: left; }
 .scan-ep-url { font-size: 12.5px; overflow-wrap: anywhere; }
-.scan-ep-models { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
-.scan-ep-use { white-space: nowrap; flex-shrink: 0; }
+.scan-ep-models { font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
+/* HF autodetect chip: green when resolved from the serve, amber when only inferred/needs a link */
+.scan-ep-guess { font-size: 11px; display: inline-flex; align-items: baseline; gap: 5px;
+  overflow-wrap: anywhere; }
+.scan-ep-guess em { font-style: normal; color: var(--muted); font-size: 10.5px; }
+.scan-ep-guess.high { color: var(--ok, #7dff9a); }
+.scan-ep-guess.medium, .scan-ep-guess.local { color: var(--warn, #ffb454); }
+.scan-ep-guess.none { color: var(--muted); }
+.scan-ep-use { white-space: nowrap; flex-shrink: 0; align-self: center; }
 .scan-ep-use:hover { border-color: var(--accent); color: var(--accent); }
 .scan-ep-empty, .scan-ep-err { padding: 8px 10px; font-size: 12px; color: var(--muted);
   text-align: left; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel2); }

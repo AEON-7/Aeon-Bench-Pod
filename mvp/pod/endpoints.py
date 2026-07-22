@@ -5,19 +5,23 @@ optionally on declared cluster/LAN hosts), so an operator can bench a LIVE serve
     (fill/confirm the HF link) → the pod hash-verifies those weights + logprob-fingerprints the
     endpoint → attested (if it matches).
 
-POD-ONLY. Probes GET /v1/models on common inference ports (vLLM/SGLang 8000, TGI 8080, Ollama
-11434, LM Studio 1234, …). Names + ports only; no weights are pulled here. The mothership never
-serves this route (pod-gated), so there is no SSRF surface on the public site — it is the
+POD-ONLY. Probes GET /v1/models on common inference ports. Names + ports only; no weights pulled
+here. The mothership never serves this route (pod-gated), so there is no SSRF surface — it is the
 operator scanning their own machine/LAN.
 
-HF AUTODETECT. The single best endpoint-only signal is `/v1/models[].root` — vLLM/SGLang set it
-to the launch `--model` value, which is the exact `org/model` repo whenever the serve was started
-from a Hub id (e.g. `vllm serve Qwen/Qwen3-ASR-0.6B`). When the serve was started from a LOCAL
-path (`vllm serve /model`), `root` is just that path and reveals nothing — so, for LOCALHOST
-serves, a best-effort docker fallback maps the backing container's `--model` mount back to a repo
-via the on-disk breadcrumbs (diskscan.reconcile_path). Every guess is only a PREFILL for the HF
-link field: the launch still pulls+hashes those weights and fingerprints the endpoint against
-them, so a wrong guess fails verification loudly — it can never weaken attestation."""
+HF AUTODETECT — ENGINE-AGNOSTIC. Serving engines expose the model's identity differently, so
+autodetect draws on several signals, most→least authoritative:
+  * /v1/models[].root — vLLM sets it to the launch --model (the exact repo/path). SGLang mirrors
+    it to the served id. llama.cpp / Ollama / TGI / LM Studio omit it.
+  * /v1/models[].id — SGLang (no alias), TGI (=--model-id), LM Studio (publisher/repo) put the
+    repo here; an Ollama `hf.co/owner/repo:quant` tag carries it too. vLLM/llama.cpp aliases don't.
+  * docker fallback (localhost only) — match the backing container to the endpoint BY PORT (the one
+    universal link — cmd --port/-p, env, or published ports), then read its model reference from a
+    broad flag/env set (--model / --model-path / --model-id / -m / -hf / positional) and reconcile
+    a directory (safetensors) or a .gguf file back to a repo.
+Every guess only PREFILLS the HF-link field. The launch still pulls+hashes those weights
+(modelhost.verify — quant-safetensors AND single-file GGUF are both bit-for-bit verifiable) and
+fingerprints the endpoint, so a wrong guess fails verification and can never weaken attestation."""
 from __future__ import annotations
 
 import concurrent.futures as cf
@@ -31,33 +35,60 @@ import urllib.request
 
 from pod import diskscan
 
-# common OpenAI-compatible serve ports: vLLM/SGLang, ASR/TTS sidecars, TGI, Ollama, LM Studio,
-# SGLang router, llama.cpp server. The pod's OWN prod serves (8000/8001/8002) are included.
-COMMON_PORTS = [8000, 8001, 8002, 8080, 1234, 11434, 30000, 8010, 5000, 8081]
+# common OpenAI-compatible serve ports across engines: vLLM 8000, TGI 3000/8080, llama.cpp 8080,
+# LM Studio 1234, Ollama 11434, SGLang 30000, plus the pod's ASR/TTS sidecars.
+COMMON_PORTS = [8000, 8001, 8002, 8080, 1234, 11434, 30000, 3000, 8010, 5000, 8081]
 MAX_HOSTS = 8
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 # a value that is a filesystem path, not an org/model repo id (leading / ./ ../ or a Windows drive)
 _PATHY = re.compile(r"^(/|\./|\.\./|[A-Za-z]:[\\/])")
+# an Ollama-style Hub tag / a huggingface.co URL -> the org/model repo id inside it
+_HF_TAG_RE = re.compile(r"^(?:hf\.co|huggingface\.co)/([A-Za-z0-9][\w.-]*/[\w.-]+?)(?::[\w.-]+)?$", re.I)
+_HF_URL_RE = re.compile(r"^https?://huggingface\.co/([A-Za-z0-9][\w.-]*/[\w.-]+?)(?:/(?:tree|blob)/[^/]+)?/?$", re.I)
+
+
+def _repo_from_ref(ref):
+    """If `ref` names a Hugging Face repo (a bare org/model, an hf.co/… tag, or a hf.co URL),
+    return that repo id; else None. Strips an Ollama `:quant` tag and a URL tail. A filesystem
+    path is never a repo."""
+    if not isinstance(ref, str) or not ref:
+        return None
+    m = _HF_TAG_RE.match(ref) or _HF_URL_RE.match(ref)
+    if m:
+        return m.group(1)
+    base = ref.split(":", 1)[0] if (":" in ref and not _PATHY.match(ref)) else ref
+    if not _PATHY.match(base) and diskscan._ORG_NAME_RE.match(base):
+        return base
+    return None
 
 
 def _guess_from_served(mid, root):
-    """Autodetect the HF repo from a served model's endpoint metadata alone. `root` (the launch
-    --model value, when the server exposes it) is the strongest signal; the served id is a
-    fallback. Either counts only when it's an org/model repo id, not a bare alias or a local path.
-    Returns (hf_guess, source, confidence) or (None, None, None)."""
+    """Autodetect the HF repo from a served model's endpoint metadata alone. `root` (vLLM's launch
+    --model) is strongest; the served id is the fallback (SGLang no-alias, TGI, LM Studio, an
+    Ollama hf.co tag). Returns (hf_guess, source, confidence) or (None, None, None)."""
     for val, src in ((root, "served-root"), (mid, "served-id")):
-        if isinstance(val, str) and val and not _PATHY.match(val) and diskscan._ORG_NAME_RE.match(val):
-            return val, src, "high"
+        repo = _repo_from_ref(val)
+        if repo:
+            return repo, src + (":hf-tag" if val != repo else ""), "high"
     return None, None, None
+
+
+def _fmt_from_owner(owned_by, mid):
+    """A weak format/engine hint from /v1/models: llama.cpp / Ollama / LM Studio serve GGUF (or
+    MLX); vLLM / SGLang / TGI serve safetensors. Used only to message verifiability, never to gate."""
+    o = (owned_by or "").lower()
+    if o == "llamacpp" or o == "library" or (isinstance(mid, str) and mid.startswith("hf.co/")):
+        return "gguf"
+    if o in ("vllm", "sglang") or "/" in (owned_by or ""):     # tgi sets owned_by == model_id
+        return "safetensors"
+    return None
 
 
 def _probe(base_url, *, timeout=2, transport=None):
     """GET <base>/v1/models. Returns {url, host, models, served, reachable} when an
-    OpenAI-compatible server answers with at least one model id, else None. `models` is the flat
-    id list (back-compat); `served` folds aliases of one physical model into a single entry and
-    carries the per-model HF autodetect ({ids, root, hf_guess, source, confidence, max_model_len}).
-    `transport(url)->parsed-json` is injectable for tests. Never raises — an unreachable port is
-    just None."""
+    OpenAI-compatible server answers with ≥1 model id, else None. `served` folds aliases of one
+    physical model (same root) into one entry and carries the per-model HF autodetect. Never
+    raises."""
     url = base_url.rstrip("/") + "/v1/models"
     try:
         if transport is not None:
@@ -73,15 +104,15 @@ def _probe(base_url, *, timeout=2, transport=None):
             mid = m["id"]
             models.append(mid)
             root = m.get("root") if isinstance(m.get("root"), str) else None
-            # one physical model is often exposed under many served-model-name aliases (all share
-            # the same `root`) — fold those into a single served entry, don't over-count
-            key = root or mid
+            key = root or mid                            # aliases share one root -> one entry
             if key in by_key:
                 by_key[key]["ids"].append(mid)
                 continue
             hf_guess, gsrc, conf = _guess_from_served(mid, root)
             entry = {"ids": [mid], "root": root, "hf_guess": hf_guess, "hf_revision": None,
-                     "source": gsrc, "confidence": conf, "max_model_len": m.get("max_model_len")}
+                     "source": gsrc, "confidence": conf, "owned_by": m.get("owned_by"),
+                     "format": _fmt_from_owner(m.get("owned_by"), mid),
+                     "max_model_len": m.get("max_model_len")}
             by_key[key] = entry
             served.append(entry)
         if models:
@@ -92,21 +123,17 @@ def _probe(base_url, *, timeout=2, transport=None):
     return None
 
 
-# ---- docker fallback: resolve a LOCAL-path serve's HF repo from its backing container ----------
-# When /v1/models `root` is a local path (the serve was launched from disk, not a Hub id), the
-# endpoint alone can't name the repo. On the pod's OWN host we can: inspect the running containers,
-# match one to the endpoint by its --served-model-name, read its --model, and reconcile that path
-# (translated back into the pod's mount namespace) to an HF repo via the on-disk breadcrumbs.
+# ---- docker fallback: resolve a serve's HF repo from its backing container --------------------
+# Any engine binds a PORT, so we match the container to the endpoint by port (the universal link),
+# then read the model reference from whatever flag/env that engine uses and reconcile it.
 
 def _default_docker(argv):                               # pragma: no cover — real docker
     return subprocess.run(argv, capture_output=True, text=True, timeout=8).stdout
 
 
 def _flatten_cmd(parts):
-    """Flatten a container's Entrypoint+Cmd into a token list, expanding shell wrappers. A serve
-    launched as ["/bin/bash","-lc","exec vllm serve /model --served-model-name a b --port 8000"]
-    hides its flags inside one shell string — shlex-split any multi-word element so --model /
-    --served-model-name become findable tokens."""
+    """Flatten Entrypoint+Cmd into tokens, expanding shell wrappers so flags inside a
+    ["/bin/bash","-lc","exec vllm serve … --port 8000"] string become findable tokens."""
     toks = []
     for p in parts:
         if not isinstance(p, str):
@@ -122,15 +149,17 @@ def _flatten_cmd(parts):
 
 
 def _flag_value(toks, flag):
-    """The single token after `flag` (or None)."""
+    """The token after `flag`, or the RHS of `flag=value`."""
     for i, t in enumerate(toks):
         if t == flag and i + 1 < len(toks):
             return toks[i + 1]
+        if t.startswith(flag + "="):
+            return t[len(flag) + 1:]
     return None
 
 
 def _flag_values(toks, flag):
-    """All consecutive non-flag tokens after `flag` (for nargs flags like --served-model-name)."""
+    """All consecutive non-flag tokens after `flag` (nargs flags like --served-model-name)."""
     out = []
     for i, t in enumerate(toks):
         if t == flag:
@@ -142,19 +171,61 @@ def _flag_values(toks, flag):
     return out
 
 
-def _serve_positional(toks):
-    """`vllm serve <model>` / `sglang ... serve <model>`: the first non-flag token after 'serve'."""
-    if "serve" in toks:
-        for t in toks[toks.index("serve") + 1:]:
+def _positional_after(toks, kw):
+    """The first non-flag token after subcommand `kw` (vllm `serve` / lms `load` / ollama `run`)."""
+    if kw in toks:
+        for t in toks[toks.index(kw) + 1:]:
             if not t.startswith("-"):
                 return t
     return None
 
 
+# model-reference flags across engines, priority order: explicit HF-repo first, then path/file
+_HF_REPO_FLAGS = ("--model-id", "-hf", "-hfr", "--hf-repo", "-dr", "--docker-repo", "-mu", "--model-url")
+_PATH_MODEL_FLAGS = ("--model", "--model-path", "--model_path", "-m")
+_ENV_REPO_KEYS = ("MODEL_ID", "LLAMA_ARG_HF_REPO")
+_ENV_PATH_KEYS = ("LLAMA_ARG_MODEL",)
+_PORT_FLAGS = ("--port", "-p")
+
+
+def _cmd_port(toks):
+    for i, t in enumerate(toks):
+        if t in _PORT_FLAGS and i + 1 < len(toks) and toks[i + 1].isdigit():
+            return int(toks[i + 1])
+        if t.startswith("--port="):
+            v = t.split("=", 1)[1]
+            if v.isdigit():
+                return int(v)
+    return None
+
+
+def _env_port(env):
+    for k in ("PORT", "LLAMA_ARG_PORT"):
+        v = env.get(k)
+        if v and str(v).isdigit():
+            return int(v)
+    oh = env.get("OLLAMA_HOST")                          # host:port | :port
+    if oh and ":" in str(oh):
+        p = str(oh).rsplit(":", 1)[1]
+        if p.isdigit():
+            return int(p)
+    return None
+
+
+def _published_ports(raw):
+    """Host ports a bridge-network container publishes (NetworkSettings.Ports HostPort values)."""
+    out = set()
+    for _, binds in ((raw.get("NetworkSettings") or {}).get("Ports") or {}).items():
+        for b in (binds or []):
+            hp = b.get("HostPort")
+            if hp and str(hp).isdigit():
+                out.add(int(hp))
+    return out
+
+
 def _docker_serves(*, runner=None):
-    """Running containers with their (model_arg, served_names, mounts), parsed from the launch
-    command via `docker inspect`. Returns [] when docker is unavailable or anything goes wrong —
-    the fallback is strictly best-effort."""
+    """Running containers with everything needed to match+resolve: name, flattened cmd tokens,
+    env dict, mounts, the serve port (cmd/env), and published host ports. [] if docker absent."""
     if runner is None and not shutil.which("docker"):
         return []
     run = runner or _default_docker
@@ -170,21 +241,68 @@ def _docker_serves(*, runner=None):
         try:
             cfg = c.get("Config") or {}
             toks = _flatten_cmd(list(cfg.get("Entrypoint") or []) + list(cfg.get("Cmd") or []))
-            model_arg = _flag_value(toks, "--model") or _serve_positional(toks)
+            env = {}
+            for e in (cfg.get("Env") or []):
+                if isinstance(e, str) and "=" in e:
+                    k, v = e.split("=", 1)
+                    env[k] = v
             mounts = {(m.get("Destination") or "").rstrip("/"): m.get("Source")
                       for m in (c.get("Mounts") or []) if m.get("Destination") and m.get("Source")}
-            res.append({"name": (c.get("Name") or "").lstrip("/"), "model_arg": model_arg,
-                        "served_names": _flag_values(toks, "--served-model-name"), "mounts": mounts})
+            res.append({"name": (c.get("Name") or "").lstrip("/"), "toks": toks, "env": env,
+                        "mounts": mounts, "served_names": _flag_values(toks, "--served-model-name"),
+                        "cmd_port": _cmd_port(toks) or _env_port(env),
+                        "pub_ports": _published_ports(c)})
         except Exception:
             continue
     return res
 
 
+def _match_container(port, ids, containers):
+    """The container backing an endpoint: by serve PORT (cmd/env/published — the universal link),
+    else by --served-model-name overlap, else by a served id appearing verbatim in the command."""
+    idset = set(ids or [])
+    for c in containers:                                 # 1) port — works across every engine
+        if port and (c.get("cmd_port") == port or port in (c.get("pub_ports") or set())):
+            return c
+    for c in containers:                                 # 2) served-model-name alias overlap
+        if idset & set(c.get("served_names") or []):
+            return c
+    for c in containers:                                 # 3) a served id literally in the argv
+        if idset & set(c.get("toks") or []):
+            return c
+    return None
+
+
+def _model_ref_from_container(c):
+    """The model reference the container was launched with, across engines: explicit HF-repo flags
+    (TGI --model-id, llama.cpp -hf) and env first, then path/file flags (--model / --model-path /
+    -m), then env paths, then a positional after serve/load/run."""
+    toks, env = c.get("toks") or [], c.get("env") or {}
+    for f in _HF_REPO_FLAGS:
+        v = _flag_value(toks, f)
+        if v:
+            return v
+    for k in _ENV_REPO_KEYS:
+        if env.get(k):
+            return env[k]
+    for f in _PATH_MODEL_FLAGS:
+        v = _flag_value(toks, f)
+        if v:
+            return v
+    for k in _ENV_PATH_KEYS:
+        if env.get(k):
+            return env[k]
+    for kw in ("serve", "load", "run"):
+        v = _positional_after(toks, kw)
+        if v:
+            return v
+    return None
+
+
 def _host_to_pod(host_path):
-    """Translate a HOST filesystem path (from a container mount Source) into a path the POD can
-    open — the inverse of engines._host_path. A containerized pod that mounted the host home at
-    /host-home (AEON_HOST_HOME_DIR) or the models volume (AEON_MODELS_HOST_DIR->AEON_MODELS_DIR)
-    reads the serve's weights there. Returns a directory that exists, else None."""
+    """Translate a HOST path (a container mount Source) into a path the POD can open — the inverse
+    of engines._host_path, via /host-home (AEON_HOST_HOME_DIR) or the models volume. Returns an
+    existing file/dir, else None."""
     q = (host_path or "").replace("\\", "/")
     if not q:
         return None
@@ -195,62 +313,91 @@ def _host_to_pod(host_path):
         hd = host_dir.rstrip("/").replace("\\", "/")
         if q == hd or q.startswith(hd + "/"):
             cand = pod_inner.rstrip("/") + q[len(hd):]
-            if os.path.isdir(cand):
+            if os.path.exists(cand):
                 return cand
-    return q if os.path.isdir(q) else None                # not containerized (or same namespace)
+    return q if os.path.exists(q) else None               # not containerized (or shared namespace)
 
 
-def _container_model_dir(model_arg, container):
-    """The pod-readable directory holding a serve's weights: map the in-container --model path
-    through the container's mounts to the host path, then into the pod's namespace."""
-    mounts = container.get("mounts") or {}
+def _container_path(ref, container):
+    """The pod-readable path (file or dir) for a serve's --model value: map it through the
+    container's mounts to the host path, then into the pod's namespace."""
     host = None
-    for dest, src in mounts.items():
-        if model_arg == dest:
+    for dest, src in (container.get("mounts") or {}).items():
+        if ref == dest:
             host = src
-        elif model_arg.startswith(dest + "/"):
-            host = (src or "").rstrip("/") + model_arg[len(dest):]
+        elif ref.startswith(dest + "/"):
+            host = (src or "").rstrip("/") + ref[len(dest):]
         if host:
             break
-    return _host_to_pod(host or model_arg)
+    return _host_to_pod(host or ref)
 
 
-def _docker_enrich(served_entries, *, runner=None):
-    """Fill the HF guess for served models the endpoint couldn't name (local-path serves), using
-    the backing container's --model. In place; best-effort; LOCALHOST callers only."""
-    unresolved = [s for s in served_entries if not s.get("hf_guess")]
-    if not unresolved:
-        return
-    containers = _docker_serves(runner=runner)
-    if not containers:
-        return
-    for s in unresolved:
-        ids = set(s.get("ids") or [])
-        c = next((c for c in containers if ids & set(c.get("served_names") or [])), None)
-        marg = c and c.get("model_arg")
-        if not marg:
+def _reconcile_gguf(gguf_path):
+    """Map a .gguf FILE back to an HF repo id. Returns (repo, revision, source) or Nones.
+    Tries the pod's own pull metadata / HF-cache in the file's dir first, then the LM Studio /
+    publisher-repo layout `.../<publisher>/<repo>/<file>.gguf`."""
+    d = os.path.dirname(gguf_path)
+    repo, rev, src = diskscan.reconcile_path(d)          # .aeon-modelref / hf-cache / org__name
+    if repo:
+        return repo, rev, src
+    parts = d.replace("\\", "/").rstrip("/").split("/")
+    if len(parts) >= 2:
+        cand = parts[-2] + "/" + parts[-1]               # LM Studio: <publisher>/<repo>/
+        if diskscan._ORG_NAME_RE.match(cand):
+            return cand, None, "gguf-path-layout"
+    return None, None, None
+
+
+def _resolve_ref(ref, container):
+    """Turn a container's model reference into a guess dict {hf_guess, hf_revision, source,
+    confidence, format, local_name} (missing keys omitted). Exception-safe."""
+    repo = _repo_from_ref(ref)
+    if repo:                                             # a Hub id / hf.co tag / URL — authoritative
+        return {"hf_guess": repo, "source": "docker-model-arg", "confidence": "high",
+                "format": "gguf" if ref.rstrip().endswith(".gguf") else None}
+    local = _container_path(ref, container)              # a local path — reconcile the bytes' origin
+    is_gguf = bool(local and local.rstrip().lower().endswith(".gguf")) or \
+        (isinstance(ref, str) and ref.rstrip().lower().endswith(".gguf"))
+    if not local:
+        return {"format": "gguf" if is_gguf else None}
+    if is_gguf:
+        repo, rev, rsrc = _reconcile_gguf(local)
+        out = {"format": "gguf"}
+        if repo:
+            out.update(hf_guess=repo, hf_revision=rev, source="docker-mount:" + (rsrc or ""),
+                       confidence="medium")
+        else:
+            out["local_name"] = os.path.basename(local)
+        return out
+    repo, rev, rsrc = diskscan.reconcile_path(local)     # a directory of safetensors
+    if repo:
+        return {"hf_guess": repo, "hf_revision": rev, "format": "safetensors",
+                "source": "docker-mount:" + (rsrc or ""), "confidence": "medium"}
+    return {"format": "safetensors", "local_name": os.path.basename(local.rstrip("/\\"))}
+
+
+def _docker_enrich(served_entries, *, endpoint_port, containers):
+    """Fill the HF guess for served models the endpoint couldn't name, from the backing container
+    (matched by port). In place; best-effort; localhost callers only."""
+    for s in served_entries:
+        if s.get("hf_guess"):
+            continue
+        c = _match_container(endpoint_port, s.get("ids"), containers)
+        if not c:
+            continue
+        ref = _model_ref_from_container(c)
+        if not ref:
             continue
         s["container"] = c["name"]
-        if not _PATHY.match(marg) and diskscan._ORG_NAME_RE.match(marg):
-            s.update(hf_guess=marg, source="docker-model-arg", confidence="high")  # launched from a Hub id
-            continue
-        local = _container_model_dir(marg, c)             # a local path — reconcile via breadcrumbs
-        if not local:
-            continue
-        repo, rev, rsrc = diskscan.reconcile_path(local)
-        if repo:
-            s.update(hf_guess=repo, hf_revision=rev, source="docker-mount:" + (rsrc or ""),
-                     confidence="medium")
-        else:                                             # no repo breadcrumb — surface the folder name as a hint
-            s["local_name"] = os.path.basename(local.rstrip("/\\")) or None
+        for k, v in _resolve_ref(ref, c).items():        # merge only the keys the resolver set
+            if v is not None:
+                s[k] = v
 
 
 def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=None):
     """Sweep (hosts × ports) for OpenAI-compatible servers, concurrently, and AUTODETECT each
-    served model's HF repo. `hosts` defaults to localhost; pass a declared LAN/cluster list
-    (capped at MAX_HOSTS) to find remote serves. Returns {endpoints:[…], scanned, hosts}. Deduped
-    by URL. For LOCALHOST endpoints whose repo the endpoint couldn't name (local-path serves), a
-    best-effort docker pass resolves it from the backing container's --model mount."""
+    served model's HF repo (engine-agnostic). Returns {endpoints:[…], scanned, hosts}. Deduped by
+    URL. LOCALHOST endpoints the API couldn't name get a best-effort docker pass (matched by port)."""
     hosts = [h for h in (hosts or ["127.0.0.1"]) if h][:MAX_HOSTS]
     ports = ports or COMMON_PORTS
     seen_p = []
@@ -264,8 +411,18 @@ def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=Non
             if r and r["url"] not in seen:
                 seen.add(r["url"])
                 out.append(r)
-    # docker fallback only for the pod's OWN host — it cannot inspect a remote node's containers
-    for ep in out:
-        if ep["host"].split(":", 1)[0] in _LOCAL_HOSTS:
-            _docker_enrich(ep.get("served") or [], runner=docker_runner)
+    # docker fallback (pod's OWN host only — it can't inspect a remote node's containers), and only
+    # when something local is still unnamed, so we never shell out needlessly
+    local_unresolved = [ep for ep in out
+                        if ep["host"].split(":", 1)[0] in _LOCAL_HOSTS
+                        and any(not s.get("hf_guess") for s in (ep.get("served") or []))]
+    if local_unresolved:
+        containers = _docker_serves(runner=docker_runner)
+        if containers:
+            for ep in local_unresolved:
+                try:
+                    port = int(ep["host"].rsplit(":", 1)[1])
+                except Exception:
+                    port = None
+                _docker_enrich(ep.get("served") or [], endpoint_port=port, containers=containers)
     return {"endpoints": out, "scanned": len(targets), "hosts": hosts}

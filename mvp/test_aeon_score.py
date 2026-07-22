@@ -221,6 +221,9 @@ def main():
     check(f["aeon_score_parts"] == {"intelligence": 0.5, "agentic": 0.3, "performance": 0.2},
           "full model uses the native weights")
     check(f["aeon_provisional"] is False, "all three components present -> not provisional")
+    # COMPLETENESS GATE: the FULL run (intelligence+agentic+performance) is the only shape that RANKS
+    check(f["record_eligible"] is True and f.get("ranked_excluded") is None,
+          "a full (non-provisional) attested run RANKS")
 
     # ---- perf percentile within bucket ----------------------------------------------------
     for canon, want in ((MID, 50.0), (SLOW, 0.0), (LONER, 100.0)):
@@ -239,6 +242,8 @@ def main():
     check(ia["aeon_score"] == round(0.625 * 100.0 + 0.375 * 60.0, 1),
           "reweighted blend math (i=100, a=60 -> 85.0)")
     check(ia["aeon_provisional"] is True, "missing performance -> provisional")
+    check(ia["record_eligible"] is False and ia.get("ranked_excluded") == "incomplete",
+          "an attested-but-provisional run (missing performance) is NOT counted — local only")
 
     t = row(lb, TEXT_ONLY)
     check(t["aeon_score_parts"] == {"intelligence": 1.0, "agentic": 0.0, "performance": 0.0},

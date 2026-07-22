@@ -127,6 +127,16 @@ ok((rowProv.match(/not yet tested/g) || []).length >= 2, "missing core dials say
 ok(/aeon-prov/.test(rowProv) && /prov/.test(rowProv), "provisional AEON dims with an honest chip");
 ok(!/>0</.test(rowProv), "no fake zero anywhere in the provisional row");
 
+// completeness gate: verified weights but not a full run -> "verified · not counted" badge
+const rowInc = app.globalRow({
+  model: "org/inc-9b", run: "r-inc", aeon_score: 70, best_intelligence_run: "r-inc",
+  comp: 70, categories: {}, record_eligible: false, ranked_excluded: "incomplete",
+  dials: { intelligence: { score: 70, run: "r-inc" }, performance: null, agentic: null },
+}, 1);
+ok(/elig-badge incomplete/.test(rowInc) && /not counted/.test(rowInc),
+   "attested-but-incomplete row badges 'verified · not counted', not 'local'");
+ok(!/elig-badge local/.test(rowInc), "an incomplete verified row is never mislabelled local");
+
 // ------------------------------------------- globalRow(): OLD server compat
 console.log("globalRow() — old server (no dials/aeon fields)");
 const rowOld = app.globalRow({

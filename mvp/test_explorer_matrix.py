@@ -135,8 +135,10 @@ def main():
 
     # ---- filter facets: trust tier / hardware bucket / served context -------------------
     hwn = hwnorm.normalize_label(TIERED_HW)
-    check(t["trust_tier"] == "attested" and t["record_eligible"] is True,
-          "attested model carries trust_tier=attested (the board's own value)")
+    # TIERED has intelligence (+ a perf row) but NO agentic run -> provisional -> the completeness
+    # gate leaves it verified (trust_tier=attested) but NOT counted (record_eligible False).
+    check(t["trust_tier"] == "attested" and t["record_eligible"] is False,
+          "attested-but-incomplete model: verified facet stays, but not ranked (gate)")
     check(t["hw_bucket"] == hwn["bucket"] and t["hw_family"] == hwn["family"],
           f"source run's rig normalizes through hwnorm ({hwn['bucket']} / {hwn['family']})")
     check(t["hw_family"] == hwnorm.FAMILY_RTX, "RTX label lands in the nvidia-rtx family")

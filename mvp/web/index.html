@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=100" />
+  <link rel="stylesheet" href="/static/styles.css?v=103" />
 </head>
 <body>
   <header>
@@ -196,6 +196,7 @@
               <button id="lwBrowse" class="ghost" title="browse the pod host's file structure for a model folder">▤ browse</button>
             </span>
           </div>
+          <p class="note" id="verifyHfPrompt" hidden></p>
           <div class="row" id="scanRow" hidden>
             <label class="grow">Models on this system <span class="note" id="scanCount"></span>
               <input id="scanSearch" type="search" placeholder="🔍 filter by name / format / source…" autocomplete="off" spellcheck="false" />
@@ -283,6 +284,8 @@
             <p class="note" id="bareNote"></p>
             <pre class="repro-cmd" id="mlxCmd"></pre>
             <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
+            <button id="scanEndpoints" class="ghost adv" title="sweep this host (and any ?hosts LAN/cluster nodes) for running OpenAI-compatible servers, then pick one to bench + fingerprint-verify — no need to paste its URL">⌕ Scan for running instances</button>
+            <div id="scanEndpointsResult" class="scan-ep-result"></div>
             <div class="row adv">
               <label>Spark cluster nodes <span class="note">(multi-node serve)</span><input id="sparkNodes" type="number" min="2" max="16" step="1" placeholder="single" title="multi-node DGX Spark serve: the pod sees only its own node — declare the cluster size so the run lands in the 2×/3×/4× DGX Spark bucket (operator-declared)" /></label>
               <label class="verify-ep" title="logprob-fingerprint the serve URL against the hash-verified weights — proves the running serve really serves those weights. Match → attested; mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint)</label>
@@ -668,6 +671,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=100"></script>
+  <script src="/static/app.js?v=103"></script>
 </body>
 </html>

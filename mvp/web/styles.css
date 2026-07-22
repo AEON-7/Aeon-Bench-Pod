@@ -2009,6 +2009,10 @@ select:focus {
 .scan-ep-guess.high { color: var(--ok, #7dff9a); }
 .scan-ep-guess.medium, .scan-ep-guess.local { color: var(--warn, #ffb454); }
 .scan-ep-guess.none { color: var(--muted); }
+.scan-ep-fmt { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; padding: 1px 5px;
+  border: 1px solid var(--border); border-radius: 3px; color: var(--muted); margin-left: 6px;
+  vertical-align: middle; }
+.ep-note-gguf { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
 .scan-ep-use { white-space: nowrap; flex-shrink: 0; align-self: center; }
 .scan-ep-use:hover { border-color: var(--accent); color: var(--accent); }
 .scan-ep-empty, .scan-ep-err { padding: 8px 10px; font-size: 12px; color: var(--muted);

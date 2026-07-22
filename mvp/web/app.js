@@ -4368,21 +4368,22 @@ function renderScanEndpoints(d) {
       const label = ids.length ? ids.map(escH).join(" · ") : "no model id reported";
       const one = ids.length === 1 ? ids[0] : "";
       const hf = s.hf_guess || "";
+      const fmt = s.format === "gguf" ? ` <span class="scan-ep-fmt">GGUF</span>` : "";
       let chip;
       if (hf) {
         chip = `<span class="scan-ep-guess ${escA(s.confidence || "")}">✓ <span class="mono">${escH(hf)}</span>` +
-          `<em>· auto ${escH(epSourceLabel(s.source))}</em></span>`;
+          `<em>· auto ${escH(epSourceLabel(s.source))}</em></span>${fmt}`;
       } else if (s.local_name) {
-        chip = `<span class="scan-ep-guess local">local model <span class="mono">${escH(s.local_name)}</span> · HF link needed</span>`;
+        chip = `<span class="scan-ep-guess local">local model <span class="mono">${escH(s.local_name)}</span> · HF link needed</span>${fmt}`;
       } else {
-        chip = `<span class="scan-ep-guess none">HF repo not exposed · paste the link</span>`;
+        chip = `<span class="scan-ep-guess none">HF repo not exposed · paste the link</span>${fmt}`;
       }
       return `<div class="scan-ep-row">` +
         `<div class="scan-ep-meta"><span class="scan-ep-models">${label}</span>${chip}</div>` +
         `<button type="button" class="ghost scan-ep-use" data-url="${escA(url)}" data-hf="${escA(hf)}"` +
         ` data-rev="${escA(s.hf_revision || "")}" data-source="${escA(s.source || "")}"` +
         ` data-conf="${escA(s.confidence || "")}" data-localname="${escA(s.local_name || "")}"` +
-        ` data-model="${escA(one)}">use this</button>` +
+        ` data-fmt="${escA(s.format || "")}" data-model="${escA(one)}">use this</button>` +
         `</div>`;
     }).join("");
     return `<div class="scan-ep-ep"><div class="scan-ep-url mono">${escH(url)}</div>${rows}</div>`;
@@ -4423,7 +4424,7 @@ function useScannedEndpoint(ds) {
   }
   if (prompt) {
     prompt.hidden = false;
-    prompt.innerHTML = filled
+    let msg = filled
       ? (ds.conf === "medium"
           ? `HF repo <span class="mono">${escH(filled)}</span> inferred from the serve's model folder — <b>confirm it's the exact repo</b>, then launch to verify`
           : `✓ HF repo auto-detected from the running serve: <span class="mono">${escH(filled)}</span> — launch to verify (edit if the repo differs)`)
@@ -4432,6 +4433,13 @@ function useScannedEndpoint(ds) {
       : model
       ? `provide the Hugging Face link for <span class="mono">${escH(model)}</span> to verify this live model`
       : "provide the Hugging Face link for this model to verify it";
+    if (ds.fmt === "gguf") {
+      // GGUF: the exact quant FILE hash-verifies bit-for-bit against a GGUF repo, but the logprob
+      // fingerprint is cross-engine (the reference is captured via vLLM), so an endpoint fingerprint
+      // may land self_reported. Set expectations honestly.
+      msg += ` <span class="ep-note-gguf">· GGUF quant: point at the repo that hosts this exact <span class="mono">.gguf</span> — it hash-verifies bit-for-bit, though the live-endpoint fingerprint is cross-engine and may record self_reported.</span>`;
+    }
+    prompt.innerHTML = msg;
   }
   if (link) link.focus();
 }

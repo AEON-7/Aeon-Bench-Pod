@@ -176,6 +176,114 @@ ep.scan(hosts=["10.9.9.9"], ports=[8000], transport=lambda u: {"data": [{"id": "
         docker_runner=spy_runner)
 check(calls == [], "a remote (non-localhost) endpoint never triggers the local docker fallback")
 
+# ================================ MULTI-ENGINE COVERAGE ================================
+# Autodetect must be engine-agnostic — vLLM/SGLang/TGI/llama.cpp/Ollama/LM Studio expose identity
+# differently. Endpoint-only tier first (no docker): whatever the engine puts in root/id.
+LIVE_ENG = {
+    # SGLang (no alias): id == root == the model-path, an org/model repo
+    "http://127.0.0.1:8010/v1/models": {"data": [{"id": "Qwen/Qwen2.5-7B-Instruct",
+                                                   "root": "Qwen/Qwen2.5-7B-Instruct", "owned_by": "sglang"}]},
+    # TGI: id == --model-id (the repo); no root; owned_by mirrors the repo
+    "http://127.0.0.1:3000/v1/models": {"data": [{"id": "meta-llama/Meta-Llama-3-8B",
+                                                   "owned_by": "meta-llama/Meta-Llama-3-8B"}]},
+    # Ollama hf.co tag: the source repo is encoded in the tag
+    "http://127.0.0.1:11434/v1/models": {"data": [{"id": "hf.co/bartowski/Model-GGUF:Q4_K_M",
+                                                    "owned_by": "library"}]},
+    # Ollama library tag: no HF identity available -> honest no-guess, but format known (gguf)
+    "http://127.0.0.1:8011/v1/models": {"data": [{"id": "llama3.1:8b", "owned_by": "library"}]},
+    # a huggingface.co URL in root
+    "http://127.0.0.1:8012/v1/models": {"data": [{"id": "served", "root": "https://huggingface.co/Org/UrlModel"}]},
+}
+
+
+def eng_transport(url):
+    if url in LIVE_ENG:
+        return LIVE_ENG[url]
+    raise ConnectionError("refused")
+
+
+rE = ep.scan(ports=[8010, 3000, 11434, 8011, 8012], transport=eng_transport,
+             docker_runner=lambda a: "")               # no docker: prove endpoint-only coverage
+epsE = {e["url"]: (e.get("served") or [{}])[0] for e in rE["endpoints"]}
+check(epsE["http://127.0.0.1:8010/v1"]["hf_guess"] == "Qwen/Qwen2.5-7B-Instruct"
+      and epsE["http://127.0.0.1:8010/v1"]["confidence"] == "high"
+      and epsE["http://127.0.0.1:8010/v1"]["format"] == "safetensors",
+      "SGLang: id==root==repo -> autodetected endpoint-only (safetensors)")
+check(epsE["http://127.0.0.1:3000/v1"]["hf_guess"] == "meta-llama/Meta-Llama-3-8B"
+      and epsE["http://127.0.0.1:3000/v1"]["source"] == "served-id",
+      "TGI: id == --model-id repo -> autodetected endpoint-only")
+oll = epsE["http://127.0.0.1:11434/v1"]
+check(oll["hf_guess"] == "bartowski/Model-GGUF" and "hf-tag" in oll["source"]
+      and oll["format"] == "gguf",
+      "Ollama hf.co/owner/repo:quant tag -> repo parsed out of the tag (gguf)")
+lib = epsE["http://127.0.0.1:8011/v1"]
+check(not lib["hf_guess"] and lib["format"] == "gguf",
+      "Ollama library tag -> honest no-guess, format still known (gguf, from owned_by)")
+check(epsE["http://127.0.0.1:8012/v1"]["hf_guess"] == "Org/UrlModel",
+      "a huggingface.co URL in root -> repo id extracted")
+
+# ---- docker fallback across engines: matched BY PORT (cmd or published), broad model flags ----
+_lms = tempfile.mkdtemp()                               # LM Studio layout: <pub>/<repo>/<file>.gguf
+os.makedirs(os.path.join(_lms, "Publisher", "RepoGGUF"))
+open(os.path.join(_lms, "Publisher", "RepoGGUF", "model.Q4_K_M.gguf"), "w").close()
+_sg = tempfile.mkdtemp()                                # a safetensors dir with a pull sidecar
+os.makedirs(os.path.join(_sg, "sg"))
+json.dump({"repo": "Org/SgModel"}, open(os.path.join(_sg, "sg", ".aeon-modelref.json"), "w", encoding="utf-8"))
+
+LIVE_DK = {
+    "http://127.0.0.1:8080/v1/models": {"data": [{"id": "my-local-model", "owned_by": "llamacpp"}]},  # llama.cpp
+    "http://127.0.0.1:3001/v1/models": {"data": [{"id": "tgi-alias"}]},                                # TGI --model-id
+    "http://127.0.0.1:9000/v1/models": {"data": [{"id": "sglang-alias", "root": "sglang-alias"}]},     # SGLang bridge
+    "http://127.0.0.1:8082/v1/models": {"data": [{"id": "envtgi"}]},                                   # TGI env MODEL_ID
+}
+
+
+def dk_transport(url):
+    if url in LIVE_DK:
+        return LIVE_DK[url]
+    raise ConnectionError("refused")
+
+
+INSPECT_DK = [
+    # llama.cpp: -m <gguf FILE>, matched by --port 8080; gguf -> LM Studio publisher/repo layout
+    {"Name": "/llamacpp", "Config": {"Cmd": ["llama-server", "-m",
+        "/lms/Publisher/RepoGGUF/model.Q4_K_M.gguf", "--port", "8080"]},
+     "Mounts": [{"Destination": "/lms", "Source": _lms}]},
+    # TGI: --model-id is the repo, matched by --port 3001
+    {"Name": "/tgi", "Config": {"Cmd": ["text-generation-launcher", "--model-id",
+        "meta-llama/TgiRepo", "--port", "3001"]}, "Mounts": []},
+    # SGLang bridge: no --port in cmd, matched by PUBLISHED host port 9000; --model-path dir
+    {"Name": "/sglang", "Config": {"Cmd": ["python", "-m", "sglang.launch_server",
+        "--model-path", "/data/sg"]}, "Mounts": [{"Destination": "/data", "Source": _sg}],
+     "NetworkSettings": {"Ports": {"30000/tcp": [{"HostPort": "9000"}]}}},
+    # TGI via ENV MODEL_ID (no model flag on the cmd), matched by --port 8082
+    {"Name": "/tgienv", "Config": {"Cmd": ["text-generation-launcher", "--port", "8082"],
+        "Env": ["MODEL_ID=Org/EnvRepo", "PORT=8082"]}, "Mounts": []},
+]
+
+
+def dk_runner(argv):
+    if argv[:3] == ["docker", "ps", "-q"]:
+        return "a\nb\nc\nd\n"
+    if argv[:2] == ["docker", "inspect"]:
+        return json.dumps(INSPECT_DK)
+    return ""
+
+
+rD = ep.scan(ports=[8080, 3001, 9000, 8082], transport=dk_transport, docker_runner=dk_runner)
+epsD = {e["url"]: (e.get("served") or [{}])[0] for e in rD["endpoints"]}
+check(epsD["http://127.0.0.1:8080/v1"]["hf_guess"] == "Publisher/RepoGGUF"
+      and epsD["http://127.0.0.1:8080/v1"]["format"] == "gguf"
+      and epsD["http://127.0.0.1:8080/v1"]["confidence"] == "medium",
+      "llama.cpp: -m <gguf> matched by cmd --port -> repo from LM Studio publisher/repo layout (gguf)")
+check(epsD["http://127.0.0.1:3001/v1"]["hf_guess"] == "meta-llama/TgiRepo"
+      and epsD["http://127.0.0.1:3001/v1"]["source"] == "docker-model-arg",
+      "TGI: --model-id read from the backing container (matched by port)")
+check(epsD["http://127.0.0.1:9000/v1"]["hf_guess"] == "Org/SgModel",
+      "SGLang bridge: container matched by PUBLISHED host port, --model-path dir reconciled")
+check(epsD["http://127.0.0.1:8082/v1"]["hf_guess"] == "Org/EnvRepo",
+      "TGI via ENV MODEL_ID -> model reference read from the container env")
+
 # ================================ reconcile_path ================================
 # the path-only HF reconciler reused by the docker fallback: breadcrumbs, most->least confident
 check(diskscan.reconcile_path("/any/models--Org--Name/snapshots/abc123")

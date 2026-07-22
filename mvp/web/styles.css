@@ -726,6 +726,17 @@ tbody tr.clickable:hover { background: rgba(0, 240, 255, .05); cursor: pointer; 
 .subs-t { color: var(--faint); font-size: 11px; white-space: nowrap; }
 .subs-detail { min-width: 0; }
 .sub-meta h3 { margin: 0 0 4px; }
+/* endpoint-fingerprint evidence — an identity-proof chip, deliberately NOT the green attested
+   badge (this proves the serve URL serves the verified weights, it was not pod-launched). */
+.sub-attest { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin: 2px 0 6px; }
+.attest-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.attest-facts { margin-top: 0; }
+.attest-limit { margin-top: 2px; flex-basis: 100%; font-size: 11px; color: var(--faint); }
 .sub-actions { margin: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .sub-cases { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 /* Performance board: ranked throughput cards → per-model drill-down.

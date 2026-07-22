@@ -1743,6 +1743,8 @@ class PodVerifiedRunBody(BaseModel):
     temperature: float | None = None    # sampling temperature (0 = greedy/deterministic; None = pod default 0)
     modalities: list[str] | None = None  # MODALITIES chips: None = auto-detect (probe-gated);
                                          # a list = explicit vision/audio/video toggles ([] = all off)
+    spark_nodes: int | None = None      # multi-Spark CLUSTER size (declared) -> 2×/3×/4× DGX Spark bucket
+    verify_endpoint: bool | None = None  # logprob-fingerprint a --serve-url endpoint vs the verified weights
 
 
 def _clamp_conc(v):
@@ -1874,7 +1876,9 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         serve_cmd=((body.serve_cmd or "").strip() or None),
         temperature=(min(2.0, max(0.0, float(body.temperature)))
                      if body.temperature is not None else None),
-        modalities=_clean_modalities(body.modalities))
+        modalities=_clean_modalities(body.modalities),
+        spark_nodes=(min(16, max(2, int(body.spark_nodes))) if body.spark_nodes else None),
+        verify_endpoint=bool(body.verify_endpoint))
     return {"job_id": jid}
 
 

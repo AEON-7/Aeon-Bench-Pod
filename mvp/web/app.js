@@ -2019,8 +2019,21 @@ function renderSubmissionDetail(d) {
   const engHw = (rp0.engine ? ` · engine <b>${escH(rp0.engine)}</b>${rp0.serve_mode === "bare" ? ' <span class="micro">(bare metal)</span>' : ""}` : "")
     + (rp0.hardware_detected || rp0.hardware_claimed ? ` · <span class="catk" title="hardware detected on the bench machine">${escH(rp0.hardware_detected || rp0.hardware_claimed)}</span>` : "")
     + (rp0.ctx_len != null ? ` · ${ctxChip(rp0.ctx_len)}` : "");
+  // ENDPOINT-FINGERPRINT evidence: when the run benched a SEPARATE operator-started serve URL and
+  // logprob-fingerprinted it against the hash-verified weights, show an honest chip that stays
+  // distinct from a pod-served attested run (identity-proven, not launched-by-the-pod). All values
+  // are server-recorded but escaped anyway — never inject raw payload into markup.
+  const env = d.env || {};
+  const ef = env.endpoint_fingerprint || {};
+  const attest = (env.attestation_method === "endpoint_fingerprint")
+    ? `<div class="sub-attest">
+        <span class="attest-chip" title="this run benched a separate operator-started serve URL, then logprob-fingerprinted it against the hash-verified weights — identity-proven, distinct from a pod-served attested run">⛓ endpoint-verified (logprob fingerprint)</span>
+        <span class="note attest-facts">${escH(ef.status || "—")}${ef.token_agreement != null ? ` · token agreement <b>${escH(ef.token_agreement)}</b>` : ""}${ef.logprob_divergence != null ? ` · logprob divergence <b>${escH(ef.logprob_divergence)}</b>` : ""}</span>
+        ${ef.limit ? `<div class="note attest-limit">${escH(ef.limit)}</div>` : ""}</div>`
+    : "";
   const meta = `<div class="sub-meta">
     <h3>${escH(r.model)} <span class="tag">${escH(r.board)}</span> ${r.flagged ? '<span class="ev-badge bad">bad bench</span>' : ""}</h3>
+    ${attest}
     <div class="note" style="text-align:left">run <span class="mono">${escH(r.id)}</span> · ${escH(r.status)} · ${escH(r.n_cases)} cases · ${_fmtTime(r.started_at)}<br>
       judge: <b>${judge}</b> · suite ${escH(r.suite_id)} <span class="mono">${escH(r.suite_hash || "")}</span>${r.bench_seed ? ' · fast-bench seed <span class="mono cmp-seedtag">' + escH(r.bench_seed) + "</span>" : ""}${engHw} ·
       <a class="mlink" href="${escA(d.manifest_url)}" target="_blank">signed manifest ↗</a></div>
@@ -3872,6 +3885,8 @@ function applyLaunchParams(p, statusMsg) {
     syncTemp(); }
   { const pa = $("#hfPauseAll"); if (pa) pa.checked = p.pause_all !== false && p.pause_all != null ? !!p.pause_all : true; }
   { const rs = $("#hfRestore"); if (rs) rs.checked = p.restore_paused !== false; }
+  set("#sparkNodes", p.spark_nodes);
+  { const ve = $("#verifyEndpoint"); if (ve) ve.checked = !!p.verify_endpoint; }
   set("#veImage", p.engine_image);
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
@@ -4809,6 +4824,11 @@ async function runHfVerified() {
       pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
       restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
       modalities: modalitiesPayload(),                   // null = auto; list = MODALITIES chips
+      // operator-declared multi-node DGX Spark cluster size (null unless ≥2) — the pod sees only
+      // its own node, so the bucket (2×/3×/4×) can't be auto-detected
+      spark_nodes: (v => v >= 2 ? v : null)(parseInt($("#sparkNodes")?.value, 10) || 0),
+      // logprob-fingerprint the serve URL against the hash-verified weights (match → attested)
+      verify_endpoint: !!$("#verifyEndpoint")?.checked,
       ..._validatedExtras() }, "#hfLaunch");
 }
 

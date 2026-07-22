@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=99" />
+  <link rel="stylesheet" href="/static/styles.css?v=100" />
 </head>
 <body>
   <header>
@@ -283,6 +283,10 @@
             <p class="note" id="bareNote"></p>
             <pre class="repro-cmd" id="mlxCmd"></pre>
             <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
+            <div class="row adv">
+              <label>Spark cluster nodes <span class="note">(multi-node serve)</span><input id="sparkNodes" type="number" min="2" max="16" step="1" placeholder="single" title="multi-node DGX Spark serve: the pod sees only its own node — declare the cluster size so the run lands in the 2×/3×/4× DGX Spark bucket (operator-declared)" /></label>
+              <label class="verify-ep" title="logprob-fingerprint the serve URL against the hash-verified weights — proves the running serve really serves those weights. Match → attested; mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint)</label>
+            </div>
           </div>
           <div class="row mod-row adv" id="modRow" hidden>
             <span class="mod-t" title="which multimodal suites this launch runs — auto-populated from the model's config at validation (lit = declared). Toggle a chip to force-enable a modality the config hides, or to skip a flaky one; each suite is still capability-probed at run time, so a forced-on modality that the serve rejects simply records capability_absent.">MODALITIES</span>
@@ -664,6 +668,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=99"></script>
+  <script src="/static/app.js?v=100"></script>
 </body>
 </html>

@@ -632,7 +632,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     hf_token_name=None, engine=None, port=None, perf_max_conc=None, concurrency=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
                     drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
-                    arena_per_kind=None, serve_cmd=None, temperature=None, modalities=None):
+                    arena_per_kind=None, serve_cmd=None, temperature=None, modalities=None,
+                    spark_nodes=None, verify_endpoint=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -659,7 +660,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "drafter_hf": drafter_hf, "max_tokens": max_tokens,
             "pause_all": pause_all, "restore_paused": restore_paused,
             "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd,
-            "temperature": temperature, "modalities": modalities})
+            "temperature": temperature, "modalities": modalities,
+            "spark_nodes": spark_nodes, "verify_endpoint": verify_endpoint})
     except Exception:
         pass
     extra = {}
@@ -697,6 +699,10 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             extra["AEON_TEMPERATURE"] = str(temperature)
         if modalities is not None:              # explicit vision/audio/video toggles; 'none' = all off
             extra["AEON_MODALITIES"] = ",".join(modalities) or "none"
+        if spark_nodes:                         # multi-Spark cluster size (declared) -> Nx bucket
+            extra["AEON_SPARK_NODES"] = str(spark_nodes)
+        if verify_endpoint:                     # logprob-fingerprint the endpoint vs verified weights
+            extra["AEON_VERIFY_ENDPOINT"] = "1"
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
         if preset:                              # resolved to the underlying knobs in aeon_pod.main()
@@ -731,6 +737,10 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--arena", str(arena_per_kind)]
         if modalities is not None:              # explicit vision/audio/video toggles; 'none' = all off
             argv += ["--modalities", ",".join(modalities) or "none"]
+        if spark_nodes:                         # multi-Spark cluster size (declared) -> 2×/3×/4× bucket
+            argv += ["--spark-nodes", str(spark_nodes)]
+        if verify_endpoint:                     # fingerprint the serve_url endpoint vs verified weights
+            argv += ["--verify-endpoint"]
         if HARDWARE:
             argv += ["--hardware", HARDWARE]
         if port:

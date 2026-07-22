@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -122,7 +123,7 @@ def _detect_label(prof):
     return f"{m} (CPU)"                                   # no accelerator found
 
 
-def _hardware_profile(label=None):
+def _hardware_profile(label=None, spark_nodes=None):
     prof = {"label": label, "platform": platform.platform(), "machine": platform.machine(),
             "cpu_count": os.cpu_count()}
     try:                                       # best-effort GPU profile
@@ -161,6 +162,22 @@ def _hardware_profile(label=None):
         prof["detected_label"] = _detect_label(prof)
     except Exception:
         prof["detected_label"] = None          # unknown — the claimed label stands, marked unverified
+    # MULTI-NODE (multi-Spark cluster): the pod runs on ONE node and nvidia-smi only sees its own
+    # GPU, so a distributed serve auto-detects as a single node. The operator DECLARES the cluster
+    # size (--spark-nodes N); we rewrite the label to the N× form hwnorm buckets on (2×/3×/4× DGX
+    # Spark) and mark it operator-declared (honest: not auto-detected across the wire).
+    if spark_nodes and isinstance(spark_nodes, int) and spark_nodes >= 2:
+        base = prof.get("detected_label") or label or ""
+        is_spark = "dgx spark" in base.lower() or (os.environ.get("AEON_SYSTEM") or "").lower() == "dgx-spark"
+        if is_spark:
+            gen = ""
+            m = re.search(r"\(([^)]*)\)", base)      # keep a "(GB10)" generation tag if present
+            if m:
+                gen = " (" + m.group(1) + ")"
+            prof["detected_label"] = f"{spark_nodes}× DGX Spark{gen}"
+        prof["spark_nodes"] = spark_nodes
+        prof["multi_node"] = True
+        prof["node_count_source"] = "declared"        # the pod cannot see remote nodes — operator-set
     return prof
 
 
@@ -979,7 +996,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
                    drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
                    perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
-                   resume=False, force_submit=False):
+                   resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -1259,21 +1276,51 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         # the run — so provenance names it forever when Docker can resolve it.
         _stamp_engine_digests(recipe)
 
+        hw_profile = _hardware_profile(hardware, spark_nodes=spark_nodes)
+        # ENDPOINT FINGERPRINT: the serve_url path benches an operator-started serve (a live
+        # production endpoint, or a multi-node cluster) that the pod did NOT launch — so it
+        # trusts, without checking, that the serve uses the verified weights. When asked, prove
+        # it: capture a reference fingerprint from those hash-verified weights and probe the
+        # endpoint. A MATCH earns attested via 'endpoint_fingerprint'; a mismatch drops the run
+        # to self_reported (it isn't serving what it claims). Best-effort: if a reference can't
+        # be captured (no room to load the weights), the run proceeds on the existing serve_url
+        # trust with the fingerprint recorded as unavailable — never blocks the bench.
+        endpoint_fp = None
+        if verify_endpoint and serve_url:
+            try:
+                from pod import fingerprint as _fp
+                print(f"[pod] endpoint verification: fingerprinting {target} against the verified weights…")
+                ref = _fp.reference_from_weights(local_dir=recipe.get("served_alias") or local_dir,
+                                                 recipe=recipe)
+                if ref and ref.get("n_ok"):
+                    prb = _fp.probe(target, alias)
+                    cmp = _fp.compare(ref, prb)
+                    endpoint_fp = _fp.evidence(ref, prb, cmp, weights_hash=ver["weights_hash"],
+                                               ref_source="pod-local-weights")
+                    print(f"[pod] endpoint fingerprint: {cmp['status']} — {cmp['reason']}")
+                else:
+                    print("[pod] endpoint fingerprint: reference unavailable (weights not loadable "
+                          "for a canary capture) — proceeding on serve_url weight-hash trust")
+            except Exception as e:
+                print(f"[pod] endpoint fingerprint skipped ({e}) — proceeding on serve_url trust")
         deployment_manifest = {
             "build_hash": attest.build_hash(), "recipe": recipe,
             "verification": {k: ver[k] for k in ("verified", "method", "weights_hash",
                                                  "revision", "n_weight_files", "lfs_checked")},
             "served_model_check": {"endpoint": target, "served": ids, "alias_present": served_ok},
+            "endpoint_fingerprint": endpoint_fp,
             "hf": {"repo": repo, "revision": ver["revision"]},
-            "hardware": _hardware_profile(hardware),
+            "hardware": hw_profile,
         }
-        env = {"hardware": _hardware_profile(hardware), "engine": {"name": recipe["engine"]},
+        env = {"hardware": hw_profile, "engine": {"name": recipe["engine"]},
                "runner": "aeon-pod-controlled", "concurrency": concurrency}
         # provenance that travels with EVERY submission from this run (suite + each harness) and
         # lets the mothership re-verify the model identity against HF before it counts as attested.
         provenance = dict(hf_repo=repo, hf_revision=ver["revision"], weights_hash=ver["weights_hash"],
                           weights_per_file=ver["per_file"], recipe=recipe,
                           deployment_manifest=deployment_manifest, bench_seed=bench_seed)
+        if endpoint_fp:                          # rides the bundle top-level -> ingest._trust_tier
+            provenance["endpoint_fingerprint"] = endpoint_fp
         pod = Pod(mothership, key_path or DEFAULT_KEY)
         job_ctx = _job_ctx(repo, env["hardware"], started=job_started)   # -> per-bundle job_sig
 
@@ -1408,8 +1455,18 @@ def main():
         "the --hf-link repo's manifest instead of re-downloaded (good as gold when the bytes match); "
         "never deleted")
     ap.add_argument("--serve-url", default=None, help="operator-started serve of the validated weights "
-        "(macOS/MLX bare-metal path): the pod validates + benches this URL + signs; the bare startup "
-        "recipe is recorded like a docker recipe")
+        "(macOS/MLX bare-metal path, a live production endpoint, or a multi-node cluster head): the pod "
+        "validates + benches this URL + signs; the bare startup recipe is recorded like a docker recipe")
+    ap.add_argument("--spark-nodes", type=int,
+        default=(int(os.environ["AEON_SPARK_NODES"]) if os.environ.get("AEON_SPARK_NODES", "").isdigit()
+                 else None),
+        help="DGX Spark CLUSTER size for a multi-node serve (the pod sees only its own node; declare "
+        "N so the run lands in the 2×/3×/4× DGX Spark bucket). Marked operator-declared.")
+    ap.add_argument("--verify-endpoint", action="store_true",
+        default=os.environ.get("AEON_VERIFY_ENDPOINT") == "1",
+        help="LOGPROB-FINGERPRINT the --serve-url endpoint against the hash-verified weights (proves "
+        "the running serve really serves those weights). A match earns attested; a mismatch drops to "
+        "self_reported.")
     ap.add_argument("--engine-image", default=os.environ.get("AEON_ENGINE_IMAGE"),
         help="custom container image for the chosen --engine (recorded with the run)")
     ap.add_argument("--serve-flags", default=None, help="JSON list of serve-flag overrides for the "
@@ -1595,7 +1652,8 @@ def main():
             # comprehensive dimensions — previously dropped on the --hf-link (GUI) path
             retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, video=not a.no_video,
             perf=a.perf, perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena,
-            harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit)
+            harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit,
+            spark_nodes=a.spark_nodes, verify_endpoint=a.verify_endpoint)
     elif a.frontier_id:
         st, _ = run_pod("frontier://" + a.frontier_id, a.frontier_id, a.mothership,
                         api_key=a.api_key, engine="frontier-api", hardware=a.hardware,

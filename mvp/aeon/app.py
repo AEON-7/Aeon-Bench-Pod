@@ -1729,6 +1729,7 @@ class PodVerifiedRunBody(BaseModel):
     engine_image: str | None = None     # custom container image override (recorded with the run)
     local_dir: str | None = None        # model already on disk: hash-validate, don't re-download
     serve_url: str | None = None        # operator-started serve (macOS/MLX bare-metal path)
+    endpoint_model: str | None = None   # for serve_url: the served-model id to send in requests
     serve_flags: list[str] | None = None  # recipe tuning: flag overrides merged into the serve cmd
     drafter_hf: str | None = None       # DFlash/DSpark drafter HF card: validated like the model, -> /drafter
     port: int | None = None
@@ -1878,7 +1879,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
                      if body.temperature is not None else None),
         modalities=_clean_modalities(body.modalities),
         spark_nodes=(min(16, max(2, int(body.spark_nodes))) if body.spark_nodes else None),
-        verify_endpoint=bool(body.verify_endpoint))
+        verify_endpoint=bool(body.verify_endpoint),
+        endpoint_model=((body.endpoint_model or "").strip() or None))
     return {"job_id": jid}
 
 

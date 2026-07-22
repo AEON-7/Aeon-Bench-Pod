@@ -178,6 +178,21 @@ def diagnose(log_lines: list[str], custom_flags=None) -> str | None:
     # Scan all retained lines. vLLM can flood the tail with repeated EngineDeadError traces after
     # the first EngineCore failure, so a small tail window often misses the actual root cause.
     text = "\n".join(log_lines)
+    # ENDPOINT MODE (serve_url): the pod benched a live serve it did NOT launch, so a transport
+    # wipeout is not an engine-startup problem and RECIPE TUNING is irrelevant — the endpoint is
+    # unreachable or names the model differently. Diagnose it as such (highest priority).
+    if re.search(r"external serve: benching", text, re.I) and \
+       re.search(r"failed in transport|answered none of the", text, re.I):
+        m = re.search(r"served = (\[[^\]]*\]).{0,40}alias present: False", text)
+        if m:
+            return ("The live endpoint rejected every request as an unknown model: it serves "
+                    f"{m.group(1)}, and the bench asked for an id it doesn't have. Re-pick the "
+                    "endpoint from ⌕ Scan — the pod now benches under the served id the endpoint "
+                    "reports — or set the served-model id explicitly, then relaunch (resumable).")
+        return ("The live endpoint answered none of the requests (transport failure). Check the "
+                "Serve URL is reachable from the pod and still up, exposes /v1/chat/completions, "
+                "and serves the model id the bench uses — then relaunch (the run is resumable). "
+                "This is an endpoint/URL problem, not a serve-recipe one.")
     # highest priority: an engine that rejected a specific flag — name it exactly.
     um = _UNRECOGNIZED.search(text)
     if um:

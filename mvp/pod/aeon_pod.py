@@ -996,7 +996,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
                    drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
                    perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
-                   resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False):
+                   resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False,
+                   endpoint_model=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -1258,12 +1259,15 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         # for an operator-started serve (serve_url) we ALSO wait: the user may still be launching it.
         # Pass the serve process so a crash-on-startup fails in seconds, not after the full timeout.
         ids = _wait_ready(target, server=server) if (serve or serve_url) else [alias]
-        if recipe.get("alias_from_server") and ids and alias not in ids:
-            # bare-metal servers (MLX / LM Studio) name the model themselves — bench under the id
-            # the server ACTUALLY reports rather than an alias it would reject
-            alias = ids[0]
+        if ids and alias not in ids and (serve_url or recipe.get("alias_from_server")):
+            # A serve the pod did NOT launch names the model itself: an external endpoint
+            # (serve_url — a live production serve / cluster) or a bare-metal server (MLX / LM
+            # Studio). Bench under an id the endpoint ACTUALLY serves, not the pod's own default
+            # alias (which the server would 404 → every request fails 'in transport'). Honor the
+            # operator's picked served id when it's present, else take the first served id.
+            alias = endpoint_model if (endpoint_model and endpoint_model in ids) else ids[0]
             recipe["served_alias"] = alias
-            print(f"[pod] served id adopted from server: '{alias}'")
+            print(f"[pod] served id adopted from endpoint: '{alias}'  (endpoint serves {ids})")
         served_ok = alias in ids
         print(f"[pod] engine ready; served = {ids}  (alias present: {served_ok})")
         if serve and not served_ok:
@@ -1457,6 +1461,10 @@ def main():
     ap.add_argument("--serve-url", default=None, help="operator-started serve of the validated weights "
         "(macOS/MLX bare-metal path, a live production endpoint, or a multi-node cluster head): the pod "
         "validates + benches this URL + signs; the bare startup recipe is recorded like a docker recipe")
+    ap.add_argument("--endpoint-model", default=os.environ.get("AEON_ENDPOINT_MODEL") or None,
+        help="for --serve-url: the served-model id to send in requests (the id the endpoint's "
+        "/v1/models reports). Defaults to the endpoint's first served id — set it to target a "
+        "specific model when the endpoint serves several.")
     ap.add_argument("--spark-nodes", type=int,
         default=(int(os.environ["AEON_SPARK_NODES"]) if os.environ.get("AEON_SPARK_NODES", "").isdigit()
                  else None),
@@ -1653,7 +1661,8 @@ def main():
             retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, video=not a.no_video,
             perf=a.perf, perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena,
             harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit,
-            spark_nodes=a.spark_nodes, verify_endpoint=a.verify_endpoint)
+            spark_nodes=a.spark_nodes, verify_endpoint=a.verify_endpoint,
+            endpoint_model=a.endpoint_model)
     elif a.frontier_id:
         st, _ = run_pod("frontier://" + a.frontier_id, a.frontier_id, a.mothership,
                         api_key=a.api_key, engine="frontier-api", hardware=a.hardware,

@@ -4366,7 +4366,7 @@ function renderScanEndpoints(d) {
     const rows = served.map((s) => {
       const ids = Array.isArray(s.ids) ? s.ids : [];
       const label = ids.length ? ids.map(escH).join(" · ") : "no model id reported";
-      const one = ids.length === 1 ? ids[0] : "";
+      const one = ids[0] || "";                          // the served id to bench THIS model under
       const hf = s.hf_guess || "";
       const fmt = s.format === "gguf" ? ` <span class="scan-ep-fmt">GGUF</span>` : "";
       let chip;
@@ -4399,7 +4399,8 @@ function renderScanEndpoints(d) {
 // a false attestation. `ds` is the picked row's dataset {url, hf, rev, source, conf, localname, model}.
 function useScannedEndpoint(ds) {
   ds = ds || {};
-  const su = $("#veServeUrl"); if (su) su.value = ds.url || "";
+  const su = $("#veServeUrl");
+  if (su) { su.value = ds.url || ""; su.dataset.model = ds.model || ""; }  // bench under this served id
   const ve = $("#verifyEndpoint"); if (ve) ve.checked = true;
   const mh = $("#mlxHelp"); if (mh) mh.hidden = false;    // reveal the operator-serve block if collapsed
   const prompt = $("#verifyHfPrompt");
@@ -4942,9 +4943,13 @@ function _validatedExtras() {
   // serve URL and fingerprints it against the HF weights. None of the pull-serving knobs apply,
   // so send a clean minimal payload with the serve URL riding regardless of engine.
   if (runIntent() === "endpoint") {
+    const su = $("#veServeUrl");
     return {
       engine: null, engine_image: null, local_dir: null,
-      serve_url: ($("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
+      serve_url: (su && su.value.trim()) || null,
+      // the served-model id the endpoint answers to (from the scan pick) — the pod benches under
+      // THIS id, not its own alias; null lets the pod adopt the endpoint's first served id
+      endpoint_model: (su && su.dataset.model) || null,
       serve_flags: [], drafter_hf: null, serve_cmd: null,
     };
   }
@@ -5000,8 +5005,10 @@ async function runHfVerified() {
       arena_per_kind: (() => { const v = parseInt(($("#hfArenaN") || {}).value, 10);
                                return Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : null; })(),
       temperature: tempValue(),                          // 0 = greedy/deterministic (default)
-      pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
-      restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
+      // NEVER clear the host in endpoint mode — stopping containers would kill the very serve
+      // we're pointing at. Clear-host is a pull-mode concept (free the GPU for the pod's own serve).
+      pause_all: runIntent() !== "endpoint" && !!($("#hfPauseAll") && $("#hfPauseAll").checked),
+      restore_paused: runIntent() === "endpoint" ? false : !!($("#hfRestore") && $("#hfRestore").checked),
       modalities: modalitiesPayload(),                   // null = auto; list = MODALITIES chips
       // operator-declared multi-node DGX Spark cluster size (null unless ≥2) — the pod sees only
       // its own node, so the bucket (2×/3×/4×) can't be auto-detected

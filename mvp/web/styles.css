@@ -3070,6 +3070,29 @@ button.run-bench-btn .rbb-mark { font-size: 15px; margin-right: 6px; }
 /* simple mode: every .adv block collapses — the essentials + the big red button remain */
 #runPanel.simple .adv { display: none !important; }
 
+/* ---- INTENT selector: pull weights vs. point at a running model ---- */
+/* the first, biggest fork on the Run tab — decides which half of the form the operator sees */
+.run-intent { display: flex; gap: 10px; margin: 2px 0 14px; }
+.ri-btn {
+  flex: 1 1 0; font-family: ui-monospace, monospace; font-size: 13px; font-weight: 800;
+  letter-spacing: .04em; padding: 12px 16px; cursor: pointer; color: var(--muted);
+  background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 3px;
+  transition: color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast), border-color var(--t-fast);
+}
+.ri-btn:hover { color: var(--text); border-color: var(--accent); }
+.ri-btn.active {
+  color: #051318; background: var(--accent); border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(0, 240, 255, .38);
+}
+.ri-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+/* each intent shows only its own fields; the other half collapses entirely */
+#runPanel.intent-endpoint .pull-only { display: none !important; }
+#runPanel.intent-pull    .endpoint-only { display: none !important; }
+/* endpoint mode has no SIMPLE/ADVANCED split of its own essentials — the toggle only gates
+   the extra .adv knobs (spark nodes, scope, budgets), so keep it visible */
+.ep-lead { margin: 2px 0 10px; }
+.ep-lead .repro-t { display: block; margin-bottom: 6px; }
+
 /* ---- gallery card provenance chips: date · NEW pulse · prompt difficulty ---- */
 .gal-meta { display: flex; align-items: center; gap: 7px; margin-top: 4px; min-height: 15px; }
 .gal-date {

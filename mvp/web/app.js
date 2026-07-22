@@ -2180,6 +2180,42 @@ function wireRunMode() {
   $$("#runMode .rm-btn").forEach((b) => b.onclick = () => applyRunMode(b.dataset.mode));
 }
 
+// INTENT: the top fork on the Run tab. "pull" = the pod pulls weights from HF and serves them;
+// "endpoint" = point at a model that's ALREADY running (live serve / MLX / LM Studio / cluster).
+// Endpoint mode hides every pull-serving field (engine, tuning, local weights, champion…) and
+// surfaces the operator-serve block (scan + serve URL + fingerprint verify).
+function runIntent() {
+  const rp = $("#runPanel");
+  return rp && rp.classList.contains("intent-endpoint") ? "endpoint" : "pull";
+}
+
+let _epAutoScanned = false;      // auto-scan once when the operator first enters endpoint mode
+function applyRunIntent(intent) {
+  const rp = $("#runPanel");
+  if (!rp) return;
+  const endpoint = intent === "endpoint";
+  rp.classList.toggle("intent-endpoint", endpoint);
+  rp.classList.toggle("intent-pull", !endpoint);
+  $$("#runIntent .ri-btn").forEach((b) => b.classList.toggle("active", (b.dataset.intent === "endpoint") === endpoint));
+  try { localStorage.setItem("aeon_runintent", intent); } catch (e) {}
+  // endpoint mode: fingerprint verification is the whole point → default it on; reveal the
+  // operator-serve block (mlxHelp doubles as it); offer the running models right away.
+  if (endpoint) {
+    const ve = $("#verifyEndpoint"); if (ve) ve.checked = true;
+    const mh = $("#mlxHelp"); if (mh) mh.hidden = false;
+    if (!_epAutoScanned && CFG.role === "pod") { _epAutoScanned = true; try { scanEndpoints(); } catch (e) {} }
+  } else {
+    engineChanged();             // back to pull rules (mlxHelp shows only for bare-metal engines)
+  }
+}
+
+function wireRunIntent() {
+  let intent = "pull";
+  try { intent = localStorage.getItem("aeon_runintent") || "pull"; } catch (e) {}
+  applyRunIntent(intent);
+  $$("#runIntent .ri-btn").forEach((b) => b.onclick = () => applyRunIntent(b.dataset.intent));
+}
+
 async function setGod() {
   active = "god";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.god));
@@ -3728,6 +3764,7 @@ function runStatus(msg, cls) {
 
 async function setRun() {
   wireRunMode();
+  wireRunIntent();
   active = "run";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.run));
   ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
@@ -3931,7 +3968,9 @@ function engineChanged() {
     (e.image ? ` · image <span class="mono">${escH(e.image)}</span>` : "") +
     ` · formats <span class="mono">${e.formats.join("/")}</span>`;
   const bare = e && e.containerized === false;         // MLX / LM Studio: operator-started serve
-  const mh = $("#mlxHelp"); if (mh) mh.hidden = !bare;
+  // the operator-serve block shows for bare-metal engines OR whenever the operator is pointing
+  // at an already-running model (endpoint intent) — same block, doubling as both
+  const mh = $("#mlxHelp"); if (mh) mh.hidden = !(bare || runIntent() === "endpoint");
   const img = $("#veImage"); if (img) img.disabled = !!bare;
   if (bare) updateMlxCmd();
   renderTune(e);
@@ -4848,6 +4887,16 @@ async function runFrontierBench() {
 // ONLY when it hash-validated (a mismatched local copy is ignored — the pod pulls fresh, which
 // still validates); the serve URL rides only on the MLX bare-metal path.
 function _validatedExtras() {
+  // ENDPOINT intent ("point at a running model"): the pod does NOT serve — it benches the live
+  // serve URL and fingerprints it against the HF weights. None of the pull-serving knobs apply,
+  // so send a clean minimal payload with the serve URL riding regardless of engine.
+  if (runIntent() === "endpoint") {
+    return {
+      engine: null, engine_image: null, local_dir: null,
+      serve_url: ($("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
+      serve_flags: [], drafter_hf: null, serve_cmd: null,
+    };
+  }
   const eng = $("#veEngine") ? $("#veEngine").value || null : null;
   const e = curEngine();
   const localOk = RUN.val && RUN.val.state === "validated" && $("#hfLocal").value.trim();
@@ -4883,6 +4932,11 @@ function tempValue() {
 async function runHfVerified() {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
+  // endpoint intent points at a serve that must already be up — the URL is mandatory (the pod
+  // benches it in place and does NOT serve the weights itself)
+  if (runIntent() === "endpoint" && !($("#veServeUrl") && $("#veServeUrl").value.trim())) {
+    runStatus("Serve URL is required — ⌕ Scan for a running instance or paste its URL", "err"); return;
+  }
   // The TEST PLAN rides on the main launch (default: comprehensive — the full benchmark).
   // Hard Bench owns its own tiers (hard,expert), so Scope only applies to the other plans.
   const plan = ($("#hfPlan") && $("#hfPlan").value) || null;

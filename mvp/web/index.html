@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=103" />
+  <link rel="stylesheet" href="/static/styles.css?v=104" />
 </head>
 <body>
   <header>
@@ -176,47 +176,51 @@
       <div class="run-cards">
         <div class="run-card vcard">
           <h3>◉ Validated bench</h3>
-          <p class="note">Pull (or reuse) → hash-validate → serve in your engine → benchmark → sign → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result.</p>
+          <p class="note">Hash-validate → benchmark → sign → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result — whether the pod serves the weights or you point it at a model that's already running.</p>
+          <div class="run-intent" id="runIntent" role="tablist" aria-label="what to benchmark">
+            <button type="button" class="ri-btn active" data-intent="pull" title="pull the weights from Hugging Face, serve them in your engine, then benchmark — the pod does the serving">⤓ Pull from HuggingFace</button>
+            <button type="button" class="ri-btn" data-intent="endpoint" title="benchmark a model that's ALREADY running — your live serve, an MLX / LM Studio host, or a cluster. Scan for it or paste its URL, then give the HF link so the pod hash-verifies the weights and fingerprints the endpoint against them.">◉ Point at a running model</button>
+          </div>
           <div class="run-mode" id="runMode" role="tablist" aria-label="form complexity">
             <button type="button" class="rm-btn active" data-mode="simple" title="just the essentials: paste a link, pick a plan, RUN — the pod auto-derives everything else">SIMPLE</button>
             <button type="button" class="rm-btn" data-mode="advanced" title="every knob: templates, champion recipes, engine, recipe tuning, spec decode, modalities, scope, budgets">ADVANCED</button>
           </div>
-          <div class="row adv" id="tplRow" hidden>
+          <div class="row adv pull-only" id="tplRow" hidden>
             <label class="grow">↺ Template — start from a prior run <span class="note">(prefills every setting below; tweak one thing, relaunch)</span><select id="tplSel"></select></label>
           </div>
           <div class="row">
-            <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
-            <label class="grow">Local weights <span class="note">(optional — no re-download)</span>
+            <label class="grow">HF link <span class="note endpoint-only">(the weights to verify the running model against)</span><input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
+            <label class="grow pull-only">Local weights <span class="note">(optional — no re-download)</span>
               <span class="lw-field">
                 <input id="hfLocal" type="text" readonly aria-readonly="true" placeholder="none selected — launch will PULL the repo fresh &amp; hash-verify. Pick a local copy with ⌕ scan or ▤ browse to hash-check bytes on disk instead." title="Read-only: set it by choosing a model with ⌕ scan / ▤ browse. This is the exact folder that gets sha256-checked against the HF manifest." />
                 <button id="hfLocalClear" class="lw-clear" type="button" title="clear the local copy — launch will pull the repo fresh from Hugging Face and hash-verify on download" hidden>✕</button>
               </span></label>
-            <span class="lw-acts">
+            <span class="lw-acts pull-only">
               <button id="lwScan" class="ghost" title="sweep this system's model homes (HF cache, LM Studio, AEON, ~/models) — found models auto-reconcile to their HF card for automatic hash checks">⌕ scan system</button>
               <button id="lwBrowse" class="ghost" title="browse the pod host's file structure for a model folder">▤ browse</button>
             </span>
           </div>
           <p class="note" id="verifyHfPrompt" hidden></p>
-          <div class="row" id="scanRow" hidden>
+          <div class="row pull-only" id="scanRow" hidden>
             <label class="grow">Models on this system <span class="note" id="scanCount"></span>
               <input id="scanSearch" type="search" placeholder="🔍 filter by name / format / source…" autocomplete="off" spellcheck="false" />
               <select id="scanSel"></select></label>
           </div>
           <div id="valStrip" class="val-strip idle" aria-live="polite"><span class="val-dot"></span><span class="val-msg">MODEL VALIDATION — paste an HF link to begin</span></div>
-          <div id="champRow" class="preset-row champ-row adv" hidden>
+          <div id="champRow" class="preset-row champ-row adv pull-only" hidden>
             <div class="preset-head"><span class="preset-star">★</span> <b>CHAMPION RECIPES</b>
               <span class="preset-conf" id="champHw">your hardware</span>
               <select id="champSel" class="champ-sel" title="the winning recipe per model on hardware like yours, pulled from the mothership — apply it, then tweak anything before launch"></select>
               <button id="champApply" class="ghost preset-apply" title="fill engine + Recipe Tuning + spec decode with this champion's exact winning recipe — editable before launch">apply template →</button></div>
             <div id="champProv" class="preset-notes mono"></div>
           </div>
-          <div class="row adv">
+          <div class="row adv pull-only">
             <label>Engine<select id="veEngine" title="the inference container the model runs in"></select></label>
             <label class="grow">Custom image <span class="note">(optional)</span><input id="veImage" type="text" placeholder="override the engine's container image, e.g. my/vllm:nightly" /></label>
             <label>HF token <span class="note">(gated repos)</span><select id="hfKey"></select></label>
           </div>
-          <div id="engInfo" class="eng-info note adv"></div>
-          <details class="tune-wrap adv" id="tuneWrap" open>
+          <div id="engInfo" class="eng-info note adv pull-only"></div>
+          <details class="tune-wrap adv pull-only" id="tuneWrap" open>
             <summary><span class="tune-t">⚙ RECIPE TUNING</span> <span class="note">startup flags — dial in the optimal recipe for this system</span><span id="tuneCount" class="tune-count" hidden></span></summary>
             <!-- last-failed-bench hint lives WHERE THE FIX HAPPENS (filled by renderTuneAlert) -->
             <div id="tuneAlert" class="tune-alert" hidden></div>
@@ -280,18 +284,24 @@
             <p class="note tune-note">Paste a whole startup recipe here for total control (exotic engines, hand-tuned setups). When set, the engine dropdown + every flag above are ignored — the pod runs THIS command verbatim to serve, then still hash-validates the model and benches it. It MUST serve the alias <span class="mono">model-under-test</span> on <span class="mono">:8000</span> (or your chosen port) so the harnesses connect. Recorded with the run exactly like a generated recipe.</p>
           </details>
           <div id="mlxHelp" class="mlx-help" hidden>
-            <div class="mlx-h"><span class="repro-t" id="bareTitle">⌘ BARE-METAL SERVE</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
-            <p class="note" id="bareNote"></p>
-            <pre class="repro-cmd" id="mlxCmd"></pre>
-            <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
-            <button id="scanEndpoints" class="ghost adv" title="sweep this host (and any ?hosts LAN/cluster nodes) for running OpenAI-compatible servers, then pick one to bench + fingerprint-verify — no need to paste its URL">⌕ Scan for running instances</button>
+            <div class="ep-lead endpoint-only">
+              <span class="repro-t">◉ POINT AT A RUNNING MODEL</span>
+              <p class="note">Benchmark a serve that's already up — your live production endpoint, an MLX / LM Studio host, or a cluster head. Scan for it or paste its URL, then give the HF link above so the pod hash-verifies the weights and logprob-fingerprints the endpoint against them → <span class="elig-badge verified">✓ attested</span> on a match.</p>
+            </div>
+            <div class="pull-only">
+              <div class="mlx-h"><span class="repro-t" id="bareTitle">⌘ BARE-METAL SERVE</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
+              <p class="note" id="bareNote"></p>
+              <pre class="repro-cmd" id="mlxCmd"></pre>
+            </div>
+            <button id="scanEndpoints" class="ghost" title="sweep this host (and any ?hosts LAN/cluster nodes) for running OpenAI-compatible servers, then pick one to bench + fingerprint-verify — no need to paste its URL">⌕ Scan for running instances</button>
             <div id="scanEndpointsResult" class="scan-ep-result"></div>
+            <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" placeholder="http://127.0.0.1:8000/v1" title="the OpenAI-compatible base URL of the model that's already running — filled for you by ⌕ Scan, or paste it" /></label></div>
+            <label class="verify-ep" title="logprob-fingerprint the serve URL against the hash-verified weights — proves the running serve really serves those weights. Match → attested; mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint) — required to rank the run</label>
             <div class="row adv">
               <label>Spark cluster nodes <span class="note">(multi-node serve)</span><input id="sparkNodes" type="number" min="2" max="16" step="1" placeholder="single" title="multi-node DGX Spark serve: the pod sees only its own node — declare the cluster size so the run lands in the 2×/3×/4× DGX Spark bucket (operator-declared)" /></label>
-              <label class="verify-ep" title="logprob-fingerprint the serve URL against the hash-verified weights — proves the running serve really serves those weights. Match → attested; mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint)</label>
             </div>
           </div>
-          <div class="row mod-row adv" id="modRow" hidden>
+          <div class="row mod-row adv pull-only" id="modRow" hidden>
             <span class="mod-t" title="which multimodal suites this launch runs — auto-populated from the model's config at validation (lit = declared). Toggle a chip to force-enable a modality the config hides, or to skip a flaky one; each suite is still capability-probed at run time, so a forced-on modality that the serve rejects simply records capability_absent.">MODALITIES</span>
             <button type="button" class="mod-chip" data-mod="vision">VISION</button>
             <button type="button" class="mod-chip" data-mod="audio">AUDIO</button>
@@ -671,6 +681,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=103"></script>
+  <script src="/static/app.js?v=104"></script>
 </body>
 </html>

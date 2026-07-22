@@ -1942,6 +1942,22 @@ def pod_scan_models(request: Request):
     return diskscan.scan()
 
 
+@app.get("/api/pod/scan_endpoints")
+def pod_scan_endpoints(request: Request):
+    """POD-ONLY: discover running OpenAI-compatible inference servers on this host (and, via
+    ?hosts=a,b,c, on declared LAN/cluster nodes) — GET /v1/models on common serve ports. Feeds
+    the 'scan for a live instance → verify it' flow: pick one, provide its HF link, the pod
+    fingerprint-verifies the endpoint against those weights. Names + ports only; no weights read."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import endpoints
+    hosts = request.query_params.get("hosts")
+    host_list = [h.strip() for h in hosts.split(",") if h.strip()] if hosts else None
+    return endpoints.scan(hosts=host_list)
+
+
 @app.get("/api/pod/browse")
 def pod_browse(request: Request, path: str | None = None):
     """POD-ONLY: one directory level of the POD host's filesystem (dirs + weight files) for the

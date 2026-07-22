@@ -375,7 +375,9 @@ function globalRow(m, i) {
   const ava = fr && fr.logo_url ? fr.logo_url : "/static/generic-avatar.svg";
   const creatorHref = fr && fr.website ? ` href="${escA(fr.website)}"` : "";
   const badge = m.record_eligible
-    ? `<span class="elig-badge verified" title="verified HF-pull controlled run — globally ranked">✓ verified</span>`
+    ? `<span class="elig-badge verified" title="verified HF-pull controlled run, full benchmark — globally ranked">✓ verified</span>`
+    : m.ranked_excluded === "incomplete"
+    ? `<span class="elig-badge incomplete" title="verified weights, but not a FULL benchmark run (missing agentic or performance) — stored &amp; shown, not counted on the ranked board">✓ verified · not counted</span>`
     : fr ? `<span class="elig-badge frontier" title="validated hosted frontier API reference — comparison only, not a local-weight attestation">frontier API</span>`
     : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`;
   const vram = m.vram_est_gb != null
@@ -4280,6 +4282,78 @@ async function scanModels() {
   }
 }
 
+// ---- live-endpoint discovery: find running OpenAI-compatible serves to verify against ----
+// Fingerprint verification needs BOTH a live serve_url AND an hf_link: the pod hash-verifies the
+// HF weights, then logprob-fingerprints the endpoint against them. This scan finds the live
+// endpoint so the operator never hand-types a URL; the HF link is still theirs to supply (the
+// served alias is not an HF repo path). Optional ?hosts sweeps LAN / cluster nodes too.
+async function scanEndpoints() {
+  const btn = $("#scanEndpoints"), out = $("#scanEndpointsResult");
+  if (btn) { btn.disabled = true; btn.textContent = "⌕ scanning…"; }
+  let d;
+  try { d = await api("/api/pod/scan_endpoints", { headers: podHeaders() }); }
+  catch (e) {
+    const msg = (e && (e.error || e.detail || e.message)) || "network error";
+    if (out) out.innerHTML = `<div class="scan-ep-err">endpoint scan failed — ${escH(msg)}</div>`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "⌕ Scan for running instances"; }
+  if (!d) return;                                         // fetch error already rendered; never throws
+  renderScanEndpoints(d);
+}
+
+function renderScanEndpoints(d) {
+  const out = $("#scanEndpointsResult"); if (!out) return;
+  const eps = (d && d.endpoints) || [];
+  if (!eps.length) {
+    out.innerHTML = `<div class="scan-ep-empty">no running OpenAI-compatible servers found on this host` +
+      ` — start your serve, or add <span class="mono">?hosts</span> for LAN nodes</div>`;
+    return;
+  }
+  out.innerHTML = eps.map((ep) => {
+    const url = ep.url || "";
+    const models = Array.isArray(ep.models) ? ep.models : [];
+    const mlabel = models.length ? models.map(escH).join(" · ") : "no model id reported";
+    // a lone served id is prefilled as a verification hint (data-model); ≥2 ids stay ambiguous
+    const one = models.length === 1 ? models[0] : "";
+    return `<div class="scan-ep-row">` +
+      `<div class="scan-ep-meta"><span class="scan-ep-url mono">${escH(url)}</span>` +
+      `<span class="scan-ep-models">${mlabel}</span></div>` +
+      `<button type="button" class="ghost scan-ep-use" data-url="${escA(url)}" data-model="${escA(one)}">use this</button>` +
+      `</div>`;
+  }).join("");
+  $$("#scanEndpointsResult .scan-ep-use").forEach((b) =>
+    b.onclick = () => useScannedEndpoint(b.dataset.url, b.dataset.model));
+}
+
+// Wire a scanned endpoint into verified-target mode: serve URL + fingerprint on, operator-serve
+// block revealed, then hand the operator the ONE remaining step — the HF link to verify against.
+function useScannedEndpoint(url, modelId) {
+  const su = $("#veServeUrl"); if (su) su.value = url || "";
+  const ve = $("#verifyEndpoint"); if (ve) ve.checked = true;
+  const mh = $("#mlxHelp"); if (mh) mh.hidden = false;    // reveal the operator-serve block if collapsed
+  const prompt = $("#verifyHfPrompt");
+  const link = $("#hfLink");
+  // AUTO-RESOLVE: when the served id is already an org/model HF path (a slash, HF-legal chars,
+  // not a bare alias like "aeon-ultimate"), fill the HF link so verification is zero-friction —
+  // the pod pulls+hashes those weights and fingerprints the endpoint against them. An alias id
+  // can't be resolved, so we prompt for the link instead. Either way the user can edit it.
+  const isHfPath = typeof modelId === "string"
+    && /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/.test(modelId) && !modelId.includes(" ");
+  if (isHfPath && link && !link.value.trim()) {
+    link.value = modelId;
+    try { delete link.dataset.auto; } catch (e) {}
+  }
+  if (prompt) {
+    prompt.hidden = false;
+    prompt.innerHTML = isHfPath
+      ? `HF link auto-resolved from the served id <span class="mono">${escH(modelId)}</span> — launch to verify (edit if the repo differs)`
+      : modelId
+      ? `provide the Hugging Face link for <span class="mono">${escH(modelId)}</span> to verify this live model`
+      : "provide the Hugging Face link for this model to verify it";
+  }
+  if (link) link.focus();
+}
+
 // Filterable scan dropdown: with hundreds of local models a raw <select> is unusable, so a
 // search box narrows it by name / format / source / HF guess. Option values stay the ORIGINAL
 // RUN.scan index (pickScanned indexes RUN.scan), so filtering never mismaps a selection.
@@ -5102,6 +5176,7 @@ async function init() {
   syncSpecUI();                            // initial chrome (drafter field shown, method card hidden)
   bind("#lwScan", scanModels);
   bind("#lwBrowse", openBrowse);
+  bind("#scanEndpoints", scanEndpoints);   // find a live OpenAI-compatible serve → verify against it
   bind("#browseClose", closeBrowse);
   bind("#browseUse", () => {
     if (BROWSE.path) setLocalWeights(BROWSE.path);

@@ -212,18 +212,22 @@ def harness_run(model, harness, scores):
 
 
 A, B = "lab/rank-composite-king", "lab/rank-aeon-king"
-text_run(A, score=0.9)
-text_run(B, score=0.85)
-harness_run(B, "hermes", [1.0, 1.0])
+# BOTH must be FULL (intelligence+agentic+performance) so the completeness gate keeps them ranked;
+# A wins on intelligence, B wins on the AEON blend (far stronger agentic) — the two orders split.
+text_run(A, score=0.9); harness_run(A, "hermes", [0.2, 0.2]); perf_run(A, recipe=VLLM_RECIPE)
+text_run(B, score=0.85); harness_run(B, "hermes", [1.0, 1.0]); perf_run(B, recipe=VLLM_RECIPE)
 
 lb3 = scoring.leaderboard()
-raw_pos = {m["canonical"]: i + 1 for i, m in enumerate(lb3["models"])}
+byc = {m["canonical"]: m for m in lb3["models"]}
+check(byc[A]["record_eligible"] and byc[B]["record_eligible"],
+      "both FULL runs pass the completeness gate and rank")
+check(byc[A]["composite"] > byc[B]["composite"] and byc[B]["aeon_score"] > byc[A]["aeon_score"],
+      "fixture splits the orders: A leads by composite, B leads by the AEON blend")
 disp_pos = {m["canonical"]: i + 1 for i, m in enumerate(_display_order(lb3["models"]))}
-check(raw_pos[A] < raw_pos[B] and disp_pos[B] < disp_pos[A],
-      "fixture really splits the orders (A leads raw composite list, B leads displayed board)")
+check(disp_pos[B] < disp_pos[A], "displayed board (AEON order) puts the blend leader B first")
 check(app_mod._share_info(B.replace("/", "__"))["rank"] == disp_pos[B],
-      "AEON leader shares the rank the board shows, not its composite-list slot")
+      "AEON leader shares the rank the board shows, not its composite slot")
 check(app_mod._share_info(A.replace("/", "__"))["rank"] == disp_pos[A],
-      "composite leader's share rank drops to its displayed position")
+      "composite leader's share rank = its displayed position")
 
 print(f"\nOK  ctx_len: {PASSED} checks passed")

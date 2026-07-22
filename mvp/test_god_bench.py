@@ -112,11 +112,13 @@ check(f["agentic"]["score"] == 40.0 and f["agentic"]["harnesses"]["hermes"] == 5
       "agentic = mean across harnesses, per-harness disclosed")
 check(f["god_score"] == round(0.6 * 20.0 + 0.4 * 40.0, 1), "GOD SCORE = 0.6·sent + 0.4·agentic")
 check(not f["god_provisional"], "both components present -> not provisional")
-check(f["record_eligible"], "attested sentinel run is record-eligible")
+check(f["record_eligible"], "a FULL god run (sentinels + agentic) is record-eligible")
 
 t = rows[TEXTONLY]
 check(t["god_score"] == 10.0 and t["god_provisional"] and t["agentic"] is None,
       "sentinels-only renormalizes to the sentinel score, provisional, agentic null")
+check(t["record_eligible"] is False and t.get("ranked_excluded") == "incomplete",
+      "COMPLETENESS GATE: a sentinels-only (provisional) god run does NOT rank — local only")
 
 n = rows[NOANS]
 check(n["sentinels"]["n_attempted"] == N_GOD, "no_answer rows count as attempted (coverage)")

@@ -369,6 +369,8 @@ input[type=range]::-moz-range-thumb { width: 10px; height: 16px; border: 0; back
   padding: 1px 7px; margin-left: 7px; border: 1px solid; border-radius: var(--r-pill); vertical-align: middle; line-height: 1.5;
 }
 .elig-badge.verified { color: var(--good); border-color: rgba(61, 220, 133, .55); background: rgba(61, 220, 133, .1); }
+/* verified weights but not a FULL run — honest amber: attested, deliberately not ranked */
+.elig-badge.incomplete { color: var(--warn); border-color: rgba(255, 180, 84, .5); background: rgba(255, 180, 84, .08); }
 .elig-badge.local { color: var(--faint); border-color: var(--line); background: transparent; }
 .elig-badge.run { color: var(--live); border-color: rgba(255, 46, 151, .55); background: rgba(255, 46, 151, .12); animation: livepulse 1.6s ease-in-out infinite; }
 @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
@@ -1985,6 +1987,24 @@ select:focus {
 .lw-acts { display: flex; gap: 6px; align-self: flex-end; }
 .lw-acts .ghost { white-space: nowrap; }
 #scanRow select { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
+/* live-endpoint scan: running OpenAI-compatible serves found on the host / LAN nodes */
+#scanEndpoints { margin: 8px 0 0; }
+.scan-ep-result:not(:empty) { margin: 8px 0 2px; }
+.scan-ep-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--line); border-top: 0; background: var(--panel2); }
+.scan-ep-row:first-child { border-top: 1px solid var(--line); border-radius: var(--r-s) var(--r-s) 0 0; }
+.scan-ep-row:last-child { border-radius: 0 0 var(--r-s) var(--r-s); }
+.scan-ep-row:only-child { border-radius: var(--r-s); }
+.scan-ep-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.scan-ep-url { font-size: 12.5px; overflow-wrap: anywhere; }
+.scan-ep-models { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.scan-ep-use { white-space: nowrap; flex-shrink: 0; }
+.scan-ep-use:hover { border-color: var(--accent); color: var(--accent); }
+.scan-ep-empty, .scan-ep-err { padding: 8px 10px; font-size: 12px; color: var(--muted);
+  text-align: left; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel2); }
+.scan-ep-empty { border-style: dashed; }
+.scan-ep-err { border-left: 2px solid var(--accent); }
+#verifyHfPrompt { text-align: left; color: var(--accent); }
 .browse-card { width: min(720px, 92vw); }
 .browse-path { font-size: 11px; color: var(--muted); padding: 6px 10px; margin: 8px 0;
   border: 1px solid var(--border); background: rgba(255, 255, 255, .02); overflow-wrap: anywhere; }

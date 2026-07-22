@@ -365,9 +365,21 @@ def _attach_dials(lb):
         m["aeon_score"] = round(sum(parts[k] * present[k] for k in present), 1) if present else None
         m["aeon_score_parts"] = parts                  # the weights ACTUALLY used (0 = absent)
         m["aeon_provisional"] = len(present) < len(AEON_WEIGHTS)
+        # COMPLETENESS GATE (owner policy 2026-07-22): only a FULL benchmark run RANKS — one
+        # missing agentic or performance is provisional (a smoke / partial / text-only run) and
+        # must never be counted, even if its weights are attested. It stays STORED + shown (when
+        # 'verified only' is toggled off), badged verified-but-not-counted, but drops off the
+        # ranked board. "only if it actually ran through the entire benchmark would it be counted."
+        if m.get("record_eligible") and m["aeon_provisional"]:
+            m["record_eligible"] = False
+            m["ranked_excluded"] = "incomplete"        # attested weights, but not a full run
         # the HIGHEST-composite run among the runs this row aggregates (eligible runs when
         # the model has any) — the run the dashboard auto-opens for the intelligence dial
         m["best_intelligence_run"] = m["best_run"]
+    # record_eligible may have flipped above — re-float the ranked (full, verified) rows to the top
+    lb["models"].sort(key=lambda x: (not x.get("record_eligible"),
+                                     -((x.get("aeon_score") if x.get("aeon_score") is not None
+                                        else x.get("composite")) or 0)))
     return lb
 
 
@@ -1027,7 +1039,11 @@ def god_leaderboard():
                          "harnesses": {k: v["score"] for k, v in h.items()}} if h else None),
             "trust_tier": (s or {}).get("trust_tier")
                           or next(iter(h.values()))["trust_tier"],
-            "record_eligible": bool(s and s["eligible"]),
+            # COMPLETENESS GATE: a god run RANKS only when it ran the FULL god benchmark —
+            # sentinels AND agentic. A sentinels-only (provisional) god run stays local, never
+            # counted; verified weights are necessary but not sufficient.
+            "record_eligible": bool(s and s["eligible"] and ag_score is not None),
+            "ranked_excluded": ("incomplete" if (s and s["eligible"] and ag_score is None) else None),
             "started_at": (s or {}).get("started_at")
                           or max(v["started_at"] or 0 for v in h.values()),
         })

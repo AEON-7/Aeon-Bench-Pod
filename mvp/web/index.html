@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=107" />
+  <link rel="stylesheet" href="/static/styles.css?v=108" />
 </head>
 <body>
   <header>
@@ -377,10 +377,13 @@
           </div>
         </div>
 
-        <div class="run-card">
-          <h3>▸ Endpoint bench <span class="tag" title="no model validation — stays on this pod only">local-only</span></h3>
-          <div class="local-only-callout">LOCAL ONLY · not submitted to the mothership · not globally ranked</div>
-          <p class="note">An OpenAI-compatible endpoint you're already serving — quick, useful for smoke tests and private experiments, but unverified and kept on this pod. Use the validated bench or frontier reference above when the result should appear on Aeon Bench.</p>
+        <!-- UNVERIFIED endpoint bench: superseded by "◉ Point at a running model" (same use case,
+             but weight-verified + fingerprinted, so it RANKS). Hidden in SIMPLE mode; kept in
+             ADVANCED for deliberate private testing. -->
+        <div class="run-card adv">
+          <h3>▸ Endpoint bench <span class="tag" title="no model validation — never globally ranked">unverified · never ranks</span></h3>
+          <div class="local-only-callout">UNVERIFIED · stored on this pod and shown as <b>local</b> · never globally ranked</div>
+          <p class="note"><b>Prefer <span class="mono">◉ Point at a running model</span> above.</b> It benches the same already-running endpoint but hash-verifies the weights and fingerprints the serve, so the result earns <span class="elig-badge verified">✓ attested</span> and appears on the global leaderboard. Use this unverified card only for a deliberate private smoke test where you don't want a global rank — it skips model validation entirely, so it can never rank.</p>
           <div class="row">
             <label>Base URL<input id="reBase" type="text" value="http://127.0.0.1:8000/v1" /></label>
             <label>Model name<input id="reModel" type="text" placeholder="as the server reports it" /></label>
@@ -681,6 +684,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=107"></script>
+  <script src="/static/app.js?v=108"></script>
 </body>
 </html>

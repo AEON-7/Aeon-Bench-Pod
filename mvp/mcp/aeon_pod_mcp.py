@@ -39,8 +39,11 @@ THE VERIFIED PATH (only this earns the ranked 'attested' tier):
 Tools:
   aeon_pod_info             — pod role, detected hardware, whether a pod token is required
   aeon_pod_scan_models      — models already on disk (each hash-verifiable against its HF repo)
-  aeon_pod_scan_endpoints   — RUNNING serves on this host/LAN + the HF repo autodetected for each
-                              (feed hf_guess -> aeon_pod_run as hf_link + serve_url: attested, no pull)
+  aeon_pod_scan_endpoints   — RUNNING serves on this host/LAN (or another machine via remote=) +
+                              the HF repo autodetected for each (feed hf_guess -> aeon_pod_run as
+                              hf_link + serve_url: attested, no pull)
+  aeon_pod_ssh_key          — this pod's ssh PUBLIC key; authorize it on a remote box to bench a
+                              serve running THERE (remote= / remote_host=)
   aeon_pod_engines          — inference-engine catalog for THIS host + the recommended default
   aeon_pod_champion_recipes — best proven recipes for the detected hardware (one-click templates)
   aeon_pod_validate         — start validating an HF link (+ optional local dir hash-check)
@@ -130,11 +133,18 @@ TOOLS = [
      "fn": lambda a: _http("GET", "/api/pod/scan_models")},
 
     {"name": "aeon_pod_scan_endpoints",
-     "description": "Find models ALREADY RUNNING — sweep this host (and any LAN/cluster hosts you pass) for live OpenAI-compatible servers: vLLM, SGLang, TGI, llama.cpp, Ollama, LM Studio. For each served model it AUTODETECTS the Hugging Face repo ('hf_guess', with 'confidence' and the 'source' it came from) and the weight 'format'. THE FAST ATTESTED PATH: take a result's hf_guess as hf_link and its url as serve_url, then call aeon_pod_run with verify_endpoint=true — the pod hash-verifies those weights and logprob-fingerprints the live endpoint against them, earning attested WITHOUT re-downloading or re-serving the model (a running production serve is left untouched). When hf_guess is null the endpoint didn't expose its repo — ask your human for the exact HF link (of the specific quant actually being served) rather than guessing.",
+     "description": "Find models ALREADY RUNNING — sweep this host (and any LAN/cluster hosts you pass) for live OpenAI-compatible servers: vLLM, SGLang, TGI, llama.cpp, Ollama, LM Studio. For each served model it AUTODETECTS the Hugging Face repo ('hf_guess', with 'confidence' and the 'source' it came from) and the weight 'format'. THE FAST ATTESTED PATH: take a result's hf_guess as hf_link and its url as serve_url, then call aeon_pod_run with verify_endpoint=true — the pod hash-verifies those weights and logprob-fingerprints the live endpoint against them, earning attested WITHOUT re-downloading or re-serving the model (a running production serve is left untouched). When hf_guess is null the endpoint didn't expose its repo — ask your human for the exact HF link (of the specific quant actually being served) rather than guessing. ANOTHER MACHINE: pass `remote` (ssh user@host, an authorized key required) to sweep that machine's ports AND inspect its docker daemon over ssh, so a serve on a different box autodetects too — then pass the same `remote` as `remote_host` to aeon_pod_run.",
      "schema": _obj({"hosts": {"type": "array", "items": {"type": "string"},
-                               "description": "optional LAN/cluster hosts to sweep too (default: localhost only)"}}),
+                               "description": "optional LAN/cluster hosts to sweep too (default: localhost only)"},
+                     "remote": {"type": "string", "description": "optional ssh destination (user@host) of a DIFFERENT machine running the serve — sweeps its http ports + inspects its docker daemon over ssh (needs the pod's key authorized there; see aeon_pod_ssh_key)"}}),
      "fn": lambda a: _http("GET", "/api/pod/scan_endpoints",
-                           params={"hosts": ",".join(a["hosts"]) if a.get("hosts") else None})},
+                           params={"hosts": ",".join(a["hosts"]) if a.get("hosts") else None,
+                                   "remote": a.get("remote")})},
+
+    {"name": "aeon_pod_ssh_key",
+     "description": "This pod's ssh PUBLIC key (created on first call). To bench a model running on ANOTHER machine, the operator authorizes this key on that host once (append pubkey to its ~/.ssh/authorized_keys). Then aeon_pod_scan_endpoints(remote=user@host) and aeon_pod_run(remote_host=user@host) can probe its hardware and read its docker daemon over ssh. Returns {pubkey, pub_path}; the private key never leaves the pod. Tell your human to run: ssh-copy-id -i <pub_path> user@host (macOS/Linux), or on Windows PowerShell pipe the .pub over ssh into authorized_keys.",
+     "schema": _obj({}),
+     "fn": lambda a: _http("GET", "/api/pod/ssh_key")},
 
     {"name": "aeon_pod_engines",
      "description": "The inference-engine catalog annotated for THIS host: which engines are available, the recommended default, and the tunable serve flags (with pros/cons/conflicts). Usually leave the recommended engine.",
@@ -169,6 +179,7 @@ TOOLS = [
         "endpoint_model": {"type": "string", "description": "optional with serve_url: the served-model id to address (from the endpoint's /v1/models). Omit and the pod adopts the endpoint's first served id."},
         "verify_endpoint": {"type": "boolean", "description": "with serve_url: logprob-fingerprint the live endpoint against the hash-verified weights. TRUE = the run can earn attested; a mismatch honestly drops it to self_reported. Set this true for any serve_url run you want ranked."},
         "spark_nodes": {"type": "integer", "minimum": 2, "maximum": 16, "description": "optional: declare a multi-node DGX Spark cluster size so the run lands in the 2x/3x/4x hardware bucket (operator-declared; the pod sees only its own node)"},
+        "remote_host": {"type": "string", "description": "with serve_url when the serve runs on ANOTHER machine: ssh destination (user@host) of that machine. REQUIRED for a cross-machine serve_url — the pod probes the SERVING host's hardware over ssh (so the run is filed under the right rig, not this pod's) and reads its docker daemon for the real serve recipe. Needs the pod's ssh key authorized there (aeon_pod_ssh_key). Without it a remote run is misattributed to this pod's hardware."},
         "preset": {"type": "string", "enum": ["comprehensive", "hard-bench"], "default": "comprehensive",
                    "description": "comprehensive = the full validated exam (default, use this to rank); hard-bench = hard/expert tiers only"},
         "engine": {"type": "string", "description": "optional: engine id from aeon_pod_engines (else the recommended default)"},
@@ -191,7 +202,9 @@ TOOLS = [
         # point-at-a-running-serve: the pod benches this endpoint instead of serving the model,
         # and fingerprints it against the hash-verified weights so the run can still be attested
         "serve_url": a.get("serve_url"), "endpoint_model": a.get("endpoint_model"),
-        "verify_endpoint": a.get("verify_endpoint"), "spark_nodes": a.get("spark_nodes")})},
+        "verify_endpoint": a.get("verify_endpoint"), "spark_nodes": a.get("spark_nodes"),
+        # a serve on ANOTHER machine: probe ITS hardware + read ITS docker daemon over ssh
+        "remote_host": a.get("remote_host")})},
 
     {"name": "aeon_pod_jobs",
      "description": "Every benchmark job on this pod: status, per-dimension stage progress (text/harness/vision/audio/video/perf), plus 'pending' = completed-but-unsubmitted sessions (press aeon_pod_submit for those). Poll this to track a run.",

@@ -290,6 +290,13 @@ Face, which is the only thing that earns the ranked tier — they differ only in
   `verify_endpoint: true`.
   *Point at the repo of the **exact artifact being served** — the specific quant, not a base model.
   Quantized safetensors and a single GGUF file both hash-verify bit-for-bit; a base repo will fail.*
+  **Serve on ANOTHER machine (no room for a pod on the serving box)?** Add `--remote-host user@host`
+  (MCP: `remote_host`; scan: `remote=`). The pod probes THAT host's hardware over ssh — so the run
+  is filed under the serving rig, not the pod's — and reads its docker daemon for the real recipe.
+  One-time setup: authorize the pod's key on the serving host (`aeon_pod_ssh_key` / the Run tab
+  prints the per-shell command). **Without `--remote-host` a cross-machine run is misattributed to
+  the pod's own hardware**, which corrupts the perf board. (A pod that can't load the weights
+  locally can't fingerprint, so such a run records `self_reported`.)
 
 > **DO wait for the green light.** A `validated` or `resolved` verdict shows **✓ attested** and is
 > what rides the launch. A **`mismatch`** (local bytes ≠ manifest) or **`failed`** verdict is

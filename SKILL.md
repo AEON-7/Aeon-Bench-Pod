@@ -86,6 +86,11 @@ This is the part to get right; it is what makes the result trustworthy and ranka
    logprob-fingerprints the live endpoint against them** — a match earns **attested**. It never
    downloads, never re-serves, and **leaves a production endpoint running**. Fastest path to a
    ranked result.
+   *On ANOTHER machine?* Get this pod's key with `aeon_pod_ssh_key`, have your human authorize it
+   on the serving host, then pass `remote=user@host` to `aeon_pod_scan_endpoints` and the same
+   `remote_host=user@host` to `aeon_pod_run`. The pod probes THAT host's hardware over ssh (so the
+   result is filed under the serving rig, not this pod) and reads its docker daemon for the real
+   recipe. Omit `remote_host` and a cross-machine run is misattributed to this pod's hardware.
 2. **Fresh Hugging Face pull.** Pass `hf_link` = `org/Model` (or a huggingface.co URL) to
    `aeon_pod_run`. The pod downloads the weights and **sha256-verifies every file against HF's
    published LFS manifest** before serving.

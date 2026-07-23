@@ -685,18 +685,29 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, harn
     return st, r
 
 
-def _arena_artifacts(target, alias, *, seed=None, per_kind=2, only_difficulty=None):
+# arena artifacts are few but LONG (up to 8000 tokens each), so a full text concurrency (e.g. 24)
+# would put 18 big streams in flight and thrash the KV cache. Cap arena concurrency well below the
+# text board; the run's own concurrency still lowers it further when it's smaller. Env-overridable.
+_ARENA_MAX_CONC = max(1, int(os.environ.get("AEON_ARENA_CONCURRENCY", "8") or 8))
+
+
+def _arena_artifacts(target, alias, *, seed=None, per_kind=2, only_difficulty=None, concurrency=1):
     """Game/app/animation artifacts from the served model (part of EVERY benchmark). Seeded so
-    every model in a sweep answers the IDENTICAL prompts. Returned for the signed submit bundle."""
+    every model in a sweep answers the IDENTICAL prompts. Returned for the signed submit bundle.
+    Generated CONCURRENTLY (bounded) against the same serve, like the other boards — no longer
+    single-stream."""
     from pod import arena_gen
-    print(f"[pod] ARENA generation: {per_kind} per kind (app/game/animation), seed={seed}", flush=True)
+    conc = max(1, min(int(concurrency or 1), _ARENA_MAX_CONC))
+    print(f"[pod] ARENA generation: {per_kind} per kind (app/game/animation), seed={seed}, "
+          f"concurrency={conc}", flush=True)
     def _acb(d, tot, it):
         print(f"  [arena] {d}/{tot} {it.get('kind')}/{it.get('prompt_id')}: "
               f"{'ok' if it.get('ok') else 'FAILED'}", flush=True)
         _stage("arena", d, tot)
 
     arts = arena_gen.generate_for_model(target, alias, per_kind=per_kind, seed=seed,
-                                        progress_cb=_acb, only_difficulty=only_difficulty)
+                                        progress_cb=_acb, only_difficulty=only_difficulty,
+                                        concurrency=conc)
     ok = sum(1 for a in arts if a.get("ok"))
     print(f"[pod] arena: {ok}/{len(arts)} artifacts generated")
     return arts
@@ -877,7 +888,7 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             print(f"[pod] local env stamp failed (non-fatal): {e}")
         # ARENA generation (games/apps/animations) ships INSIDE the signed text bundle.
         artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
-                                     per_kind=arena_per_kind,
+                                     per_kind=arena_per_kind, concurrency=concurrency,
                                      # a pure-god scope draws ONLY god-tier challenges
                                      only_difficulty=("god_mode" if (difficulty or "").strip() == "god_mode"
                                                       else None)) if arena_per_kind else []

@@ -127,8 +127,13 @@ def _probe(base_url, *, timeout=2, transport=None):
 # Any engine binds a PORT, so we match the container to the endpoint by port (the universal link),
 # then read the model reference from whatever flag/env that engine uses and reconcile it.
 
-def _default_docker(argv):                               # pragma: no cover — real docker
-    return subprocess.run(argv, capture_output=True, text=True, timeout=8).stdout
+def _default_docker(argv, docker_host=None):             # pragma: no cover — real docker
+    """`docker_host` (e.g. 'ssh://user@dgx') targets ANOTHER machine's daemon — Docker speaks ssh
+    natively, so the whole inspect path works remotely with no extra protocol."""
+    env = None
+    if docker_host:
+        env = dict(os.environ, DOCKER_HOST=docker_host)
+    return subprocess.run(argv, capture_output=True, text=True, timeout=20, env=env).stdout
 
 
 def _flatten_cmd(parts):
@@ -223,12 +228,13 @@ def _published_ports(raw):
     return out
 
 
-def _docker_serves(*, runner=None):
+def _docker_serves(*, runner=None, docker_host=None):
     """Running containers with everything needed to match+resolve: name, flattened cmd tokens,
-    env dict, mounts, the serve port (cmd/env), and published host ports. [] if docker absent."""
+    env dict, mounts, the serve port (cmd/env), and published host ports. [] if docker absent.
+    `docker_host` ('ssh://user@host') inspects the REMOTE machine's daemon instead of this one."""
     if runner is None and not shutil.which("docker"):
         return []
-    run = runner or _default_docker
+    run = runner or (lambda argv: _default_docker(argv, docker_host=docker_host))
     try:
         ids = (run(["docker", "ps", "-q"]) or "").split()
         if not ids:
@@ -360,7 +366,15 @@ def _resolve_ref(ref, container):
     is_gguf = bool(local and local.rstrip().lower().endswith(".gguf")) or \
         (isinstance(ref, str) and ref.rstrip().lower().endswith(".gguf"))
     if not local:
-        return {"format": "gguf" if is_gguf else None}
+        # Unreadable path — normal for a REMOTE serve (the pod can't see that machine's disk). We
+        # still know the mount's folder NAME from docker, which is a real hint the operator can act
+        # on ("that's my …-NVFP4 quant"), so surface it rather than showing nothing.
+        out = {"format": "gguf" if is_gguf else None}
+        src = (container.get("mounts") or {}).get(str(ref).rstrip("/"))
+        name = os.path.basename(str(src or ref).replace("\\", "/").rstrip("/"))
+        if name and not _PATHY.match(name):
+            out["local_name"] = name
+        return out
     if is_gguf:
         repo, rev, rsrc = _reconcile_gguf(local)
         out = {"format": "gguf"}
@@ -395,7 +409,7 @@ def _docker_enrich(served_entries, *, endpoint_port, containers):
                 s[k] = v
 
 
-def observed_serve_recipe(serve_url, served_ids, *, runner=None):
+def observed_serve_recipe(serve_url, served_ids, *, runner=None, docker_host=None):
     """Capture the ACTUAL startup command of a LOCALHOST endpoint's backing container, so an
     endpoint-mode ("point at a running model") run records the REAL serve recipe — image + the
     exact flags, INCLUDING `--speculative-config` — instead of the pod's hypothetical derived
@@ -405,13 +419,16 @@ def observed_serve_recipe(serve_url, served_ids, *, runner=None):
     match). Best-effort, exception-safe — capture never blocks or fails a bench."""
     try:
         host = (serve_url or "").split("//", 1)[-1].split("/", 1)[0]   # host[:port]
-        if host.split(":")[0] not in _LOCAL_HOSTS:
-            return None                                                # remote — pod can't inspect it
+        # A remote serve is inspectable ONLY when the operator authorized a docker host for it
+        # (DOCKER_HOST=ssh://…). Without that we cannot see the machine, so we say so rather than
+        # guessing.
+        if host.split(":")[0] not in _LOCAL_HOSTS and not (docker_host or runner):
+            return None
         port = None
         if ":" in host:
             p = host.rsplit(":", 1)[1]
             port = int(p) if p.isdigit() else None
-        c = _match_container(port, served_ids, _docker_serves(runner=runner))
+        c = _match_container(port, served_ids, _docker_serves(runner=runner, docker_host=docker_host))
         if not c:
             return None
         toks = c.get("toks") or []
@@ -440,7 +457,7 @@ def observed_serve_recipe(serve_url, served_ids, *, runner=None):
         return None
 
 
-def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=None):
+def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=None, docker_host=None):
     """Sweep (hosts × ports) for OpenAI-compatible servers, concurrently, and AUTODETECT each
     served model's HF repo (engine-agnostic). Returns {endpoints:[…], scanned, hosts}. Deduped by
     URL. LOCALHOST endpoints the API couldn't name get a best-effort docker pass (matched by port)."""
@@ -457,15 +474,16 @@ def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=Non
             if r and r["url"] not in seen:
                 seen.add(r["url"])
                 out.append(r)
-    # docker fallback (pod's OWN host only — it can't inspect a remote node's containers), and only
-    # when something local is still unnamed, so we never shell out needlessly
-    local_unresolved = [ep for ep in out
-                        if ep["host"].split(":", 1)[0] in _LOCAL_HOSTS
-                        and any(not s.get("hf_guess") for s in (ep.get("served") or []))]
-    if local_unresolved:
-        containers = _docker_serves(runner=docker_runner)
+    # docker fallback: the pod's OWN host, or — when the operator authorized one — a REMOTE daemon
+    # via docker_host (ssh://user@host), which is how a pod benching ANOTHER machine still
+    # autodetects that machine's HF repo. Only runs when something is still unnamed.
+    unresolved = [ep for ep in out
+                  if (docker_host or ep["host"].split(":", 1)[0] in _LOCAL_HOSTS)
+                  and any(not s.get("hf_guess") for s in (ep.get("served") or []))]
+    if unresolved:
+        containers = _docker_serves(runner=docker_runner, docker_host=docker_host)
         if containers:
-            for ep in local_unresolved:
+            for ep in unresolved:
                 try:
                     port = int(ep["host"].rsplit(":", 1)[1])
                 except Exception:

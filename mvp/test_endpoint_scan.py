@@ -320,8 +320,14 @@ check("--max-model-len" in obs["flags"] and "184320" in obs["flags"],
       "the real serve context (--max-model-len 184320) rides in the captured flags")
 check(obs["drafter_repo"] == "z-lab/gemma-4-26B-A4B-it-DFlash",
       "the --speculative-config /drafter mount reconciles to its HF drafter repo (full disclosure)")
-check(ep.observed_serve_recipe("http://10.0.0.9:8000/v1", ["x"], runner=obs_runner) is None,
-      "a REMOTE endpoint is never docker-inspected -> None (operator-managed, recorded as such)")
+check(ep.observed_serve_recipe("http://10.0.0.9:8000/v1", ["x"]) is None,
+      "an UNAUTHORIZED remote endpoint is never docker-inspected -> None (operator-managed)")
+# ...but WITH an operator-authorized docker host (ssh://) the same remote serve IS inspectable —
+# that is what lets a pod on another machine record the real recipe instead of a hypothetical one.
+_rem = ep.observed_serve_recipe("http://10.0.0.9:8000/v1", ["aeon-ultimate"],
+                                runner=obs_runner, docker_host="ssh://user@10.0.0.9")
+check(_rem is not None and _rem["speculative_config"]["method"] == "dflash",
+      "an AUTHORIZED remote endpoint (docker_host=ssh://) captures the real serve recipe")
 
 # ================================ reconcile_path ================================
 # the path-only HF reconciler reused by the docker fallback: breadcrumbs, most->least confident

@@ -35,9 +35,12 @@ The whole job, in eight moves:
    live board.)*
 3. **Show your human the dashboard** — `http://localhost:8091` → **Run tab**. Tell them the URL and
    what they'll see so they can watch. *(Why: they own the run; they should be able to watch it.)*
-4. **Point at the model** — paste an HF link (pod pulls + hash-verifies fresh) **or** pick an
-   on-disk copy (pod hash-verifies the local bytes against HF). Wait for the green **VALIDATED**
-   light. *(Why: only weights verified against Hugging Face can earn the ranked tier.)*
+4. **Point at the model** — **if a server is already running, prefer ◉ Point at a running model**
+   (scan → pick → the HF repo autodetects → the pod verifies the weights and fingerprints the live
+   serve; no pull, no re-serve, still **attested**). Otherwise paste an HF link (pod pulls +
+   hash-verifies fresh) **or** pick an on-disk copy (pod hash-verifies the local bytes against HF).
+   Wait for the green **VALIDATED** light. *(Why: only weights verified against Hugging Face can
+   earn the ranked tier — and pointing at a live serve gets there without touching it.)*
 5. **Pick a recipe** — prefer the **★ CHAMPION RECIPE** for the detected hardware (one click,
    proven best); else the auto-applied family preset; then hand-tune if you must. *(Why: the right
    engine + flags is the difference between a fast good run and an OOM crash.)*
@@ -57,15 +60,28 @@ The whole job, in eight moves:
 hash-verified against HF + signed) **and comprehensive** (≥90% suite coverage). Everything else is
 local-only. Don't dress a local or partial run up as validated.
 
+**Corollary — never settle for an unverified endpoint run.** Benching a raw `base_url` + `model`
+(no HF link) is permanently `self_reported` and **can never rank**, no matter how good the scores.
+If a server is already running, you do **not** have to accept that: use **◉ Point at a running
+model** (`--hf-link` + `--serve-url` + `--verify-endpoint`) to bench the *same* endpoint with the
+weights hash-verified and the serve fingerprinted — same speed, same convenience, but **attested**
+and on the board. Reach for the unverified path only when your human explicitly wants a private,
+unranked smoke test.
+
 > **Do it all headlessly via MCP.** Everything below can be driven through the pod's MCP server
 > (`mvp/mcp/aeon_pod_mcp.py`, dependency-free stdlib) — no dashboard clicking. Point your MCP
 > client at it (`env AEON_BASE=http://127.0.0.1:8091`, `AEON_POD_TOKEN` if the pod is locked) and
-> use, in order: `aeon_pod_info` → `aeon_pod_scan_models` (or skip, for a fresh HF pull) →
-> `aeon_pod_champion_recipes` → `aeon_pod_validate` (optional) → **`aeon_pod_run`** (preset
-> `comprehensive`) → `aeon_pod_jobs` / `aeon_pod_stats` → `aeon_pod_resume` / `aeon_pod_submit`.
-> The `aeon_pod_run` tool takes `hf_link` (fresh pull) **or** `hf_link` + `local_dir` (hash-verify
-> on-disk bytes) — the same verified path as §4. The MCP talks ONLY to a local pod; the mothership
-> never runs jobs. Short version of the whole loop: `SKILL.md`.
+> use, in order: `aeon_pod_info` → **`aeon_pod_scan_endpoints`** (is something already serving?) →
+> `aeon_pod_scan_models` (else, for on-disk weights) → `aeon_pod_champion_recipes` →
+> `aeon_pod_validate` (optional) → **`aeon_pod_run`** (preset `comprehensive`) → `aeon_pod_jobs` /
+> `aeon_pod_stats` → `aeon_pod_resume` / `aeon_pod_submit`.
+> `aeon_pod_run` takes `hf_link` (fresh pull), **or** `hf_link` + `local_dir` (hash-verify on-disk
+> bytes), **or** — preferred when a serve is already up — `hf_link` + `serve_url` +
+> `verify_endpoint: true` (bench the live endpoint, weights verified + serve fingerprinted, still
+> attested; `endpoint_model` picks the served id, `spark_nodes` declares a multi-node cluster).
+> `aeon_pod_scan_endpoints` finds live vLLM/SGLang/TGI/llama.cpp/Ollama/LM Studio servers and
+> autodetects each one's HF repo — feed its `hf_guess` straight in as `hf_link`. The MCP talks ONLY
+> to a local pod; the mothership never runs jobs. Short version of the whole loop: `SKILL.md`.
 
 ---
 
@@ -246,17 +262,34 @@ completeness — skip a step and the run silently drops to local-only or gets fi
 
 Work in the Run tab's **"◉ Validated bench"** card, top to bottom.
 
-### 4(a) Point at the model — two ways, both earn attested
+### 4(a) Point at the model — three ways, all earn attested
 
-- **Paste an HF link** into the model field: `org/model`, a full `https://huggingface.co/...` URL,
+**If a server is already running, PREFER the third.** All three verify the weights against Hugging
+Face, which is the only thing that earns the ranked tier — they differ only in who serves the model.
+
+- **⤓ Paste an HF link** into the model field: `org/model`, a full `https://huggingface.co/...` URL,
   or `org/model@rev`. The pod resolves it, fetches HF's per-file LFS sha256 manifest, and on launch
   **pulls fresh + hash-verifies on download**. Verdict state **`resolved`** → still **attested**.
-- **Pick a model already on disk** — click **⌕ scan** (sweeps HF cache, LM Studio library, AEON
+- **⤓ Pick a model already on disk** — click **⌕ scan** (sweeps HF cache, LM Studio library, AEON
   pulls, `~/models`, etc., auto-reconciling each to its HF card so the hash check can run) or **▤
   browse** to the folder. The pod then **hash-verifies the local bytes against the HF repo manifest**
   — *a local dir earns attested ONLY because it is verified against HF*, not because it is local.
   Verdict state **`validated`** (bit-for-bit `repo@sha`) → **no re-download**, benches the exact
   on-disk bytes.
+- **◉ Point at a running model — the preferred path when a serve is already up.** Switch the Run
+  tab's intent selector to **◉ Point at a running model**, press **⌕ Scan for running instances**
+  (or `GET /api/pod/scan_endpoints`, MCP `aeon_pod_scan_endpoints`). The pod sweeps this host (and
+  any LAN/cluster hosts you declare) for live OpenAI-compatible servers — **vLLM, SGLang, TGI,
+  llama.cpp, Ollama, LM Studio** — and **autodetects each served model's HF repo**. Pick one; the HF
+  link prefills. On launch the pod **hash-verifies those weights and logprob-fingerprints the live
+  endpoint against them**: a match earns **attested** via `endpoint_fingerprint`, a mismatch honestly
+  drops to `self_reported`. **It never pulls, never re-serves, and leaves a production endpoint
+  running** — the fastest attested path, and the one to reach for by default.
+  CLI: `--hf-link <repo> --serve-url <url> --verify-endpoint` (`--endpoint-model <id>` to pick which
+  served id when the endpoint serves several). MCP: `aeon_pod_run` with `hf_link` + `serve_url` +
+  `verify_endpoint: true`.
+  *Point at the repo of the **exact artifact being served** — the specific quant, not a base model.
+  Quantized safetensors and a single GGUF file both hash-verify bit-for-bit; a base repo will fail.*
 
 > **DO wait for the green light.** A `validated` or `resolved` verdict shows **✓ attested** and is
 > what rides the launch. A **`mismatch`** (local bytes ≠ manifest) or **`failed`** verdict is
@@ -562,8 +595,8 @@ The mothership computes the tier at commit time:
 
 | Tier | How it's earned | On the board |
 |---|---|---|
-| **`attested`** *(shown **✓ verified**)* | The **controlled HF-pull flow** (`--hf-link` / a hash-verified `--local-dir`): weights **hash-verified bit-for-bit against HF's published per-file LFS sha256** at a pinned commit, served by a recorded recipe, ed25519-signed. The mothership then **independently re-fetches HF and re-checks every weight hash**. Requires verified weights **+** recipe **+** signature, all three. | **The only globally-ranked tier.** |
-| **`self_reported`** *(shown **local**)* | Anything short of the above — every `--target` endpoint run, every unverifiable repo. Signed (tamper-evident) but the model identity is **not** bit-for-bit verified. | Stored and shown, **never globally ranked**. |
+| **`attested`** *(shown **✓ verified**)* | The **controlled flow** in any of its three shapes — `--hf-link` (fresh pull), a hash-verified `--local-dir`, **or `--hf-link` + `--serve-url` + `--verify-endpoint`** (bench a live serve, weights hash-verified + the endpoint logprob-fingerprinted against them). Weights **hash-verified bit-for-bit against HF's published per-file LFS sha256** at a pinned commit, served by a recorded recipe, ed25519-signed. The mothership then **independently re-fetches HF and re-checks every weight hash**. Requires verified weights **+** recipe **+** signature, all three. | **The only globally-ranked tier.** |
+| **`self_reported`** *(shown **local**)* | Anything short of the above — an **unverified** `--target` endpoint run (no HF link, so no weights to hash), every unverifiable repo, and a `--serve-url` run whose fingerprint **mismatched**. Signed (tamper-evident) but the model identity is **not** bit-for-bit verified. | Stored and shown, **never globally ranked**. |
 | **`frontier` (frontier_api)** | A verified frontier **API** reference (e.g. `xai:grok-4.5-high`). | Comparable on the board, `self_reported` posture — not a local-weight attestation. |
 
 **Why attested is the only path to the global leaderboard:** both the ingest and scoring sides gate
@@ -571,14 +604,31 @@ the board on `ELIGIBLE_TIERS = {"attested"}`. A model ranks (floats above every 
 *iff* it has at least one attested run. The public mothership can additionally set
 `AEON_ATTESTED_ONLY=1`, which refuses (HTTP 403 `NOT_ATTESTED`) anything that wouldn't earn attested.
 
-**Why to AVOID local-only (`--target`) benches** unless you have a specific private use case: a
-`--target`/`--model` endpoint run never pulls or verifies weights (an API physically can't expose
-weight bytes to hash), so it is permanently `self_reported`, writes only to the pod-local SQLite, and
-**never ranks**. Use it only for a deliberate private comparison where you don't want a global rank.
+**AVOID the unverified local-only (`--target`) bench — there is almost never a reason to use it.**
+A bare `--target`/`--model` endpoint run never verifies weights, so it is permanently
+`self_reported` and **never ranks**, however good the numbers are.
+
+**You do not have to give up the leaderboard just because the model is already serving.** That was
+the old trade-off; it no longer exists. Point at the SAME running endpoint the verified way —
+
+```
+--hf-link <the exact repo being served>  --serve-url <its /v1 URL>  --verify-endpoint
+```
+
+— and the pod hash-verifies those weights and logprob-fingerprints the live serve against them.
+Match ⇒ **attested and ranked**; mismatch ⇒ honestly `self_reported`. It doesn't download, doesn't
+re-serve, and leaves a production endpoint untouched. Use **⌕ Scan for running instances** (GUI) /
+`aeon_pod_scan_endpoints` (MCP) to find the serve — it autodetects the HF repo for you.
+
+Reach for the unverified `--target` path **only** when your human explicitly wants a private,
+unranked smoke test, or when the served weights genuinely have no public HF home to verify against.
 
 > **DO**
-> - To rank globally, use the controlled HF-pull flow (paste an HF link, or a hash-verified local
->   dir). It is the ONLY path to attested.
+> - **If something is already serving, bench it the verified way** — `aeon_pod_scan_endpoints` /
+>   **⌕ Scan for running instances**, then `--hf-link` + `--serve-url` + `--verify-endpoint`. Same
+>   endpoint, same speed, but **attested and ranked**. This should be your default reflex.
+> - To rank globally, use the controlled flow (a live serve verified as above, an HF link, or a
+>   hash-verified local dir). It is the ONLY path to attested.
 > - Run the WHOLE job — Comprehensive, to completion — so the completeness gate passes.
 > - Use **⟲ RESUME** after any interruption; it continues the same `job_sig` and skips scored cases.
 > - Trust the deferred queue — if the mothership was down, results persist and re-submit
@@ -591,8 +641,11 @@ weight bytes to hash), so it is permanently `self_reported`, writes only to the 
 >   as validated — they don't rank and may be blocked outright.
 > - Don't use `--force-submit` to push an incomplete bench onto the leaderboard — the mothership's
 >   90% floor still filters it off.
-> - Don't run a `--target` endpoint (or `--frontier-id`) and expect a global rank — those are
->   local-only.
+> - Don't run a bare `--target` endpoint (or `--frontier-id`) and expect a global rank — those are
+>   unverified and local-only. **Don't settle for it either:** if a serve is up, re-point it as
+>   `--hf-link` + `--serve-url` + `--verify-endpoint` and it ranks.
+> - Don't hand your human an unranked `self_reported` result when the verified endpoint path was
+>   available — say which path you used and why.
 > - Don't benchmark unverified weights — `verify()` failure hard-stops the run; never route around
 >   it.
 

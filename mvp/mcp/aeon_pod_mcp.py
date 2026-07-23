@@ -15,11 +15,19 @@ point your MCP client at this script:
   # AEON_POD_TOKEN=<token>  if the pod's optional lab lock is set.
 
 THE VERIFIED PATH (only this earns the ranked 'attested' tier):
-  1. Point at a model ONE of three ways:
+  1. Point at a model ONE of four ways — ALL earn attested:
        (a) fresh HF pull   — pass hf_link "org/Model"; the pod downloads + hash-verifies it.
        (b) local on disk    — pass hf_link "org/Model" AND local_dir; the pod sha256-checks the
                               on-disk bytes against that HF repo's LFS manifest (no re-download).
        (c) discover local   — aeon_pod_scan_models first, then use (b) with the path it returns.
+       (d) POINT AT A RUNNING SERVE  *** prefer this when a server is already up ***
+                              aeon_pod_scan_endpoints finds live OpenAI-compatible servers
+                              (vLLM / SGLang / TGI / llama.cpp / Ollama / LM Studio) and AUTODETECTS
+                              each one's HF repo. Then pass hf_link + serve_url + verify_endpoint=true:
+                              the pod hash-verifies those weights and logprob-fingerprints the live
+                              endpoint against them — a match earns ATTESTED without re-serving the
+                              model, so it neither downloads nor disturbs a running production serve.
+                              This is the fastest attested path and the one to favour.
   2. Pick a recipe — prefer aeon_pod_champion_recipes for the detected hardware; else the pod
      auto-applies a family preset. Tune serve_flags if you must.
   3. aeon_pod_run with preset "comprehensive" (the WHOLE exam). Never submit a smoke test as
@@ -31,6 +39,8 @@ THE VERIFIED PATH (only this earns the ranked 'attested' tier):
 Tools:
   aeon_pod_info             — pod role, detected hardware, whether a pod token is required
   aeon_pod_scan_models      — models already on disk (each hash-verifiable against its HF repo)
+  aeon_pod_scan_endpoints   — RUNNING serves on this host/LAN + the HF repo autodetected for each
+                              (feed hf_guess -> aeon_pod_run as hf_link + serve_url: attested, no pull)
   aeon_pod_engines          — inference-engine catalog for THIS host + the recommended default
   aeon_pod_champion_recipes — best proven recipes for the detected hardware (one-click templates)
   aeon_pod_validate         — start validating an HF link (+ optional local dir hash-check)
@@ -90,12 +100,16 @@ def _guide():
             with open(p, "r", encoding="utf-8") as f:
                 return {"source": os.path.basename(p), "guide": f.read()}
     return {"guide": (
-        "VERIFIED PATH: (1) point at a model — fresh HF pull (hf_link), or on-disk weights "
-        "hash-verified against the same HF repo (hf_link + local_dir), or discover one with "
-        "aeon_pod_scan_models. (2) Apply a champion recipe for the detected hardware. (3) Run "
-        "with preset 'comprehensive' — the whole exam; only a complete run ranks. (4) It "
-        "auto-submits attested; if the mothership was down, aeon_pod_submit later. Never submit "
-        "a smoke test as validated. A raw endpoint run is self_reported and never ranks.")}
+        "VERIFIED PATH: (1) point at a model — PREFERRED when a server is already up: "
+        "aeon_pod_scan_endpoints to find a live serve + autodetect its HF repo, then aeon_pod_run "
+        "with hf_link + serve_url + verify_endpoint=true (attested, no pull, leaves the serve "
+        "running). Otherwise: fresh HF pull (hf_link), or on-disk weights hash-verified against "
+        "the same repo (hf_link + local_dir), or discover one with aeon_pod_scan_models. "
+        "(2) Apply a champion recipe for the detected hardware. (3) Run with preset "
+        "'comprehensive' — the whole exam; only a complete run ranks. (4) It auto-submits "
+        "attested; if the mothership was down, aeon_pod_submit later. Never submit a smoke test "
+        "as validated. ALWAYS pass hf_link: a raw endpoint run without it (base_url + model only) "
+        "skips weight verification, is permanently self_reported, and never ranks.")}
 
 
 # ---- tool registry: (name, description, inputSchema, handler) ----
@@ -114,6 +128,13 @@ TOOLS = [
      "description": "List models already on this host (HF cache, LM Studio, ~/models, /models). Each carries a size, location, and a reconciled HF repo id — pass that repo as hf_link and the path as local_dir to aeon_pod_run for a hash-verified attested run with no re-download.",
      "schema": _obj({}),
      "fn": lambda a: _http("GET", "/api/pod/scan_models")},
+
+    {"name": "aeon_pod_scan_endpoints",
+     "description": "Find models ALREADY RUNNING — sweep this host (and any LAN/cluster hosts you pass) for live OpenAI-compatible servers: vLLM, SGLang, TGI, llama.cpp, Ollama, LM Studio. For each served model it AUTODETECTS the Hugging Face repo ('hf_guess', with 'confidence' and the 'source' it came from) and the weight 'format'. THE FAST ATTESTED PATH: take a result's hf_guess as hf_link and its url as serve_url, then call aeon_pod_run with verify_endpoint=true — the pod hash-verifies those weights and logprob-fingerprints the live endpoint against them, earning attested WITHOUT re-downloading or re-serving the model (a running production serve is left untouched). When hf_guess is null the endpoint didn't expose its repo — ask your human for the exact HF link (of the specific quant actually being served) rather than guessing.",
+     "schema": _obj({"hosts": {"type": "array", "items": {"type": "string"},
+                               "description": "optional LAN/cluster hosts to sweep too (default: localhost only)"}}),
+     "fn": lambda a: _http("GET", "/api/pod/scan_endpoints",
+                           params={"hosts": ",".join(a["hosts"]) if a.get("hosts") else None})},
 
     {"name": "aeon_pod_engines",
      "description": "The inference-engine catalog annotated for THIS host: which engines are available, the recommended default, and the tunable serve flags (with pros/cons/conflicts). Usually leave the recommended engine.",
@@ -140,10 +161,14 @@ TOOLS = [
      "fn": lambda a: _http("GET", f"/api/pod/validate/{urllib.parse.quote(a['validate_id'])}")},
 
     {"name": "aeon_pod_run",
-     "description": "Launch a VALIDATED benchmark — the main event. Provide an hf_link (fresh pull + hash-verify) OR hf_link + local_dir (on-disk bytes hash-verified against that HF repo). Defaults to preset 'comprehensive' = the WHOLE exam (text + 3 agentic harnesses + vision/audio/video + arena + perf); only a complete comprehensive run ranks on the global board. Returns {job_id}; then poll aeon_pod_jobs. Do NOT use this for a raw endpoint (that is self_reported and never ranks). Big/slow models take HOURS — tell your human.",
+     "description": "Launch a VALIDATED benchmark — the main event. THREE attested shapes, all requiring hf_link (the identity that gets hash-verified against HF): (1) hf_link alone = fresh pull, the pod serves it; (2) hf_link + local_dir = on-disk bytes hash-verified against that repo; (3) hf_link + serve_url + verify_endpoint=true = POINT AT A RUNNING SERVE — the pod hash-verifies the weights and logprob-fingerprints the live endpoint against them, earning attested WITHOUT pulling or re-serving (use aeon_pod_scan_endpoints to find the serve and autodetect its hf_link). PREFER (3) whenever a server is already up: fastest, and it leaves a production serve running. Defaults to preset 'comprehensive' = the WHOLE exam (text + 3 agentic harnesses + vision/audio/video + arena + perf); only a complete comprehensive run ranks on the global board. Returns {job_id}; then poll aeon_pod_jobs. DISCOURAGED: a RAW endpoint run (base_url + model with NO hf_link, the separate /api/pod/run/endpoint route) skips weight verification, is permanently self_reported, and NEVER ranks — always pass hf_link so the weights are verified. Big/slow models take HOURS — tell your human.",
      "schema": _obj({
-        "hf_link": {"type": "string", "description": "org/Model or HF URL — REQUIRED (the identity verified against HF)"},
+        "hf_link": {"type": "string", "description": "org/Model or HF URL — REQUIRED (the identity verified against HF). For a running serve, use the repo of the SPECIFIC artifact being served (e.g. the exact quant), not a base model."},
         "local_dir": {"type": "string", "description": "optional: on-disk weights to hash-verify vs the hf_link repo (no re-download)"},
+        "serve_url": {"type": "string", "description": "POINT AT A RUNNING SERVE: the live OpenAI-compatible base URL (e.g. http://127.0.0.1:8000/v1) from aeon_pod_scan_endpoints. The pod benches THIS server instead of serving the model itself."},
+        "endpoint_model": {"type": "string", "description": "optional with serve_url: the served-model id to address (from the endpoint's /v1/models). Omit and the pod adopts the endpoint's first served id."},
+        "verify_endpoint": {"type": "boolean", "description": "with serve_url: logprob-fingerprint the live endpoint against the hash-verified weights. TRUE = the run can earn attested; a mismatch honestly drops it to self_reported. Set this true for any serve_url run you want ranked."},
+        "spark_nodes": {"type": "integer", "minimum": 2, "maximum": 16, "description": "optional: declare a multi-node DGX Spark cluster size so the run lands in the 2x/3x/4x hardware bucket (operator-declared; the pod sees only its own node)"},
         "preset": {"type": "string", "enum": ["comprehensive", "hard-bench"], "default": "comprehensive",
                    "description": "comprehensive = the full validated exam (default, use this to rank); hard-bench = hard/expert tiers only"},
         "engine": {"type": "string", "description": "optional: engine id from aeon_pod_engines (else the recommended default)"},
@@ -162,7 +187,11 @@ TOOLS = [
         "preset": a.get("preset") or "comprehensive", "engine": a.get("engine"),
         "serve_flags": a.get("serve_flags"), "drafter_hf": a.get("drafter_hf"),
         "modalities": a.get("modalities"), "concurrency": a.get("concurrency"),
-        "max_tokens": a.get("max_tokens"), "hf_token_name": a.get("hf_token_name")})},
+        "max_tokens": a.get("max_tokens"), "hf_token_name": a.get("hf_token_name"),
+        # point-at-a-running-serve: the pod benches this endpoint instead of serving the model,
+        # and fingerprints it against the hash-verified weights so the run can still be attested
+        "serve_url": a.get("serve_url"), "endpoint_model": a.get("endpoint_model"),
+        "verify_endpoint": a.get("verify_endpoint"), "spark_nodes": a.get("spark_nodes")})},
 
     {"name": "aeon_pod_jobs",
      "description": "Every benchmark job on this pod: status, per-dimension stage progress (text/harness/vision/audio/video/perf), plus 'pending' = completed-but-unsubmitted sessions (press aeon_pod_submit for those). Poll this to track a run.",

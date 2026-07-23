@@ -940,6 +940,9 @@ ol.traj .traj-step::before { content: counter(step); color: var(--faint);
    the width of the frontier + endpoint cards; collapses 2-up, then stacked. */
 .run-cards { display: grid; grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px; margin-bottom: 14px; align-items: start; }
+/* SIMPLE mode hides the unverified endpoint card (.adv) — drop to 2 tracks so the row doesn't
+   keep an empty third column reserved for it */
+#runPanel.simple .run-cards { grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr); }
 @media (max-width: 1500px) { .run-cards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 /* run cards join the machined-plate grammar: chamfer + facets, inset depth (clip-path
    clips outer shadows, so no drop shadows here) */

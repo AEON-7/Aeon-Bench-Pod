@@ -122,12 +122,25 @@ benchmark, so anyone can see exactly how a measurement was produced.
 
 ### Trust posture (be honest)
 
-A pod runs entirely on hardware its operator owns, so a software-only submission is
-**`self_reported`** — tamper-evident, not tamper-proof. It still carries **real** guarantees:
-bundle authorship, integrity-in-transit, and replay resistance (single-use nonce + run-scoped
-token). It is **never co-ranked** with mothership-verified records. Stronger tiers
-(`orchestrated` = the mothership re-generates the work; `attested` = a hardware TEE quote) are the
-mothership's job, not the pod's. See `docs/attestation.md` and `docs/run-a-benchmark.md`.
+A pod runs on hardware its operator owns, so nothing here is tamper-*proof* — but the tier a run
+earns is decided by **what can be independently re-checked**, not by who owns the box.
+
+**`attested`** — the ranked tier — is earned by the **controlled flow**, in any of its three
+shapes: `--hf-link` (fresh pull), a hash-verified `--local-dir`, or `--hf-link` + `--serve-url` +
+`--verify-endpoint` (bench a live serve, weights hash-verified and the endpoint logprob-fingerprinted
+against them). In every case the weights are checked **bit-for-bit against Hugging Face's published
+per-file LFS sha256** at a pinned commit, the serve recipe is recorded, and the bundle is
+ed25519-signed. The **mothership then independently re-fetches HF and re-checks every weight hash**
+before it counts — that re-verification, not a TEE, is what makes it rankable. Scoring and ingest
+both gate on `ELIGIBLE_TIERS = {"attested"}`.
+
+**`self_reported`** — everything short of that: an **unverified** endpoint run (`--target` with no
+HF link, so there are no weights to hash), an unverifiable repo, or a `--serve-url` run whose
+fingerprint mismatched. Still signed, so it keeps bundle authorship, integrity-in-transit, and
+replay resistance (single-use nonce + run-scoped token) — it is stored and shown, but **never
+ranked**. Prefer the verified endpoint path over this whenever a serve is already up.
+
+See `docs/attestation.md` and `docs/run-a-benchmark.md`.
 
 ---
 

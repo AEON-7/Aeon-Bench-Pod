@@ -63,6 +63,7 @@ It's a single stdlib file, so you can also just fetch it:
 |---|---|
 | `aeon_pod_info` | Confirm you're on a live pod (`role: pod`), token required? |
 | `aeon_pod_scan_models` | Models already on disk (each hash-verifiable against its HF repo) |
+| **`aeon_pod_scan_endpoints`** | **Models already RUNNING** — live vLLM/SGLang/TGI/llama.cpp/Ollama/LM Studio serves, each with its HF repo autodetected (`hf_guess`). Check this first. |
 | `aeon_pod_engines` | Engine catalog for this host + the recommended default |
 | `aeon_pod_champion_recipes` | Best proven recipes for the detected hardware (one-click templates) |
 | `aeon_pod_validate` / `aeon_pod_validate_status` | Pre-check a model resolves + hash-verifies (optional) |
@@ -74,23 +75,35 @@ It's a single stdlib file, so you can also just fetch it:
 | `aeon_pod_leaderboard` / `aeon_pod_suite` | Read the board / the suite summary |
 | `aeon_pod_guide` | This verified-path playbook, from the pod |
 
-## 2. The VERIFIED PATH — point at a model three ways (all earn attested)
+## 2. The VERIFIED PATH — point at a model four ways (all earn attested)
 
 This is the part to get right; it is what makes the result trustworthy and rankable.
 
-1. **Fresh Hugging Face pull.** Pass `hf_link` = `org/Model` (or a huggingface.co URL) to
+1. **Already running? Point at the serve — PREFER THIS.** Call `aeon_pod_scan_endpoints`. It finds
+   live OpenAI-compatible servers and **autodetects each served model's HF repo** (`hf_guess`).
+   Then call `aeon_pod_run` with `hf_link` (that repo) + `serve_url` (the endpoint) +
+   `verify_endpoint: true`. The pod hash-verifies those weights against HF **and
+   logprob-fingerprints the live endpoint against them** — a match earns **attested**. It never
+   downloads, never re-serves, and **leaves a production endpoint running**. Fastest path to a
+   ranked result.
+2. **Fresh Hugging Face pull.** Pass `hf_link` = `org/Model` (or a huggingface.co URL) to
    `aeon_pod_run`. The pod downloads the weights and **sha256-verifies every file against HF's
    published LFS manifest** before serving.
-2. **A model already on disk (hash-verified, no re-download).** Call `aeon_pod_scan_models`, pick
+3. **A model already on disk (hash-verified, no re-download).** Call `aeon_pod_scan_models`, pick
    the entry, then call `aeon_pod_run` with **both** `hf_link` (the reconciled repo id) **and**
    `local_dir` (the on-disk path). The pod hashes the local bytes against that repo — a match is
    "good as gold"; a mismatch **hard-stops** the run (it refuses to benchmark unverified weights).
-3. **Point-and-pull.** If the user names a model that isn't local, just use path (1) — the pod's
+4. **Point-and-pull.** If the user names a model that isn't local, just use path (2) — the pod's
    built-in fetch pulls it fresh and verifies it.
 
-> A raw OpenAI-style **endpoint** (a server you already run) is `self_reported`: shown locally,
-> **never ranked**, because the pod can't hash the weights behind an API. Use it only for a
-> deliberate private comparison — never as the validated deliverable.
+> **Always pass `hf_link`.** A raw OpenAI-style endpoint run *without* one (`base_url` + `model`
+> only) is `self_reported`: shown locally, **never ranked**, because nothing verifies which weights
+> are behind the API. That is the ONLY thing that can't rank — and you rarely need it, because
+> path (1) benches the *same* running server with the weights verified. Use the unverified form
+> only for a deliberate private smoke test, never as the validated deliverable.
+>
+> Point at the repo of the **exact artifact being served** — the specific quant, not a base model.
+> Quantized safetensors and a single `.gguf` both hash-verify bit-for-bit.
 
 ## 3. Recipe → run → monitor → submit
 

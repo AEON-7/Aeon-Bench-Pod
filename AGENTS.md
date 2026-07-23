@@ -306,6 +306,46 @@ Face, which is the only thing that earns the ranked tier — they differ only in
 > set of matched weight files; pairing a dir with the wrong repo now fails loudly, it does not pass
 > with zero files checked).
 
+### 4(a-remote) Bench a model running on ANOTHER machine
+
+When the serve is on a **different computer** from the pod (e.g. the pod runs on a workstation and
+the model serves on a DGX Spark or a multi-Spark cluster that has no room for the pod), point at it
+with `--remote-host`. Full walkthrough: [docs/remote-endpoint-bench.md](docs/remote-endpoint-bench.md).
+
+The pod benches the serve in place over the network. Crucially, it attributes the result to the
+**serving** machine, not itself — it probes that host's hardware over SSH and reads its Docker
+daemon for the real recipe.
+
+**Setup — authorize the pod's key on the serving machine (once):**
+
+1. Get the pod's public key: `aeon_pod_ssh_key` (MCP) / `GET /api/pod/ssh_key` / the Run tab prints
+   it. The pod owns a dedicated identity `~/.aeon/id_ed25519`; only the **public** key leaves it.
+2. Append it to the serving host's `~/.ssh/authorized_keys`:
+   - macOS/Linux: `ssh-copy-id -i ~/.aeon/id_ed25519.pub user@host`
+   - Windows PowerShell (no `ssh-copy-id`; strip CR or it corrupts the file):
+     `Get-Content "$env:USERPROFILE\.aeon\id_ed25519.pub" | ssh user@host "mkdir -p ~/.ssh && chmod 700 ~/.ssh && tr -d '\r' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"`
+3. Verify: `ssh -i ~/.aeon/id_ed25519 user@host echo OK`.
+
+**Run it:**
+
+- CLI: `python -m pod.aeon_pod --hf-link <org/exact-quant-repo> --serve-url http://<host>:8000/v1 --remote-host user@host --verify-endpoint --preset comprehensive`
+- MCP: `aeon_pod_scan_endpoints(remote="user@host")` → `aeon_pod_run(hf_link=…, serve_url=…, remote_host="user@host", verify_endpoint=true)`
+- API: `POST /api/pod/run/verified` with `serve_url`, `remote_host`, `verify_endpoint`; scan via
+  `GET /api/pod/scan_endpoints?remote=user@host`.
+
+**Rules that bite:**
+
+- **Always pass `--remote-host` for a cross-machine serve.** With only `--serve-url`, the run is
+  filed under the **pod's** hardware — and because the perf board normalizes 0–100 *within* a
+  bucket, that corrupts both cohorts. If the SSH probe fails, the run is filed **UNLABELED**, never
+  invented from the pod's box.
+- **The pod runs Docker as `ssh -i <pod key> user@host docker …`** (not `DOCKER_HOST=ssh://`, which
+  can't select a key). So the pod's key must be authorized for the **exact** `user@host` you pass.
+- **Attestation caveat:** the endpoint fingerprint's reference is captured by loading the weights
+  **on the pod**. A weightless remote pod (no GPU) can't do that, so its remote runs record
+  **`self_reported`** — verified weights + correct hardware, but the endpoint identity is unproven.
+  A GPU-equipped pod fingerprints and ranks normally.
+
 ### 4(b) HF token for gated / private repos
 
 A gated or private repo needs auth for both the manifest lookup **and** the download. Provide it one

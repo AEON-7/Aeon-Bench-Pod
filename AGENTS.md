@@ -341,10 +341,16 @@ daemon for the real recipe.
   invented from the pod's box.
 - **The pod runs Docker as `ssh -i <pod key> user@host docker …`** (not `DOCKER_HOST=ssh://`, which
   can't select a key). So the pod's key must be authorized for the **exact** `user@host` you pass.
-- **Attestation caveat:** the endpoint fingerprint's reference is captured by loading the weights
-  **on the pod**. A weightless remote pod (no GPU) can't do that, so its remote runs record
-  **`self_reported`** — verified weights + correct hardware, but the endpoint identity is unproven.
-  A GPU-equipped pod fingerprints and ranks normally.
+- **Attestation caveat — to RANK a remote run, the pod must be able to load the model.** The
+  endpoint fingerprint's reference is captured by loading the HF-verified weights via vLLM on a GPU
+  the submitter controls, then probing the endpoint. A GPU+vLLM pod fingerprints and **ranks**;
+  that pod need **not** be the serving machine — any GPU box you run the pod on, pointed at the
+  remote serve, works (it loads the model only briefly, at low context). A weightless pod (no GPU /
+  no vLLM) can't capture the reference, so its remote runs are **`self_reported`** — verified
+  weights + correct hardware, but the endpoint identity is unproven. Do **not** try to close this
+  with an SSH weight-hash or a serving-side capture: both are host-asserted / static, forgeable by
+  the machine under test, and would dishonestly inflate the attested tier. The only honest ranked
+  path is a behavioral fingerprint from a GPU the submitter trusts.
 
 ### 4(b) HF token for gated / private repos
 

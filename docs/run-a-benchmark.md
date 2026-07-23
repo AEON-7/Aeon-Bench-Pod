@@ -231,6 +231,8 @@ hardware-TEE sub-level.
 
 ## See also
 
+- [`docs/remote-endpoint-bench.md`](remote-endpoint-bench.md) — bench a model **already running on
+  another machine** (point at a live serve, attributed to the serving hardware over SSH).
 - [`docs/pod-quickstart.md`](pod-quickstart.md) — the 3-command version.
 - [`deploy/pod/AGENTS.md`](../deploy/pod/AGENTS.md) — the harnesses + the A→B flow in detail.
 - [`deploy/pod/.env.example`](../deploy/pod/.env.example) — every configuration variable.

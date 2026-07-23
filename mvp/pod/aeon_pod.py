@@ -123,13 +123,56 @@ def _detect_label(prof):
     return f"{m} (CPU)"                                   # no accelerator found
 
 
-def _remote_probe(remote, argv, timeout=20):
-    """Run a command ON the serving machine over ssh. Returns stdout or None. `remote` is a plain
-    ssh destination ('user@host'). BatchMode: never prompt — a key must already be authorized, so a
-    misconfigured host fails fast instead of hanging a bench."""
+def _ssh_key():
+    """The pod's own ssh key, if it has one. AEON_SSH_KEY wins; else the conventional pod key.
+    Having a DEDICATED key is what makes the 'authorize this pod on the serving machine' flow a
+    one-liner (ssh-copy-id) instead of ssh-config surgery."""
+    k = os.environ.get("AEON_SSH_KEY")
+    if k and os.path.exists(os.path.expanduser(k)):
+        return os.path.expanduser(k)
+    d = os.path.expanduser("~/.aeon/id_ed25519")
+    return d if os.path.exists(d) else None
+
+
+def ensure_ssh_key():
+    """The pod's OWN ssh identity, created on demand. Returns {path, pub_path, pubkey, created}.
+    A dedicated key is what makes authorization a single copy-paste on the serving machine — the
+    operator never has to touch ssh config. Never raises; returns pubkey=None if keygen is absent."""
+    key = os.environ.get("AEON_SSH_KEY")
+    key = os.path.expanduser(key) if key else os.path.expanduser("~/.aeon/id_ed25519")
+    pub, created = key + ".pub", False
     try:
-        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-                              "-o", "ConnectTimeout=8", remote] + argv,
+        os.makedirs(os.path.dirname(key), exist_ok=True)
+        if not os.path.exists(pub):
+            subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", key,
+                            "-C", f"aeon-pod@{platform.node()}"],
+                           capture_output=True, text=True, timeout=30)
+            created = True
+        with open(pub, "r", encoding="utf-8") as f:
+            return {"path": key, "pub_path": pub, "pubkey": f.read().strip(), "created": created}
+    except Exception:
+        return {"path": key, "pub_path": pub, "pubkey": None, "created": False}
+
+
+def _ssh_base():
+    """ssh args shared by the probe and any tunnel. BatchMode: never prompt — the key must already
+    be authorized, so a misconfigured host fails FAST instead of hanging a bench on a password."""
+    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=8"]
+    key = _ssh_key()
+    if key:
+        # add the pod key but do NOT force IdentitiesOnly — this way BOTH the authorized pod key
+        # AND an operator's existing ~/.ssh/config alias identity are candidates, so either flow
+        # (ran the authorize command, or points at a pre-configured host) connects.
+        args += ["-i", key]
+    return args
+
+
+def _remote_probe(remote, argv, timeout=20):
+    """Run a command ON the serving machine over ssh. Returns stdout or None. `remote` is any ssh
+    destination — 'user@host' (with the pod's key) or a Host alias from ~/.ssh/config."""
+    try:
+        out = subprocess.run(_ssh_base() + [remote] + argv,
                              capture_output=True, text=True, timeout=timeout)
         return out.stdout if out.returncode == 0 else None
     except Exception:

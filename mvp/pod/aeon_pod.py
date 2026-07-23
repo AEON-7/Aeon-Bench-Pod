@@ -123,9 +123,64 @@ def _detect_label(prof):
     return f"{m} (CPU)"                                   # no accelerator found
 
 
-def _hardware_profile(label=None, spark_nodes=None):
+def _remote_probe(remote, argv, timeout=20):
+    """Run a command ON the serving machine over ssh. Returns stdout or None. `remote` is a plain
+    ssh destination ('user@host'). BatchMode: never prompt — a key must already be authorized, so a
+    misconfigured host fails fast instead of hanging a bench."""
+    try:
+        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+                              "-o", "ConnectTimeout=8", remote] + argv,
+                             capture_output=True, text=True, timeout=timeout)
+        return out.stdout if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _hardware_profile(label=None, spark_nodes=None, remote=None):
+    """The hardware a run is filed under. `remote` (ssh destination) means the model is served on
+    ANOTHER machine — probe THAT box, never this one. Getting this wrong is not cosmetic: the perf
+    board normalizes 0-100 WITHIN a hardware bucket, so a laptop-labelled DGX result would top the
+    laptop cohort, crush every real laptop row, and never appear in the Spark bucket at all."""
     prof = {"label": label, "platform": platform.platform(), "machine": platform.machine(),
             "cpu_count": os.cpu_count()}
+    if remote:
+        # REMOTE SERVE: attribute to the serving host. Local introspection is meaningless here and
+        # is deliberately skipped entirely — no silent fallback to this machine's GPUs.
+        prof["bench_host"] = remote
+        prof["hardware_source"] = "probed-remote"
+        gpus_out = _remote_probe(remote, ["nvidia-smi", "--query-gpu=name,memory.total,driver_version",
+                                          "--format=csv,noheader"])
+        gpus = [l.strip() for l in (gpus_out or "").strip().splitlines() if l.strip()]
+        if gpus:
+            prof["gpus"] = gpus
+            prof["gpu_probe"] = "ssh-remote"
+        uname = (_remote_probe(remote, ["uname", "-sm"]) or "").strip()
+        if uname:
+            prof["platform"] = uname                     # the SERVING host's platform, not ours
+            prof["machine"] = uname.split()[-1] if uname.split() else prof["machine"]
+        if not gpus:
+            # Honest failure: we could not see the remote GPUs, so we must NOT invent a label.
+            prof["detected_label"] = None
+            prof["hardware_source"] = "remote-unreachable"
+            print(f"[pod] !! could not probe {remote} for hardware — the run will be filed as "
+                  f"UNLABELED rather than under this machine's hardware", flush=True)
+        else:
+            try:
+                prof["detected_label"] = _detect_label(prof)
+            except Exception:
+                prof["detected_label"] = None
+        if spark_nodes and isinstance(spark_nodes, int) and spark_nodes >= 2:
+            base = prof.get("detected_label") or ""
+            if "dgx spark" in base.lower():
+                gen = ""
+                m = re.search(r"\(([^)]*)\)", base)
+                if m:
+                    gen = " (" + m.group(1) + ")"
+                prof["detected_label"] = f"{spark_nodes}× DGX Spark{gen}"
+            prof["spark_nodes"] = spark_nodes
+            prof["multi_node"] = True
+            prof["node_count_source"] = "declared"
+        return prof
     try:                                       # best-effort GPU profile
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
@@ -162,6 +217,7 @@ def _hardware_profile(label=None, spark_nodes=None):
         prof["detected_label"] = _detect_label(prof)
     except Exception:
         prof["detected_label"] = None          # unknown — the claimed label stands, marked unverified
+    prof["hardware_source"] = "detected-local"   # this machine ran the serve (vs probed-remote)
     # MULTI-NODE (multi-Spark cluster): the pod runs on ONE node and nvidia-smi only sees its own
     # GPU, so a distributed serve auto-detects as a single node. The operator DECLARES the cluster
     # size (--spark-nodes N); we rewrite the label to the N× form hwnorm buckets on (2×/3×/4× DGX
@@ -1008,7 +1064,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
                    perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
                    resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False,
-                   endpoint_model=None):
+                   endpoint_model=None, remote_host=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -1296,7 +1352,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             obs = None
             try:
                 from pod import endpoints as _ep
-                obs = _ep.observed_serve_recipe(serve_url, ids)
+                obs = _ep.observed_serve_recipe(serve_url, ids,
+                                                docker_host=(f"ssh://{remote_host}" if remote_host else None))
             except Exception as e:
                 print(f"[pod] live serve recipe capture skipped ({e})")
             if obs:
@@ -1327,7 +1384,9 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         # the run — so provenance names it forever when Docker can resolve it.
         _stamp_engine_digests(recipe)
 
-        hw_profile = _hardware_profile(hardware, spark_nodes=spark_nodes)
+        # A remote serve is attributed to the SERVING machine (probed over ssh), never to this pod.
+        hw_profile = _hardware_profile(hardware, spark_nodes=spark_nodes,
+                                       remote=(remote_host if (remote_host and serve_url) else None))
         # ENDPOINT FINGERPRINT: the serve_url path benches an operator-started serve (a live
         # production endpoint, or a multi-node cluster) that the pod did NOT launch — so it
         # trusts, without checking, that the serve uses the verified weights. When asked, prove
@@ -1341,19 +1400,25 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             try:
                 from pod import fingerprint as _fp
                 print(f"[pod] endpoint verification: fingerprinting {target} against the verified weights…")
-                ref = _fp.reference_from_weights(local_dir=recipe.get("served_alias") or local_dir,
-                                                 recipe=recipe)
-                if ref and ref.get("n_ok"):
+                # The reference MUST come from the HASH-VERIFIED weights dir — that is the whole
+                # point of the check. (Bug: this used to pass recipe["served_alias"], which is a
+                # MODEL ID for a containerized/endpoint serve — never a path — so the capture
+                # always failed and --verify-endpoint silently no-op'd on every endpoint run.
+                # `local_dir` is what modelhost.verify() hashed above; a bare-metal recipe's
+                # served_alias merely happened to equal it, which is what hid the bug.)
+                fp_ref = _fp.reference_from_weights(local_dir=local_dir, recipe=recipe)
+                if fp_ref and fp_ref.get("n_ok"):
                     prb = _fp.probe(target, alias)
-                    cmp = _fp.compare(ref, prb)
-                    endpoint_fp = _fp.evidence(ref, prb, cmp, weights_hash=ver["weights_hash"],
+                    cmp = _fp.compare(fp_ref, prb)
+                    endpoint_fp = _fp.evidence(fp_ref, prb, cmp, weights_hash=ver["weights_hash"],
                                                ref_source="pod-local-weights")
                     print(f"[pod] endpoint fingerprint: {cmp['status']} — {cmp['reason']}")
                 else:
                     print("[pod] endpoint fingerprint: reference unavailable (weights not loadable "
-                          "for a canary capture) — proceeding on serve_url weight-hash trust")
+                          "for a canary capture) — the run CANNOT prove this endpoint serves these "
+                          "weights, so it will record as self_reported")
             except Exception as e:
-                print(f"[pod] endpoint fingerprint skipped ({e}) — proceeding on serve_url trust")
+                print(f"[pod] endpoint fingerprint skipped ({e}) — the run will record as self_reported")
         deployment_manifest = {
             "build_hash": attest.build_hash(), "recipe": recipe,
             "verification": {k: ver[k] for k in ("verified", "method", "weights_hash",
@@ -1508,6 +1573,11 @@ def main():
     ap.add_argument("--serve-url", default=None, help="operator-started serve of the validated weights "
         "(macOS/MLX bare-metal path, a live production endpoint, or a multi-node cluster head): the pod "
         "validates + benches this URL + signs; the bare startup recipe is recorded like a docker recipe")
+    ap.add_argument("--remote-host", default=os.environ.get("AEON_REMOTE_HOST") or None,
+        help="ssh destination (user@host) of the machine SERVING the --serve-url endpoint, when it "
+        "is NOT this machine. The pod probes THAT box for the hardware the run is filed under, and "
+        "inspects its docker daemon (DOCKER_HOST=ssh://…) to record the real serve recipe. Without "
+        "it a remote run would be misfiled under this pod's hardware. Requires an authorized ssh key.")
     ap.add_argument("--endpoint-model", default=os.environ.get("AEON_ENDPOINT_MODEL") or None,
         help="for --serve-url: the served-model id to send in requests (the id the endpoint's "
         "/v1/models reports). Defaults to the endpoint's first served id — set it to target a "
@@ -1709,7 +1779,7 @@ def main():
             perf=a.perf, perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena,
             harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit,
             spark_nodes=a.spark_nodes, verify_endpoint=a.verify_endpoint,
-            endpoint_model=a.endpoint_model)
+            endpoint_model=a.endpoint_model, remote_host=a.remote_host)
     elif a.frontier_id:
         st, _ = run_pod("frontier://" + a.frontier_id, a.frontier_id, a.mothership,
                         api_key=a.api_key, engine="frontier-api", hardware=a.hardware,

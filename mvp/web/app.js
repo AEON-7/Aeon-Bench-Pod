@@ -1046,7 +1046,7 @@ function closeTip() {
 async function _copyTipAddr() {
   const el = $("#tipAddr"), btn = $("#tipCopy");
   const addr = ((el && el.textContent) || "").trim();
-  try { await navigator.clipboard.writeText(addr); }
+  try { await copyText(addr); }
   catch {                                             // clipboard API unavailable/denied → select+execCommand
     const r = document.createRange(); r.selectNodeContents(el);
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
@@ -2150,7 +2150,7 @@ function renderSubmissionDetail(d) {
   renderRunModalities(r);
   const rc = $("#reproCopy");
   if (rc) rc.onclick = async () => {
-    try { await navigator.clipboard.writeText(cmdText); } catch (e) { return; }
+    if (!(await copyText(cmdText))) return;
     rc.textContent = "✓ copied"; rc.classList.add("copied");
     setTimeout(() => { rc.textContent = "copy command"; rc.classList.remove("copied"); }, 1400);
   };
@@ -2722,7 +2722,7 @@ function renderPerfDetail(m) {
   $$("#perfBody .chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
   const prc = $("#perfReproCopy");
   if (prc) prc.onclick = async () => {
-    try { await navigator.clipboard.writeText((m.reproduction || {}).docker_run_assembled || ""); } catch (e) { return; }
+    if (!(await copyText((m.reproduction || {}).docker_run_assembled || ""))) return;
     prc.textContent = "✓ copied"; prc.classList.add("copied");
     setTimeout(() => { prc.textContent = "copy command"; prc.classList.remove("copied"); }, 1400);
   };
@@ -4396,7 +4396,17 @@ async function scanEndpoints() {
   const btn = $("#scanEndpoints"), out = $("#scanEndpointsResult");
   if (btn) { btn.disabled = true; btn.textContent = "⌕ scanning…"; }
   let d;
-  try { d = await api("/api/pod/scan_endpoints", { headers: podHeaders() }); }
+  const rh = ($("#veRemoteHost") && $("#veRemoteHost").value.trim()) || "";
+  // Remote serving machine: probe ITS http ports too (not just localhost), and hand `remote` so the
+  // scan can inspect its docker daemon. Derive the http host from the ssh destination (user@host ->
+  // host); a bare ssh-config alias has no dotted address to probe, so skip hosts= for that.
+  let q = "";
+  if (rh) {
+    const host = rh.split("@").pop();
+    const probeable = /[.:]/.test(host) || /^\d+\.\d+\.\d+\.\d+$/.test(host);   // ip / fqdn only
+    q = "?remote=" + encodeURIComponent(rh) + (probeable ? "&hosts=" + encodeURIComponent(host) : "");
+  }
+  try { d = await api("/api/pod/scan_endpoints" + q, { headers: podHeaders() }); }
   catch (e) {
     const msg = (e && (e.error || e.detail || e.message)) || "network error";
     if (out) out.innerHTML = `<div class="scan-ep-err">endpoint scan failed — ${escH(msg)}</div>`;
@@ -4404,6 +4414,59 @@ async function scanEndpoints() {
   if (btn) { btn.disabled = false; btn.textContent = "⌕ Scan for running instances"; }
   if (!d) return;                                         // fetch error already rendered; never throws
   renderScanEndpoints(d);
+}
+
+// Clipboard that also works OVER PLAIN HTTP. navigator.clipboard is gated on a SECURE CONTEXT,
+// so it is present on localhost but absent when the pod dashboard is opened from another machine
+// at http://<lan-ip>:8091 — the exact case these copy buttons exist for. Fall back to the legacy
+// execCommand path there. Returns true only when the text really made it to the clipboard.
+async function copyText(text) {
+  try {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* fall through to the legacy path */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";                 // keep it off-screen without scrolling the page
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);    // iOS needs the explicit range
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Flash a copy button so the click is never silent — including when copying is refused.
+async function copyButton(btn, text) {
+  const label = btn.dataset.label || btn.textContent;
+  btn.dataset.label = label;
+  const ok = await copyText(text);
+  // a Mac user pressing Ctrl+C copies nothing — name the right key for the platform
+  const mac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
+  btn.textContent = ok ? "copied ✓" : (mac ? "press ⌘C" : "press Ctrl+C");
+  if (!ok) {                                     // give them a selection to copy by hand
+    try {
+      const el = btn.closest(".ep-ssh-row");
+      const code = el && el.querySelector(".ep-ssh-cmd");
+      if (code) {
+        const r = document.createRange();
+        r.selectNodeContents(code);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    } catch (e) {}
+  }
+  setTimeout(() => { btn.textContent = label; }, 1600);
 }
 
 function epSourceLabel(src) {
@@ -4596,7 +4659,7 @@ function closePodModal() { const m = $("#podModal"); if (m) m.hidden = true; }
 async function shareBench(model, btn) {
   const url = location.origin.replace(/^http:\/\/(127|localhost)[^/]*/, "https://aeon-bench.com")
     + "/share/" + encodeURIComponent((model || "").replace(/\//g, "__"));
-  try { await navigator.clipboard.writeText(url); } catch (e) { return; }
+  if (!(await copyText(url))) return;
   if (btn) {
     const t = btn.textContent;
     btn.textContent = "✓ link copied"; btn.classList.add("copied");
@@ -5016,6 +5079,9 @@ function _validatedExtras() {
       // the served-model id the endpoint answers to (from the scan pick) — the pod benches under
       // THIS id, not its own alias; null lets the pod adopt the endpoint's first served id
       endpoint_model: (su && su.dataset.model) || null,
+      // ssh destination of the machine running the serve — the pod probes ITS hardware and
+      // reads ITS docker daemon, so a remote bench is filed under the right rig
+      remote_host: ($("#veRemoteHost") && $("#veRemoteHost").value.trim()) || null,
       serve_flags: [], drafter_hf: null, serve_cmd: null,
     };
   }
@@ -5368,7 +5434,7 @@ async function init() {
   { const es = $("#veEngine"); if (es) es.onchange = () => { RUN.enginePinned = true; engineChanged(); }; }
   bind("#mlxCopy", async () => {
     const b = $("#mlxCopy");
-    try { await navigator.clipboard.writeText($("#mlxCmd").textContent); } catch (e) { return; }
+    if (!(await copyText($("#mlxCmd").textContent))) return;
     b.textContent = "✓ copied"; setTimeout(() => { b.textContent = "copy command"; }, 1400);
   });
   bind("#keyAdd", addKey);
@@ -5378,7 +5444,7 @@ async function init() {
   // Run-a-Bench-Pod quickstart copy buttons (mothership CTA)
   $$(".podq-copy").forEach((b) => b.onclick = async () => {
     const pre = $("#" + b.dataset.cmd); if (!pre) return;
-    try { await navigator.clipboard.writeText(pre.textContent); } catch (e) { return; }
+    if (!(await copyText(pre.textContent))) return;
     b.textContent = "✓ copied"; b.classList.add("copied");
     setTimeout(() => { b.textContent = "copy"; b.classList.remove("copied"); }, 1400);
   });
@@ -5431,6 +5497,43 @@ async function init() {
   $("#pwModal").onclick = (e) => { if (e.target.id === "pwModal") closePwModal(); };
   // gallery preview overlay: close on X / backdrop (Esc handled with the other modals below)
   { const gc = $("#galClose"); if (gc) gc.onclick = closeGalPreview; }
+  // remote serving machine: the ONE command that authorizes this pod there, per shell.
+  // NOTE ssh-copy-id does NOT exist on Windows — PowerShell must pipe the key over ssh instead
+  // (and strip CR, or the trailing  silently corrupts the authorized_keys line).
+  { const rh = $("#veRemoteHost");
+    const KEY = "~/.aeon/id_ed25519";                     // the pod's own identity (auto-created)
+    const cmds = (dest) => ({
+      ps: `Get-Content "$env:USERPROFILE\\.aeon\\id_ed25519.pub" | ssh ${dest} `
+        + `"mkdir -p ~/.ssh && chmod 700 ~/.ssh && tr -d '\\r' >> ~/.ssh/authorized_keys `
+        + `&& chmod 600 ~/.ssh/authorized_keys"`,
+      mac: `ssh-copy-id -i ${KEY}.pub ${dest}`,
+      linux: `ssh-copy-id -i ${KEY}.pub ${dest}`,
+    });
+    let keyFetched = false;
+    const upd = async () => {
+      const v = (rh.value || "").trim();
+      const help = $("#veRemoteHelp");
+      if (help) help.hidden = !v;
+      if (!v) return;
+      const c = cmds(v);
+      $$("#veRemoteHelp .ep-ssh-cmd").forEach((el) => { el.textContent = c[el.dataset.os] || ""; });
+      if (!keyFetched) {                                  // create the key so the command can work
+        keyFetched = true;
+        try {
+          const k = await api("/api/pod/ssh_key", { headers: podHeaders() });
+          const n = $("#veSshKeyNote");
+          if (n) n.textContent = k && k.pubkey
+            ? `this pod's key: ${String(k.pubkey).slice(0, 46)}…  (${k.pub_path})`
+            : "no ssh key yet — install openssh (ssh-keygen) on this pod to use a remote host";
+        } catch (e) {}
+      }
+    };
+    if (rh) { rh.addEventListener("input", upd); upd(); }
+    $$(".ep-ssh-copy").forEach((b) => b.onclick = () => {
+      const el = document.querySelector(`#veRemoteHelp .ep-ssh-cmd[data-os="${b.dataset.os}"]`);
+      copyButton(b, (el && el.textContent) || "");
+    });
+  }
   // ⛶ fullscreen (gallery preview + each arena side). Parent-side requestFullscreen on a real
   // user gesture, then focus back into the frame so the game keeps the keyboard.
   { const gf = $("#galFull"); if (gf) gf.onclick = () => goFullscreen($("#galFrame")); }

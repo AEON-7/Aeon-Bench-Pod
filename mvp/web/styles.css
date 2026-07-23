@@ -2034,6 +2034,20 @@ select:focus {
   border: 1px solid var(--border); border-radius: 3px; color: var(--muted); margin-left: 6px;
   vertical-align: middle; }
 .ep-note-gguf { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+/* authorize-this-pod block: one copy-paste per shell (ssh-copy-id does NOT exist on Windows) */
+.ep-ssh-help { margin: 8px 0 2px; padding: 10px 11px; border: 1px solid var(--line);
+  border-radius: var(--r-s); background: var(--panel2); }
+.ep-ssh-t { font-size: 12px; margin-bottom: 8px; color: var(--text); }
+.ep-ssh-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; gap: 8px;
+  align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
+.ep-ssh-row:first-of-type { border-top: 0; }
+.ep-ssh-os { font-size: 10.5px; letter-spacing: .06em; color: var(--muted); white-space: nowrap; }
+.ep-ssh-cmd { font-family: ui-monospace, monospace; font-size: 11px; color: var(--accent);
+  background: rgba(0, 0, 0, .25); border: 1px solid var(--line); border-radius: 3px;
+  padding: 5px 7px; overflow-x: auto; white-space: pre; display: block; min-width: 0; }
+.ep-ssh-copy { white-space: nowrap; flex: none; }
+.ep-ssh-key { margin-top: 8px; font-size: 10.5px; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .ep-ssh-row { grid-template-columns: 1fr; } }
 .scan-ep-use { white-space: nowrap; flex-shrink: 0; align-self: center; }
 .scan-ep-use:hover { border-color: var(--accent); color: var(--accent); }
 .scan-ep-empty, .scan-ep-err { padding: 8px 10px; font-size: 12px; color: var(--muted);

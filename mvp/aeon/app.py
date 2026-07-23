@@ -1730,6 +1730,7 @@ class PodVerifiedRunBody(BaseModel):
     local_dir: str | None = None        # model already on disk: hash-validate, don't re-download
     serve_url: str | None = None        # operator-started serve (macOS/MLX bare-metal path)
     endpoint_model: str | None = None   # for serve_url: the served-model id to send in requests
+    remote_host: str | None = None      # ssh user@host of the machine SERVING serve_url (remote bench)
     serve_flags: list[str] | None = None  # recipe tuning: flag overrides merged into the serve cmd
     drafter_hf: str | None = None       # DFlash/DSpark drafter HF card: validated like the model, -> /drafter
     port: int | None = None
@@ -1880,7 +1881,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         modalities=_clean_modalities(body.modalities),
         spark_nodes=(min(16, max(2, int(body.spark_nodes))) if body.spark_nodes else None),
         verify_endpoint=bool(body.verify_endpoint),
-        endpoint_model=((body.endpoint_model or "").strip() or None))
+        endpoint_model=((body.endpoint_model or "").strip() or None),
+        remote_host=((body.remote_host or "").strip() or None))
     return {"job_id": jid}
 
 
@@ -1957,7 +1959,24 @@ def pod_scan_endpoints(request: Request):
     from pod import endpoints
     hosts = request.query_params.get("hosts")
     host_list = [h.strip() for h in hosts.split(",") if h.strip()] if hosts else None
-    return endpoints.scan(hosts=host_list)
+    # ?remote=user@host — the operator authorized ssh to the machine running the serve, so the
+    # scan can inspect ITS docker daemon and autodetect the HF repo of a remote serve too.
+    remote = (request.query_params.get("remote") or "").strip()
+    return endpoints.scan(hosts=host_list, docker_host=(f"ssh://{remote}" if remote else None))
+
+
+@app.get("/api/pod/ssh_key")
+def pod_ssh_key(request: Request):
+    """POD-ONLY: this pod's ssh PUBLIC key, created on first call. Used to bench a model running on
+    ANOTHER machine — the operator authorizes this key there once, and the pod can then probe that
+    host's hardware and read its docker daemon for the real serve recipe. Public key only; the
+    private key never leaves the pod and is never served."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import aeon_pod
+    return aeon_pod.ensure_ssh_key()
 
 
 @app.get("/api/pod/browse")

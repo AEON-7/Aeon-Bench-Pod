@@ -127,13 +127,36 @@ def _probe(base_url, *, timeout=2, transport=None):
 # Any engine binds a PORT, so we match the container to the endpoint by port (the universal link),
 # then read the model reference from whatever flag/env that engine uses and reconcile it.
 
+def _pod_ssh_key():
+    """The pod's dedicated ssh key, if present. This is the identity the operator authorizes on the
+    serving machine, so the remote docker calls MUST use it explicitly."""
+    k = os.environ.get("AEON_SSH_KEY")
+    k = os.path.expanduser(k) if k else os.path.expanduser("~/.aeon/id_ed25519")
+    return k if os.path.exists(k) else None
+
+
 def _default_docker(argv, docker_host=None):             # pragma: no cover — real docker
-    """`docker_host` (e.g. 'ssh://user@dgx') targets ANOTHER machine's daemon — Docker speaks ssh
-    natively, so the whole inspect path works remotely with no extra protocol."""
-    env = None
-    if docker_host:
-        env = dict(os.environ, DOCKER_HOST=docker_host)
-    return subprocess.run(argv, capture_output=True, text=True, timeout=20, env=env).stdout
+    """`docker_host` = 'ssh://user@host' runs `argv` (a docker command) ON that machine.
+
+    We do NOT use Docker's built-in `DOCKER_HOST=ssh://` transport: its internal ssh connection
+    (`ssh … docker system dial-stdio`) can't be told which key to use and won't find the pod's
+    dedicated ~/.aeon key — so even after the operator authorizes that key, it fails with
+    'Permission denied'. Instead we run docker THROUGH ssh with `-i <pod key>`, which uses exactly
+    the authorized identity (and needs no local docker daemon — good for a pod on a box without
+    Docker Desktop). The pod key is added but NOT forced (no IdentitiesOnly), so an operator who
+    instead relies on an ~/.ssh/config alias still works."""
+    if docker_host and docker_host.startswith("ssh://"):
+        dest = docker_host[len("ssh://"):]
+        ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+               "-o", "ConnectTimeout=8"]
+        key = _pod_ssh_key()
+        if key:
+            ssh += ["-i", key]
+        # argv is ["docker","inspect","c1",…]; ssh runs it as the remote command (hex ids/simple
+        # flags only, so no remote-shell quoting hazard)
+        return subprocess.run(ssh + [dest] + list(argv),
+                              capture_output=True, text=True, timeout=25).stdout
+    return subprocess.run(argv, capture_output=True, text=True, timeout=20).stdout
 
 
 def _flatten_cmd(parts):

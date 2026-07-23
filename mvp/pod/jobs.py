@@ -633,7 +633,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
                     drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
                     arena_per_kind=None, serve_cmd=None, temperature=None, modalities=None,
-                    spark_nodes=None, verify_endpoint=None, endpoint_model=None):
+                    spark_nodes=None, verify_endpoint=None, endpoint_model=None, remote_host=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -662,7 +662,7 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd,
             "temperature": temperature, "modalities": modalities,
             "spark_nodes": spark_nodes, "verify_endpoint": verify_endpoint,
-            "endpoint_model": endpoint_model})
+            "endpoint_model": endpoint_model, "remote_host": remote_host})
     except Exception:
         pass
     extra = {}
@@ -722,6 +722,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--serve-url", serve_url]
         if endpoint_model:                      # bench under the id the endpoint serves (not the pod alias)
             argv += ["--endpoint-model", endpoint_model]
+        if remote_host:                         # serve runs on ANOTHER machine: probe ITS hardware/recipe
+            argv += ["--remote-host", remote_host]
         if serve_flags:                         # recipe tuning: JSON list merged into the serve cmd
             argv += ["--serve-flags", _json.dumps(serve_flags)]
         if drafter_hf:                          # DFlash drafter card: validated + mounted at /drafter

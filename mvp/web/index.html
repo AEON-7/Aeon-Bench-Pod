@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=109" />
+  <link rel="stylesheet" href="/static/styles.css?v=113" />
 </head>
 <body>
   <header>
@@ -296,6 +296,21 @@
             <button id="scanEndpoints" class="ghost" title="sweep this host (and any ?hosts LAN/cluster nodes) for running OpenAI-compatible servers, then pick one to bench + fingerprint-verify — no need to paste its URL">⌕ Scan for running instances</button>
             <div id="scanEndpointsResult" class="scan-ep-result"></div>
             <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" placeholder="http://127.0.0.1:8000/v1" title="the OpenAI-compatible base URL of the model that's already running — filled for you by ⌕ Scan, or paste it" /></label></div>
+            <div class="row"><label class="grow">Serving machine <span class="note">(only if it's ANOTHER computer)</span>
+              <input id="veRemoteHost" type="text" placeholder="user@192.168.1.116 — leave blank if the model runs on THIS machine" title="ssh destination of the machine running the model. The pod probes THAT box for the hardware the result is filed under, and reads its docker daemon for the real serve recipe. Without it a remote run would be misfiled under this machine's hardware." /></label></div>
+            <div class="ep-ssh-help" id="veRemoteHelp" hidden>
+              <div class="ep-ssh-t">Copy this command into your terminal <span class="note">— authorizes this pod on the serving machine (one time). Pick your shell:</span></div>
+              <div class="ep-ssh-row"><span class="ep-ssh-os">Windows PowerShell</span>
+                <code class="ep-ssh-cmd" data-os="ps"></code>
+                <button type="button" class="ghost ep-ssh-copy" data-os="ps">copy</button></div>
+              <div class="ep-ssh-row"><span class="ep-ssh-os">macOS zsh</span>
+                <code class="ep-ssh-cmd" data-os="mac"></code>
+                <button type="button" class="ghost ep-ssh-copy" data-os="mac">copy</button></div>
+              <div class="ep-ssh-row"><span class="ep-ssh-os">Linux bash</span>
+                <code class="ep-ssh-cmd" data-os="linux"></code>
+                <button type="button" class="ghost ep-ssh-copy" data-os="linux">copy</button></div>
+              <div class="note ep-ssh-key" id="veSshKeyNote"></div>
+            </div>
             <label class="verify-ep" title="logprob-fingerprint the serve URL against the hash-verified weights — proves the running serve really serves those weights. Match → attested; mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint) — required to rank the run</label>
             <div class="row adv">
               <label>Spark cluster nodes <span class="note">(multi-node serve)</span><input id="sparkNodes" type="number" min="2" max="16" step="1" placeholder="single" title="multi-node DGX Spark serve: the pod sees only its own node — declare the cluster size so the run lands in the 2×/3×/4× DGX Spark bucket (operator-declared)" /></label>
@@ -695,6 +710,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=109"></script>
+  <script src="/static/app.js?v=113"></script>
 </body>
 </html>

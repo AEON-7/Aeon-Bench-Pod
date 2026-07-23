@@ -284,6 +284,45 @@ check(epsD["http://127.0.0.1:9000/v1"]["hf_guess"] == "Org/SgModel",
 check(epsD["http://127.0.0.1:8082/v1"]["hf_guess"] == "Org/EnvRepo",
       "TGI via ENV MODEL_ID -> model reference read from the container env")
 
+# ================================ OBSERVED SERVE RECIPE ================================
+# An endpoint-mode run must record the REAL serve command (image + flags incl. --speculative-config)
+# from the backing container, not the pod's hypothetical derived one — so "replicate this run" is
+# honest. Mirrors the DGX prod serve: a -lc shell wrapper with the spec-config JSON single-quoted.
+_draf = tempfile.mkdtemp()
+json.dump({"repo": "z-lab/gemma-4-26B-A4B-it-DFlash"},
+          open(os.path.join(_draf, ".aeon-modelref.json"), "w", encoding="utf-8"))
+OBS_CMD = ("exec vllm serve /model --served-model-name aeon-ultimate gemma4-26b "
+           "--host 0.0.0.0 --port 8000 --quantization compressed-tensors --max-model-len 184320 "
+           "--gpu-memory-utilization 0.68 "
+           "--speculative-config '{\"method\":\"dflash\",\"model\":\"/drafter\",\"num_speculative_tokens\":10}'")
+INSPECT_OBS = [{"Name": "/openclaw",
+    "Config": {"Image": "ghcr.io/aeon-7/aeon-vllm-ultimate:latest", "Cmd": ["-lc", OBS_CMD]},
+    "Mounts": [{"Destination": "/drafter", "Source": _draf}]}]
+
+
+def obs_runner(argv):
+    if argv[:3] == ["docker", "ps", "-q"]:
+        return "c1\n"
+    if argv[:2] == ["docker", "inspect"]:
+        return json.dumps(INSPECT_OBS)
+    return ""
+
+
+obs = ep.observed_serve_recipe("http://127.0.0.1:8000/v1", ["aeon-ultimate"], runner=obs_runner)
+check(obs is not None and "--speculative-config" in obs["flags"],
+      "observed_serve_recipe captures the live serve's real flags (incl --speculative-config)")
+check(obs["speculative_config"]["method"] == "dflash"
+      and obs["speculative_config"]["num_speculative_tokens"] == 10,
+      "spec-decode config parsed verbatim from the running serve")
+check(obs["image"] == "ghcr.io/aeon-7/aeon-vllm-ultimate:latest" and obs["port"] == 8000,
+      "observed image + port captured from the backing container")
+check("--max-model-len" in obs["flags"] and "184320" in obs["flags"],
+      "the real serve context (--max-model-len 184320) rides in the captured flags")
+check(obs["drafter_repo"] == "z-lab/gemma-4-26B-A4B-it-DFlash",
+      "the --speculative-config /drafter mount reconciles to its HF drafter repo (full disclosure)")
+check(ep.observed_serve_recipe("http://10.0.0.9:8000/v1", ["x"], runner=obs_runner) is None,
+      "a REMOTE endpoint is never docker-inspected -> None (operator-managed, recorded as such)")
+
 # ================================ reconcile_path ================================
 # the path-only HF reconciler reused by the docker fallback: breadcrumbs, most->least confident
 check(diskscan.reconcile_path("/any/models--Org--Name/snapshots/abc123")

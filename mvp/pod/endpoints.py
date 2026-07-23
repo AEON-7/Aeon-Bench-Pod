@@ -249,7 +249,8 @@ def _docker_serves(*, runner=None):
             mounts = {(m.get("Destination") or "").rstrip("/"): m.get("Source")
                       for m in (c.get("Mounts") or []) if m.get("Destination") and m.get("Source")}
             res.append({"name": (c.get("Name") or "").lstrip("/"), "toks": toks, "env": env,
-                        "mounts": mounts, "served_names": _flag_values(toks, "--served-model-name"),
+                        "mounts": mounts, "image": cfg.get("Image"),
+                        "served_names": _flag_values(toks, "--served-model-name"),
                         "cmd_port": _cmd_port(toks) or _env_port(env),
                         "pub_ports": _published_ports(c)})
         except Exception:
@@ -392,6 +393,51 @@ def _docker_enrich(served_entries, *, endpoint_port, containers):
         for k, v in _resolve_ref(ref, c).items():        # merge only the keys the resolver set
             if v is not None:
                 s[k] = v
+
+
+def observed_serve_recipe(serve_url, served_ids, *, runner=None):
+    """Capture the ACTUAL startup command of a LOCALHOST endpoint's backing container, so an
+    endpoint-mode ("point at a running model") run records the REAL serve recipe — image + the
+    exact flags, INCLUDING `--speculative-config` — instead of the pod's hypothetical derived
+    command (which it never ran). Matches the container by port (then served-name), reads its
+    vLLM `serve <model> <flags…>`, and reconciles the `--speculative-config` drafter mount to an
+    HF repo when the layout carries it. Returns a dict or None (remote endpoint / no docker / no
+    match). Best-effort, exception-safe — capture never blocks or fails a bench."""
+    try:
+        host = (serve_url or "").split("//", 1)[-1].split("/", 1)[0]   # host[:port]
+        if host.split(":")[0] not in _LOCAL_HOSTS:
+            return None                                                # remote — pod can't inspect it
+        port = None
+        if ":" in host:
+            p = host.rsplit(":", 1)[1]
+            port = int(p) if p.isdigit() else None
+        c = _match_container(port, served_ids, _docker_serves(runner=runner))
+        if not c:
+            return None
+        toks = c.get("toks") or []
+        flags = []
+        if "serve" in toks:                                           # vLLM: `serve <model> <flags…>`
+            rest = toks[toks.index("serve") + 1:]
+            flags = rest[1:] if (rest and not rest[0].startswith("-")) else rest
+        spec = _flag_value(flags, "--speculative-config") or _flag_value(toks, "--speculative-config")
+        spec_cfg = None
+        if spec:
+            try:
+                spec_cfg = json.loads(spec)
+            except Exception:
+                spec_cfg = None
+        drafter_repo = drafter_rev = None                             # full DFlash/DSpark disclosure
+        if isinstance((spec_cfg or {}).get("model"), str):
+            dlocal = _container_path(spec_cfg["model"], c)
+            if dlocal:
+                d = dlocal if os.path.isdir(dlocal) else os.path.dirname(dlocal)
+                drafter_repo, drafter_rev, _ = diskscan.reconcile_path(d)
+        return {"container": c.get("name"), "image": c.get("image"),
+                "port": port or c.get("cmd_port"), "argv": toks, "flags": flags,
+                "speculative_config": spec_cfg, "drafter_repo": drafter_repo,
+                "drafter_revision": drafter_rev, "served_names": c.get("served_names")}
+    except Exception:
+        return None
 
 
 def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=None):

@@ -1275,6 +1275,42 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             raise SystemExit(f"[pod] served ids {ids} do not include the bench alias '{alias}' — "
                              f"refusing to bench a different server (something else on :{port}?)")
 
+        # ENDPOINT MODE (serve_url): the pod did NOT launch this serve, so the derived recipe it
+        # holds is a HYPOTHETICAL command that was never run. Replace it with the REAL serve's
+        # recipe — image + exact flags incl. --speculative-config — captured by inspecting the
+        # backing container, so "replicate this run" reflects what actually produced the numbers.
+        # Best-effort: a remote/undockerable endpoint records serve_url + verified weights only.
+        if serve_url:
+            recipe["serve_mode"] = "endpoint"
+            obs = None
+            try:
+                from pod import endpoints as _ep
+                obs = _ep.observed_serve_recipe(serve_url, ids)
+            except Exception as e:
+                print(f"[pod] live serve recipe capture skipped ({e})")
+            if obs:
+                recipe["source"] = "observed-endpoint-container"
+                recipe["observed_serve"] = {k: obs.get(k) for k in
+                    ("container", "image", "port", "argv", "speculative_config",
+                     "drafter_repo", "drafter_revision", "served_names")}
+                if obs.get("flags"):
+                    recipe["flags"] = obs["flags"]        # drives the repro card / serve.sh / ctx_len
+                if obs.get("image"):
+                    recipe["image"] = obs["image"]
+                if obs.get("port"):
+                    recipe["port"] = obs["port"]
+                if obs.get("drafter_repo"):
+                    recipe["drafter_repo"] = obs["drafter_repo"]
+                    recipe["drafter_revision"] = obs.get("drafter_revision")
+                _m = (obs.get("speculative_config") or {}).get("method")
+                print(f"[pod] captured live serve recipe from container '{obs.get('container')}' "
+                      f"({len(obs.get('flags') or [])} flags"
+                      + (f"; spec-decode={_m}" if _m else "") + ")")
+            else:
+                recipe["source"] = "operator-managed-endpoint"
+                print("[pod] live serve recipe not capturable (remote endpoint or docker "
+                      "unavailable) — recording serve_url + verified weights only")
+
         # Content-address the engine now that the image is guaranteed local. Weights are
         # already hash-verified; this pins the OTHER half of the recipe — which code served
         # the run — so provenance names it forever when Docker can resolve it.

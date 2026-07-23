@@ -120,18 +120,29 @@ aeon_pod_run(hf_link="org/exact-quant-repo",
 ## Attestation: what ranks, and the honest caveat
 
 An endpoint run earns the ranked **`attested`** tier only when the pod can **fingerprint** the live
-serve against the verified weights — a greedy-logprob match proves the endpoint really serves those
-weights. That reference fingerprint is captured by loading the weights **on the pod**.
+serve against the verified weights — a greedy-logprob match proves the *running endpoint* really
+serves those weights. That reference is captured by loading the HF-verified weights via vLLM on a
+GPU **the submitter controls** (the pod itself), then probing the endpoint and comparing.
 
-- **Pod has a GPU / can load the weights** → the fingerprint is captured, and on a match the run is
-  **attested and ranked**.
-- **Pod cannot load the weights** (no GPU / not enough RAM — common for a lightweight remote pod) →
-  no fingerprint can be taken, so the run honestly records **`self_reported`**: the weights are
-  verified and the hardware is correct, but nothing proves *this endpoint* serves them. Stored and
-  shown, not globally ranked.
+- **The pod can load the weights** (has a GPU + vLLM) → the fingerprint is captured, and on a match
+  the run is **attested and ranked**. This pod does **not** have to be the serving machine — it can
+  be any GPU box you run the pod on, pointed at the remote serve; it loads the model only briefly,
+  at low context, to compute the reference.
+- **The pod cannot load the weights** (no GPU / no vLLM — e.g. a Windows box, or a deliberately
+  lightweight pod) → no fingerprint can be taken, so the run honestly records **`self_reported`**:
+  the weights are verified and the hardware is attributed correctly, but nothing proves *this
+  endpoint* serves them. Stored and shown, not globally ranked.
 
-*(Capturing the fingerprint on the serving machine over the same SSH channel — so a
-weightless pod can still rank a remote serve — is a planned enhancement.)*
+**Why can't a weightless pod just hash the served files over SSH, or capture the reference on the
+serving machine?** Because neither is trustworthy evidence for a badge shown to *other* people. The
+endpoint-binding proof has to be **behavioral** (interrogate the actual running process) **and**
+computed on hardware the submitter controls. Hashing the mounted `--model` directory over SSH is
+*static* (it proves bytes exist on disk, not that the running process loaded them — a symlink or a
+runtime swap defeats it) and *host-asserted* (the serving machine runs the `sha256sum` and
+`docker inspect`, both trivially shimmed). Capturing the reference **on** the serving machine is
+circular — the machine under test would be computing its own report card. So the only honest way to
+rank a remote serve is a behavioral fingerprint whose reference is produced on a GPU you trust.
+**To rank a remote run: run the pod on a machine that can load the model.**
 
 ---
 

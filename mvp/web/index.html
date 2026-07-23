@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=108" />
+  <link rel="stylesheet" href="/static/styles.css?v=109" />
 </head>
 <body>
   <header>
@@ -448,11 +448,11 @@
       <div class="arena-stage">
         <div class="arena-side">
           <div class="arena-head"><span class="arena-badge a">A</span><span class="arena-model" id="modelA">hidden</span><span class="arena-meta" id="metaA"></span></div>
-          <div class="arena-fit"><iframe class="arena-frame" id="frameA" sandbox="allow-scripts allow-pointer-lock" title="artifact A"></iframe></div>
+          <div class="arena-fit"><iframe class="arena-frame" id="frameA" sandbox="allow-scripts allow-pointer-lock" allow="fullscreen" allowfullscreen referrerpolicy="no-referrer" tabindex="0" title="artifact A"></iframe><button class="arena-full" data-full="frameA" type="button" title="fullscreen A (Esc exits)">⛶</button></div>
         </div>
         <div class="arena-side">
           <div class="arena-head"><span class="arena-badge b">B</span><span class="arena-model" id="modelB">hidden</span><span class="arena-meta" id="metaB"></span></div>
-          <div class="arena-fit"><iframe class="arena-frame" id="frameB" sandbox="allow-scripts allow-pointer-lock" title="artifact B"></iframe></div>
+          <div class="arena-fit"><iframe class="arena-frame" id="frameB" sandbox="allow-scripts allow-pointer-lock" allow="fullscreen" allowfullscreen referrerpolicy="no-referrer" tabindex="0" title="artifact B"></iframe><button class="arena-full" data-full="frameB" type="button" title="fullscreen B (Esc exits)">⛶</button></div>
         </div>
       </div>
 
@@ -611,13 +611,24 @@
       </div>
     </div>
 
-    <div id="galModal" class="modal" hidden>
+    <div id="galModal" class="modal" hidden role="dialog" aria-modal="true" aria-label="artifact preview">
       <div class="modal-card gal-view">
-        <button class="modal-x" id="galClose" title="close">×</button>
-        <div class="gal-view-h"><span id="galViewTitle"></span><a class="act-btn act-dl" id="galViewDl" href="#" title="download the full single-file source (zip)">Code · zip</a></div>
+        <button class="modal-x" id="galClose" title="close (Esc)">×</button>
+        <div class="gal-view-h"><span id="galViewTitle"></span>
+          <span class="gal-view-acts">
+            <span class="gal-input-hint" id="galInputHint" title="keyboard goes to the artifact while it's open — click the frame if it ever loses focus">⌨ input captured</span>
+            <button class="act-btn" id="galFull" type="button" title="fullscreen (best for FPS / mouse-look games) — Esc exits">⛶ Fullscreen</button>
+            <a class="act-btn act-dl" id="galViewDl" href="#" title="download the full single-file source (zip)">Code · zip</a>
+          </span></div>
+        <!-- allowfullscreen/allow delegate the parent's fullscreen grant into the opaque-origin
+             frame; pointer lock already rides the allow-pointer-lock SANDBOX token. The sandbox
+             token list is deliberately unchanged — NEVER add allow-same-origin (untrusted model
+             HTML would reach this origin's storage + auth token). -->
         <div class="gal-stage" id="galStage">
           <div class="gal-scaler" id="galScaler">
-            <iframe class="gal-frame" id="galFrame" sandbox="allow-scripts allow-pointer-lock" title="artifact preview"></iframe>
+            <iframe class="gal-frame" id="galFrame" sandbox="allow-scripts allow-pointer-lock"
+                    allow="fullscreen" allowfullscreen referrerpolicy="no-referrer"
+                    tabindex="0" title="artifact preview"></iframe>
           </div>
         </div>
       </div>
@@ -684,6 +695,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=108"></script>
+  <script src="/static/app.js?v=109"></script>
 </body>
 </html>

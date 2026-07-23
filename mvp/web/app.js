@@ -1466,31 +1466,97 @@ function fitGalPreview() {
   const chrome = card.getBoundingClientRect().height - stage.getBoundingClientRect().height;
   const availW = stage.clientWidth;
   const availH = Math.max(160, window.innerHeight * 0.92 - chrome);
+  // FULLSCREEN: the frame fills the display at its own size — CSS clears the transform, so any
+  // scaling here would double-apply and (worse) desync pointer-lock movementX/Y from what's drawn.
+  if (document.fullscreenElement) {
+    scaler.style.width = ""; scaler.style.height = ""; frame.style.transform = "";
+    return;
+  }
   const s = Math.min(1, availW / GAL_VW, availH / GAL_VH);   // never upscale past 1:1
   scaler.style.width = (GAL_VW * s).toFixed(2) + "px";
   scaler.style.height = (GAL_VH * s).toFixed(2) + "px";
   frame.style.transform = "scale(" + s + ")";
 }
 window.addEventListener("resize", fitGalPreview);            // no-ops while the modal is hidden
+// entering/leaving fullscreen changes the geometry AND (on exit) must restore the fit scale
+document.addEventListener("fullscreenchange", () => {
+  fitGalPreview();
+  const f = document.fullscreenElement;
+  if (f && typeof f.focus === "function") f.focus();          // keep keys in the artifact
+});
+
+// INPUT CAPTURE: an artifact is a game/app — while it's open the keyboard belongs to IT, not the
+// page behind it. The sandbox has no allow-same-origin, but contentWindow.focus() is one of the
+// few cross-origin-legal calls, so the parent can hand focus in without weakening the sandbox.
+// Without this, focus stays on the button that opened the modal and WASD/arrows scroll the page.
+function focusArtifactFrame(frame) {
+  if (!frame) return;
+  try { frame.focus({ preventScroll: true }); } catch (e) { try { frame.focus(); } catch (_) {} }
+  try { frame.contentWindow && frame.contentWindow.focus(); } catch (e) {}
+}
+// True while an artifact frame owns the keyboard — the global hotkeys must stand down.
+function artifactHasFocus() {
+  const el = document.activeElement;
+  return !!(el && el.tagName === "IFRAME"
+            && /gal-frame|arena-frame/.test(el.className || ""));
+}
+// Belt-and-braces for the moment before focus lands (and for browsers that drop it): stop the
+// PAGE from scrolling on the keys games use. Never swallow keys once the artifact has focus —
+// those events don't reach the parent at all.
+const _SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+                              " ", "Spacebar", "PageUp", "PageDown", "Home", "End"]);
+function _blockPageScrollKeys(e) {
+  if ($("#galModal").hidden) return;
+  if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;
+  if (_SCROLL_KEYS.has(e.key)) e.preventDefault();
+}
+window.addEventListener("keydown", _blockPageScrollKeys, { passive: false });
 
 // Preview overlay: the artifact runs in a SANDBOXED iframe (same sandbox attrs as the
 // match view — allow-scripts, NO allow-same-origin) and is lazy-fetched only on click.
+let GAL_OPENER = null;                             // element to restore focus to on close
 async function openGalPreview(aid, title, model) {
+  GAL_OPENER = document.activeElement;
   $("#galViewTitle").innerHTML = `<b>${escH(title)}</b> — <span class="mono">${escH(model)}</span>`;
   $("#galViewDl").href = "/api/arena/download/" + encodeURIComponent(aid);
   $("#galFrame").srcdoc = loadingFrame("compiling artifact…");
   $("#galModal").hidden = false;
-  requestAnimationFrame(fitGalPreview);            // fit once layout has settled
+  document.body.classList.add("modal-open");       // the page behind must not scroll
+  requestAnimationFrame(() => { fitGalPreview(); focusArtifactFrame($("#galFrame")); });
   try {
     const r = await fetch("/api/arena/render?artifact_id=" + encodeURIComponent(aid));
     const a = r.ok ? await r.json() : null;
     if ($("#galModal").hidden) return;             // closed while loading — don't resurrect it
     $("#galFrame").srcdoc = (a && a.html) || blankFrame("failed to load");
+    // srcdoc swap replaces the document — hand focus to the REAL artifact once it exists
+    $("#galFrame").addEventListener("load", () => focusArtifactFrame($("#galFrame")), { once: true });
   } catch (e) { if (!$("#galModal").hidden) $("#galFrame").srcdoc = blankFrame("failed to load"); }
 }
 function closeGalPreview() {
+  // release anything the artifact grabbed first, or the browser keeps a fullscreen/locked cursor
+  // pointed at a frame we're about to blank
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+  try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {}
   $("#galModal").hidden = true;
+  document.body.classList.remove("modal-open");
   $("#galFrame").srcdoc = blankFrame("");          // unload the artifact — stop its scripts
+  try { if (GAL_OPENER && GAL_OPENER.focus) GAL_OPENER.focus({ preventScroll: true }); } catch (e) {}
+  GAL_OPENER = null;
+}
+
+// Fullscreen is requested from the PARENT on a real user gesture — the reliable path, and it
+// needs no privilege inside the untrusted document. The `allowfullscreen` attribute additionally
+// lets a model-authored in-game fullscreen button work. Best for FPS/mouse-look: at 1:1 the
+// pointer-lock movement deltas finally match what's drawn (the fit-scale otherwise desyncs them).
+function goFullscreen(frame) {
+  if (!frame) return;
+  const el = document.fullscreenElement;
+  try {
+    if (el) { document.exitFullscreen(); return; }
+    const p = frame.requestFullscreen ? frame.requestFullscreen() : null;
+    if (p && p.then) p.then(() => focusArtifactFrame(frame)).catch(() => {});
+    else focusArtifactFrame(frame);
+  } catch (e) {}
 }
 
 // ---- admin (integrity + moderation; tab visible only to AEON_ADMIN_USERS) ----
@@ -5365,6 +5431,12 @@ async function init() {
   $("#pwModal").onclick = (e) => { if (e.target.id === "pwModal") closePwModal(); };
   // gallery preview overlay: close on X / backdrop (Esc handled with the other modals below)
   { const gc = $("#galClose"); if (gc) gc.onclick = closeGalPreview; }
+  // ⛶ fullscreen (gallery preview + each arena side). Parent-side requestFullscreen on a real
+  // user gesture, then focus back into the frame so the game keeps the keyboard.
+  { const gf = $("#galFull"); if (gf) gf.onclick = () => goFullscreen($("#galFrame")); }
+  $$(".arena-full").forEach((b) => b.onclick = () => goFullscreen($("#" + b.dataset.full)));
+  // clicking anywhere on an artifact frame's stage hands the keyboard back to the artifact
+  { const st = $("#galStage"); if (st) st.addEventListener("mousedown", () => focusArtifactFrame($("#galFrame"))); }
   { const gm = $("#galModal"); if (gm) gm.onclick = (e) => { if (e.target.id === "galModal") closeGalPreview(); }; }
   // tip jar: header + footer triggers, close on X / backdrop, copy each wallet
   { const tb = $("#tipBtn"); if (tb) tb.onclick = openTip; }
@@ -5377,12 +5449,19 @@ async function init() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("#tipModal").hidden) { closeTip(); return; }      // Esc closes the tip modal
     if (e.key === "Escape" && !$("#authModal").hidden) { closeAuth(); return; }   // Esc always closes the dialog
-    if (e.key === "Escape" && !$("#galModal").hidden) { closeGalPreview(); return; }  // Esc closes the preview
+    // Esc closes the preview — but the browser spends the FIRST Esc exiting fullscreen / releasing
+    // pointer lock. Closing on that one would rip the modal away when the player only wanted their
+    // cursor back, so stand down while either is held; the next Esc closes.
+    if (e.key === "Escape" && !$("#galModal").hidden
+        && !document.fullscreenElement && !document.pointerLockElement) { closeGalPreview(); return; }
     if (e.key === "Escape" && !$("#browseModal").hidden) { closeBrowse(); return; }   // Esc closes the browser
     if (e.key === "Escape" && !$("#podModal").hidden) { closePodModal(); return; }    // Esc closes the pod quickstart
     const ap = $("#arenaPanel");
     if (!ap || ap.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;
+    // IFRAME matters: while an artifact frame holds focus its keys are ITS input, not hotkeys —
+    // without this, WASD in an arena game hits 'a' and casts a vote (auto-advancing the match).
+    if (/INPUT|SELECT|TEXTAREA|IFRAME/.test((e.target && e.target.tagName) || "")) return;
+    if (artifactHasFocus() || document.fullscreenElement || document.pointerLockElement) return;
     const map = { a: "a", b: "b", t: "tie" };
     const w = map[e.key.toLowerCase()];
     if (!w) return;

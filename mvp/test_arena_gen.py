@@ -88,6 +88,44 @@ try:
 finally:
     arena.PROMPTS = _saved_prompts
 
+# ---------- (c2) concurrency: parallel gen preserves seeded order + monotonic progress ----------
+import threading as _th          # noqa: E402
+import time as _time            # noqa: E402
+
+
+class _ReorderTarget:
+    """Completes LATER-submitted items FIRST (sleep shrinks with a submit counter), so completion
+    order reverses submission order — proving results land by selection INDEX, not append order."""
+
+    def __init__(self, alias):
+        self.model = alias
+        self._n = 0
+        self._lock = _th.Lock()
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        with self._lock:
+            k = self._n
+            self._n += 1
+        _time.sleep(0.03 * max(0, 8 - k))            # earliest-submitted sleeps longest -> finishes last
+        return {"text": "<!DOCTYPE html><html><body><h1>a%d</h1></body></html>" % k, "e2e_ms": 1.0}
+
+
+_serial_ids = [a["prompt_id"] for a in generate_for_model("mock", "m", per_kind=2, seed=11)]
+_prog = []
+_orig_mt = arena_gen._make_target
+arena_gen._make_target = lambda url, alias, key, conc=1: _ReorderTarget(alias)
+try:
+    _conc = generate_for_model("http://x/v1", "m", per_kind=2, seed=11, concurrency=4,
+                               progress_cb=lambda d, t, it: _prog.append((d, t)))
+finally:
+    arena_gen._make_target = _orig_mt
+ok([a["prompt_id"] for a in _conc] == _serial_ids,
+   "concurrency: parallel generation preserves seeded selection order (written by index)")
+ok(all(a["ok"] for a in _conc) and len(_conc) == 2 * len(arena.KINDS),
+   "concurrency: every artifact generated under the thread pool (out-of-order completion)")
+ok(_prog == [(i + 1, len(_conc)) for i in range(len(_conc))],
+   "concurrency: progress_cb stays monotonic (1..N) on the main thread")
+
 # ---------- failure path: broken target never raises ----------
 class _Boom:
     def chat(self, *a, **k):

@@ -85,31 +85,44 @@ class _MockArenaTarget:
                 "streamed": True}
 
 
-def _make_target(target_url, alias, api_key):
+def _make_target(target_url, alias, api_key, conc=1):
     if target_url == "mock":
         return _MockArenaTarget(alias)
-    return OpenAITarget(target_url, alias, api_key=api_key, timeout=600)
+    # scale the per-request timeout with arena concurrency: streams time-slice the serve, so a
+    # long god-tier generation runs slower wall-clock under contention (floored at the proven 600s)
+    return OpenAITarget(target_url, alias, api_key=api_key, timeout=max(600, 120 * max(1, conc)))
 
 
 def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None,
                        max_tokens=8000, temperature=0.4, progress_cb=None,
-                       only_difficulty=None):
+                       only_difficulty=None, concurrency=1):
     """Generate arena artifacts for one model. NEVER raises.
 
     Returns a list of {kind, prompt_id, title, html, ok, gen_ms, bytes} dicts —
     exactly the shape aeon/ingest.py accepts as bundle["artifacts"]. A failed
     generation (target error, empty/non-HTML output) yields ok=False, html="".
     `progress_cb(done, total, item)` (optional) is called after each artifact.
+
+    `concurrency` artifacts generate IN FLIGHT against the served model — the same
+    endpoint the text/harness boards already hammer with a ThreadPoolExecutor, which
+    batches concurrent streams. Artifacts are independent + unjudged at generation, so
+    this is a pure throughput win; the returned list stays in seeded selection order
+    (written by index, not completion order) and progress is a monotonic main-thread
+    counter, so determinism + the (1,N)->(N,N) progress contract are preserved.
+    `concurrency<=1` keeps the exact single-stream loop (mock / no-GPU fallback).
     """
     selection = pick_prompts(per_kind=per_kind, seed=seed, only_difficulty=only_difficulty)
     total = len(selection)
-    out = []
+    workers = max(1, min(int(concurrency or 1), total or 1))
     try:
-        target = _make_target(target_url, alias, api_key)
+        target = _make_target(target_url, alias, api_key, workers)
     except Exception:
         target = None  # constructor failure -> every artifact reports ok=False below
 
-    for i, (kind, p) in enumerate(selection):
+    def _gen_one(kind, p):
+        """ONE artifact -> its item dict. NEVER raises. Thread-safe: OpenAITarget.chat builds a
+        fresh request per call and holds only immutable config, so worker threads share one target
+        exactly as the text/harness boards do."""
         html, ok, gen_ms = "", False, None
         try:
             if target is None:
@@ -124,12 +137,36 @@ def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None
                 html = ""
         except Exception:
             html, ok, gen_ms = "", False, None
-        item = {"kind": kind, "prompt_id": p["id"], "title": p["title"], "html": html,
+        return {"kind": kind, "prompt_id": p["id"], "title": p["title"], "html": html,
                 "ok": ok, "gen_ms": gen_ms, "bytes": len(html.encode("utf-8"))}
-        out.append(item)
-        if progress_cb:
-            try:
-                progress_cb(i + 1, total, item)
-            except Exception:
-                pass
+
+    out = [None] * total
+    if workers <= 1:                                   # serial fallback — mock / single-stream
+        for i, (kind, p) in enumerate(selection):
+            out[i] = _gen_one(kind, p)
+            if progress_cb:
+                try:
+                    progress_cb(i + 1, total, out[i])
+                except Exception:
+                    pass
+        return out
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_gen_one, kind, p): i for i, (kind, p) in enumerate(selection)}
+        done = 0
+        try:
+            for fut in as_completed(futs):
+                i = futs[fut]
+                out[i] = fut.result()                  # _gen_one never raises
+                done += 1
+                if progress_cb:                        # monotonic (1..N) on the MAIN thread only
+                    try:
+                        progress_cb(done, total, out[i])
+                    except Exception:
+                        pass
+        except BaseException:                          # interrupt/bug: cancel cleanly, then re-raise
+            for f in futs:
+                f.cancel()
+            raise
     return out

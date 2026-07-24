@@ -77,8 +77,10 @@ unranked smoke test.
 > `aeon_pod_stats` → `aeon_pod_resume` / `aeon_pod_submit`.
 > `aeon_pod_run` takes `hf_link` (fresh pull), **or** `hf_link` + `local_dir` (hash-verify on-disk
 > bytes), **or** — preferred when a serve is already up — `hf_link` + `serve_url` +
-> `verify_endpoint: true` (bench the live endpoint, weights verified + serve fingerprinted, still
-> attested; `endpoint_model` picks the served id, `spark_nodes` declares a multi-node cluster).
+> `verify_endpoint: true` (bench the live endpoint, weights verified + the serve bound to them, still
+> attested — a **GPU pod fingerprints** it, a **GPU-less pod sha256s the running container's weights**
+> over ssh instead, so either can rank; `deep_verify: true` forces that hash, `endpoint_model` picks
+> the served id, `spark_nodes` declares a multi-node cluster).
 > `aeon_pod_scan_endpoints` finds live vLLM/SGLang/TGI/llama.cpp/Ollama/LM Studio servers and
 > autodetects each one's HF repo — feed its `hf_guess` straight in as `hf_link`. The MCP talks ONLY
 > to a local pod; the mothership never runs jobs. Short version of the whole loop: `SKILL.md`.
@@ -295,8 +297,13 @@ Face, which is the only thing that earns the ranked tier — they differ only in
   is filed under the serving rig, not the pod's — and reads its docker daemon for the real recipe.
   One-time setup: authorize the pod's key on the serving host (`aeon_pod_ssh_key` / the Run tab
   prints the per-shell command). **Without `--remote-host` a cross-machine run is misattributed to
-  the pod's own hardware**, which corrupts the perf board. (A pod that can't load the weights
-  locally can't fingerprint, so such a run records `self_reported`.)
+  the pod's own hardware**, which corrupts the perf board. (A pod that can't load the weights locally
+  can't compute a behavioral fingerprint — but `--verify-endpoint` then falls back to **container-hash
+  verification** over the same ssh channel: it `docker exec … sha256sum`s the running container's
+  weight files against HF and, on a complete match, earns the **`endpoint_verified`** attested tier
+  with no second model load. Add `--deep-verify` to force that hash even when a fingerprint is
+  possible. The pod also runs a GPU-free **serving-integrity** pre-check that HALTS the run if the
+  endpoint is serving a different model than you named.)
 
 > **DO wait for the green light.** A `validated` or `resolved` verdict shows **✓ attested** and is
 > what rides the launch. A **`mismatch`** (local bytes ≠ manifest) or **`failed`** verdict is
@@ -333,6 +340,12 @@ daemon for the real recipe.
 - API: `POST /api/pod/run/verified` with `serve_url`, `remote_host`, `verify_endpoint`; scan via
   `GET /api/pod/scan_endpoints?remote=user@host`.
 
+`verify_endpoint` earns attested **with or without a GPU on the pod**: with one it logprob-fingerprints
+the endpoint (`endpoint_fingerprint`); without one it falls back automatically to sha256-ing the
+**running container's** weight files against HF over the same ssh channel (`endpoint_verified`, no
+second model load). Add `--deep-verify` / `deep_verify: true` to force that hash even when a
+fingerprint is possible. Both are recorded as `attestation_method` so the board shows which was used.
+
 **Rules that bite:**
 
 - **Always pass `--remote-host` for a cross-machine serve.** With only `--serve-url`, the run is
@@ -341,16 +354,21 @@ daemon for the real recipe.
   invented from the pod's box.
 - **The pod runs Docker as `ssh -i <pod key> user@host docker …`** (not `DOCKER_HOST=ssh://`, which
   can't select a key). So the pod's key must be authorized for the **exact** `user@host` you pass.
-- **Attestation caveat — to RANK a remote run, the pod must be able to load the model.** The
-  endpoint fingerprint's reference is captured by loading the HF-verified weights via vLLM on a GPU
-  the submitter controls, then probing the endpoint. A GPU+vLLM pod fingerprints and **ranks**;
-  that pod need **not** be the serving machine — any GPU box you run the pod on, pointed at the
-  remote serve, works (it loads the model only briefly, at low context). A weightless pod (no GPU /
-  no vLLM) can't capture the reference, so its remote runs are **`self_reported`** — verified
-  weights + correct hardware, but the endpoint identity is unproven. Do **not** try to close this
-  with an SSH weight-hash or a serving-side capture: both are host-asserted / static, forgeable by
-  the machine under test, and would dishonestly inflate the attested tier. The only honest ranked
-  path is a behavioral fingerprint from a GPU the submitter trusts.
+- **Attestation caveat — a remote run RANKS two ways, and the badge says which.** Both start from
+  mothership-re-verified HF weights and bind the run to the serve differently:
+  - **`endpoint_fingerprint` (behavioral, cheater-resistant).** The reference is captured by loading
+    the HF-verified weights via vLLM on a GPU the submitter controls, then probing the endpoint. That
+    pod need **not** be the serving machine — any GPU box pointed at the remote serve works (brief,
+    low-context load). This resists a determined faker.
+  - **`endpoint_verified` (container-hash, host-asserted).** When no GPU is available, the pod
+    `docker exec … sha256sum`s the **running container's** weight files against HF over ssh and
+    requires **every** file to match, tied to the bundle's `weights_hash` (auto when `--verify-endpoint`
+    finds no GPU, or forced with `--deep-verify`). It proves the serve was **launched with these
+    authentic weights** — no second model load. **Honest limit:** host-asserted (the serving host runs
+    the hash) and static (a file on disk isn't proof the live process loaded it), so a *deliberate*
+    faker can defeat it; it is the right, sufficient proof for a **cooperative operator**, not against
+    an adversary. The board labels the method so viewers can weigh it. Anything weaker (config-only,
+    partial hash, uninspectable endpoint) stays **`self_reported`**.
 
 ### 4(b) HF token for gated / private repos
 
@@ -648,8 +666,8 @@ The mothership computes the tier at commit time:
 
 | Tier | How it's earned | On the board |
 |---|---|---|
-| **`attested`** *(shown **✓ verified**)* | The **controlled flow** in any of its three shapes — `--hf-link` (fresh pull), a hash-verified `--local-dir`, **or `--hf-link` + `--serve-url` + `--verify-endpoint`** (bench a live serve, weights hash-verified + the endpoint logprob-fingerprinted against them). Weights **hash-verified bit-for-bit against HF's published per-file LFS sha256** at a pinned commit, served by a recorded recipe, ed25519-signed. The mothership then **independently re-fetches HF and re-checks every weight hash**. Requires verified weights **+** recipe **+** signature, all three. | **The only globally-ranked tier.** |
-| **`self_reported`** *(shown **local**)* | Anything short of the above — an **unverified** `--target` endpoint run (no HF link, so no weights to hash), every unverifiable repo, and a `--serve-url` run whose fingerprint **mismatched**. Signed (tamper-evident) but the model identity is **not** bit-for-bit verified. | Stored and shown, **never globally ranked**. |
+| **`attested`** *(shown **✓ verified**)* | The **controlled flow**: `--hf-link` (fresh pull), a hash-verified `--local-dir`, or a `--serve-url` endpoint run bound to the verified weights one of two ways — **`endpoint_fingerprint`** (logprob-fingerprinted against them, cheater-resistant) or **`endpoint_verified`** (the running container's weight files `docker exec`-sha256-matched to HF, complete + tied to `weights_hash`; host-asserted, for a cooperative operator). Weights **hash-verified bit-for-bit against HF's per-file LFS sha256** at a pinned commit, recorded recipe, ed25519-signed; the mothership then **independently re-fetches HF and re-checks every weight hash**. The recorded `attestation_method` names which binding was used. | **The only globally-ranked tier.** |
+| **`self_reported`** *(shown **local**)* | Anything short of the above — an **unverified** `--target` endpoint run (no HF link), every unverifiable repo, a `--serve-url` run whose fingerprint **mismatched**, or an endpoint run with only a config/manifest (non-`--deep-verify`) or partial serving check. Signed (tamper-evident) but the model↔serve binding is **not** proven to the ranked bar. | Stored and shown, **never globally ranked**. |
 | **`frontier` (frontier_api)** | A verified frontier **API** reference (e.g. `xai:grok-4.5-high`). | Comparable on the board, `self_reported` posture — not a local-weight attestation. |
 
 **Why attested is the only path to the global leaderboard:** both the ingest and scoring sides gate

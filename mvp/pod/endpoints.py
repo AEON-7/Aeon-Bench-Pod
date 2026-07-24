@@ -25,6 +25,7 @@ fingerprints the endpoint, so a wrong guess fails verification and can never wea
 from __future__ import annotations
 
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import re
@@ -478,6 +479,332 @@ def observed_serve_recipe(serve_url, served_ids, *, runner=None, docker_host=Non
                 "drafter_revision": drafter_rev, "served_names": c.get("served_names")}
     except Exception:
         return None
+
+
+# ---- serving-integrity: confirm the RUNNING serve is actually serving the named model ---------
+# A GPU-FREE reliability check (NOT the ranked-attestation gate). Before benching a serve the pod
+# did NOT launch, inspect the backing container's ON-DISK model — config.json + the weight manifest,
+# and optionally per-file sha256 over ssh — and compare it to the HF-verified reference. It catches
+# the common ACCIDENTS the operator actually hits: pointed at the wrong live instance, wrong size
+# (7B when you meant 70B), wrong quant, stale/wrong weights on disk. A cooperative operator gets a
+# definite "yes, this is the model" / "no, you are on the wrong instance".
+#
+# TRUST BOUNDARY (important): everything read here is reported by the operator's own host, and a file
+# on disk is not proof the running process LOADED it — so this does NOT defeat a deliberate faker who
+# mounts the real weights but serves something else. That is the behavioral fingerprint's job
+# (ingest._trust_tier). A pass here is a SAFETY confirmation, never a substitute for the fingerprint.
+# You also cannot hash the weights resident in VRAM against HF's FILE sha256 — the engine fuses/
+# repacks/shards/requantizes them on load — so this hashes the FILES the container was launched with.
+
+_STRUCT_KEYS = ("model_type", "num_hidden_layers", "hidden_size", "num_attention_heads",
+                "num_key_value_heads", "vocab_size", "intermediate_size",
+                "max_position_embeddings", "head_dim")
+_STORE_EXTS = (".safetensors", ".gguf", ".bin")
+
+
+def _sha256_file(path, chunk=1 << 20):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(chunk), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def _load_json(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _loads(txt):
+    try:
+        return json.loads(txt)
+    except Exception:
+        return None
+
+
+def _ssh_capture(docker_host, remote_argv, timeout=90):    # pragma: no cover — real ssh
+    """Run a simple command on the serving host over the pod's AUTHORIZED key; return stdout ('' on
+    failure). Tokens are shell-quoted because ssh joins them into one remote shell line."""
+    if not (docker_host and docker_host.startswith("ssh://")):
+        return ""
+    dest = docker_host[len("ssh://"):]
+    ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+           "-o", "ConnectTimeout=8"]
+    key = _pod_ssh_key()
+    if key:
+        ssh += ["-i", key]
+    remote = " ".join(shlex.quote(t) for t in remote_argv)
+    try:
+        return subprocess.run(ssh + [dest, remote], capture_output=True, text=True,
+                              timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def _model_dir_local(model_ref, container):
+    """Pod-readable model DIRECTORY for the serve (local / shared namespace), or None (remote)."""
+    local = _container_path(model_ref, container)
+    if not local:
+        return None
+    return local if os.path.isdir(local) else os.path.dirname(local)
+
+
+def _model_dir_remote(model_ref, container):
+    """The model DIRECTORY's path on the REMOTE serving machine (for ssh reads), or None. Maps the
+    --model ref through the container's mount to the host source path."""
+    src = None
+    for dest, s in (container.get("mounts") or {}).items():
+        if model_ref == dest:
+            src = s
+        elif model_ref.startswith(dest + "/"):
+            src = (s or "").rstrip("/") + model_ref[len(dest):]
+        if src:
+            break
+    src = src or model_ref                                # bind-less: the ref is already a host path
+    if not src:
+        return None
+    src = src.replace("\\", "/")
+    if src.lower().endswith((".gguf", ".safetensors", ".bin", ".pt", ".pth", ".npz")):
+        return src.rsplit("/", 1)[0] if "/" in src else "."      # a single-file --model -> its dir
+    return src.rstrip("/")
+
+
+def _read_model_dir_file(rel, model_ref, container, docker_host):
+    """Read a small text file (config.json / *.index.json) from the SERVE's model dir. Local: through
+    the container mount into the pod namespace. Remote: `ssh cat` on the serving host. Text or None."""
+    d = _model_dir_local(model_ref, container)
+    if d:
+        p = os.path.join(d, rel)
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read()
+            except Exception:
+                return None
+        return None
+    if docker_host:
+        rd = _model_dir_remote(model_ref, container)
+        if rd:
+            return _ssh_capture(docker_host, ["cat", rd + "/" + rel]) or None
+    return None
+
+
+def _quant_method(cfg):
+    q = cfg.get("quantization_config") or {}
+    return q.get("quant_method") or q.get("quant_algo") or q.get("quant_type")
+
+
+def _compare_config(want, got):
+    """Structural config identity: architecture + shape keys present in BOTH configs (comparing only
+    shared keys avoids false alarms from an omitted-vs-defaulted field), plus the quant method."""
+    out = []
+    wa, ga = want.get("architectures"), got.get("architectures")
+    if wa is not None and ga is not None:
+        out.append({"name": "architectures", "status": "match" if wa == ga else "mismatch",
+                    "detail": f"architecture: expected {wa}, serve reports {ga}"})
+    for k in _STRUCT_KEYS:
+        if k in want and k in got:
+            out.append({"name": k, "status": "match" if want[k] == got[k] else "mismatch",
+                        "detail": f"{k}: expected {want[k]}, serve reports {got[k]}"})
+    wq, gq = _quant_method(want), _quant_method(got)
+    if wq is not None or gq is not None:
+        nq = lambda x: re.sub(r"[^a-z0-9]", "", (x or "").lower())   # tolerate encoding noise (fp4/_/-)
+        out.append({"name": "quant_method", "status": "match" if nq(wq) == nq(gq) else "mismatch",
+                    "detail": f"quantization: expected {wq}, serve reports {gq}"})
+    return out
+
+
+def _compare_manifest(ref, model_ref, container, docker_host, is_gguf, local_dir):
+    """Weight-set identity, shard-boundary-INVARIANT. GGUF: the served file is one the repo publishes.
+    safetensors: the serve's TENSOR-NAME set (index weight_map KEYS — invariant to how the shards are
+    split) equals the HF-pulled reference's. Comparing tensor names, not shard FILENAMES, means a
+    bit-identical model re-sharded to a different max_shard_size is NOT falsely flagged, while a
+    genuinely different tensor set still is. Advisory ('unavailable') when there's no comparable index."""
+    if is_gguf:
+        served = os.path.basename(str(model_ref))
+        repo_gguf = {os.path.basename(n) for n in (ref.get("files") or {}) if n.lower().endswith(".gguf")}
+        inrepo = served in repo_gguf
+        return [{"name": "weight_file", "status": "match" if inrepo else "mismatch",
+                 "detail": (f"served GGUF {served} is published in {ref.get('repo')}" if inrepo
+                            else f"served GGUF {served} is NOT a file in {ref.get('repo')}")}]
+    serve_idx = _loads(_read_model_dir_file("model.safetensors.index.json", model_ref, container,
+                                            docker_host) or "")
+    ref_idx = _load_json(os.path.join(local_dir, "model.safetensors.index.json")) if local_dir else None
+    s_tensors = set((serve_idx or {}).get("weight_map", {}).keys())
+    r_tensors = set((ref_idx or {}).get("weight_map", {}).keys())
+    if s_tensors and r_tensors:
+        missing, extra = r_tensors - s_tensors, s_tensors - r_tensors
+        ok = not missing and not extra
+        return [{"name": "weight_tensors", "status": "match" if ok else "mismatch",
+                 "detail": (f"tensor set matches {ref.get('repo')} ({len(s_tensors)} tensors)" if ok
+                            else f"tensor set differs from {ref.get('repo')} "
+                                 f"(missing {len(missing)}, unexpected {len(extra)})")}]
+    return [{"name": "weight_manifest", "status": "unavailable",
+             "detail": "no comparable safetensors index (shard-boundary-tolerant check skipped)"}]
+
+
+def _parse_sha256sum(out):
+    """Parse `sha256sum` stdout ('<hex>  <path>' per line) -> {path_as_echoed: hexdigest}. Keyed by
+    the FULL path (never basename), so two files sharing a basename in different dirs stay distinct."""
+    res = {}
+    for line in (out or "").splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and len(parts[0]) == 64 and all(c in "0123456789abcdef" for c in parts[0].lower()):
+            res[parts[1].strip().lstrip("*")] = parts[0]
+    return res
+
+
+def _container_hash(container_name, paths, docker_host):
+    """sha256 files INSIDE the running container (`docker exec … sha256sum …`) — the most faithful
+    'what is actually running' read, at the serve's own --model path in its mount namespace. Remote
+    via ssh, local via docker. {path_as_echoed: hexdigest} (keyed by full path); {} on any failure."""
+    if not (container_name and paths):
+        return {}
+    argv = ["docker", "exec", container_name, "sha256sum"] + list(paths)
+    if docker_host:
+        return _parse_sha256sum(_ssh_capture(docker_host, argv, timeout=3600))
+    try:                                                 # pragma: no cover — real docker
+        return _parse_sha256sum(subprocess.run(argv, capture_output=True, text=True,
+                                               timeout=3600).stdout)
+    except Exception:
+        return {}
+
+
+def _deep_hash(per_file, model_ref, container, docker_host, weights_hash):
+    """Recompute the bundle's weights_hash from the SERVED weight files and require it to match.
+
+    `per_file` = {rel_path: sha256} is EXACTLY what modelhost.verify() hashed for this bundle (the
+    pod's HF-verified pull) and is what `weights_hash` was computed over. Hashing the running
+    container's files at those same rel paths and rebuilding the same manifest reproduces
+    `weights_hash` IFF the served weight set is bit-identical to the verified one. Keying by full rel
+    path avoids basename collapse across sub-dirs; recomputing the aggregate hash needs no separate
+    completeness gate (a missing or altered file changes the result); and it is inherently narrowed to
+    the served artifact for a single-quant GGUF (per_file holds only that file). Returns {check, verified}."""
+    want = {rel: s for rel, s in (per_file or {}).items() if s}
+    if not (want and weights_hash):
+        return {"check": {"name": "weight_sha256", "status": "unavailable",
+                          "detail": "no per-file hashes to recompute the weights_hash from"},
+                "verified": False}
+    mr = str(model_ref)
+    is_file = mr.lower().endswith((".gguf", ".safetensors", ".bin", ".pt", ".pth", ".npz"))
+    base = (mr.rsplit("/", 1)[0] if ("/" in mr and is_file) else mr).rstrip("/")
+    got = {}                                             # rel -> digest
+    cpaths = {base + "/" + rel: rel for rel in want}     # container path -> rel key
+    raw = _container_hash(container.get("name"), list(cpaths), docker_host)
+    for p, rel in cpaths.items():
+        if p in raw:
+            got[rel] = raw[p]
+    if not got:                                          # docker exec unavailable -> pod/host read
+        ld = _model_dir_local(model_ref, container)
+        if ld:
+            for rel in want:
+                p = os.path.join(ld, *rel.split("/"))
+                if os.path.exists(p):
+                    try:
+                        got[rel] = _sha256_file(p)
+                    except Exception:
+                        pass
+        elif docker_host:
+            rd = _model_dir_remote(model_ref, container)
+            if rd:
+                hpaths = {rd + "/" + rel: rel for rel in want}
+                raw = _parse_sha256sum(
+                    _ssh_capture(docker_host, ["sha256sum"] + list(hpaths), timeout=3600))
+                for p, rel in hpaths.items():
+                    if p in raw:
+                        got[rel] = raw[p]
+    if not got:
+        return {"check": {"name": "weight_sha256", "status": "unavailable",
+                          "detail": "could not read the served weight files to hash them"},
+                "verified": False}
+    bad = [rel for rel in want if rel in got and got[rel] != want[rel]]
+    complete = set(got) >= set(want)
+    served_wh = None
+    if complete and not bad:
+        manifest = ";".join(f"{rel}:{got[rel]}" for rel in sorted(want))
+        served_wh = hashlib.sha256(manifest.encode()).hexdigest()
+    verified = bool(served_wh and served_wh == weights_hash)
+    if verified:
+        status, detail = "match", f"all {len(want)} served weight files reproduce the verified weights_hash"
+    elif bad:
+        status, detail = "mismatch", f"{len(bad)} served weight file(s) do NOT match HF's published sha256"
+    elif not complete:
+        status, detail = ("unavailable",
+                          f"only {len(got)}/{len(want)} served weight files could be hashed (incomplete)")
+    else:
+        status, detail = "mismatch", "served weight set did not reproduce the bundle's weights_hash"
+    return {"check": {"name": "weight_sha256", "status": status, "detail": detail}, "verified": verified}
+
+
+def serving_integrity(serve_url, served_ids, *, ref, local_dir, runner=None,
+                      docker_host=None, deep=False, weights_hash=None, per_file=None):
+    """Confirm the running serve is actually serving `ref` (the HF repo the bench names) by comparing
+    the backing container's on-disk model to the HF-verified reference. GPU-free. See the section
+    header for the trust boundary. Returns an evidence dict:
+        {status: 'match'|'mismatch'|'unavailable', ok: bool|None, checks: [...], summary, method,
+         weights_verified: bool, weights_hash: <echoed when weights_verified>}
+    `weights_verified` is True only when `deep` ran and EVERY served weight file sha256-matched HF;
+    that (tied to `weights_hash`) is what the mothership's endpoint_verified attestation rides on.
+    Never raises."""
+    try:
+        host = (serve_url or "").split("//", 1)[-1].split("/", 1)[0]
+        port = None
+        if ":" in host:
+            pp = host.rsplit(":", 1)[1]
+            port = int(pp) if pp.isdigit() else None
+        if host.split(":")[0] not in _LOCAL_HOSTS and not (docker_host or runner):
+            return {"status": "unavailable", "ok": None, "checks": [], "method": "none",
+                    "summary": "serving host not inspectable (authorize a docker/ssh host to check it)"}
+        c = _match_container(port, served_ids, _docker_serves(runner=runner, docker_host=docker_host))
+        if not c:
+            return {"status": "unavailable", "ok": None, "checks": [], "method": "none",
+                    "summary": "no backing container matched the endpoint (bare-metal serve?)"}
+        model_ref = _model_ref_from_container(c)
+        if not model_ref:
+            return {"status": "unavailable", "ok": None, "checks": [], "method": "docker-inspect",
+                    "container": c.get("name"),
+                    "summary": "the container exposes no --model reference to check"}
+        is_gguf = str(model_ref).lower().endswith(".gguf")
+        checks = []
+        if not is_gguf:
+            want_cfg = _load_json(os.path.join(local_dir, "config.json")) if local_dir else None
+            got_txt = _read_model_dir_file("config.json", model_ref, c, docker_host)
+            got_cfg = _loads(got_txt) if got_txt else None
+            if want_cfg and got_cfg:
+                checks += _compare_config(want_cfg, got_cfg)
+            elif want_cfg:
+                checks.append({"name": "config.json", "status": "unavailable",
+                               "detail": "could not read the serve's config.json"})
+        checks += _compare_manifest(ref, model_ref, c, docker_host, is_gguf, local_dir)
+        weights_verified = False
+        if deep:
+            dh = _deep_hash(per_file, model_ref, c, docker_host, weights_hash)
+            checks.append(dh["check"])
+            weights_verified = bool(dh.get("verified"))
+        real = [x for x in checks if x["status"] in ("match", "mismatch")]
+        mism = [x for x in checks if x["status"] == "mismatch"]
+        if not real:
+            return {"status": "unavailable", "ok": None, "checks": checks, "method": "docker-inspect",
+                    "container": c.get("name"), "weights_verified": False,
+                    "summary": "backing container found, but its model was not inspectable for identity"}
+        ok = not mism
+        repo = ref.get("repo")
+        summary = (f"confirmed serving {repo} — {len(real)} identity checks matched"
+                   + (" (weights sha256-verified)" if weights_verified else "") if ok
+                   else "SERVE MISMATCH — " + "; ".join(x["detail"] for x in mism[:3]))
+        out = {"status": "match" if ok else "mismatch", "ok": ok, "checks": checks,
+               "container": c.get("name"), "model_ref": model_ref,
+               "weights_verified": weights_verified,
+               "method": "config+manifest" + ("+sha256" if deep else ""), "summary": summary}
+        if ok and weights_verified and weights_hash:      # ties the verification to THIS bundle's weights
+            out["weights_hash"] = weights_hash
+        return out
+    except Exception as e:
+        return {"status": "unavailable", "ok": None, "checks": [], "method": "none",
+                "summary": f"serving-integrity check error ({e})"}
 
 
 def scan(hosts=None, ports=None, *, transport=None, timeout=2, docker_runner=None, docker_host=None):

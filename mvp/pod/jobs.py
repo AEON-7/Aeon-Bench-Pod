@@ -633,7 +633,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
                     local_dir=None, engine_image=None, serve_url=None, serve_flags=None,
                     drafter_hf=None, max_tokens=None, pause_all=None, restore_paused=None,
                     arena_per_kind=None, serve_cmd=None, temperature=None, modalities=None,
-                    spark_nodes=None, verify_endpoint=None, endpoint_model=None, remote_host=None):
+                    spark_nodes=None, verify_endpoint=None, endpoint_model=None, remote_host=None,
+                    deep_verify=None):
     """Flow B — verified HF run: pull -> integrity-verify -> serve -> bench -> submit ATTESTED.
     Uses the host-configured launcher (AEON_VERIFIED_CMD, e.g. DGX docker+DFlash) when present,
     else the builtin single-process controlled flow (needs a serve engine on PATH).
@@ -662,7 +663,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             "arena_per_kind": arena_per_kind, "serve_cmd": serve_cmd,
             "temperature": temperature, "modalities": modalities,
             "spark_nodes": spark_nodes, "verify_endpoint": verify_endpoint,
-            "endpoint_model": endpoint_model, "remote_host": remote_host})
+            "endpoint_model": endpoint_model, "remote_host": remote_host,
+            "deep_verify": deep_verify})
     except Exception:
         pass
     extra = {}
@@ -704,6 +706,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             extra["AEON_SPARK_NODES"] = str(spark_nodes)
         if verify_endpoint:                     # logprob-fingerprint the endpoint vs verified weights
             extra["AEON_VERIFY_ENDPOINT"] = "1"
+        if deep_verify:                         # sha256 the RUNNING container's weights vs HF
+            extra["AEON_DEEP_VERIFY"] = "1"
     else:                                       # builtin: run_controlled (derive_recipe / generic vllm)
         argv = [sys.executable, "-m", "pod.aeon_pod", "--hf-link", hf_link, "--mothership", MOTHERSHIP]
         if preset:                              # resolved to the underlying knobs in aeon_pod.main()
@@ -746,6 +750,8 @@ def submit_verified(hf_link, *, difficulty=None, category=None, preset=None,
             argv += ["--spark-nodes", str(spark_nodes)]
         if verify_endpoint:                     # fingerprint the serve_url endpoint vs verified weights
             argv += ["--verify-endpoint"]
+        if deep_verify:                         # sha256 the RUNNING container's weights vs HF
+            argv += ["--deep-verify"]
         if HARDWARE:
             argv += ["--hardware", HARDWARE]
         if port:

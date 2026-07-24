@@ -50,6 +50,27 @@ override the auto-detected vision/audio/video capabilities; **⟲ RESUME** for i
 runs; and **⬆ SUBMIT TO MOTHERSHIP** for completed results the mothership hasn't received
 (idempotent — a duplicate submit can never land twice, `pod/pending.py`).
 
+### ◉ Point at a running model (the easy attested path)
+
+Already serving a model? Don't re-download or re-serve it — **⌕ Scan for running instances**
+finds live OpenAI-compatible servers (vLLM / SGLang / TGI / llama.cpp / Ollama / LM Studio),
+autodetects each one's HF repo, and benches it **in place**. The pod hash-verifies those weights
+against Hugging Face and binds the live endpoint to them, so the run still earns **attested**:
+
+| Pod has… | Binding | Method |
+|---|---|---|
+| a GPU | logprob-fingerprints the endpoint against the verified weights | `endpoint_fingerprint` (cheater-resistant) |
+| **no GPU** | sha256s the **running container's** weight files against HF — no second model load | `endpoint_verified` (host-asserted) |
+
+So a laptop-class pod can bench a model running on your workstation and still rank. Before the
+bench, a GPU-free **serving-integrity** check (config + weight manifest) **halts** the run if the
+endpoint isn't serving the model you named — the guard against "wrong instance / wrong quant".
+
+**Serving on another machine?** Add the ssh destination (`--remote-host user@host`, or the
+**Serving machine** field) after authorizing the pod's key there — the pod probes *that* host's
+hardware so the result is filed under the right rig. Full walkthrough:
+[`docs/remote-endpoint-bench.md`](../docs/remote-endpoint-bench.md); agent runbook: `AGENTS.md` §4(a).
+
 ## The suite (`aeon/suite.py`)
 
 11 cases across **Math, Instruction-following, Reasoning, Coding, Prose**.

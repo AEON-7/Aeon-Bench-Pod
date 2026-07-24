@@ -82,10 +82,15 @@ This is the part to get right; it is what makes the result trustworthy and ranka
 1. **Already running? Point at the serve — PREFER THIS.** Call `aeon_pod_scan_endpoints`. It finds
    live OpenAI-compatible servers and **autodetects each served model's HF repo** (`hf_guess`).
    Then call `aeon_pod_run` with `hf_link` (that repo) + `serve_url` (the endpoint) +
-   `verify_endpoint: true`. The pod hash-verifies those weights against HF **and
-   logprob-fingerprints the live endpoint against them** — a match earns **attested**. It never
-   downloads, never re-serves, and **leaves a production endpoint running**. Fastest path to a
-   ranked result.
+   `verify_endpoint: true`. The pod hash-verifies those weights against HF **and binds the live
+   endpoint to them** — a match earns **attested**. It never downloads, never re-serves, and
+   **leaves a production endpoint running**. Fastest path to a ranked result.
+   *The binding is automatic and needs no GPU:* with a local GPU the pod logprob-fingerprints the
+   endpoint (`endpoint_fingerprint`, cheater-resistant); with **no GPU** it sha256s the **running
+   container's** weight files against HF over ssh (`endpoint_verified`, host-asserted, no second
+   model load). So a GPU-less pod can still earn attested — this is the easy way to bench a model
+   already running on the user's own machine. `deep_verify: true` forces the hash check either way.
+   A pre-bench serving-integrity check **halts** the run if the endpoint isn't serving the named model.
    *On ANOTHER machine?* Get this pod's key with `aeon_pod_ssh_key`, have your human authorize it
    on the serving host, then pass `remote=user@host` to `aeon_pod_scan_endpoints` and the same
    `remote_host=user@host` to `aeon_pod_run`. The pod probes THAT host's hardware over ssh (so the

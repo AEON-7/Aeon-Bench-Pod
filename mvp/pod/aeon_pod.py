@@ -1107,7 +1107,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
                    perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
                    resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False,
-                   endpoint_model=None, remote_host=None):
+                   endpoint_model=None, remote_host=None, deep_verify=False):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -1422,6 +1422,41 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                 print("[pod] live serve recipe not capturable (remote endpoint or docker "
                       "unavailable) — recording serve_url + verified weights only")
 
+        # SERVING-INTEGRITY (GPU-free reliability guard): before benching a serve the pod did NOT
+        # launch, confirm it is actually serving THESE weights — comparing the backing container's
+        # config.json + weight manifest (locally, or over the same ssh channel for a remote serve)
+        # to the HF-verified reference. Catches the common ACCIDENTS: pointed at the wrong instance,
+        # wrong size/quant, stale weights. A clear structural MISMATCH HALTS the run — we refuse to
+        # bench a model that isn't the one named. This is a safety check, NOT the ranked-attestation
+        # gate (that stays the behavioral fingerprint); an honest operator passes, and a pass never
+        # upgrades trust on its own. `--deep-verify` additionally sha256s the served weight files.
+        serving_check = None
+        if serve_url:
+            try:
+                from pod import endpoints as _ep2
+                serving_check = _ep2.serving_integrity(
+                    serve_url, ids, ref=ref, local_dir=local_dir,
+                    docker_host=(f"ssh://{remote_host}" if remote_host else None),
+                    deep=deep_verify, weights_hash=ver["weights_hash"], per_file=ver["per_file"])
+                _si = serving_check or {}
+                if _si.get("status") == "mismatch":
+                    for _c in _si.get("checks", []):
+                        if _c.get("status") == "mismatch":
+                            print("       ✗ " + _c.get("detail", _c.get("name", "")))
+                    raise SystemExit(
+                        "[pod] SERVING-INTEGRITY: refusing to bench — the endpoint is NOT serving the "
+                        "model you named (" + _si.get("summary", "serve mismatch") + "). Re-check the "
+                        "serve URL / --endpoint-model, or the HF link.")
+                if _si.get("status") == "match":
+                    print(f"[pod] serving-integrity: ✓ {_si.get('summary')}")
+                else:
+                    print(f"[pod] serving-integrity: {_si.get('summary', 'not inspectable')} "
+                          "(proceeding; identity then rests on the fingerprint / verified weights)")
+            except SystemExit:
+                raise
+            except Exception as _e:
+                print(f"[pod] serving-integrity check skipped ({_e})")
+
         # Content-address the engine now that the image is guaranteed local. Weights are
         # already hash-verified; this pins the OTHER half of the recipe — which code served
         # the run — so provenance names it forever when Docker can resolve it.
@@ -1457,9 +1492,33 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                                                ref_source="pod-local-weights")
                     print(f"[pod] endpoint fingerprint: {cmp['status']} — {cmp['reason']}")
                 else:
-                    print("[pod] endpoint fingerprint: reference unavailable (weights not loadable "
-                          "for a canary capture) — the run CANNOT prove this endpoint serves these "
-                          "weights, so it will record as self_reported")
+                    # No local GPU to compute a behavioral reference. Fall back to CONTAINER-HASH
+                    # verification (no second model load): hash the RUNNING container's weight files
+                    # against HF over ssh. A COMPLETE match attests the serve is running HF-verified
+                    # weights (method: endpoint_verified — host-attested, see ingest._trust_tier).
+                    print("[pod] no local GPU for a behavioral fingerprint — verifying the RUNNING "
+                          "container's weights against HF instead (no second load)…")
+                    from pod import endpoints as _ep2
+                    if not (serving_check and serving_check.get("weights_verified")):
+                        serving_check = _ep2.serving_integrity(
+                            serve_url, ids, ref=ref, local_dir=local_dir,
+                            docker_host=(f"ssh://{remote_host}" if remote_host else None),
+                            deep=True, weights_hash=ver["weights_hash"], per_file=ver["per_file"])
+                    if (serving_check or {}).get("status") == "mismatch":
+                        # the deep read newly found the served weights don't match HF — halt, same as
+                        # the config/manifest safety gate would for a wrong model.
+                        for _c in serving_check.get("checks", []):
+                            if _c.get("status") == "mismatch":
+                                print("       ✗ " + _c.get("detail", _c.get("name", "")))
+                        raise SystemExit(
+                            "[pod] SERVING-INTEGRITY: refusing to bench — the running container's "
+                            "weights do NOT match HF (" + serving_check.get("summary", "mismatch") + ").")
+                    if serving_check and serving_check.get("weights_verified"):
+                        print(f"[pod] container-hash verification: ✓ {serving_check.get('summary')} "
+                              "→ attested (endpoint_verified)")
+                    else:
+                        print("[pod] container-hash verification unavailable — the run CANNOT prove "
+                              "this endpoint serves these weights, so it records as self_reported")
             except Exception as e:
                 print(f"[pod] endpoint fingerprint skipped ({e}) — the run will record as self_reported")
         deployment_manifest = {
@@ -1468,6 +1527,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                                                  "revision", "n_weight_files", "lfs_checked")},
             "served_model_check": {"endpoint": target, "served": ids, "alias_present": served_ok},
             "endpoint_fingerprint": endpoint_fp,
+            "serving_integrity": serving_check,
             "hf": {"repo": repo, "revision": ver["revision"]},
             "hardware": hw_profile,
         }
@@ -1480,6 +1540,8 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                           deployment_manifest=deployment_manifest, bench_seed=bench_seed)
         if endpoint_fp:                          # rides the bundle top-level -> ingest._trust_tier
             provenance["endpoint_fingerprint"] = endpoint_fp
+        if serving_check:                        # container-hash verification -> endpoint_verified tier
+            provenance["serving_integrity"] = serving_check
         pod = Pod(mothership, key_path or DEFAULT_KEY)
         job_ctx = _job_ctx(repo, env["hardware"], started=job_started)   # -> per-bundle job_sig
 
@@ -1635,6 +1697,11 @@ def main():
         help="LOGPROB-FINGERPRINT the --serve-url endpoint against the hash-verified weights (proves "
         "the running serve really serves those weights). A match earns attested; a mismatch drops to "
         "self_reported.")
+    ap.add_argument("--deep-verify", action="store_true",
+        default=os.environ.get("AEON_DEEP_VERIFY") == "1",
+        help="serving-integrity: additionally sha256 the SERVED weight files (over ssh for a remote "
+        "serve) against HF's published per-file hashes. Reads every shard on the serving host, so it "
+        "is slow — the default config+manifest check already catches wrong-model/size/quant accidents.")
     ap.add_argument("--engine-image", default=os.environ.get("AEON_ENGINE_IMAGE"),
         help="custom container image for the chosen --engine (recorded with the run)")
     ap.add_argument("--serve-flags", default=None, help="JSON list of serve-flag overrides for the "
@@ -1822,7 +1889,7 @@ def main():
             perf=a.perf, perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena,
             harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit,
             spark_nodes=a.spark_nodes, verify_endpoint=a.verify_endpoint,
-            endpoint_model=a.endpoint_model, remote_host=a.remote_host)
+            endpoint_model=a.endpoint_model, remote_host=a.remote_host, deep_verify=a.deep_verify)
     elif a.frontier_id:
         st, _ = run_pod("frontier://" + a.frontier_id, a.frontier_id, a.mothership,
                         api_key=a.api_key, engine="frontier-api", hardware=a.hardware,

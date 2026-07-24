@@ -1747,6 +1747,9 @@ class PodVerifiedRunBody(BaseModel):
                                          # a list = explicit vision/audio/video toggles ([] = all off)
     spark_nodes: int | None = None      # multi-Spark CLUSTER size (declared) -> 2×/3×/4× DGX Spark bucket
     verify_endpoint: bool | None = None  # logprob-fingerprint a --serve-url endpoint vs the verified weights
+    deep_verify: bool | None = None     # sha256 the RUNNING container's weight files vs HF (no second
+                                        # model load) -> earns attested via 'endpoint_verified'. Auto
+                                        # when verify_endpoint finds no local GPU for a fingerprint.
 
 
 def _clamp_conc(v):
@@ -1880,7 +1883,7 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
                      if body.temperature is not None else None),
         modalities=_clean_modalities(body.modalities),
         spark_nodes=(min(16, max(2, int(body.spark_nodes))) if body.spark_nodes else None),
-        verify_endpoint=bool(body.verify_endpoint),
+        verify_endpoint=bool(body.verify_endpoint), deep_verify=bool(body.deep_verify),
         endpoint_model=((body.endpoint_model or "").strip() or None),
         remote_host=((body.remote_host or "").strip() or None))
     return {"job_id": jid}

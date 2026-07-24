@@ -311,7 +311,7 @@
                 <button type="button" class="ghost ep-ssh-copy" data-os="linux">copy</button></div>
               <div class="note ep-ssh-key" id="veSshKeyNote"></div>
             </div>
-            <label class="verify-ep" title="logprob-fingerprint the serve URL against the hash-verified weights — proves the running serve really serves those weights. Match → attested; mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint) — required to rank the run</label>
+            <label class="verify-ep" title="Prove the running serve really serves the hash-verified weights — required to rank. With a GPU: logprob-fingerprints the endpoint against the weights (endpoint_fingerprint). With NO GPU: sha256s the running container's weight files against Hugging Face over ssh instead (endpoint_verified, no second model load) — so a GPU-less pod can still rank. Mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint, or container hash if no GPU) — required to rank the run</label>
             <div class="row adv">
               <label>Spark cluster nodes <span class="note">(multi-node serve)</span><input id="sparkNodes" type="number" min="2" max="16" step="1" placeholder="single" title="multi-node DGX Spark serve: the pod sees only its own node — declare the cluster size so the run lands in the 2×/3×/4× DGX Spark bucket (operator-declared)" /></label>
             </div>

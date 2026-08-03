@@ -133,9 +133,12 @@ recipe — locally, or over SSH for a remote serve — and comparing to the HF-v
 
 1. **config.json** — architecture, layer count, hidden size, vocab, quant method vs the HF config.
 2. **weight manifest** — the served safetensors shard set (or the single GGUF) vs the HF file set.
-3. **`--deep-verify` (opt-in)** — sha256 of the **served weight files** vs HF's published per-file
-   hashes. This reads every shard on the serving host (slow over SSH), so it's off by default; the
-   config + manifest check already catches wrong-model / wrong-size / wrong-quant.
+3. **Weight sha256 — ON BY DEFAULT for endpoint runs.** The served weight files are hashed against
+   HF's published per-file hashes and must reproduce the run's `weights_hash`. This is what earns
+   **attested** on a pod with no GPU, and it is not really optional: a mothership running
+   `AEON_ATTESTED_ONLY` (the public one does) **refuses** anything that would land `self_reported`,
+   so skipping it means the bench runs for hours and the submission is discarded. `--no-deep-verify`
+   opts out for a deliberately local-only run.
 
 A clear structural **mismatch HALTS the run** — the pod refuses to benchmark a model that isn't the
 one you named, and tells you exactly which field differed. A match prints a green confirmation.

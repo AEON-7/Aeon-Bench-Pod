@@ -1107,7 +1107,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
                    perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
                    resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False,
-                   endpoint_model=None, remote_host=None, deep_verify=False):
+                   endpoint_model=None, remote_host=None, deep_verify=None):
     """Controlled A→B — the ONLY path to a globally-ranked (attested) result:
       pull from HF → hash-verify against HF → serve the verified weights under the harness alias
       → benchmark the served endpoint → run the agentic suite through each harness → sign + submit
@@ -1432,12 +1432,19 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         # upgrades trust on its own. `--deep-verify` additionally sha256s the served weight files.
         serving_check = None
         if serve_url:
+            # HASH-VALIDATE BY DEFAULT on every endpoint run. This is what earns 'attested' when the
+            # pod has no GPU for a behavioral fingerprint, and it is NOT optional in practice: the
+            # public mothership runs AEON_ATTESTED_ONLY, so a bundle that would land self_reported is
+            # REFUSED outright (403) and stored nowhere. Leaving the hash behind an opt-in flag meant
+            # an operator could point at their own running model, bench it for hours, and have the
+            # submission silently discarded. `--no-deep-verify` opts out (local-only runs).
+            _deep = bool(serve_url) if deep_verify is None else bool(deep_verify)
             try:
                 from pod import endpoints as _ep2
                 serving_check = _ep2.serving_integrity(
                     serve_url, ids, ref=ref, local_dir=local_dir,
                     docker_host=(f"ssh://{remote_host}" if remote_host else None),
-                    deep=deep_verify, weights_hash=ver["weights_hash"], per_file=ver["per_file"])
+                    deep=_deep, weights_hash=ver["weights_hash"], per_file=ver["per_file"])
                 _si = serving_check or {}
                 if _si.get("status") == "mismatch":
                     for _c in _si.get("checks", []):
@@ -1452,6 +1459,19 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                 else:
                     print(f"[pod] serving-integrity: {_si.get('summary', 'not inspectable')} "
                           "(proceeding; identity then rests on the fingerprint / verified weights)")
+                # SAY THE VERDICT UP FRONT. The public mothership refuses (403) anything that would
+                # not earn attested, so an unverified endpoint run benches for hours and is then
+                # thrown away. Nobody should discover that at the end.
+                if _si.get("weights_verified"):
+                    print("[pod] ✓ ATTESTED (endpoint_verified): the running container's weights "
+                          "sha256-match Hugging Face — this run can rank.")
+                elif _deep:
+                    print("[pod] ⚠ NOT ATTESTABLE: could not hash the running container's weights "
+                          f"({_si.get('summary', 'not inspectable')}).\n"
+                          "      Without a GPU fingerprint this run records as self_reported, and a "
+                          "mothership running AEON_ATTESTED_ONLY will REFUSE the submission.\n"
+                          "      Fix: give the pod docker/ssh access to the serving host "
+                          "(--remote-host user@host), or run the pod where it can load the weights.")
             except SystemExit:
                 raise
             except Exception as _e:
@@ -1697,11 +1717,15 @@ def main():
         help="LOGPROB-FINGERPRINT the --serve-url endpoint against the hash-verified weights (proves "
         "the running serve really serves those weights). A match earns attested; a mismatch drops to "
         "self_reported.")
-    ap.add_argument("--deep-verify", action="store_true",
-        default=os.environ.get("AEON_DEEP_VERIFY") == "1",
-        help="serving-integrity: additionally sha256 the SERVED weight files (over ssh for a remote "
-        "serve) against HF's published per-file hashes. Reads every shard on the serving host, so it "
-        "is slow — the default config+manifest check already catches wrong-model/size/quant accidents.")
+    ap.add_argument("--no-deep-verify", dest="deep_verify", action="store_false", default=None,
+        help="skip the container weight-hash on a --serve-url run. It is ON BY DEFAULT because it is "
+        "what earns 'attested' without a GPU, and a mothership running AEON_ATTESTED_ONLY REFUSES "
+        "anything less — use this only for a deliberately local-only run.")
+    ap.add_argument("--deep-verify", dest="deep_verify", action="store_true",
+        default=(True if os.environ.get("AEON_DEEP_VERIFY") == "1" else None),
+        help="sha256 the SERVED weight files (over ssh for a remote serve) against HF's published "
+        "per-file hashes. ON BY DEFAULT for --serve-url runs: a complete match earns attested via "
+        "'endpoint_verified', which is how a GPU-less pod ranks a model it did not launch.")
     ap.add_argument("--engine-image", default=os.environ.get("AEON_ENGINE_IMAGE"),
         help="custom container image for the chosen --engine (recorded with the run)")
     ap.add_argument("--serve-flags", default=None, help="JSON list of serve-flag overrides for the "

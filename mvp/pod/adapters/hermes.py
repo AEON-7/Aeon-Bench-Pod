@@ -35,7 +35,11 @@ import uuid
 
 from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
 
-IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes")
+# Published multi-arch by the pod repo's harness-images workflow, so ANY pod can pull it.
+# It used to default to the bare local name, which only existed on a rig that had built it
+# by hand — every other pod failed `docker create` and scored 0 on every agentic task.
+# Override with the env var to use a locally-built image instead.
+IMAGE = os.environ.get("AEON_HERMES_IMAGE", "ghcr.io/aeon-7/aeon-harness-hermes:latest")
 _API_KEY = "sk-local"
 _MAX_TURNS = int(os.environ.get("AEON_HERMES_MAX_TURNS", "8"))
 

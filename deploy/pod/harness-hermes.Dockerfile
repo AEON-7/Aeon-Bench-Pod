@@ -42,8 +42,13 @@ RUN git clone --depth 1 --branch "${HERMES_REF}" \
 WORKDIR /app
 
 # Install the harness + its deps. Prefer the repo's own metadata; fall back to requirements.txt.
-RUN if [ -f pyproject.toml ] || [ -f setup.py ]; then pip install .; \
-    elif [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+# `pip install .` FAILS here - hermes-agent's wheel build errors out ("Failed building wheel
+# for hermes-agent"). The image that actually works installs it EDITABLE via uv, which skips the
+# wheel build, plus the runtime deps its pyproject does not pull in. Verified against the running
+# aeon-harness-hermes image (hermes-agent 0.17.0).
+RUN pip install --no-cache-dir uv \
+    && uv pip install --system --no-cache -e "." \
+    && uv pip install --system --no-cache fire rich openai pyyaml tenacity httpx
 
 # The adapter runs `docker run --rm aeon-harness-hermes --version` for version disclosure and
 # passes Hermes' own flags (--query=…) for a task. `python /app/run_agent.py` receives those argv.

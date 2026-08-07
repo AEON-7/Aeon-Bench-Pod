@@ -13,7 +13,8 @@ FROM node:22-slim
 
 # TODO verify: confirm the published npm package name is `openclaw` and that this pinned version
 #   exists on the registry (registry.npmjs.org). harnesses.py declares package="openclaw".
-ARG OPENCLAW_VERSION=0.17.0
+# VERIFIED against the running image. Pin 0.17.0 did not build: 0.17.0 was hermes-agent's version pasted in error; openclaw uses CalVer.
+ARG OPENCLAW_VERSION=2026.6.11
 RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 
 # OpenClaw reads its OpenAI-compatible endpoint + model from ~/.openclaw/openclaw.json — NOT from

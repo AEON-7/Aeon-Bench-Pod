@@ -29,6 +29,21 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
 > the pod can spawn them. The pod runs on the **host network** and reaches the model (and the
 > host-net harness containers it spawns) on `127.0.0.1:${AEON_TARGET_PORT:-8000}`.
 
+> **We ship the Dockerfiles, not the images.** All three harnesses are third-party agents, so
+> nothing prebuilt is redistributed: the pod image carries `harness-*.Dockerfile` at `/app/harness`
+> and **builds each image on demand**, the first time a run needs it
+> (`mvp/pod/adapters/base.py` → `ensure_image`, called from each adapter's `prepare_run`). Every
+> operator's harness is therefore fetched from upstream on their own machine. Compose's
+> `harness-build-*` services are just the eager version of the same build. Where it builds follows
+> `DOCKER_HOST`: unset → this machine (correct both for a local model and for benching a remote
+> *endpoint* from here); `ssh://user@host` → that host, with the build context streamed over the
+> operator's own ssh. First build is a few minutes per harness, then cached.
+>
+> A failed build raises an `AdapterError` carrying the prerequisites, the exact `docker build`
+> command, and which machine it targeted — see AGENTS.md §2.7 for the preflight that catches this
+> before a run starts. An operator who already has an image can skip the build entirely with
+> `AEON_HERMES_IMAGE` / `AEON_OPENCLAW_IMAGE` / `AEON_OPENCODE_IMAGE`.
+
 | Key | Name | Repo | Deploy | Image (local build) | Version command |
 |---|---|---|---|---|---|
 | `hermes` | Hermes Agent | github.com/NousResearch/hermes-agent | docker | `aeon-harness-hermes` (harness-hermes.Dockerfile) | `hermes --version` |
@@ -43,8 +58,9 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
   (`--query=<prompt> --base_url=<url> --api_key=sk-local --model=<alias> --max_turns=8
   --save_sample`), mounting a `context_length:65536` config at `/root/.hermes/config.yaml` (Hermes
   refuses any served window <64K), then `docker cp`s `/work` back out and parses the ShareGPT sample.
-- **Version pin:** `AEON_HERMES_REF` (git ref, build arg `HERMES_REF`).
-  - `# TODO verify` a concrete release tag + that the source entry point is `run_agent.py`.
+- **Version pin:** `AEON_HERMES_REF` (git ref, build arg `HERMES_REF`, default `main`).
+  - Built with `uv` (`uv pip install --system -e .` + fire/rich/openai/pyyaml/tenacity/httpx) —
+    a plain `pip install .` does not resolve the harness's deps.
 
 ### openclaw — OpenClaw
 - **What it is:** an npm-distributed agent CLI (`harnesses.py`: `deploy="npm"`,
@@ -52,7 +68,8 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
 - **Driven by the pod:** `mvp/pod/adapters/openclaw.py` runs `docker run --rm --network host
   -v <home>:/root/.openclaw aeon-harness-openclaw agent --local --json --agent main -m "<prompt>"
   --model dgx/<alias>`, with the endpoint set in a generated `~/.openclaw/openclaw.json` (not env).
-- **Version pin:** `AEON_OPENCLAW_VERSION` (build arg `OPENCLAW_VERSION`).
+- **Version pin:** `AEON_OPENCLAW_VERSION` (build arg `OPENCLAW_VERSION`, default `2026.6.11`
+  — openclaw is CalVer, not semver; the old `0.17.0` pin never existed and never built).
 
 ### opencode — OpenCode
 - **What it is:** an npm-distributed agent CLI (`harnesses.py`: `deploy="npm"`,
@@ -60,7 +77,8 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
 - **Driven by the pod:** `mvp/pod/adapters/opencode.py` runs `docker run --rm --network host
   -v <workdir>:/work -w /work aeon-harness-opencode run --format json --auto -m dgx/<alias>
   "<prompt>"`, with the provider set in an `opencode.json` dropped into the workdir (not env).
-- **Version pin:** `AEON_OPENCODE_VERSION` (build arg `OPENCODE_VERSION`).
+- **Version pin:** `AEON_OPENCODE_VERSION` (build arg `OPENCODE_VERSION`, default `1.17.12`
+  — published as `opencode-ai`; the old `0.3.0` pin does not exist on npm).
 
 ---
 
@@ -230,6 +248,11 @@ vision/audio/perf). Every bundle carries its `job_sig`.
   never restored (the `paused.json` ledger — start only, never rm), and marks stranded `running`
   run rows `interrupted` (resumable). Every action prints `[pod][recover]` in
   `docker logs aeon-pod`.
+- **Harness images are built locally, never pulled from us:** the pod builds
+  `aeon-harness-{hermes,openclaw,opencode}` from the Dockerfiles it ships (see above), so the
+  bytes come from upstream + the operator's own machine. The trade-off is honest: the version
+  actually installed is whatever the pinned git ref / npm version resolves to at build time, and
+  that resolved string is what the report discloses as `harness_version`.
 - **Image digest provenance:** recipes record the engine image's digest identity
   (`image_digest` / `image_id` / `image_repo_digests`) even for `:latest` tags, so a result is
   reproducible against the exact bytes that served it, and the downloadable `serve.sh` / compose

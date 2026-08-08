@@ -44,6 +44,14 @@ RUN pip install -r /tmp/requirements.txt \
 
 # The whole control plane + dashboard (aeon.* + pod.* + web/ + suites/).
 COPY mvp/ /app/mvp/
+
+# The AGENTIC HARNESS recipes. We ship the Dockerfiles, not the images: the pod BUILDS each
+# harness on whatever machine it lands on, the first time a run needs it (pod/adapters/base.py
+# `ensure_image`). Nobody else's software gets redistributed inside this image, and the operator's
+# harness is fetched straight from upstream. They're self-contained (no COPY), so the build
+# context is just this directory.
+COPY deploy/pod/harness-*.Dockerfile /app/harness/
+
 WORKDIR /app/mvp
 
 # ~/.aeon (device key + pod.db) persists via a volume; /models holds pulled/validated weights.

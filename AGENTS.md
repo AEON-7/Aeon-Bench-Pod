@@ -24,9 +24,12 @@ validated.** Big/slow models take **hours** — that is normal, tell your human 
 
 The whole job, in eight moves:
 
-1. **Check prerequisites** — Docker running; on NVIDIA rigs the **NVIDIA Container Toolkit** so
-   `--gpus all` works. Without GPU access the pod misdetects a CPU-only box and the CUDA engines
-   vanish. *(Why: the platform detection drives which engines exist.)*
+1. **Check prerequisites — run the §2.7 preflight.** Docker running *and usable by the pod
+   through the mounted socket* (the pod BUILDS the agentic harness images on demand); outbound network to
+   the build sources; ~10 GB disk; on NVIDIA rigs the **NVIDIA Container Toolkit** so `--gpus all`
+   works. Without GPU access the pod misdetects a CPU-only box and the CUDA engines vanish; without
+   a usable docker socket every agentic task fails and the run can never rank. *(Why: platform
+   detection drives which engines exist, and agentic is 30% of the score.)*
 2. **Start the pod on the LATEST image — `docker pull` FIRST, every time.** One `docker run`, pick the
    platform variant (§2). **Always `docker pull ghcr.io/aeon-7/aeon-pod:latest` and recreate the
    container BEFORE queueing any jobs — even if a pod is already running** (see §2.4). *(Why: the
@@ -221,6 +224,77 @@ Only the `pipeline` profile requires `AEON_HF_LINK`. On a DGX Spark, swap the `m
 image for `ghcr.io/aeon-7/aeon-vllm-ultimate:latest` and set `AEON_SYSTEM=dgx-spark` (a commented
 block in the compose shows this). Override defaults by copying `deploy/pod/.env.example` →
 `deploy/pod/.env`. For the container one-liner, you almost never need a `.env`.
+
+---
+
+### 2.7 Environment preflight — run this BEFORE you launch
+
+*(Why: the agentic suite runs each task inside a harness container the pod builds on demand. If that
+build can't happen, every agentic task fails, agentic scores 0 — **30% of the AEON score** — and a
+run that took hours is incomplete and never ranks. Two minutes here saves the whole run.)*
+
+The pod does **not** ship prebuilt harness images. It carries the three Dockerfiles and builds
+`aeon-harness-{hermes,openclaw,opencode}` itself, the first time a run needs each one
+(`mvp/pod/adapters/base.py` → `ensure_image`). Upstream code is fetched from its own source on your
+machine; we redistribute nobody else's software. First build is a few minutes per harness and is
+cached forever after — so **the first benchmark on a new machine is the slow one**.
+
+Where it builds follows `DOCKER_HOST`, which is what makes remote runs work with no extra setup:
+
+| Run shape | `DOCKER_HOST` | Harness builds + runs on |
+|---|---|---|
+| Local model, local pod | unset (unix socket) | this machine |
+| Remote **endpoint**, benched from here | unset | this machine, pointed at the remote endpoint |
+| Remote host over ssh (`--remote-host`) | `ssh://user@host` | **that** host — docker streams the build context over your ssh |
+
+**Check all of this before launching:**
+
+```bash
+docker info                     # 1. daemon reachable, and reachable WITHOUT sudo
+docker run --rm hello-world     # 2. you can actually create containers
+df -h /var/lib/docker           # 3. ~10 GB free: 3 GB per harness image, plus the model
+curl -fsSI https://registry.npmjs.org/ >/dev/null && echo npm-ok      # 4. build sources reachable
+curl -fsSI https://pypi.org/simple/ >/dev/null && echo pypi-ok
+curl -fsSI https://github.com/ >/dev/null && echo github-ok
+nvidia-smi                      # 5. NVIDIA rigs only — plus the Container Toolkit for --gpus all
+```
+
+If you started the pod yourself, confirm it can reach the daemon at all — **the socket mount is not
+optional** for agentic:
+
+```bash
+docker exec aeon-pod docker info >/dev/null && echo "pod can drive docker"
+```
+
+Missing that mount (`-v /var/run/docker.sock:/var/run/docker.sock`) is the single most common cause
+of a 0 agentic score. Re-create the pod with it (§2.1) rather than running without.
+
+**Warm the harnesses up front** (optional, recommended — it moves the build cost out of the timed
+run and surfaces any problem now, while it's cheap to fix):
+
+```bash
+docker exec aeon-pod sh -c 'for h in hermes openclaw opencode; do \
+  docker build -f /app/harness/harness-$h.Dockerfile -t aeon-harness-$h:latest /app/harness; done'
+```
+
+Benching a remote host over ssh? Run the same checks **there** — `ssh <host> docker info` — since
+that is where the harnesses get built.
+
+**If a build fails**, the pod raises an error that already lists the prerequisites, the exact
+`docker build` command it tried, and which machine it tried it on. Read it to your human verbatim.
+The three causes, in order of frequency:
+
+1. **No docker socket / no permission** → mount the socket; `sudo usermod -aG docker "$USER" && newgrp docker`.
+2. **No outbound network** to `ghcr.io`/`docker.io`, `github.com`, `pypi.org`, `registry.npmjs.org`
+   → an air-gapped or proxied box needs those allowed, or a registry mirror configured.
+3. **Out of disk** → free space, or `docker system prune`.
+
+Already have a harness image built elsewhere? Point the pod at it instead of building — set
+`AEON_HERMES_IMAGE` / `AEON_OPENCLAW_IMAGE` / `AEON_OPENCODE_IMAGE` and `ensure_image` will use it
+as-is.
+
+**Do not launch a comprehensive run until this preflight passes.** If it can't be fixed, say so to
+your human before spending their hardware: tell them agentic will score 0 and the run will not rank.
 
 ---
 

@@ -1861,7 +1861,10 @@ def main():
         a.no_video = True
         if a.arena == 0:
             a.arena = 2                           # 2 god challenges per kind (draw pool = god tier)
-        a.perf = False
+        a.perf = True                         # run the perf grid too: a GOD MODE
+        # result is a rig+model claim, and throughput belongs to it. Was False, so no god run ever
+        # produced perf data and the god card had nothing to show. Display only — GOD SCORE stays
+        # 0.6 x sentinels + 0.4 x agentic.
 
     # EXPLICIT modality toggles (GUI chips / --modalities / AEON_MODALITIES) win over both the
     # preset and the --no-* flags: the listed modalities run, the rest are skipped. Absent =

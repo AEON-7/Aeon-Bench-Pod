@@ -41,6 +41,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
@@ -165,6 +166,7 @@ def _score_trajectory(case: dict, result: dict):
 def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
              scratch_root: str, default_timeout: int) -> dict:
     cid = case.get("id")
+    _t0 = time.monotonic()                       # so a failed task reports the time it really cost
     workdir = tempfile.mkdtemp(prefix=f"task_{agentic_v2._norm(cid)[:24]}_", dir=scratch_root)
     row = {"case_id": cid,
            "category": case.get("category", "Agentic"),
@@ -205,11 +207,20 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
                 except OSError:
                     pass
     except Exception as e:                       # NEVER aborts the batch
-        row.update(status="harness_error", score=0.0,
+        # score=None, NOT 0.0. The harness never ran this task, so there is nothing to score:
+        # a 0 is a claim that the model tried and failed, and it is indistinguishable from one.
+        # That is not hypothetical — a model whose harness images could not be pulled ranked on
+        # a fabricated agentic score built entirely out of `docker pull access denied` errors.
+        # NULL scores are already excluded everywhere a number is computed (db.py run/category
+        # means, scoring.harness_board, scoring._run_summary, the pod's own `hscored`), which is
+        # the same contract the vision/video/audio probes use for `na_capability`.
+        row.update(status="harness_error", score=None,
                    raw_output=json.dumps({"error": f"{type(e).__name__}: {e}"[:1000]}),
                    evidence=[{"criterion": "harness ran the task", "ok": False,
                               "detail": f"{type(e).__name__}: {e}"[:400]}],
-                   speed={"e2e_s": 0.0})
+                   # the real elapsed, not a hardcoded 0 — a task that burned its 180s timeout
+                   # was recorded as taking no time at all
+                   speed={"e2e_s": round(time.monotonic() - _t0, 3)})
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return row

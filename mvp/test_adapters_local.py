@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import traceback
 
 _MVP = os.path.dirname(os.path.abspath(__file__))
@@ -153,7 +154,7 @@ def test_openclaw_parser():
 def test_v2_perfect_and_sabotage():
     agentic_v2.self_check()                         # perfect==1.0 AND sabotage<1.0, every task
     assert len(agentic_v2.CASES) >= 10
-    assert agentic_v2.SUITE_ID == "aeon-agentic-v2.1"
+    assert agentic_v2.SUITE_ID.startswith("aeon-agentic-v2.")
     ids = agentic_v2.CASE_IDS
     assert len(set(ids)) == len(ids)
 
@@ -205,7 +206,7 @@ def test_run_agentic_v2_mock():
         assert r["status"] == "scored", r
         assert r["score"] == 1.0, (r["case_id"], r["evidence"])
         assert r["category"] == "Agentic" and r["tier"] == 0
-        assert r["suite_id"] == "aeon-agentic-v2.1"
+        assert r["suite_id"] == agentic_v2.SUITE_ID
         assert r["harness"] == "mock" and r["harness_version"] == "mock-0"
         assert isinstance(r["speed"]["e2e_s"], float)
         assert isinstance(r["evidence"], list) and r["evidence"]
@@ -215,10 +216,15 @@ def test_run_agentic_v2_mock():
 
 
 def test_run_agentic_v2_harness_error_isolated():
-    """A broken adapter task never aborts the batch -> harness_error rows, score 0."""
+    """A broken adapter task never aborts the batch -> harness_error rows, score None.
+
+    score is None and NOT 0.0 on purpose: the harness never ran the task, so there is nothing
+    to score. A 0 asserts the model tried and failed, which is a different (and false) claim -
+    and it is what let a model rank on an agentic score assembled from docker-pull errors."""
     class Boom(mock.MockAdapter):
         def run_task(self, task, *a, **k):
             if task["id"].endswith("01-compute-write"):
+                time.sleep(0.05)          # so the recorded elapsed is measurably non-zero
                 raise RuntimeError("container exploded")
             return super().run_task(task, *a, **k)
     adapters.ADAPTERS["_boom"] = Boom
@@ -229,8 +235,13 @@ def test_run_agentic_v2_harness_error_isolated():
         run_harness2._discover_cache.pop("_boom", None)
     bad = [r for r in rows if r["status"] == "harness_error"]
     good = [r for r in rows if r["status"] == "scored"]
-    assert len(bad) == 1 and bad[0]["score"] == 0.0 and bad[0]["case_id"] == "av2-01-compute-write"
+    assert len(bad) == 1 and bad[0]["case_id"] == "av2-01-compute-write"
+    assert bad[0]["score"] is None, "an untested task must not carry a score"
+    assert bad[0]["speed"]["e2e_s"] >= 0.05, "record the REAL elapsed, not a hardcoded 0"
     assert len(good) == len(rows) - 1 and all(r["score"] == 1.0 for r in good)
+    # the whole point: a NULL never reaches an average
+    scored = [r["score"] for r in rows if isinstance(r["score"], float)]
+    assert len(scored) == len(good) and sum(scored) / len(scored) == 1.0
 
 
 def test_registry_and_argv_shape():
@@ -238,6 +249,21 @@ def test_registry_and_argv_shape():
     for hid in ("hermes", "openclaw", "opencode", "mock"):
         a = adapters.get(hid)
         assert hasattr(a, "prepare_run") and hasattr(a, "cleanup_run") and hasattr(a, "run_task")
+    # prepare_run also provisions the harness IMAGE (adapters.base.ensure_image). This file
+    # asserts on the generated CONFIG and runs with no docker at all, so stub that out - the
+    # build path has its own coverage and does not belong in a config assertion.
+    _noop = lambda *a, **k: None
+    _saved = [(m, m.ensure_image) for m in (hermes, openclaw, opencode)]
+    for m, _ in _saved:
+        m.ensure_image = _noop
+    try:
+        _assert_prepare_run_configs()
+    finally:
+        for m, fn in _saved:
+            m.ensure_image = fn
+
+
+def _assert_prepare_run_configs():
     # prepare_run creates fresh per-model config/state and cleanup_run removes it
     with tempfile.TemporaryDirectory() as root:
         oc = adapters.get("opencode")

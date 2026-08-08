@@ -18,8 +18,9 @@
 # Hermes tool-calling gate). Keep it VANILLA — no tuned prompt/tool-docs/retry/max_steps — so the
 # model×harness comparison stays apples-to-apples (see AGENTS.md).
 #
-# On a DGX Spark this is built arm64. Pin the source with HERMES_REF so the disclosed version is
-# reproducible; bump deliberately — a harness update can move scores.
+# On a DGX Spark this is built arm64. HERMES_REF defaults to the default branch, i.e. the latest
+# source; set a tag or commit to reproduce an older result. Either way the version disclosed in the
+# report is read back out of the built container, not assumed from this arg.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
@@ -30,10 +31,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# TODO verify: confirm the repo URL + that HERMES_REF resolves, and that the installable entry
-#   point is `run_agent.py` at the repo root (harnesses.py only declares the GitHub repo; the
-#   adapter's contract is ENTRYPOINT `python /app/run_agent.py`). Pin HERMES_REF to a release
-#   tag/commit for a reproducible disclosed version.
+# VERIFIED: the repo clones, and `run_agent.py` sits at the repo root - that path is the adapter's
+# contract (ENTRYPOINT `python /app/run_agent.py`). HERMES_REF takes a branch, tag, or commit.
 ARG HERMES_REF=main
 RUN git clone --depth 1 --branch "${HERMES_REF}" \
         https://github.com/NousResearch/hermes-agent.git /app \
@@ -45,10 +44,15 @@ WORKDIR /app
 # `pip install .` FAILS here - hermes-agent's wheel build errors out ("Failed building wheel
 # for hermes-agent"). The image that actually works installs it EDITABLE via uv, which skips the
 # wheel build, plus the runtime deps its pyproject does not pull in. Verified against the running
-# aeon-harness-hermes image (hermes-agent 0.17.0).
+# aeon-harness-hermes image.
 RUN pip install --no-cache-dir uv \
     && uv pip install --system --no-cache -e "." \
     && uv pip install --system --no-cache fire rich openai pyyaml tenacity httpx
+
+# GATE: the build must fail if the entrypoint or its deps are broken. Tracking the default
+# branch means upstream can change its dependencies under us, and a harness that installs but
+# won't start scores 0 on every agentic task with no error anywhere.
+RUN python -c "import fire, openai, tenacity, yaml, httpx" && test -f /app/run_agent.py
 
 # The adapter runs `docker run --rm aeon-harness-hermes --version` for version disclosure and
 # passes Hermes' own flags (--query=…) for a task. `python /app/run_agent.py` receives those argv.

@@ -58,7 +58,8 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
   (`--query=<prompt> --base_url=<url> --api_key=sk-local --model=<alias> --max_turns=8
   --save_sample`), mounting a `context_length:65536` config at `/root/.hermes/config.yaml` (Hermes
   refuses any served window <64K), then `docker cp`s `/work` back out and parses the ShareGPT sample.
-- **Version pin:** `AEON_HERMES_REF` (git ref, build arg `HERMES_REF`, default `main`).
+- **Version:** tracks the default branch (latest). `AEON_HERMES_REF` (build arg `HERMES_REF`)
+  takes a tag or commit to pin.
   - Built with `uv` (`uv pip install --system -e .` + fire/rich/openai/pyyaml/tenacity/httpx) —
     a plain `pip install .` does not resolve the harness's deps.
 
@@ -68,8 +69,8 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
 - **Driven by the pod:** `mvp/pod/adapters/openclaw.py` runs `docker run --rm --network host
   -v <home>:/root/.openclaw aeon-harness-openclaw agent --local --json --agent main -m "<prompt>"
   --model dgx/<alias>`, with the endpoint set in a generated `~/.openclaw/openclaw.json` (not env).
-- **Version pin:** `AEON_OPENCLAW_VERSION` (build arg `OPENCLAW_VERSION`, default `2026.6.11`
-  — openclaw is CalVer, not semver; the old `0.17.0` pin never existed and never built).
+- **Version:** tracks `openclaw@latest`. `AEON_OPENCLAW_VERSION` (build arg `OPENCLAW_VERSION`)
+  pins it — openclaw is **CalVer** (`2026.7.1-2`), not semver, so don't reason about it as `0.x`.
 
 ### opencode — OpenCode
 - **What it is:** an npm-distributed agent CLI (`harnesses.py`: `deploy="npm"`,
@@ -77,8 +78,8 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
 - **Driven by the pod:** `mvp/pod/adapters/opencode.py` runs `docker run --rm --network host
   -v <workdir>:/work -w /work aeon-harness-opencode run --format json --auto -m dgx/<alias>
   "<prompt>"`, with the provider set in an `opencode.json` dropped into the workdir (not env).
-- **Version pin:** `AEON_OPENCODE_VERSION` (build arg `OPENCODE_VERSION`, default `1.17.12`
-  — published as `opencode-ai`; the old `0.3.0` pin does not exist on npm).
+- **Version:** tracks `opencode-ai@latest`. `AEON_OPENCODE_VERSION` (build arg
+  `OPENCODE_VERSION`) pins it. The npm package is `opencode-ai`; the CLI binary is `opencode`.
 
 ---
 
@@ -93,9 +94,19 @@ All three are pointed at the pod's served alias **`model-under-test`** (`modelho
 - `disclose(harness, pin)` — emits the `{harness, harness_name, harness_repo, harness_version}`
   record that travels **with** the benchmark.
 
-Because version capture prefers an explicit pin, the values you set in `.env`
-(`AEON_HERMES_REF` git ref, `AEON_OPENCLAW_VERSION`, `AEON_OPENCODE_VERSION`) are exactly what
-gets disclosed — pin them deliberately and they reproduce.
+**Careful — two different version paths, and only one of them runs for docker harnesses:**
+
+- `harnesses.resolve_version(harness, pin)` prefers an explicit pin, else shells out to
+  `version_cmd` **on the pod host**. The pod image has no `hermes`/`openclaw`/`opencode` binary, so
+  for these three that path returns `None`. It is not what disclosure uses.
+- `run_harness2.discover(harness)` is what actually runs: `docker run --rm <image> --version`
+  **inside the built container**, falling back to the image id. So the disclosed `harness_version`
+  is the version genuinely installed, and it does **not** come from `.env`.
+
+That is what makes defaulting to `latest` safe: the build tag floats, but the report still names
+the exact release that produced the score. Set the `.env` pins to reproduce an old run — they
+change what gets BUILT, and disclosure then reports that same version because it reads the
+container.
 
 ---
 

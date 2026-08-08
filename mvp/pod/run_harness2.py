@@ -52,7 +52,9 @@ from aeon import agentic_v2                    # noqa: E402
 from pod import adapters                       # noqa: E402
 from pod import harness_skills                 # noqa: E402  (scored setup phase)
 
-_VER_RE = re.compile(r"\d{4}\.\d{1,2}\.\d{1,2}|\d+\.\d+\.\d+(?:-[\w.]+)?")
+# CalVer (openclaw: 2026.7.1-2) or semver, either with a pre-release suffix. The suffix is
+# part of the version - dropping it names a release that is not the one that ran.
+_VER_RE = re.compile(r"\d{4}\.\d{1,2}\.\d{1,2}(?:-[\w.]+)?|\d+\.\d+\.\d+(?:-[\w.]+)?")
 _RAW_LIMIT = 8000                              # per-row transcript budget (chars)
 _discover_cache: dict[str, dict] = {}
 
@@ -77,12 +79,25 @@ def discover(harness_id: str) -> dict:
             raise KeyError(f"unknown harness {harness_id!r}; known: {sorted(adapters.ADAPTERS)}")
         image = getattr(cls, "IMAGE", None)
         if image and shutil.which("docker"):
+            # Build it FIRST. This used to run before anything created the image, so the first
+            # agentic run on a new machine asked a nonexistent image its version, got nothing, and
+            # cached that None for the whole process - losing the one record of which harness
+            # release produced the scores, on exactly the runs where it is least recoverable.
+            try:
+                adapters.base.ensure_image(image, harness_id)
+            except Exception as e:
+                print(f"[pod] harness {harness_id}: image not available for version disclosure: "
+                      f"{str(e).splitlines()[0]}", flush=True)
             try:
                 out = subprocess.run(["docker", "run", "--rm", image, "--version"],
                                      capture_output=True, text=True, timeout=60)
-                m = _VER_RE.search((out.stdout or "") + " " + (out.stderr or ""))
-                if m:
-                    version = m.group(0)
+                # stdout first: a deprecation notice on stderr can carry a version-shaped token
+                # that is not the harness's own version.
+                for stream in ((out.stdout or ""), (out.stderr or "")):
+                    m = _VER_RE.search(stream)
+                    if m:
+                        version = m.group(0)
+                        break
             except Exception:
                 pass
             if not version:

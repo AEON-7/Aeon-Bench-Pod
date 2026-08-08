@@ -239,6 +239,27 @@ The pod does **not** ship prebuilt harness images. It carries the three Dockerfi
 machine; we redistribute nobody else's software. First build is a few minutes per harness and is
 cached forever after — so **the first benchmark on a new machine is the slow one**.
 
+Each build tracks that harness's **latest release**. The version actually installed is read back
+out of the built container and disclosed as `harness_version` on the submission, so a floating
+build still produces a self-describing result — you always know which release scored what.
+
+Because the image is built once and cached, "latest" means *latest as of that build*. That is the
+right default: a harness update moves agentic scores, so a rig should not silently change what it
+measures halfway through a benchmarking campaign. When you deliberately want to move:
+
+```bash
+AEON_HARNESS_REFRESH=1 docker exec -e AEON_HARNESS_REFRESH=1 aeon-pod echo "next run rebuilds"
+```
+
+Set `AEON_HARNESS_REFRESH=1` in the pod's environment and the next run rebuilds each harness
+`--no-cache --pull` (a cached layer would re-resolve to the *old* release and make the refresh a
+no-op). **Tell your human before you do this** — their new agentic scores will not be directly
+comparable to their old ones. To go the other way and reproduce an old run, pin the build args
+instead: `AEON_OPENCLAW_VERSION` / `AEON_OPENCODE_VERSION` / `AEON_HERMES_REF`.
+
+If a harness image is older than 45 days the pod says so at the start of the run and carries on —
+it never rebuilds behind your back.
+
 Where it builds follows `DOCKER_HOST`, which is what makes remote runs work with no extra setup:
 
 | Run shape | `DOCKER_HOST` | Harness builds + runs on |

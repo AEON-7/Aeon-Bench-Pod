@@ -1,5 +1,5 @@
 """OpenClawAdapter — drives the `aeon-harness-openclaw` container image (openclaw/openclaw CLI
-inside node:24-slim; built on the DGX, arm64, v2026.6.11).
+inside node:24-slim; arm64 on a DGX Spark. Tracks openclaw's latest release).
 
 Invocation (one one-shot container per task; the pod code runs ON the DGX):
 

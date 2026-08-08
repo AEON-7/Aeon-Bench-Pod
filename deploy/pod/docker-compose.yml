@@ -169,7 +169,7 @@ services:
       context: .
       dockerfile: harness-hermes.Dockerfile
       args:
-        HERMES_REF: ${AEON_HERMES_REF:-main}     # git ref of NousResearch/hermes-agent to pin
+        HERMES_REF: ${AEON_HERMES_REF:-main}     # default branch = latest; set a tag/commit to pin
     entrypoint: ["true"]                 # build-only: never actually runs as a service
     restart: "no"
 
@@ -179,7 +179,7 @@ services:
       context: .
       dockerfile: harness-openclaw.Dockerfile
       args:
-        OPENCLAW_VERSION: ${AEON_OPENCLAW_VERSION:-2026.6.11}   # openclaw is CalVer (verified)
+        OPENCLAW_VERSION: ${AEON_OPENCLAW_VERSION:-latest}   # latest release; set to pin (CalVer, e.g. 2026.7.1-2)
     entrypoint: ["true"]
     restart: "no"
 
@@ -189,7 +189,7 @@ services:
       context: .
       dockerfile: harness-opencode.Dockerfile
       args:
-        OPENCODE_VERSION: ${AEON_OPENCODE_VERSION:-1.17.12}    # published on npm as opencode-ai (verified)
+        OPENCODE_VERSION: ${AEON_OPENCODE_VERSION:-latest}    # latest release of the npm package opencode-ai
     entrypoint: ["true"]
     restart: "no"
 

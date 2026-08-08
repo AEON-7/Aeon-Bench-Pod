@@ -47,6 +47,12 @@ jobs:
         if: inputs.arm64
       - uses: docker/setup-buildx-action@v3
 
+      # The scheduled run MUST NOT use the layer cache. These Dockerfiles say `pkg@latest` and
+      # `--branch main`, so the RUN instruction text never changes — a cached layer replays a
+      # resolution from months ago and this job stays green while every operator's fresh build
+      # breaks. That is the exact shape of the failure it exists to catch (openclaw raised its Node
+      # floor and the install silently produced a CLI that would not start). Push/PR runs keep the
+      # cache: there the question is "did this Dockerfile edit break the build", answered fast.
       - name: build (no push)
         uses: docker/build-push-action@v6
         with:
@@ -55,7 +61,9 @@ jobs:
           platforms: ${{ inputs.arm64 && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: false
           load: false
-          cache-from: type=gha,scope=harness-${{ matrix.harness }}
+          pull: ${{ github.event_name == 'schedule' }}       # re-pull the base image too
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: ${{ github.event_name == 'schedule' && '' || format('type=gha,scope=harness-{0}', matrix.harness) }}
           cache-to: type=gha,mode=max,scope=harness-${{ matrix.harness }}
 
       - name: what a failure here means

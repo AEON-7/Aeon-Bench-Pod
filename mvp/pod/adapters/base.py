@@ -174,9 +174,45 @@ def run_argv(argv: list[str], timeout: float, cwd: str | None = None):
 #   ssh://user@host       -> builds and RUNS on that host; the docker client streams this context
 #                            over the operator's own ssh, so the harnesses land on the same machine
 #                            that serves the model
+#
+# The Dockerfiles track each harness's LATEST release rather than a hand-picked version: the pins
+# were the thing that rotted (both npm pins we shipped had stopped resolving), and a rotted pin now
+# breaks the operator's build mid-benchmark instead of our CI. What keeps a floating tag honest is
+# that the version is never assumed - `run_harness2.discover` queries the built container
+# (`docker run --rm <image> --version`) and that resolved string is disclosed as `harness_version`
+# on the submission. To reproduce an older result, pass the build arg (OPENCLAW_VERSION /
+# OPENCODE_VERSION / HERMES_REF).
+#
+# But "latest" only means latest at BUILD time, and we build once and cache forever - so a rig that
+# first benched months ago keeps its old harness indefinitely. That is the right default (stable
+# scores, no surprise mid-run rebuild); AEON_HARNESS_REFRESH=1 is the deliberate way to move.
 HARNESS_DIR = os.environ.get("AEON_HARNESS_DIR", "/app/harness")   # baked in by deploy/pod/Dockerfile
 BUILD_TIMEOUT = float(os.environ.get("AEON_HARNESS_BUILD_TIMEOUT", "2400"))
+STALE_AFTER_DAYS = float(os.environ.get("AEON_HARNESS_STALE_DAYS", "45"))
+
+# How an operator pins a harness back to a specific release: {harness: (build arg, env var)}.
+# Without these the Dockerfiles' ARGs were unreachable on the pod's own build path - only compose
+# passed them - so the documented way to reproduce an old agentic score did nothing.
+PIN_ENV = {
+    "hermes":   ("HERMES_REF", "AEON_HERMES_REF"),
+    "openclaw": ("OPENCLAW_VERSION", "AEON_OPENCLAW_VERSION"),
+    "opencode": ("OPENCODE_VERSION", "AEON_OPENCODE_VERSION"),
+}
 _ensured: set[str] = set()
+
+
+def _pin_args(harness: str) -> list[str]:
+    """--build-arg for an operator-requested pin, or [] to track the harness's latest release."""
+    arg, env = PIN_ENV.get(harness, (None, None))
+    val = (os.environ.get(env) or "").strip() if env else ""
+    if not val or val == "latest":
+        return []
+    print("[pod] agentic: pinning %s to %s (%s)" % (harness, val, env), flush=True)
+    return ["--build-arg", "%s=%s" % (arg, val)]
+
+
+def _refresh_requested() -> bool:
+    return (os.environ.get("AEON_HARNESS_REFRESH") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _image_present(image: str) -> bool:
@@ -185,6 +221,32 @@ def _image_present(image: str) -> bool:
     except AdapterError:
         return False
     return rc == 0
+
+
+def _image_age_days(image: str) -> float | None:
+    """How long ago this harness image was built. None if docker won't say."""
+    try:
+        o, _e, rc, _d = run_argv(
+            ["docker", "image", "inspect", image, "--format", "{{.Created}}"], 60)
+    except AdapterError:
+        return None
+    if rc != 0:
+        return None
+    raw = (o or "").strip()
+    if not raw:
+        return None
+    try:
+        import datetime as _dt
+        # RFC3339. Docker emits NANOsecond precision, which fromisoformat rejects before 3.11 and
+        # which we don't need anyway - drop the fractional seconds outright. The date part has no
+        # '.', so the first one is always the fraction.
+        txt = re.sub(r"\.\d+", "", raw, count=1).replace("Z", "+00:00")
+        built = _dt.datetime.fromisoformat(txt)
+        if built.tzinfo is None:
+            built = built.replace(tzinfo=_dt.timezone.utc)
+        return (_dt.datetime.now(_dt.timezone.utc) - built).total_seconds() / 86400.0
+    except Exception:
+        return None
 
 
 def _prereq_help(image: str, harness: str, dockerfile: str, err: str) -> str:
@@ -219,37 +281,81 @@ def _prereq_help(image: str, harness: str, dockerfile: str, err: str) -> str:
         "OR reuse an image you already have\n"
         "  export AEON_" + harness.upper() + "_IMAGE=<your-image>\n"
         "\n"
+        "The build tracks the harness's latest release. To pin a specific one:\n"
+        "  docker build -f " + dockerfile + " -t " + image + " \\\n"
+        "    --build-arg " + ("HERMES_REF" if harness == "hermes"
+                              else harness.upper() + "_VERSION") + "=<version> " + HARNESS_DIR + "\n"
+        "\n"
         "Agentic scores 0 without a working harness, and agentic is 30% of the AEON score - a run\n"
         "missing it is not a complete benchmark and will not rank."
     )
 
 
-def ensure_image(image: str, harness: str) -> None:
+def ensure_image(image: str, harness: str, refresh: bool | None = None) -> None:
     """Make `image` exist on this machine, building it from the shipped Dockerfile if it doesn't.
 
     Idempotent, cached per process. Raises AdapterError carrying the prerequisites (see
     `_prereq_help`) when the build fails, so the operator sees what to install rather than a bare
-    docker error buried in a per-task transcript."""
-    if image in _ensured or _image_present(image):
+    docker error buried in a per-task transcript.
+
+    `refresh` (default: AEON_HARNESS_REFRESH) rebuilds an image that already exists, picking up
+    whatever the harness's latest release is now. It builds `--no-cache --pull` on purpose: the
+    install step is `npm i -g pkg@latest` / a git clone, so a cached layer would happily reuse the
+    resolution from months ago and "refresh" would be a no-op."""
+    want_refresh = _refresh_requested() if refresh is None else bool(refresh)
+    if image in _ensured:
+        return
+    have = _image_present(image)
+    if have and not want_refresh:
+        age = _image_age_days(image)
+        if age is not None and age >= STALE_AFTER_DAYS:
+            # Never rebuild behind the operator's back mid-run - a harness change moves agentic
+            # scores, and that has to be their call. Just make the drift visible.
+            print("[pod] agentic: harness image %s was built %.0f days ago; it tracks the harness's "
+                  "latest release only as of that build. Rebuild with AEON_HARNESS_REFRESH=1 "
+                  "(changes agentic scores)." % (image, age), flush=True)
         _ensured.add(image)
         return
     dockerfile = os.path.join(HARNESS_DIR, "harness-" + harness + ".Dockerfile")
     if not os.path.exists(dockerfile):
+        if have:                                    # a refresh we cannot do is not a failure
+            print("[pod] agentic: cannot refresh %s - %s is missing; keeping the existing image."
+                  % (image, dockerfile), flush=True)
+            _ensured.add(image)
+            return
         raise AdapterError(
             "harness image '" + image + "' is not on this machine and its Dockerfile is missing ("
             + dockerfile + "). Update the pod image, or build the harness yourself and point "
             "AEON_" + harness.upper() + "_IMAGE at it.")
-    print("[pod] agentic: building harness image " + image + " from " + dockerfile
-          + " (first run on this machine; expect a few minutes)", flush=True)
+    argv = ["docker", "build", "-f", dockerfile, "-t", image] + _pin_args(harness)
+    if want_refresh:
+        argv += ["--no-cache", "--pull"]            # else the cached layer re-pins the old release
+        print("[pod] agentic: REBUILDING harness image " + image + " from " + dockerfile
+              + " (AEON_HARNESS_REFRESH) - picks up the harness's current release, which will "
+                "move agentic scores", flush=True)
+    else:
+        print("[pod] agentic: building harness image " + image + " from " + dockerfile
+              + " (first run on this machine; expect a few minutes)", flush=True)
+    argv.append(HARNESS_DIR)
     t0 = time.time()
     try:
-        o, e, rc, _d = run_argv(
-            ["docker", "build", "-f", dockerfile, "-t", image, HARNESS_DIR], BUILD_TIMEOUT)
+        o, e, rc, _d = run_argv(argv, BUILD_TIMEOUT)
     except AdapterError as ex:                      # docker missing entirely, or build timed out
+        if have:                                    # keep a working image rather than lose agentic
+            print("[pod] agentic: refresh of %s failed (%s); keeping the existing image."
+                  % (image, str(ex)[:200]), flush=True)
+            _ensured.add(image)
+            return
         raise AdapterError(_prereq_help(image, harness, dockerfile, str(ex))) from None
     if rc != 0 or not _image_present(image):
+        if have:
+            print("[pod] agentic: refresh of %s failed; keeping the existing image. %s"
+                  % (image, (e or o or "").strip()[:300]), flush=True)
+            _ensured.add(image)
+            return
         raise AdapterError(_prereq_help(image, harness, dockerfile, (e or o or "").strip()))
-    print("[pod] agentic: built %s in %.0fs" % (image, time.time() - t0), flush=True)
+    print("[pod] agentic: %s %s in %.0fs" % ("rebuilt" if want_refresh else "built",
+                                             image, time.time() - t0), flush=True)
     _ensured.add(image)
 
 

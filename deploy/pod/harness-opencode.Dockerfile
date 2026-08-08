@@ -6,15 +6,19 @@
 # version_cmd = ["opencode", "--version"], package = "opencode-ai"). Keep this a VANILLA install
 # — no tuned prompt/tool-docs/retry/max_steps — so the model×harness delta stays apples-to-apples.
 #
-# Pin the version with the OPENCODE_VERSION build arg so the disclosed harness_version is exact.
-FROM node:22-slim
+# Tracks the latest release by default; OPENCODE_VERSION pins it when reproducing an old result.
+# Either way the disclosed harness_version comes from querying this container, not from the arg.
+# node 24: matches the openclaw harness, and stays ahead of the engine floors these CLIs
+# raise between releases now that we track `latest`.
+FROM node:24-slim
 
 # NOTE: the package name is `opencode-ai` but the CLI binary it installs is `opencode`
-# (harnesses.py: package="opencode-ai", version_cmd=["opencode", ...]).
-# TODO verify: confirm `opencode-ai@<version>` is the correct published package and that this
-#   pinned version exists on the npm registry.
-# VERIFIED against the running image. Pin 0.3.0 did not build: 0.3.0 does not exist on npm (npm error notarget).
-ARG OPENCODE_VERSION=1.17.12
+# (harnesses.py: package="opencode-ai", version_cmd=["opencode", ...]). A bare `opencode` package
+# is NOT the harness.
+#
+# Tracks the LATEST opencode-ai release; the installed version is queried from this container at
+# run time and disclosed as `harness_version`. Set OPENCODE_VERSION to reproduce an older result.
+ARG OPENCODE_VERSION=latest
 RUN npm install -g "opencode-ai@${OPENCODE_VERSION}"
 
 # OpenCode reads its OpenAI-compatible provider + model from `opencode.json` in its cwd — NOT from
@@ -24,6 +28,8 @@ RUN npm install -g "opencode-ai@${OPENCODE_VERSION}"
 #     run --format json --auto -m dgx/<alias> "<prompt>"
 # (see mvp/pod/adapters/opencode.py:build_config + run_task). So there are no OPENAI_* envs here.
 
-RUN opencode --version || true
+# GATE, not a sanity print: the build must FAIL if the CLI cannot start - a harness that
+# installs but won't run scores 0 on every agentic task silently. Never add `|| true` here.
+RUN opencode --version
 
 ENTRYPOINT ["opencode"]

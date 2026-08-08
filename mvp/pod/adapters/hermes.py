@@ -33,13 +33,16 @@ import shutil
 import tempfile
 import uuid
 
-from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
+from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_io,
+                   safe_name, strip_reasoning)
 
 # Published multi-arch by the pod repo's harness-images workflow, so ANY pod can pull it.
 # It used to default to the bare local name, which only existed on a rig that had built it
 # by hand — every other pod failed `docker create` and scored 0 on every agentic task.
+# Now the pod BUILDS it locally on first use (see `ensure_image`): no third-party image is
+# redistributed, and the operator's copy comes straight from upstream.
 # Override with the env var to use a locally-built image instead.
-IMAGE = os.environ.get("AEON_HERMES_IMAGE", "ghcr.io/aeon-7/aeon-harness-hermes:latest")
+IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes:latest")
 _API_KEY = "sk-local"
 _MAX_TURNS = int(os.environ.get("AEON_HERMES_MAX_TURNS", "8"))
 
@@ -131,6 +134,9 @@ class HermesAdapter(Adapter):
     def prepare_run(self, model_base_url: str, served_alias: str, run_root: str):
         """Fresh per-model-run scratch dir (Hermes itself keeps no host-side config; every
         task container is `--rm` so agent state can never leak between models)."""
+        # build the harness image here if this machine doesn't have it yet - one loud
+        # failure with install instructions beats 0 on every task.
+        ensure_image(self.IMAGE, "hermes")
         d = os.path.join(run_root, f"hermes-{safe_name(served_alias)}")
         if os.path.isdir(d):
             shutil.rmtree(d, ignore_errors=True)

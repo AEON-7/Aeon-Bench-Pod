@@ -1041,7 +1041,17 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             hres = run_harness2.run_agentic_v2(h, target, alias, concurrency=4,
                                                progress_cb=_hcb)
         except Exception as e:
-            print(f"[pod] harness {h} could not run: {e}")
+            # Skipping beats scoring 0: a harness that never ran is UNTESTED, and a fabricated
+            # zero would rank as if the model had genuinely failed every agentic task. But the
+            # run is now incomplete, so make the cost impossible to miss.
+            print(f"\n{'!' * 78}")
+            print(f"[pod] HARNESS {h.upper()} COULD NOT RUN - agentic will be INCOMPLETE")
+            print(f"{'!' * 78}")
+            print(str(e))
+            print(f"{'!' * 78}")
+            print(f"[pod] {h} is skipped (not scored 0). Agentic is 30% of the AEON score, so "
+                  f"unless another harness covers it this run will NOT rank.")
+            print(f"[pod] See AGENTS.md section 2.7 (environment preflight).\n")
             continue
         # GOD-MODE artifacts the agent built inside this harness — ride the harness bundle
         # into the Agent arena (ingest attributes them '<model> @<harness>')

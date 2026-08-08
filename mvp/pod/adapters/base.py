@@ -159,6 +159,100 @@ def run_argv(argv: list[str], timeout: float, cwd: str | None = None):
     return proc.stdout or "", proc.stderr or "", proc.returncode, time.monotonic() - t0
 
 
+# ---- harness images: BUILT HERE, never redistributed -----------------------------------------
+# The harness images wrap third-party agents (Hermes / OpenClaw / OpenCode). Rather than ship
+# prebuilt copies of somebody else's software, the pod builds them on whatever machine it is
+# running on, from the Dockerfiles it carries — the operator gets the upstream code straight from
+# its own source, and we redistribute nothing.
+#
+# Before this, a pod without the image just failed `docker create` with "pull access denied" and
+# then scored 0 on EVERY agentic task — silently, for an entire multi-hour run.
+#
+# WHERE it builds follows DOCKER_HOST, so both shapes of run are covered with no extra machinery:
+#   unset / unix socket   -> builds and runs here, on the pod's own machine, pointed at the model's
+#                            endpoint (this is the shape for benching a remote endpoint from here)
+#   ssh://user@host       -> builds and RUNS on that host; the docker client streams this context
+#                            over the operator's own ssh, so the harnesses land on the same machine
+#                            that serves the model
+HARNESS_DIR = os.environ.get("AEON_HARNESS_DIR", "/app/harness")   # baked in by deploy/pod/Dockerfile
+BUILD_TIMEOUT = float(os.environ.get("AEON_HARNESS_BUILD_TIMEOUT", "2400"))
+_ensured: set[str] = set()
+
+
+def _image_present(image: str) -> bool:
+    try:
+        _o, _e, rc, _d = run_argv(["docker", "image", "inspect", image], 60)
+    except AdapterError:
+        return False
+    return rc == 0
+
+
+def _prereq_help(image: str, harness: str, dockerfile: str, err: str) -> str:
+    """A build failure has to tell the operator exactly what to install and what to run, not just
+    echo docker's stderr. In practice it is always one of: no docker socket, no permission on it,
+    no outbound network to the base-image/package registries, or no disk."""
+    dh = os.environ.get("DOCKER_HOST") or ""
+    where = ("the REMOTE host (DOCKER_HOST=" + dh + ")") if dh.startswith("ssh://") \
+        else "this machine (the pod's own docker)"
+    return (
+        "could not build the agentic harness image '" + image + "'.\n"
+        "  Dockerfile : " + dockerfile + "\n"
+        "  building on: " + where + "\n"
+        "  build error: " + (err[:500] or "(no output)") + "\n"
+        "\n"
+        "REQUIREMENTS for the agentic suite on " + where + "\n"
+        "  1. Docker Engine, reachable by the pod. The pod builds and runs harness containers\n"
+        "     through the mounted socket, so start the pod with:\n"
+        "       -v /var/run/docker.sock:/var/run/docker.sock\n"
+        "     verify:  docker info\n"
+        "     install: https://docs.docker.com/engine/install/\n"
+        "  2. Permission to use that socket without sudo:\n"
+        "       sudo usermod -aG docker \"$USER\" && newgrp docker\n"
+        "  3. Outbound network to the sources the build pulls from:\n"
+        "       ghcr.io / docker.io (base images) - github.com - pypi.org - registry.npmjs.org\n"
+        "  4. Free disk: roughly 3 GB per harness image.\n"
+        "  5. buildx/BuildKit is optional; a plain `docker build` is enough.\n"
+        "\n"
+        "BUILD IT YOURSELF (identical to what the pod just tried)\n"
+        "  docker build -f " + dockerfile + " -t " + image + " " + HARNESS_DIR + "\n"
+        "\n"
+        "OR reuse an image you already have\n"
+        "  export AEON_" + harness.upper() + "_IMAGE=<your-image>\n"
+        "\n"
+        "Agentic scores 0 without a working harness, and agentic is 30% of the AEON score - a run\n"
+        "missing it is not a complete benchmark and will not rank."
+    )
+
+
+def ensure_image(image: str, harness: str) -> None:
+    """Make `image` exist on this machine, building it from the shipped Dockerfile if it doesn't.
+
+    Idempotent, cached per process. Raises AdapterError carrying the prerequisites (see
+    `_prereq_help`) when the build fails, so the operator sees what to install rather than a bare
+    docker error buried in a per-task transcript."""
+    if image in _ensured or _image_present(image):
+        _ensured.add(image)
+        return
+    dockerfile = os.path.join(HARNESS_DIR, "harness-" + harness + ".Dockerfile")
+    if not os.path.exists(dockerfile):
+        raise AdapterError(
+            "harness image '" + image + "' is not on this machine and its Dockerfile is missing ("
+            + dockerfile + "). Update the pod image, or build the harness yourself and point "
+            "AEON_" + harness.upper() + "_IMAGE at it.")
+    print("[pod] agentic: building harness image " + image + " from " + dockerfile
+          + " (first run on this machine; expect a few minutes)", flush=True)
+    t0 = time.time()
+    try:
+        o, e, rc, _d = run_argv(
+            ["docker", "build", "-f", dockerfile, "-t", image, HARNESS_DIR], BUILD_TIMEOUT)
+    except AdapterError as ex:                      # docker missing entirely, or build timed out
+        raise AdapterError(_prereq_help(image, harness, dockerfile, str(ex))) from None
+    if rc != 0 or not _image_present(image):
+        raise AdapterError(_prereq_help(image, harness, dockerfile, (e or o or "").strip()))
+    print("[pod] agentic: built %s in %.0fs" % (image, time.time() - t0), flush=True)
+    _ensured.add(image)
+
+
 class Adapter:
     #: harness id — must match a key in `pod.harnesses.HARNESSES`. Overridden by subclasses.
     name: str = ""

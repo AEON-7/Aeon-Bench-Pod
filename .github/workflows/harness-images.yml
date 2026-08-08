@@ -1,18 +1,15 @@
-# Builds + publishes the three AGENTIC HARNESS images:
-#   ghcr.io/<owner>/aeon-harness-{hermes,openclaw,opencode}
+# VALIDATES that the three AGENTIC HARNESS Dockerfiles still build. It does NOT publish them.
 #
-# Why this exists: the pod drives the agentic suite by launching one of these containers per task,
-# pointed at the served model's OpenAI-compatible endpoint. They were previously built by hand and
-# existed only on the maintainer's own rig, so ANY other pod hit
+# The pod builds these itself, on whatever machine it lands on, the first time a run needs one
+# (mvp/pod/adapters/base.py → ensure_image). That keeps third-party agent code out of anything we
+# redistribute — every operator's harness comes straight from upstream on their own box.
 #
-#   AdapterError: docker create failed rc=1: Unable to find image 'aeon-harness-hermes:latest'
-#   ... pull access denied ... repository does not exist
+# But it moves the failure to the operator: if a pin rots (openclaw is CalVer, opencode-ai's
+# versions move, hermes tracks a git ref), the first person to run agentic on a fresh machine eats
+# it, mid-benchmark. This job is the early-warning: build all three on every change, push nothing.
 #
-# and scored 0 on every agentic task — indistinguishable from a model that simply cannot do agentic
-# work, and enough to make an otherwise-complete run un-rankable. Publishing them makes agentic
-# actually reachable for external pods.
-#
-# multi-arch matters: DGX Spark / Grace-Blackwell rigs are arm64, x86 workstations are amd64.
+# Both arches matter — DGX Spark / Grace-Blackwell rigs are arm64, workstations are amd64 — but a
+# QEMU-emulated arm64 build of these is slow, so arm64 is validated on demand rather than per-push.
 name: harness-images
 
 on:
@@ -21,48 +18,49 @@ on:
     paths:
       - "deploy/pod/harness-*.Dockerfile"
       - ".github/workflows/harness-images.yml"
-  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - "deploy/pod/harness-*.Dockerfile"
+  schedule:
+    - cron: "17 6 * * 1"      # weekly: catch a pin that rotted without us touching the file
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: "also validate the arm64 build (slow, QEMU-emulated)"
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
-  packages: write
+  contents: read              # no packages:write — this workflow publishes nothing
 
 jobs:
-  build-push:
+  build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false          # one harness failing to build must not block the other two
+      fail-fast: false        # one rotted pin must not hide the state of the other two
       matrix:
         harness: [hermes, openclaw, opencode]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3        # arm64 layer of the multi-arch build
+      - uses: docker/setup-qemu-action@v3
+        if: inputs.arm64
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/aeon-harness-${{ matrix.harness }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short
-
-      - name: build + push (amd64 + arm64)
+      - name: build (no push)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: deploy/pod          # the harness Dockerfiles are self-contained (no COPY)
           file: deploy/pod/harness-${{ matrix.harness }}.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: ${{ inputs.arm64 && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: false
+          load: false
           cache-from: type=gha,scope=harness-${{ matrix.harness }}
           cache-to: type=gha,mode=max,scope=harness-${{ matrix.harness }}
+
+      - name: what a failure here means
+        if: failure()
+        run: |
+          echo "::error::harness-${{ matrix.harness }} no longer builds. Every operator's first"
+          echo "::error::agentic run on a fresh machine will now fail this way. Fix the pin in"
+          echo "::error::deploy/pod/harness-${{ matrix.harness }}.Dockerfile before the next release."

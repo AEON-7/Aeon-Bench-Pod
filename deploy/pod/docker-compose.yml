@@ -157,8 +157,14 @@ services:
   # adapters run. The three `harness-build-*` services below build those images (via `image:` +
   # `build:`) then exit immediately (`command: ["true"]`); `aeon-pod` depends on their completion.
   # To rebuild only the harnesses:  docker compose build harness-build-hermes harness-build-openclaw harness-build-opencode
+  #
+  # We build these rather than publishing them: the harnesses are third-party agents, so every
+  # operator's copy is fetched from upstream on their own machine and nothing is redistributed.
+  # These services are the EAGER path (built up-front, in parallel, before the run starts). A pod
+  # started outside compose gets the same images LAZILY — pod/adapters/base.py `ensure_image`
+  # builds any missing one from /app/harness/harness-*.Dockerfile the first time a run needs it.
   harness-build-hermes:
-    image: ${AEON_HERMES_IMAGE:-ghcr.io/aeon-7/aeon-harness-hermes:latest}           # == HermesAdapter.IMAGE (AEON_HERMES_IMAGE default)
+    image: ${AEON_HERMES_IMAGE:-aeon-harness-hermes:latest}           # == HermesAdapter.IMAGE (AEON_HERMES_IMAGE default)
     build:
       context: .
       dockerfile: harness-hermes.Dockerfile
@@ -168,22 +174,22 @@ services:
     restart: "no"
 
   harness-build-openclaw:
-    image: ${AEON_OPENCLAW_IMAGE:-ghcr.io/aeon-7/aeon-harness-openclaw:latest}         # == OpenClawAdapter.IMAGE (AEON_OPENCLAW_IMAGE default)
+    image: ${AEON_OPENCLAW_IMAGE:-aeon-harness-openclaw:latest}         # == OpenClawAdapter.IMAGE (AEON_OPENCLAW_IMAGE default)
     build:
       context: .
       dockerfile: harness-openclaw.Dockerfile
       args:
-        OPENCLAW_VERSION: ${AEON_OPENCLAW_VERSION:-0.17.0}   # TODO verify pinned version exists
+        OPENCLAW_VERSION: ${AEON_OPENCLAW_VERSION:-2026.6.11}   # openclaw is CalVer (verified)
     entrypoint: ["true"]
     restart: "no"
 
   harness-build-opencode:
-    image: ${AEON_OPENCODE_IMAGE:-ghcr.io/aeon-7/aeon-harness-opencode:latest}         # == OpenCodeAdapter.IMAGE (AEON_OPENCODE_IMAGE default)
+    image: ${AEON_OPENCODE_IMAGE:-aeon-harness-opencode:latest}         # == OpenCodeAdapter.IMAGE (AEON_OPENCODE_IMAGE default)
     build:
       context: .
       dockerfile: harness-opencode.Dockerfile
       args:
-        OPENCODE_VERSION: ${AEON_OPENCODE_VERSION:-0.3.0}    # TODO verify pinned version exists
+        OPENCODE_VERSION: ${AEON_OPENCODE_VERSION:-1.17.12}    # published on npm as opencode-ai (verified)
     entrypoint: ["true"]
     restart: "no"
 
@@ -241,11 +247,11 @@ services:
       AEON_KEEP_WEIGHTS: ${AEON_KEEP_WEIGHTS:-1} # keep verified weights after the run (volume persists regardless)
       AEON_TARGET_API_KEY: ${AEON_TARGET_API_KEY:-sk-local}
       # Harness images the adapters `docker run`. Default to the PUBLISHED multi-arch images so a
-      # fresh pod can run agentic with no local build; `docker compose build harness-build-*`
+      # `ensure_image` builds any of these that's missing on first use; `docker compose build harness-build-*`
       # overwrites the very same tag, so a local build transparently wins when you want one.
-      AEON_HERMES_IMAGE: ${AEON_HERMES_IMAGE:-ghcr.io/aeon-7/aeon-harness-hermes:latest}
-      AEON_OPENCLAW_IMAGE: ${AEON_OPENCLAW_IMAGE:-ghcr.io/aeon-7/aeon-harness-openclaw:latest}
-      AEON_OPENCODE_IMAGE: ${AEON_OPENCODE_IMAGE:-ghcr.io/aeon-7/aeon-harness-opencode:latest}
+      AEON_HERMES_IMAGE: ${AEON_HERMES_IMAGE:-aeon-harness-hermes:latest}
+      AEON_OPENCLAW_IMAGE: ${AEON_OPENCLAW_IMAGE:-aeon-harness-openclaw:latest}
+      AEON_OPENCODE_IMAGE: ${AEON_OPENCODE_IMAGE:-aeon-harness-opencode:latest}
     volumes:
       - pod-state:/root/.aeon            # ed25519 device key (enrolled once) + local pod.db
       - weights:/weights                 # read the pull sidecar's .aeon-modelref.json (verification)
@@ -277,9 +283,9 @@ services:
       # Read-only host-home scan: lets the Run tab find HF cache, LM Studio, ~/models, etc.
       AEON_HOST_HOME_DIR: ${AEON_HOST_HOME:-${HOME}}
       # Harness image names the Run tab's launches spawn (built by harness-build-* below).
-      AEON_HERMES_IMAGE: ${AEON_HERMES_IMAGE:-ghcr.io/aeon-7/aeon-harness-hermes:latest}
-      AEON_OPENCLAW_IMAGE: ${AEON_OPENCLAW_IMAGE:-ghcr.io/aeon-7/aeon-harness-openclaw:latest}
-      AEON_OPENCODE_IMAGE: ${AEON_OPENCODE_IMAGE:-ghcr.io/aeon-7/aeon-harness-opencode:latest}
+      AEON_HERMES_IMAGE: ${AEON_HERMES_IMAGE:-aeon-harness-hermes:latest}
+      AEON_OPENCLAW_IMAGE: ${AEON_OPENCLAW_IMAGE:-aeon-harness-openclaw:latest}
+      AEON_OPENCODE_IMAGE: ${AEON_OPENCODE_IMAGE:-aeon-harness-opencode:latest}
     volumes:
       - pod-state:/root/.aeon            # device key + pod.db (persists across updates)
       - /var/run/docker.sock:/var/run/docker.sock   # spawn engine + per-task harness containers

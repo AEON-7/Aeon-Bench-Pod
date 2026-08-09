@@ -1019,6 +1019,28 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> "
                   f"HTTP {st}  {json.dumps(r)[:300]}")
 
+    # TOOL-CALLING PREFLIGHT. Every agentic task in the suite depends on the SERVER converting the
+    # model's tool calls into OpenAI `tool_calls`, which is what --tool-call-parser does. Get that
+    # wrong and nothing errors: the harnesses simply watch an agent that never uses a tool, and
+    # agentic lands near zero for a reason that has nothing to do with the model.
+    #
+    # This does NOT gate the run (owner policy: evaluate either way, and rank). It costs a few
+    # seconds against a suite measured in hours, and it buys three things: the operator is told
+    # BEFORE the wait, the exact remediation flag is printed and stored, and the submission
+    # carries whether tool calling was ever working — so a low agentic score can afterwards be
+    # read as "the model could not" rather than "we could not tell".
+    tool_probe = None
+    if harness_ids:
+        try:
+            from pod import probe_tools
+            tool_probe = probe_tools.probe(target, alias)
+            print(probe_tools.summarize(tool_probe), flush=True)
+        except Exception as e:                       # a diagnostic must never break the run
+            print(f"[pod] tool-calling probe skipped ({type(e).__name__}: {str(e)[:120]})",
+                  flush=True)
+        if isinstance(env, dict) and tool_probe:
+            env["tool_calling"] = tool_probe
+
     # AGENTIC through each REAL harness (agentic-v2 env-execution, fresh container per model-run).
     hstatuses = []
     if harness_ids and difficulty:
@@ -1763,7 +1785,13 @@ def main():
     ap.add_argument("--frontier-id", default=None,
         help="approved frontier model id from /api/pod/frontier, e.g. xai:grok-4.5-high")
     # shared:
-    ap.add_argument("--mothership", required=True, help="mothership base URL, e.g. http://localhost:8090")
+    # Defaults to the public mothership. This was required=True while appearing ZERO times in
+    # AGENTS.md, so every CLI command the docs print died at argparse ("the following arguments
+    # are required: --mothership") with nothing telling the reader what to pass. jobs.py already
+    # defaulted the same way; the CLI just disagreed with every other surface.
+    ap.add_argument("--mothership",
+        default=os.environ.get("AEON_MOTHERSHIP", "https://aeon-bench.com"),
+        help="mothership base URL (default: $AEON_MOTHERSHIP or https://aeon-bench.com)")
     ap.add_argument("--api-key", default=os.environ.get("AEON_API_KEY"))
     ap.add_argument("--engine", default=None, help="catalog engine id: aeon-vllm-ultimate|vllm|"
         "vllm-rocm|sglang|llama.cpp|mlx (containerized recipes; mlx = macOS bare metal) — or a "
@@ -1778,7 +1806,12 @@ def main():
         "(e.g. 'hard,expert' for the rapid bench); applies to the graded suite-v2 cases")
     ap.add_argument("--category", default=None, help="only cases whose category is in this comma-list "
         "(e.g. 'codegen') — applied ALONGSIDE --difficulty on the text suite; default: all categories")
-    ap.add_argument("--preset", default=None, choices=("comprehensive", "hard-bench", "god-mode"),
+    # Defaults to comprehensive: the ONLY shape that ranks. It used to default to None, which
+    # silently produced a text-only run with no agentic and no perf - two of the three AEON
+    # components missing - so a CLI/API user was told HTTP 200 ELIGIBLE and then never appeared
+    # on the board. Pass --preset none for a deliberate local-only subset.
+    ap.add_argument("--preset", default="comprehensive",
+        choices=("comprehensive", "hard-bench", "god-mode", "none"),
         help="one-shot bundle: 'comprehensive' = everything on (all harnesses + vision + audio + video "
         "+ arena + perf); 'hard-bench' = the hard,expert tiers through all harnesses only "
         "(no vision/audio/video/arena/perf)")
@@ -1846,6 +1879,8 @@ def main():
 
     # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
     # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.
+    if a.preset == "none":                        # explicit opt-out: the old default, now deliberate
+        a.preset = None
     if a.preset == "comprehensive":               # everything on: all harnesses + vision/audio/video + arena + perf
         a.harness = a.harness or "all"
         a.perf = True

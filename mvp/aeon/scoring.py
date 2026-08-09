@@ -24,6 +24,29 @@ ELIGIBLE_TIERS = {"attested"}
 # for a comprehensive score.
 MIN_SUITE_COVERAGE = 0.9
 
+# A harness score at or below this is a HARNESS/CONFIG failure, not a measurement of the model.
+# Every agentic task going to ~0 through a real harness does not happen because a model is weak —
+# a weak model still names files, still writes something, still lands partial credit. It happens
+# when the plumbing is wrong: the serve had no (or the wrong) --tool-call-parser so the harness
+# never saw a tool call, the container could not start, or the context window was refused. Scoring
+# that as the model's agentic ability publishes an infrastructure fault as model incapacity, and it
+# has already happened once on the live board (an entire god run pinned at 2.4 on all three
+# harnesses).
+#
+# So such a cell is dropped from the agentic mean rather than averaged in. The run still executes
+# the whole suite and still ranks on everything it did measure; if EVERY harness lands here, agentic
+# has no valid measurement and goes absent (null, never zero — see _attach_dials).
+AGENTIC_FAILURE_FLOOR = 5.0
+
+
+def _live_harness_cells(cells: dict) -> dict:
+    """{harness: score} keeping only cells that actually measured something.
+
+    Drops nulls (never ran) and total failures (ran, but at/below AGENTIC_FAILURE_FLOOR — the
+    plumbing, not the model)."""
+    return {h: c["score"] for h, c in (cells or {}).items()
+            if c.get("score") is not None and c["score"] > AGENTIC_FAILURE_FLOOR}
+
 
 def _avg(xs):
     # numeric-only: a malformed speed blob (string tps etc.) must skip, never 500 a board
@@ -320,9 +343,19 @@ def _agentic_index():
     from the AI-Harness matrix (same canonical join key as the text board)."""
     out = {}
     for canon, cells in harness_board()["matrix"].items():
-        hs = {h: cell["score"] for h, cell in cells.items() if cell.get("score") is not None}
-        if hs:
-            out[canon] = {"score": round(sum(hs.values()) / len(hs), 1), "harnesses": hs}
+        # every cell that produced a number — the matrix should show what actually happened
+        shown = {h: c["score"] for h, c in cells.items() if c.get("score") is not None}
+        if not shown:
+            continue                       # nothing ran at all -> genuinely untested, stay absent
+        hs = _live_harness_cells(cells)    # ...and of those, the ones that measured the MODEL
+        out[canon] = {
+            "score": round(sum(hs.values()) / len(hs), 1) if hs else None,
+            "harnesses": shown,
+            "counted": sorted(hs),
+            "excluded": sorted(set(shown) - set(hs)),
+            # ran everywhere, measured nowhere: the plumbing failed, not the model
+            "all_failed": not hs,
+        }
     return out
 
 
@@ -370,9 +403,31 @@ def _attach_dials(lb):
         # must never be counted, even if its weights are attested. It stays STORED + shown (when
         # 'verified only' is toggled off), badged verified-but-not-counted, but drops off the
         # ranked board. "only if it actually ran through the entire benchmark would it be counted."
+        # AGENTIC IS ALLOWED TO BE MISSING (owner policy 2026-08-08). It is the hardest component
+        # for an outside operator to get working - it needs a usable docker socket, three harness
+        # images built locally, and a served context of at least 64K - and un-ranking an otherwise
+        # complete, attested run over it costs more real submissions than it protects. So a run
+        # whose agentic produced no usable score still ranks on what WAS measured, carrying a
+        # badge the reader can click for the fix. Every OTHER missing component still fails the
+        # gate: intelligence and performance are cheap and nearly automatic.
+        #
+        # Two distinct reasons, because the remedy differs and the reader deserves to know which:
+        #   failed  - the harnesses ran and every one came back at/below AGENTIC_FAILURE_FLOOR,
+        #             which is a serve/parser problem, not the model
+        #   missing - no agentic rows at all: the harnesses never ran (no docker, build failed,
+        #             short context, or the run simply did not include them)
+        if a and a.get("all_failed"):
+            m["agentic_status"] = "failed"
+        elif not a:
+            m["agentic_status"] = "missing"
+        else:
+            m["agentic_status"] = "ok"
+        m["agentic_not_counted"] = m["agentic_status"] != "ok"
         if m.get("record_eligible") and m["aeon_provisional"]:
-            m["record_eligible"] = False
-            m["ranked_excluded"] = "incomplete"        # attested weights, but not a full run
+            missing = [k for k in AEON_WEIGHTS if k not in present]
+            if not (missing == ["agentic"] and m["agentic_not_counted"]):
+                m["record_eligible"] = False
+                m["ranked_excluded"] = "incomplete"    # attested weights, but not a full run
         # the HIGHEST-composite run among the runs this row aggregates (eligible runs when
         # the model has any) — the run the dashboard auto-opens for the intelligence dial
         m["best_intelligence_run"] = m["best_run"]
@@ -1017,7 +1072,13 @@ def god_leaderboard():
     for canon in set(sentinels) | set(agentic):
         s = sentinels.get(canon)
         h = agentic.get(canon)
-        ag_score = round(sum(v["score"] for v in h.values()) / len(h), 1) if h else None
+        # Same floor as the global board: a harness pinned at/below AGENTIC_FAILURE_FLOOR measured
+        # the plumbing, not the model, so it is dropped from the mean instead of dragging the GOD
+        # SCORE down. If every harness failed that way, god agentic is absent and the run is
+        # provisional — which is the honest reading of "we never actually measured this".
+        h_live = {k: v for k, v in (h or {}).items() if v["score"] > AGENTIC_FAILURE_FLOOR}
+        ag_score = (round(sum(v["score"] for v in h_live.values()) / len(h_live), 1)
+                    if h_live else None)
         parts, weights = [], []
         if s:
             parts.append(s["composite"]); weights.append(0.6)
@@ -1035,21 +1096,47 @@ def god_leaderboard():
             "god_provisional": not (s and ag_score is not None),
             "sentinels": s and {k: s[k] for k in ("run", "composite", "categories",
                                                   "n_attempted", "n_total", "suite_id")},
+            # harnesses shows every cell (including the failed ones — the board should say what
+            # happened); `excluded` names the ones the mean dropped.
             "agentic": ({"score": ag_score,
-                         "harnesses": {k: v["score"] for k, v in h.items()}} if h else None),
+                         "harnesses": {k: v["score"] for k, v in h.items()},
+                         "excluded": sorted(set(h) - set(h_live))} if h else None),
             "trust_tier": (s or {}).get("trust_tier")
                           or next(iter(h.values()))["trust_tier"],
             # COMPLETENESS GATE: a god run RANKS only when it ran the FULL god benchmark —
             # sentinels AND agentic. A sentinels-only (provisional) god run stays local, never
             # counted; verified weights are necessary but not sufficient.
-            "record_eligible": bool(s and s["eligible"] and ag_score is not None),
-            "ranked_excluded": ("incomplete" if (s and s["eligible"] and ag_score is None) else None),
+            # Same policy as the global board: god agentic may be absent or failed and the run
+            # still ranks on its sentinels, badged. A god run is expensive to produce; refusing to
+            # show it because the harness plumbing broke helps nobody.
+            "record_eligible": bool(s and s["eligible"]),
+            "agentic_status": ("ok" if ag_score is not None else ("failed" if h else "missing")),
+            "agentic_not_counted": ag_score is None,
+            "ranked_excluded": None,
             "started_at": (s or {}).get("started_at")
                           or max(v["started_at"] or 0 for v in h.values()),
         })
     models.sort(key=lambda m: -m["god_score"])
-    return {"models": models, "weights": {"sentinels": 0.6, "agentic": 0.4},
-            "god_corpus": len(_god_cases_for(suite_mod.SUITE_ID))}
+    # Parity with the global board: the GOD card renders the same identity furniture (VRAM
+    # estimate, served context, share link), so the rows must carry the same fields. best_run is
+    # the alias _attach_ctx resolves the served context against.
+    # PERFORMANCE on the god card. A GOD MODE job runs the same perf grid as any comprehensive
+    # bench, but the god board never surfaced it, so the rig's throughput standing was invisible
+    # here. Attached as its own field (NOT folded into god_score — that stays the documented
+    # 0.6 x sentinels + 0.4 x agentic, so existing god rankings do not silently move).
+    try:
+        _perf = _perf_percentile_index()
+    except Exception:
+        _perf = {}
+    for m in models:
+        m["best_run"] = m.get("run")
+        m["performance"] = _perf.get(m.get("canonical"))
+        try:
+            m["vram_est_gb"] = vram.estimate_gb(m["model"])
+        except Exception:
+            m["vram_est_gb"] = None
+    return _attach_ctx({"models": models, "weights": {"sentinels": 0.6, "agentic": 0.4},
+                        "god_corpus": len(_god_cases_for(suite_mod.SUITE_ID))})
 
 
 def explorer_matrix():

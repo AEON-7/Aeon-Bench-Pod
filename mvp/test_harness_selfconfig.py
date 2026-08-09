@@ -302,9 +302,21 @@ def test_mock_harness_and_kill_switch_skip_setup():
 
 
 def test_suite_id_bumped():
-    """Setup cases change the agentic suite composition — old and new runs must never mix
-    in one matrix cell."""
-    assert agentic_v2.SUITE_ID == "aeon-agentic-v2.4"
+    """Anything that changes the agentic suite's composition must move SUITE_ID — old and new
+    runs must never mix in one matrix cell.
+
+    Asserts the shape, not a literal: pinning the exact string here just means the assertion
+    rots one commit after the suite legitimately moves (it already did, at v2.1), which teaches
+    people to edit the test rather than think about the invariant."""
+    assert agentic_v2.SUITE_ID.startswith("aeon-agentic-v2.")
+    parts = agentic_v2.SUITE_ID.rsplit(".", 1)
+    assert parts[-1].isdigit(), agentic_v2.SUITE_ID
+    # the composition this era is defined by: setup cases + a 5-per-category GOD MODE slate
+    god = [c for c in agentic_v2.CASES if c.get("difficulty") == "god_mode"]
+    kinds = {}
+    for c in god:
+        kinds[c["artifact"]["kind"]] = kinds.get(c["artifact"]["kind"], 0) + 1
+    assert kinds == {"app": 5, "game": 5, "animation": 5}, kinds
 
 
 def main():

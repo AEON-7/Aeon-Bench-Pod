@@ -207,7 +207,10 @@ def main():
     d = f["dials"]
     check(d["intelligence"] == {"score": 100.0, "run": f["best_run"]},
           "intelligence dial = text composite + best run")
-    check(d["agentic"] == {"score": 70.0, "harnesses": {"hermes": 80.0, "opencode": 60.0}},
+    check(d["agentic"]["score"] == 70.0
+          and d["agentic"]["harnesses"] == {"hermes": 80.0, "opencode": 60.0}
+          and d["agentic"]["counted"] == ["hermes", "opencode"]
+          and d["agentic"]["excluded"] == [] and d["agentic"]["all_failed"] is False,
           "agentic dial = mean of available harness scores")
     check(d["performance"] == {"score": 100.0, "peak_agg_tps": 100.0, "hw": spark_bucket,
                                "conc": 8},
@@ -224,6 +227,28 @@ def main():
     # COMPLETENESS GATE: the FULL run (intelligence+agentic+performance) is the only shape that RANKS
     check(f["record_eligible"] is True and f.get("ranked_excluded") is None,
           "a full (non-provisional) attested run RANKS")
+
+    # ---- agentic failure floor (owner policy 2026-08-08) ----------------------------------
+    # A harness at/below AGENTIC_FAILURE_FLOOR measured the PLUMBING, not the model: every task
+    # near zero through a real harness means no tool call was ever parsed, the container never
+    # started, or the context was refused. A weak model still lands partial credit. So such a cell
+    # is dropped from the mean instead of dragging it down — this is the rule that stops a live
+    # god run being pinned at 2.4 across all three harnesses.
+    cells = lambda **kw: {h: {"score": v} for h, v in kw.items()}
+    live = scoring._live_harness_cells
+    check(live(cells(hermes=2.4, openclaw=2.4, opencode=2.4)) == {},
+          "all-harness failure (2.4 x3, the live DSv4 god run) counts nothing")
+    check(sorted(live(cells(hermes=2.4, openclaw=61.0, opencode=55.0))) == ["openclaw", "opencode"],
+          "one broken harness is dropped; the two that measured the model are kept")
+    check(live(cells(hermes=5.0)) == {}, "exactly at the floor is a failure")
+    check(live(cells(hermes=5.1)) == {"hermes": 5.1},
+          "just above the floor is a genuine (bad) measurement and is KEPT")
+    check(live(cells(hermes=None, openclaw=None)) == {},
+          "never-ran cells (null) contribute nothing either")
+    # the mean must reflect only the counted cells, not all of them
+    mixed = live(cells(hermes=2.4, openclaw=61.0, opencode=55.0))
+    check(round(sum(mixed.values()) / len(mixed), 1) == 58.0,
+          "agentic mean excludes the failed harness (58.0, not the 39.5 of all three)")
 
     # ---- perf percentile within bucket ----------------------------------------------------
     for canon, want in ((MID, 50.0), (SLOW, 0.0), (LONER, 100.0)):

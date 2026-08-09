@@ -260,7 +260,17 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
     # + which flags it contributed travel in the recipe for the card.
     _preset = presetmod.detect(cfg, name=os.path.basename(local_dir.rstrip("/\\")))
     _hw = presetmod.hardware_preset(plat)
-    _preset_flags = presetmod.apply_flags(_preset, modalities, hardware=_hw)
+    # The model's own chat template names the tool-call format it was trained to emit. Used ONLY
+    # to fill a gap: where the family preset already names a --tool-call-parser that wins
+    # untouched, so no configuration that works today can change. Where it names none — today the
+    # model serves with tool calls unconverted and scores ~0 on every agentic task — a recognised
+    # template supplies one. Pure file read; no GPU, no network, microseconds.
+    try:
+        from pod import toolformat as _tf
+        _fp = _tf.detect(local_dir)
+    except Exception:
+        _fp = None
+    _preset_flags = presetmod.apply_flags(_preset, modalities, hardware=_hw, fingerprint=_fp)
     extra_flags = _preset_flags + [str(t) for t in (extra_flags or [])]
 
     base = {"served_alias": alias, "port": port, "source": "auto",
@@ -268,7 +278,18 @@ def derive_recipe(local_dir, ref, *, port=8000, alias=DEFAULT_ALIAS, engine=None
             "modalities": modalities,
             "family_preset": {"id": _preset["id"], "label": _preset["label"],
                               "confidence": _preset["confidence"], "hardware": _hw["id"],
-                              "flags": _preset_flags}}
+                              "flags": _preset_flags,
+                              # what the chat template said, and whether it was actually used —
+                              # disclosed so a reader can see WHY this parser was served
+                              "tool_format": (None if not _fp else {
+                                  "status": _fp.get("status"),
+                                  "candidates": _fp.get("candidates"),
+                                  "template_sha256": _fp.get("template_sha256"),
+                                  "template_source": _fp.get("template_source"),
+                                  "filled_gap": bool(
+                                      _fp.get("status") == "matched"
+                                      and "--tool-call-parser" not in
+                                          (_preset.get("parser_flags") or []))})}}
 
     # An explicit catalog engine (Run-tab dropdown / --engine) -> that engine's containerized
     # recipe; a custom `image` rides along and is recorded. MLX serves the LOCAL DIR bare-metal

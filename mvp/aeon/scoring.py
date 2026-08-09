@@ -403,12 +403,26 @@ def _attach_dials(lb):
         # must never be counted, even if its weights are attested. It stays STORED + shown (when
         # 'verified only' is toggled off), badged verified-but-not-counted, but drops off the
         # ranked board. "only if it actually ran through the entire benchmark would it be counted."
-        # An agentic axis that RAN and produced only harness failures is not the same thing as a
-        # run that skipped agentic: the benchmark was attempted end to end, and what failed was the
-        # harness plumbing (owner policy 2026-08-08). Such a run keeps its rank on the components
-        # that were genuinely measured, badged so the gap is visible. Any other missing component
-        # still fails the gate.
-        m["agentic_not_counted"] = bool(a and a.get("all_failed"))
+        # AGENTIC IS ALLOWED TO BE MISSING (owner policy 2026-08-08). It is the hardest component
+        # for an outside operator to get working - it needs a usable docker socket, three harness
+        # images built locally, and a served context of at least 64K - and un-ranking an otherwise
+        # complete, attested run over it costs more real submissions than it protects. So a run
+        # whose agentic produced no usable score still ranks on what WAS measured, carrying a
+        # badge the reader can click for the fix. Every OTHER missing component still fails the
+        # gate: intelligence and performance are cheap and nearly automatic.
+        #
+        # Two distinct reasons, because the remedy differs and the reader deserves to know which:
+        #   failed  - the harnesses ran and every one came back at/below AGENTIC_FAILURE_FLOOR,
+        #             which is a serve/parser problem, not the model
+        #   missing - no agentic rows at all: the harnesses never ran (no docker, build failed,
+        #             short context, or the run simply did not include them)
+        if a and a.get("all_failed"):
+            m["agentic_status"] = "failed"
+        elif not a:
+            m["agentic_status"] = "missing"
+        else:
+            m["agentic_status"] = "ok"
+        m["agentic_not_counted"] = m["agentic_status"] != "ok"
         if m.get("record_eligible") and m["aeon_provisional"]:
             missing = [k for k in AEON_WEIGHTS if k not in present]
             if not (missing == ["agentic"] and m["agentic_not_counted"]):
@@ -1092,12 +1106,13 @@ def god_leaderboard():
             # COMPLETENESS GATE: a god run RANKS only when it ran the FULL god benchmark —
             # sentinels AND agentic. A sentinels-only (provisional) god run stays local, never
             # counted; verified weights are necessary but not sufficient.
-            # Ranks when the god agentic pass RAN, even if every harness failed — that failure is
-            # the plumbing, and the run is badged rather than hidden. Never attempting agentic at
-            # all is still incomplete.
-            "record_eligible": bool(s and s["eligible"] and (ag_score is not None or bool(h))),
-            "agentic_not_counted": bool(h and ag_score is None),
-            "ranked_excluded": ("incomplete" if (s and s["eligible"] and not h) else None),
+            # Same policy as the global board: god agentic may be absent or failed and the run
+            # still ranks on its sentinels, badged. A god run is expensive to produce; refusing to
+            # show it because the harness plumbing broke helps nobody.
+            "record_eligible": bool(s and s["eligible"]),
+            "agentic_status": ("ok" if ag_score is not None else ("failed" if h else "missing")),
+            "agentic_not_counted": ag_score is None,
+            "ranked_excluded": None,
             "started_at": (s or {}).get("started_at")
                           or max(v["started_at"] or 0 for v in h.values()),
         })

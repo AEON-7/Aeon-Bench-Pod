@@ -117,8 +117,18 @@ check(f["record_eligible"], "a FULL god run (sentinels + agentic) is record-elig
 t = rows[TEXTONLY]
 check(t["god_score"] == 10.0 and t["god_provisional"] and t["agentic"] is None,
       "sentinels-only renormalizes to the sentinel score, provisional, agentic null")
-check(t["record_eligible"] is False and t.get("ranked_excluded") == "incomplete",
-      "COMPLETENESS GATE: a sentinels-only (provisional) god run does NOT rank — local only")
+# POLICY REVERSAL (owner, 2026-08-08). This used to assert the opposite: a sentinels-only god run
+# was excluded as "incomplete". Agentic turned out to be the hardest component for an outside
+# operator to get working — it needs a usable docker socket, three locally-built harness images and
+# a >=64K served context — and refusing to show an otherwise complete, attested, expensive god run
+# because the harness plumbing broke cost more real submissions than it protected. It now ranks on
+# what was measured, and says so.
+check(t["record_eligible"] is True and t.get("ranked_excluded") is None,
+      "a god run whose agentic did not land still RANKS on its sentinels")
+check(t["agentic_not_counted"] is True and t["agentic_status"] == "missing",
+      "...and is badged 'agentic untested', with the reason it can be acted on")
+check(t["god_provisional"] is True,
+      "...while still declaring itself not fully tested — ranking it is not pretending it is complete")
 
 n = rows[NOANS]
 check(n["sentinels"]["n_attempted"] == N_GOD, "no_answer rows count as attempted (coverage)")

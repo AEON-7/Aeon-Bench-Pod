@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=113" />
+  <link rel="stylesheet" href="/static/styles.css?v=122" />
 </head>
 <body>
   <header>
@@ -565,7 +565,18 @@
         <button id="adminRefresh" class="ghost">↻ refresh</button>
       </div>
       <p class="note" id="adminSummary" style="text-align:left"></p>
-      <h3 class="arena-rankhead" style="border-top:0;margin-top:4px">Benches <span class="note">— disqualify a faulty bench (kept, marked, unranked) or re-judge its Tier-1 cases</span></h3>
+      <h3 class="arena-rankhead" style="border-top:0;margin-top:4px">◉ Live benches
+        <span class="note">— running right now, including pods in the wild · auto-refreshes · a run with no new cases for 12h is marked quiet — never auto-killed</span></h3>
+      <div id="adminLive" class="admin-live"></div>
+      <h3 class="arena-rankhead">⇵ Submission log
+        <select id="ingestFilter">
+          <option value="0">all attempts</option>
+          <option value="1">rejected only</option>
+        </select>
+        <span class="note">— every pod that tried to submit, accepted or REFUSED. A refused bundle creates no run, so this is its only record.</span></h3>
+      <div id="ingestSummary" class="note" style="text-align:left"></div>
+      <div id="ingestLog" class="admin-ingest"></div>
+      <h3 class="arena-rankhead">Benches <span class="note">— disqualify a faulty bench (kept, marked, unranked) or re-judge its Tier-1 cases</span></h3>
       <div id="adminBenches" class="admin-benches"></div>
       <h3 class="arena-rankhead">Evaluators <span class="note">— honeypot accuracy gates whether each account's votes count · history shows the evidence</span></h3>
       <table id="evalTable"><thead><tr>
@@ -670,6 +681,15 @@
       </div>
     </div>
 
+    <!-- generic content modal: filled by openModal(html). The other modals each hard-code their
+         own markup; anything that just needs to SAY something reuses this one. -->
+    <div id="helpModal" class="modal" hidden>
+      <div class="modal-card help-card">
+        <button class="modal-x" id="helpClose" title="close">×</button>
+        <div id="helpBody"></div>
+      </div>
+    </div>
+
     <div id="tipModal" class="modal" hidden>
       <div class="modal-card tip-card">
         <button class="modal-x" id="tipClose" title="close">×</button>
@@ -710,6 +730,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=113"></script>
+  <script src="/static/app.js?v=122"></script>
 </body>
 </html>

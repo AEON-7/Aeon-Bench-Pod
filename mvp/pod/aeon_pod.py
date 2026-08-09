@@ -1785,7 +1785,13 @@ def main():
     ap.add_argument("--frontier-id", default=None,
         help="approved frontier model id from /api/pod/frontier, e.g. xai:grok-4.5-high")
     # shared:
-    ap.add_argument("--mothership", required=True, help="mothership base URL, e.g. http://localhost:8090")
+    # Defaults to the public mothership. This was required=True while appearing ZERO times in
+    # AGENTS.md, so every CLI command the docs print died at argparse ("the following arguments
+    # are required: --mothership") with nothing telling the reader what to pass. jobs.py already
+    # defaulted the same way; the CLI just disagreed with every other surface.
+    ap.add_argument("--mothership",
+        default=os.environ.get("AEON_MOTHERSHIP", "https://aeon-bench.com"),
+        help="mothership base URL (default: $AEON_MOTHERSHIP or https://aeon-bench.com)")
     ap.add_argument("--api-key", default=os.environ.get("AEON_API_KEY"))
     ap.add_argument("--engine", default=None, help="catalog engine id: aeon-vllm-ultimate|vllm|"
         "vllm-rocm|sglang|llama.cpp|mlx (containerized recipes; mlx = macOS bare metal) — or a "
@@ -1800,7 +1806,12 @@ def main():
         "(e.g. 'hard,expert' for the rapid bench); applies to the graded suite-v2 cases")
     ap.add_argument("--category", default=None, help="only cases whose category is in this comma-list "
         "(e.g. 'codegen') — applied ALONGSIDE --difficulty on the text suite; default: all categories")
-    ap.add_argument("--preset", default=None, choices=("comprehensive", "hard-bench", "god-mode"),
+    # Defaults to comprehensive: the ONLY shape that ranks. It used to default to None, which
+    # silently produced a text-only run with no agentic and no perf - two of the three AEON
+    # components missing - so a CLI/API user was told HTTP 200 ELIGIBLE and then never appeared
+    # on the board. Pass --preset none for a deliberate local-only subset.
+    ap.add_argument("--preset", default="comprehensive",
+        choices=("comprehensive", "hard-bench", "god-mode", "none"),
         help="one-shot bundle: 'comprehensive' = everything on (all harnesses + vision + audio + video "
         "+ arena + perf); 'hard-bench' = the hard,expert tiers through all harnesses only "
         "(no vision/audio/video/arena/perf)")
@@ -1868,6 +1879,8 @@ def main():
 
     # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
     # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.
+    if a.preset == "none":                        # explicit opt-out: the old default, now deliberate
+        a.preset = None
     if a.preset == "comprehensive":               # everything on: all harnesses + vision/audio/video + arena + perf
         a.harness = a.harness or "all"
         a.perf = True

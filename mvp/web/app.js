@@ -363,6 +363,13 @@ function _aeonTitle(m, headline, isAeon, prov) {
     + (prov ? " · provisional: a component is not yet tested (missing dials never count as zero)" : "");
 }
 
+// Share wiring, shared by every board that renders benchmark cards (global, GOD MODE). The
+// stopPropagation matters: the card itself is a button that opens the run.
+function wireShare(scope) {
+  $$(`${scope} .share-btn`).forEach((b) =>
+    b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
+}
+
 function globalRow(m, i) {
   const isAeon = m.aeon_score != null;
   const headline = isAeon ? m.aeon_score : (m.comp ?? 0);
@@ -374,12 +381,20 @@ function globalRow(m, i) {
   const fr = m.frontier || null;
   const ava = fr && fr.logo_url ? fr.logo_url : "/static/generic-avatar.svg";
   const creatorHref = fr && fr.website ? ` href="${escA(fr.website)}"` : "";
-  const badge = m.record_eligible
+  // A ranked run can still be missing agentic - the hardest component for an outside operator to
+  // get working. Say so on the card, and make it clickable: the panel behind it explains the fix
+  // for a human AND gives their agent something to act on.
+  const agBadge = m.agentic_not_counted
+    ? `<button class="elig-badge agentic-untested" data-agentic-help="${escA(m.agentic_status || "missing")}" ` +
+      `title="the agentic suite did not produce a usable score, so it is not part of this AEON score — click to see how to fix it">` +
+      `⚠ agentic untested</button>`
+    : "";
+  const badge = (m.record_eligible
     ? `<span class="elig-badge verified" title="verified HF-pull controlled run, full benchmark — globally ranked">✓ verified</span>`
     : m.ranked_excluded === "incomplete"
     ? `<span class="elig-badge incomplete" title="verified weights, but not a FULL benchmark run (missing agentic or performance) — stored &amp; shown, not counted on the ranked board">✓ verified · not counted</span>`
     : fr ? `<span class="elig-badge frontier" title="validated hosted frontier API reference — comparison only, not a local-weight attestation">frontier API</span>`
-    : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`;
+    : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`) + agBadge;
   const vram = m.vram_est_gb != null
     ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
   const ctx = ctxChip(m.ctx_len);
@@ -439,7 +454,7 @@ function renderGlobalBoard(models) {
       if ((e.key === "Enter" || e.key === " ") && e.target === row) { e.preventDefault(); open(); }
     };
   });
-  $$("#board .share-btn").forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
+  wireShare("#board");
   // instrument boot: the AEON headline counts up in sync with the dial sweeps — first load only
   if ($("#board").classList.contains("fresh"))
     $$("#board .aeon-val").forEach((el, i) => { if (models[i]) countUp(el, models[i].aeon_score ?? models[i].comp); });
@@ -527,7 +542,7 @@ function renderClassicBoard(models) {
     renderChart();
   });
   $$("#board .mlink").forEach((a) => a.onclick = () => openSubmissionsFor(a.dataset.model));
-  $$("#board .share-btn").forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
+  wireShare("#board");
   // instrument boot: composite counts up in sync with the gauge-ring sweep — first load only
   if ($("#board").classList.contains("fresh")) {
     $$("#board .mcard .composite").forEach((el, i) => { if (models[i]) countUp(el, models[i].comp); });
@@ -1198,16 +1213,24 @@ async function nextMatch() {
   }
 }
 
+const _FRAME_REQ = new Map();                       // per-frame generation token
 async function renderFrame(sel, side) {
-  const fr = $(sel);
+  // Same stale-response hazard as the gallery, and here it is a VOTE-INTEGRITY issue: a late
+  // response from a previous match must never paint into the side the evaluator is judging.
+  const myReq = (_FRAME_REQ.get(sel) || 0) + 1;
+  _FRAME_REQ.set(sel, myReq);
+  const fr = resetArtifactFrame(sel) || $(sel);    // stop whatever the previous side was running
   fitArenaFrames();
   if (!ARENA.match) { fr.srcdoc = blankFrame(""); return; }
   try {
     const r = await fetch(`/api/arena/render?match_id=${encodeURIComponent(ARENA.match.match_id)}&side=${side}`,
       { headers: authHeaders() });
     const a = r.ok ? await r.json() : null;
+    if (_FRAME_REQ.get(sel) !== myReq) return;     // superseded by a newer match/side load
     fr.srcdoc = (a && a.html) || blankFrame("failed to load");
-  } catch (e) { fr.srcdoc = blankFrame("failed to load"); }
+  } catch (e) {
+    if (_FRAME_REQ.get(sel) === myReq) fr.srcdoc = blankFrame("failed to load");
+  }
 }
 
 // Scale each 1280×960 virtual-viewport iframe down to its .arena-fit box, so the WHOLE
@@ -1512,34 +1535,59 @@ function _blockPageScrollKeys(e) {
 }
 window.addEventListener("keydown", _blockPageScrollKeys, { passive: false });
 
+// Artifacts are UNTRUSTED model-authored code: one can loop forever (this bug: a rAF draw loop
+// with no cancelAnimationFrame plus scheduled Web Audio), and swapping `srcdoc` on the SAME
+// element is not a dependable stop — the old document keeps burning the main thread while the
+// browser is saturated, so the frame appears stuck on the previous artifact. Replacing the NODE
+// discards the browsing context outright, which IS dependable. The clone keeps every security
+// attribute (sandbox / allow / referrerpolicy) because it is the same element, minus its document.
+function resetArtifactFrame(sel) {
+  const old = $(sel);
+  if (!old) return null;
+  const fresh = old.cloneNode(false);              // same id/class/sandbox/allow/tabindex
+  fresh.removeAttribute("srcdoc");                 // a cloned srcdoc would re-run the artifact
+  old.replaceWith(fresh);
+  return fresh;
+}
+
 // Preview overlay: the artifact runs in a SANDBOXED iframe (same sandbox attrs as the
 // match view — allow-scripts, NO allow-same-origin) and is lazy-fetched only on click.
 let GAL_OPENER = null;                             // element to restore focus to on close
+let GAL_REQ = 0;                                   // generation token: only the NEWEST open paints
 async function openGalPreview(aid, title, model) {
+  // Every open takes a ticket. A render that resolves AFTER the user opened something else must
+  // NOT paint — otherwise the late artifact hijacks the frame and every subsequent preview shows
+  // it instead of the one clicked (owner-reported on the Generative Symphony entry, 2026-07-24).
+  const myReq = ++GAL_REQ;
   GAL_OPENER = document.activeElement;
   $("#galViewTitle").innerHTML = `<b>${escH(title)}</b> — <span class="mono">${escH(model)}</span>`;
   $("#galViewDl").href = "/api/arena/download/" + encodeURIComponent(aid);
-  $("#galFrame").srcdoc = loadingFrame("compiling artifact…");
+  const frame = resetArtifactFrame("#galFrame") || $("#galFrame");   // hard-stop the previous artifact
+  frame.srcdoc = loadingFrame("compiling artifact…");
   $("#galModal").hidden = false;
   document.body.classList.add("modal-open");       // the page behind must not scroll
   requestAnimationFrame(() => { fitGalPreview(); focusArtifactFrame($("#galFrame")); });
   try {
     const r = await fetch("/api/arena/render?artifact_id=" + encodeURIComponent(aid));
     const a = r.ok ? await r.json() : null;
-    if ($("#galModal").hidden) return;             // closed while loading — don't resurrect it
-    $("#galFrame").srcdoc = (a && a.html) || blankFrame("failed to load");
+    // superseded by a newer open, or closed while loading — either way, do not paint
+    if (myReq !== GAL_REQ || $("#galModal").hidden) return;
+    frame.srcdoc = (a && a.html) || blankFrame("failed to load");
     // srcdoc swap replaces the document — hand focus to the REAL artifact once it exists
-    $("#galFrame").addEventListener("load", () => focusArtifactFrame($("#galFrame")), { once: true });
-  } catch (e) { if (!$("#galModal").hidden) $("#galFrame").srcdoc = blankFrame("failed to load"); }
+    frame.addEventListener("load", () => focusArtifactFrame(frame), { once: true });
+  } catch (e) {
+    if (myReq === GAL_REQ && !$("#galModal").hidden) frame.srcdoc = blankFrame("failed to load");
+  }
 }
 function closeGalPreview() {
   // release anything the artifact grabbed first, or the browser keeps a fullscreen/locked cursor
   // pointed at a frame we're about to blank
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
   try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {}
+  GAL_REQ++;                                       // invalidate any in-flight render
   $("#galModal").hidden = true;
   document.body.classList.remove("modal-open");
-  $("#galFrame").srcdoc = blankFrame("");          // unload the artifact — stop its scripts
+  resetArtifactFrame("#galFrame");                 // discard the document — stops rAF/audio for good
   try { if (GAL_OPENER && GAL_OPENER.focus) GAL_OPENER.focus({ preventScroll: true }); } catch (e) {}
   GAL_OPENER = null;
 }
@@ -1566,7 +1614,129 @@ async function setAdmin() {
   $("#arenaPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#adminPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   syncHash("admin");
-  loadAdminBenches(); loadEvaluators(); loadAdminArtifacts();
+  loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); loadAdminLive(); loadIngestLog(); startLiveTicker();
+}
+
+// ---- admin: SUBMISSION LOG (every /api/v1 attempt, accepted or refused) ----
+// A refused bundle creates no run row, and app access-logging is off, so this table is the only
+// evidence that a pod tried at all. It answers the question that cost hours of guessing:
+// "did their pod never send, or did we refuse it?"
+const INGEST_BAD = {
+  NOT_ATTESTED: "weights were not verified against HF — this mothership accepts attested runs only",
+  BAD_SIG: "ed25519 signature did not verify", SCHEMA_INVALID: "bundle failed schema validation",
+  SIZE_EXCEEDED: "bundle over the size cap", REPLAY_NONCE: "run nonce already consumed",
+  UNKNOWN_KEY: "device key not enrolled", REVOKED_KEY: "device key revoked",
+  TOKEN_MISMATCH: "run token did not match", RATE_LIMITED: "rate limited",
+};
+async function loadIngestLog() {
+  const box = $("#ingestLog"); if (!box) return;
+  const rejOnly = ($("#ingestFilter") || {}).value === "1";
+  let d;
+  try {
+    const r = await fetch("/api/admin/ingest_log?limit=200&rejected=" + (rejOnly ? 1 : 0),
+                          { headers: authHeaders() });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    d = await r.json();
+  } catch (e) {
+    box.innerHTML = `<p class="note" style="text-align:left">submission log unavailable (${escH(String(e.message || e))})</p>`;
+    return;
+  }
+  const sum = d.summary || [];
+  const acc = sum.filter((x) => x.outcome === "accepted").reduce((n, x) => n + x.n, 0);
+  const rej = sum.filter((x) => x.outcome === "rejected");
+  const rejN = rej.reduce((n, x) => n + x.n, 0);
+  $("#ingestSummary").innerHTML =
+    `last ${escH(String(d.window_h || 168))}h — <b>${acc}</b> accepted · <b class="${rejN ? "err" : ""}">${rejN}</b> refused`
+    + (rej.length ? " · " + rej.map((x) => `${escH(x.reason || "?")} ×${x.n}`).join(", ") : "");
+  const rows = d.log || [];
+  if (!rows.length) { box.innerHTML = `<p class="note" style="text-align:left">No submission attempts in this window.</p>`; return; }
+  box.innerHTML = rows.map((r) => {
+    const ok = r.outcome === "accepted";
+    const why = r.reason ? (INGEST_BAD[r.reason] || r.note || "") : "";
+    return `<div class="bench-row ing-row${ok ? "" : " flagged"}">
+      <span class="bench-t">${escH(fmtDT(r.at))}</span>
+      <span class="subs-b">${escH(r.route || "?")}</span>
+      <span class="ev-badge ${ok ? "ok" : "bad"}" title="${escA(why)}">${escH(ok ? "accepted" : (r.reason || "refused"))}</span>
+      <span class="bench-m mono">${r.model ? fmtModel(r.model) : "<span class=note>—</span>"}</span>
+      ${r.board ? `<span class="subs-b">${escH(r.board)}</span>` : ""}
+      <span class="note mono">${escH(String(r.status || ""))}</span>
+      ${r.bench_host ? `<span class="live-host mono">${escH(r.bench_host)}</span>` : ""}
+      ${r.remote_ip ? `<span class="note mono" title="client address">${escH(r.remote_ip)}</span>` : ""}
+      ${r.n_bytes ? `<span class="note mono">${Math.round(r.n_bytes / 1024)}kB</span>` : ""}
+      ${why && !ok ? `<span class="note ing-why">${escH(why)}</span>` : ""}
+    </div>`;
+  }).join("");
+}
+
+// ---- admin: LIVE benches (in-flight runs, including other people's pods in the wild) ----
+// A pod that dies mid-bench leaves its row 'running' forever — nothing ever reports the failure —
+// so a run whose progress has not moved for over an hour is surfaced as STALLED rather than shown
+// as healthy. Poll only while the admin tab is actually visible.
+let ADMIN_LIVE_TIMER = null;
+function fmtElapsed(s) {
+  if (s == null) return "—";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : (m ? `${m}m` : `${Math.max(0, Math.round(s))}s`);
+}
+async function loadAdminLive() {
+  const box = $("#adminLive"); if (!box) return;
+  // admin routes are Bearer-gated — api() sends no headers, so this MUST use authHeaders()
+  let d;
+  try {
+    const r = await fetch("/api/admin/live_runs", { headers: authHeaders() });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    d = await r.json();
+  } catch (e) {
+    // say so rather than silently rendering an empty panel (which reads as "nothing running")
+    box.innerHTML = `<p class="note" style="text-align:left">live benches unavailable (${escH(String(e.message || e))})</p>`;
+    return;
+  }
+  const rows = d.runs || [];
+  if (!rows.length) {
+    box.innerHTML = `<p class="note" style="text-align:left">No benches running right now.</p>`;
+    return;
+  }
+  box.innerHTML = rows.map((r) => {
+    const done = r.status !== "running";
+    const pct = (r.n_cases && r.progress != null)
+      ? Math.min(100, Math.round((r.progress / Math.max(1, r.n_cases)) * 100)) : null;
+    // NOTE: informational only — a stalled run is never auto-killed. A full bench can legitimately
+    // take DAYS, so "quiet" is measured from the last scored case, and the operator decides.
+    const quietH = r.quiet_s != null ? (r.quiet_s / 3600) : null;
+    const quietTxt = quietH != null ? `no new cases for ${fmtElapsed(r.quiet_s)}` : "";
+    const state = done
+      ? `<span class="ev-badge ok">${escH(r.status || "done")}</span>`
+      : (r.stalled ? `<span class="ev-badge pending" title="${escA(quietTxt + " — the pod may be gone, but it is left alone; kill it yourself if you want it stopped")}">quiet</span>`
+                   : `<span class="live-dot" title="in flight"></span><span class="ev-badge">running</span>`);
+    const trust = r.trust_tier === "attested" ? `<span class="elig-badge verified">✓</span>` : "";
+    const method = r.attestation_method
+      ? `<span class="subs-b" title="how this run was attested">${escH(r.attestation_method)}</span>` : "";
+    const who = r.bench_host
+      ? `<span class="live-host mono" title="the machine that SERVED the model">${escH(r.bench_host)}</span>` : "";
+    const hw = r.hardware ? `<span class="note">${escH(r.hardware)}</span>` : "";
+    return `<div class="bench-row live-row${r.stalled ? " flagged" : ""}">
+      <span class="bench-t">${escH(fmtElapsed(r.elapsed_s))}</span>
+      <span class="bench-m mono">${fmtModel(r.model)}</span>
+      <span class="subs-b">${escH(r.board || "?")}</span>${trust}${method}${state}
+      <span class="live-prog mono">${r.progress || 0}${r.n_cases ? " / " + r.n_cases : ""}${pct != null ? ` (${pct}%)` : ""}</span>
+      ${!done && r.quiet_s != null ? `<span class="note" title="time since the last scored case landed">last case ${escH(fmtElapsed(r.quiet_s))} ago</span>` : ""}
+      ${who}${hw}
+      <span class="bench-acts">
+        <button class="ghost ev-act bench-open" data-id="${escA(r.id)}">open</button>
+      </span></div>`;
+  }).join("");
+  $$("#adminLive .bench-open").forEach((b) => b.onclick = () => {
+    const t = $("#tabs [data-subs]"); if (t) t.click();
+    openSubmission(b.dataset.id);
+  });
+}
+function startLiveTicker() {
+  if (ADMIN_LIVE_TIMER) clearInterval(ADMIN_LIVE_TIMER);
+  ADMIN_LIVE_TIMER = setInterval(() => {
+    const p = $("#adminPanel");
+    if (!p || p.hidden) { clearInterval(ADMIN_LIVE_TIMER); ADMIN_LIVE_TIMER = null; return; }
+    loadAdminLive();
+  }, 15000);
 }
 
 // ---- admin: bench oversight (disqualify / re-judge / open any run) ----
@@ -1718,7 +1888,12 @@ const SUBS = { board: "", model: null, view: "cards", cards: null };
 // Back then returns to the view the row was clicked on (board / harnesses / …).
 function setSubs(model, keepHash) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
-  ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  // Hide EVERY sibling panel, not a subset. The old list omitted god/perf/harness/compare/live/
+  // gallery, so opening a submission from any of those tabs left the previous panel on screen
+  // covering the detail — clicking a GOD MODE card looked like it did nothing at all.
+  ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#godPanel",
+   "#perfPanel", "#harnessPanel", "#comparePanel", "#livePanel", "#galleryPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   if (!keepHash) syncHash("submissions");
   SUBS.model = model || null;
@@ -2299,9 +2474,23 @@ async function setGod() {
     return;
   }
   $("#godBody").innerHTML = `<div class="mcards god-board">` + ms.map((m, i) => godRow(m, i)).join("") + `</div>`;
-  $$("#godBody .grow[data-run]").forEach((r) => {
-    r.onclick = () => openSubmission(r.dataset.run);
-    r.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSubmission(r.dataset.run); } };
+  $$("#godBody .mrow[data-run]").forEach((r) => {
+    const open = (ev) => {
+      // the action controls own their clicks — same rule as the global board
+      if (ev.target.closest(".share-btn, .get-model-btn, .model-creator")) return;
+      // openBestRun (not openSubmission) — it calls setSubs() FIRST, which performs the panel
+      // switch. Calling openSubmission alone only wrote the deep hash and filled #subsDetail while
+      // #godPanel stayed visible and #detailPanel stayed hidden, so the click appeared to do nothing.
+      openBestRun(r.dataset.model, r.dataset.run);
+    };
+    r.onclick = open;
+    r.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } };
+  });
+  wireShare("#godBody");
+  // hydrate creator avatars + Get-Model links exactly like the global board
+  [...new Set(ms.map((m) => m.model))].forEach((model) => {
+    const cached = META.get(model);
+    if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
 }
 
@@ -2311,30 +2500,63 @@ function godRow(m, i) {
   const s = m.sentinels;
   const ag = m.agentic;
   const prov = !!m.god_provisional;
+  const score = m.god_score;
+  const band = score >= 80 ? "pass" : score >= 40 ? "part" : "fail";
+  const bestRun = (s && s.run) || m.run || m.best_run || "";
   const badge = m.record_eligible
-    ? `<span class="elig-badge verified" title="verified HF-pull controlled run">✓ verified</span>`
+    ? `<span class="elig-badge verified" title="verified HF-pull controlled run, FULL god pass (sentinels + agentic) — globally ranked">\u2713 verified</span>`
+    : m.ranked_excluded === "incomplete"
+    ? `<span class="elig-badge incomplete" title="verified weights, but not a FULL god pass (sentinels or agentic missing) — stored &amp; shown, not counted">\u2713 verified \u00b7 not counted</span>`
     : `<span class="elig-badge local" title="not an attested run — shown, not record-eligible">local</span>`;
-  const cats = s && s.categories
-    ? Object.entries(s.categories).map(([c, v]) =>
-        `<span class="god-cat"><b class="god-cat-n ${v >= 80 ? "pass" : v >= 40 ? "part" : "fail"}">${fmtComp(v)}</b>${escH(c)}</span>`).join("")
-    : `<span class="god-untested">sentinels not yet tested</span>`;
-  const harn = ag && ag.harnesses
-    ? Object.entries(ag.harnesses).map(([h, v]) =>
-        `<span class="god-harn" title="god agentic through ${escA(h)}">${escH(h)} <b>${fmtComp(v)}</b></span>`).join("")
-    : `<span class="god-untested">agentic not yet tested</span>`;
-  const cov = s ? `<span class="god-cov" title="god sentinels attempted of the run's suite">${s.n_attempted}/${s.n_total} sentinels</span>` : "";
-  return `<div class="grow${i === 0 ? " top" : ""}" ${s && s.run ? `data-run="${escA(s.run)}"` : ""} tabindex="0" role="button" aria-label="open the god run for ${escA(m.model)}">
-    <div class="god-rank">${String(i + 1).padStart(2, "0")}</div>
-    <div class="god-score-wrap${prov ? " prov" : ""}" title="GOD SCORE — 0.6 × sentinels + 0.4 × agentic${prov ? " (renormalized: a component is untested)" : ""}">
-      <span class="god-score">${m.god_score != null ? m.god_score.toFixed(1) : "—"}</span>
-      <span class="god-score-lbl">god score</span>
+  const vram = m.vram_est_gb != null
+    ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
+  const ctx = ctxChip(m.ctx_len);
+  const cov = s
+    ? `<span class="god-cov" title="god sentinels attempted of the run's suite">${s.n_attempted}/${s.n_total} sentinels</span>` : "";
+  // component dials mirror the global board's row, but scoped to what GOD MODE actually measures
+  const agTip = ag && ag.harnesses
+    ? "god agentic — " + Object.entries(ag.harnesses).map(([h, v]) => `${h} ${v == null ? "\u2014" : Math.round(v)}`).join(" \u00b7 ")
+    : "god agentic (hermes \u00b7 openclaw \u00b7 opencode) — not yet tested";
+  // PERFORMANCE rides along from the same perf grid the global board reads. Shown, but NOT folded
+  // into GOD SCORE — that stays 0.6 x sentinels + 0.4 x agentic, so rankings do not silently move.
+  const pf = m.performance;
+  const pfTip = pf && pf.score != null
+    ? `throughput percentile within the ${pf.hw || "same"} hardware bucket`
+      + (pf.peak_agg_tps ? ` — peak ${Math.round(pf.peak_agg_tps)} tok/s aggregate` : "")
+    : "performance grid — not yet run for this model";
+  const dials = [
+    dial(s && s.composite != null ? s.composite : null, "sentinels",
+         { title: "god sentinels — atomic all-or-nothing checkers; a 90%-right answer scores 0" }),
+    dial(ag && ag.score != null ? ag.score : null, "agentic", { title: agTip }),
+    dial(pf && pf.score != null ? pf.score : null, "performance", { title: pfTip }),
+  ].join("");
+  const title = `GOD SCORE — 0.6 \u00d7 sentinels + 0.4 \u00d7 agentic${prov ? " (renormalized: a component is untested)" : ""}`;
+  return `<div class="mrow${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}"${bestRun ? ` data-run="${escA(bestRun)}"` : ""} data-trust="${m.record_eligible ? "verified" : "local"}" tabindex="0" role="button" aria-label="open the god run for ${escA(m.model)}" style="--i:${i}">
+    <div class="mrow-rank">${String(i + 1).padStart(2, "0")}</div>
+    <div class="mrow-aeon god-hero ${band}${prov ? " prov" : ""}" title="${escA(title)}">
+      ${dial(score, "god score", { hero: true, size: 124, sub: "overall", fmt: fmtComp, valCls: "aeon-val" })}
       ${prov ? `<span class="aeon-prov">not fully tested</span>` : ""}
     </div>
-    <div class="god-id">
-      <span class="mrow-model">${fmtModel(m.model)}</span> ${badge} ${cov}
-      <div class="god-cats">${cats}</div>
-      <div class="god-harns">${harn}</div>
+    <div class="mrow-id">
+      <div class="mrow-name">
+        <a class="model-creator mrow-ava" data-meta="${escA(m.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+          <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40">
+        </a>
+        <span class="mrow-model">${fmtModel(m.model)}</span>
+        ${badge}${vram}${ctx}${cov}
+      </div>
+      ${catBars(s && s.categories)}
+      <div class="god-harns">${ag && ag.harnesses
+        ? Object.entries(ag.harnesses).map(([h, v]) =>
+            `<span class="god-harn" title="god agentic through ${escA(h)}">${escH(h)} <b>${fmtComp(v)}</b></span>`).join("")
+        : `<span class="god-untested">agentic not yet tested</span>`}</div>
+      <div class="mcard-acts mrow-acts">
+        <a class="get-model-btn" data-meta-card="${escA(m.model)}" target="_blank" rel="noopener noreferrer" hidden>Get&nbsp;Model</a>
+        <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">\u2934 share</button>
+        <span class="mrow-open" aria-hidden="true">open god run \u25b8</span>
+      </div>
     </div>
+    <div class="mrow-dials">${dials}</div>
   </div>`;
 }
 
@@ -5470,7 +5692,8 @@ async function init() {
     routeApply(h);
   });
   $("#subsBoard").onchange = () => { SUBS.board = $("#subsBoard").value; loadSubs(); };
-  $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); };
+  $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); loadAdminLive(); loadIngestLog(); };
+  { const f = $("#ingestFilter"); if (f) f.onchange = loadIngestLog; }
   $("#adminKind").onchange = loadAdminArtifacts;
   $("#arenaPrompt").onchange = () => { ARENA.pinned = $("#arenaPrompt").value; nextMatch(); };
   bind("#arenaGenBtn", arenaGenerate);     // generation moved to pods; button may be absent
@@ -5641,3 +5864,93 @@ if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST =
 } else {
   init();
 }
+
+// ---- "agentic untested" help ------------------------------------------------------------------
+// Agentic is 30% of the AEON score and by far the hardest part to get running on someone else's
+// machine: it needs a usable docker socket, three harness images built locally, and a served
+// context of at least 64K. A run missing it still ranks (on what it measured) - but the operator
+// has to be able to find out WHY and what to do, without reading the source. Two audiences, one
+// panel: steps a person can follow, and a block they can paste to an agent.
+const AGENTIC_HELP = {
+  failed: {
+    head: "The agentic harnesses ran, but every one scored ~0",
+    what: "That is almost never the model. Every task failing through a real harness means the " +
+          "server never converted the model's tool calls into OpenAI <code>tool_calls</code>, so " +
+          "the agent saw a model that refuses to use tools. A genuinely weak model still scores " +
+          "something. The usual cause is a missing or wrong <code>--tool-call-parser</code>.",
+    steps: [
+      "Check tool calling in one request \u2014 the pod does this automatically now, and prints the verdict before the suite starts.",
+      "If the parser is wrong, the probe prints the exact flag to restart the serve with.",
+      "Re-run the benchmark. Nothing else needs to change.",
+    ],
+  },
+  missing: {
+    head: "The agentic suite never ran",
+    what: "The three coding-agent harnesses run as containers the pod builds on first use. If the " +
+          "pod cannot reach Docker, cannot build them, or the model is served with a context " +
+          "window below 64K (the Hermes harness refuses less), agentic is skipped entirely.",
+    steps: [
+      "Make sure the pod can use Docker: it needs <code>-v /var/run/docker.sock:/var/run/docker.sock</code>, and your user must be able to run <code>docker info</code> without sudo.",
+      "Serve the model with at least 64K context (<code>--max-model-len 65536</code>).",
+      "Leave enough disk for the harness images \u2014 roughly 3 GB each, built once and cached.",
+      "Re-run with the default <code>comprehensive</code> preset, which includes all three harnesses.",
+    ],
+  },
+};
+
+const AGENTIC_AGENT_PROMPT = `My AEON Bench run is missing its agentic score. Please fix it and re-run.
+Check, in order:
+1. Can the pod use Docker?  docker exec aeon-pod docker info
+   If not, recreate the pod with:  -v /var/run/docker.sock:/var/run/docker.sock
+2. Can it build the harness images?
+   docker exec aeon-pod sh -c 'for h in hermes openclaw opencode; do docker build -f /app/harness/harness-$h.Dockerfile -t aeon-harness-$h:latest /app/harness; done'
+   A failure here prints the prerequisites and the exact command to run.
+3. Is the model served with at least 64K context? The Hermes harness refuses anything smaller.
+   Serve with --max-model-len 65536.
+4. Does tool calling actually work? The pod probes this before the suite and prints a verdict.
+   If it reports a wrong parser it also prints the exact flag, e.g.
+   --tool-call-parser qwen3_coder --enable-auto-tool-choice
+   Find the right one from the model's chat template (AGENTS.md section 4(e-parsers)).
+5. Re-run with the comprehensive preset (the default) so all three harnesses run.
+Report back which of the five was wrong.`;
+
+function openModal(html) {
+  const body = document.getElementById("helpBody");
+  const modal = document.getElementById("helpModal");
+  if (!body || !modal) return;
+  body.innerHTML = html;
+  modal.hidden = false;
+  const x = document.getElementById("helpClose");
+  if (x) { x.onclick = () => { modal.hidden = true; }; setTimeout(() => x.focus(), 30); }
+  modal.onclick = (ev) => { if (ev.target === modal) modal.hidden = true; };
+}
+
+function showAgenticHelp(kind) {
+  const h = AGENTIC_HELP[kind] || AGENTIC_HELP.missing;
+  const body =
+    `<h3>\u26a0 Agentic untested \u2014 ${escH(h.head)}</h3>` +
+    `<p class="ag-what">${h.what}</p>` +
+    `<p class="ag-note">This run is still <b>ranked</b> on everything it did measure. Agentic is ` +
+    `simply left out of its AEON score rather than counted as a zero \u2014 an untested skill is ` +
+    `not a failed one.</p>` +
+    `<h4>How to fix it</h4><ol class="ag-steps">` +
+    h.steps.map((x) => `<li>${x}</li>`).join("") + `</ol>` +
+    `<h4>Or hand this to your agent</h4>` +
+    `<pre class="ag-prompt" id="agPrompt">${escH(AGENTIC_AGENT_PROMPT)}</pre>` +
+    `<button class="btn" id="agCopy">copy for agent</button> ` +
+    `<a class="btn" href="https://github.com/AEON-7/Aeon-Bench-Pod/blob/main/AGENTS.md#4e-parsers-tool-call--reasoning-parsers--the-setting-that-quietly-costs-30" target="_blank" rel="noopener noreferrer">full guide</a>`;
+  openModal(body);
+  const c = document.getElementById("agCopy");
+  if (c) c.onclick = () => {
+    navigator.clipboard.writeText(AGENTIC_AGENT_PROMPT).then(() => { c.textContent = "copied \u2713"; });
+  };
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-agentic-help]");
+  if (!b) return;
+  e.preventDefault();
+  e.stopPropagation();                       // never also open the row behind the badge
+  showAgenticHelp(b.getAttribute("data-agentic-help"));
+});
+

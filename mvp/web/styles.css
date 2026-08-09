@@ -3253,3 +3253,61 @@ button.run-bench-btn .rbb-mark { font-size: 15px; margin-right: 6px; }
     transition-duration: .01ms !important;
   }
 }
+
+/* ---- admin: LIVE benches (in-flight runs, incl. pods in the wild) ---- */
+.admin-live { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.live-row { align-items: center; }
+.live-row.flagged { border-color: rgba(255, 180, 84, .45); }
+.live-prog { font-size: 11px; color: var(--dim); min-width: 96px; }
+.live-host { font-size: 11px; color: var(--accent); opacity: .85; }
+/* a pulsing dot reads as "this is moving" without needing a spinner per row */
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+            display: inline-block; margin-right: 5px; animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; transform: scale(1); }
+                       50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+/* ---- admin: submission log (every /api/v1 attempt, accepted or refused) ---- */
+.admin-ingest { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px;
+                max-height: 460px; overflow-y: auto; }
+.ing-row { align-items: center; font-size: 12px; }
+.ing-why { opacity: .8; font-style: italic; }
+#ingestSummary { margin: 2px 0 8px; }
+#ingestFilter { margin-left: 8px; }
+
+/* "agentic untested" — a BUTTON, not a label: the whole point is that it is actionable. Warm
+   amber rather than red; the run is ranked and legitimate, one component simply was not measured. */
+.elig-badge.agentic-untested {
+  color: var(--warn);
+  border-color: rgba(255, 180, 84, .55);
+  background: rgba(255, 180, 84, .08);
+  cursor: pointer;
+  font: inherit;
+  transition: background .15s ease, border-color .15s ease;
+}
+.elig-badge.agentic-untested:hover,
+.elig-badge.agentic-untested:focus-visible {
+  background: rgba(255, 180, 84, .18);
+  border-color: rgba(255, 180, 84, .85);
+}
+
+.help-card { max-width: 720px; text-align: left; }
+.help-card h3 { margin: 0 0 .6rem; }
+.help-card h4 { margin: 1.1rem 0 .4rem; color: var(--fg); }
+.help-card .ag-what { color: var(--dim); line-height: 1.55; }
+.help-card .ag-note {
+  border-left: 3px solid rgba(61, 220, 133, .55);
+  padding: .5rem .75rem; margin: .9rem 0; background: rgba(61, 220, 133, .06);
+  border-radius: 0 6px 6px 0; color: var(--dim); line-height: 1.5;
+}
+.help-card .ag-steps { margin: 0; padding-left: 1.25rem; line-height: 1.7; color: var(--dim); }
+.help-card .ag-steps code, .help-card .ag-what code {
+  background: var(--panel2, rgba(255,255,255,.06)); padding: .1em .35em; border-radius: 4px;
+  font-size: .92em;
+}
+.help-card .ag-prompt {
+  background: var(--panel2, rgba(255,255,255,.04)); border: 1px solid var(--line);
+  border-radius: 8px; padding: .75rem; max-height: 260px; overflow: auto;
+  white-space: pre-wrap; font-size: .82rem; line-height: 1.45; color: var(--dim);
+}
+

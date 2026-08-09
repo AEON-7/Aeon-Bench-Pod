@@ -27,6 +27,8 @@ Spark the composed output is flag-for-flag identical to the pre-split presets; o
 simply stop inheriting GB10-specific flags."""
 from __future__ import annotations
 
+import os
+
 # Safe flags (KV dtype, trust-remote-code, mamba/mm) rarely crash a serve.
 # Parser flags (--reasoning-parser / --tool-call-parser) MUST name a parser the engine build
 # registers — so they're only auto-applied for high/medium-confidence families. Parser names in
@@ -481,19 +483,61 @@ def _dedup(flags: list[str]) -> list[str]:
     return out
 
 
-def apply_flags(preset: dict, modalities=None, hardware: dict | None = None) -> list[str]:
+def apply_flags(preset: dict, modalities=None, hardware: dict | None = None,
+                fingerprint: dict | None = None) -> list[str]:
     """Conservative flags derive_recipe applies by DEFAULT: the family's safe flags plus this
     HOST's hardware-preset flags (family ⊕ hardware); parser flags only for high/medium
     confidence (a wrong parser crashes the serve). Audio allowance only when the model actually
     declares audio. `hardware` is a HARDWARE_PRESETS entry (None = detect this host). Operator
-    flags still override via merge_flags."""
+    flags still override via merge_flags.
+
+    `fingerprint` is `pod.toolformat.detect(model_dir)` — the tool-call wire format read out of the
+    model's own chat template. It FILLS A GAP AND NEVER CONTRADICTS: it is consulted only when this
+    preset contributes no `--tool-call-parser` at all, which today means the model serves with tool
+    calling unconverted and scores ~0 on every agentic task. Where the preset does name a parser,
+    that name wins untouched even if the fingerprint disagrees — the preset is hand-checked against
+    models we actually run, and quietly overriding it is how a working serve breaks.
+
+    So the change is one-directional by construction: configurations that currently get a parser
+    are bit-identical, and only those that currently get none can change. Set AEON_TOOLFORMAT=0 to
+    disable the fill entirely."""
     hw = hardware if hardware is not None else hardware_preset()
     flags = list(preset.get("safe_flags") or []) + list(hw.get("flags") or [])
+    preset_parser = list(preset.get("parser_flags") or [])
     if preset.get("confidence") in ("high", "medium"):
-        flags += list(preset.get("parser_flags") or [])
+        flags += preset_parser
+    if not _emits_tool_parser(flags) and _toolformat_enabled():
+        flags += _fingerprint_tool_flags(fingerprint)
     if _has_audio(modalities):
         flags += list(preset.get("audio_flags") or [])
     return flags
+
+
+def _toolformat_enabled() -> bool:
+    return (os.environ.get("AEON_TOOLFORMAT") or "1").strip().lower() not in ("0", "false", "no")
+
+
+def _emits_tool_parser(flags) -> bool:
+    return "--tool-call-parser" in (flags or [])
+
+
+def _fingerprint_tool_flags(fingerprint: dict | None) -> list[str]:
+    """Parser flags derived from the model's chat template, or [] — [] whenever there is any doubt.
+
+    Deliberately silent unless the template is unambiguous: an unrecognised template, a checkpoint
+    with no template, or a wire format whose parser this engine does not register all yield nothing
+    rather than a guess. Guessing is what the probe exists to catch; this is only meant to close
+    the case where a real, known format was being served with no parser at all."""
+    if not fingerprint or fingerprint.get("status") != "matched":
+        return []
+    cands = (fingerprint.get("candidates") or [])
+    if not cands:
+        return []
+    try:
+        from pod import toolformat
+        return toolformat.to_flags(cands[0])
+    except Exception:
+        return []
 
 
 def full_flags(preset: dict, modalities=None, hardware: dict | None = None) -> list[str]:

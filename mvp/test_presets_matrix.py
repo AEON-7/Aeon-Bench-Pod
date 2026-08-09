@@ -204,6 +204,120 @@ def test_summary_payload_shape():
     assert "--attention-backend" in s["flags"]
 
 
+# ---- chat-template fingerprint: fills a gap, never contradicts --------------------------------
+# The fingerprint reads the tool-call wire format out of the model's own chat template. It is
+# only allowed to touch the serve path because it cannot alter a preset that already names a
+# parser — a wrong --tool-call-parser is a crashed serve or a silent near-zero agentic score, so
+# "it cannot regress" has to be enforced, not asserted in prose.
+
+_HERMES_TPL = ("{%- for m in messages %}{%- if m.tool_calls %}{{- '<tool_call>' }}"
+               "{{- m.tool_calls[0]|tojson }}{{- '</tool_call>' }}{%- endif %}{%- endfor %}")
+_GLM_TPL = ("{%- for m in messages %}{%- if m.tool_calls %}"
+            "{{- '<tool_call>' + m.tool_calls[0].function.name }}"
+            "{{- '<arg_key>city</arg_key>' }}{%- endif %}{%- endfor %}")
+_CHAT_ONLY_TPL = ("{%- for m in messages %}{{- '<|im_start|>' + m.role + m.content }}"
+                  "{%- endfor %}")
+_UNKNOWN_FMT_TPL = ("{%- for m in messages %}{%- if m.tool_calls %}"
+                    "{{- '<<<CALL:' + m.tool_calls[0].function.name + '>>>' }}"
+                    "{%- endif %}{%- endfor %}")
+
+
+def _fingerprint_for(template):
+    import shutil, tempfile
+    from pod import toolformat
+    d = tempfile.mkdtemp(prefix="tplfp_")
+    try:
+        with open(os.path.join(d, "chat_template.jinja"), "w", encoding="utf-8") as f:
+            f.write(template)
+        return toolformat.detect(d)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _parser_in(flags):
+    return flags[flags.index("--tool-call-parser") + 1] if "--tool-call-parser" in flags else None
+
+
+def _flags_for(cfg, template=None):
+    hw = presets.HARDWARE_PRESETS["dgx_spark"]
+    p = presets.detect(cfg, "x")
+    fp = _fingerprint_for(template) if template else None
+    return p, presets.apply_flags(p, [], hardware=hw, fingerprint=fp)
+
+
+def test_fingerprint_never_alters_an_existing_parser():
+    """THE safety property. Every family that already names a tool-call parser must produce
+    byte-identical flags with the fingerprint active — even when the template disagrees."""
+    hw = presets.HARDWARE_PRESETS["dgx_spark"]
+    checked = 0
+    for p in presets.PRESETS:
+        before = presets.apply_flags(p, [], hardware=hw, fingerprint=None)
+        if "--tool-call-parser" not in before:
+            continue                      # gap cases are covered separately
+        checked += 1
+        for tpl in (_HERMES_TPL, _GLM_TPL, _CHAT_ONLY_TPL, _UNKNOWN_FMT_TPL):
+            after = presets.apply_flags(p, [], hardware=hw, fingerprint=_fingerprint_for(tpl))
+            assert after == before, (p["id"], before, after)
+    assert checked >= 8, f"expected to exercise the parser-bearing families, got {checked}"
+
+
+def test_gemma4_keeps_its_parser_against_a_contradicting_template():
+    """Named case: the preset says gemma4, the template looks like hermes. The preset wins."""
+    _p, flags = _flags_for({"model_type": "gemma4",
+                            "architectures": ["Gemma4ForCausalLM"]}, _HERMES_TPL)
+    assert _parser_in(flags) == "gemma4", flags
+
+
+def test_fingerprint_fills_a_gap_for_an_unknown_family():
+    """The benefit: a family with no preset serves with NO parser today, which means tool calls
+    are never converted and every agentic task scores ~0."""
+    p, before = _flags_for({"model_type": "zzz_novel", "architectures": ["ZzzForCausalLM"]})
+    assert p["id"] == "generic" and _parser_in(before) is None
+    _p, after = _flags_for({"model_type": "zzz_novel", "architectures": ["ZzzForCausalLM"]},
+                           _HERMES_TPL)
+    assert _parser_in(after) == "hermes", after
+
+
+def test_fingerprint_fills_a_gap_for_a_low_confidence_family():
+    """Low-confidence presets withhold their parser flags by design; the template is independent
+    evidence, so it may fill that gap."""
+    _p, after = _flags_for({"model_type": "kimi_k2", "architectures": ["KimiForCausalLM"]},
+                           _GLM_TPL)
+    assert _parser_in(after) == "glm45", after
+
+
+def test_unrecognised_templates_never_produce_a_guess():
+    """A chat-only template and an unknown wire format must both yield nothing. Guessing a parser
+    is how a working serve breaks; `unrecognised` is a probe-it verdict, not a fill-it one."""
+    for tpl in (_CHAT_ONLY_TPL, _UNKNOWN_FMT_TPL):
+        _p, flags = _flags_for({"model_type": "zzz_novel"}, tpl)
+        assert _parser_in(flags) is None, (tpl[:40], flags)
+
+
+def test_kill_switch_disables_the_fill():
+    prev = os.environ.get("AEON_TOOLFORMAT")
+    os.environ["AEON_TOOLFORMAT"] = "0"
+    try:
+        _p, flags = _flags_for({"model_type": "zzz_novel"}, _HERMES_TPL)
+        assert _parser_in(flags) is None, flags
+    finally:
+        if prev is None:
+            os.environ.pop("AEON_TOOLFORMAT", None)
+        else:
+            os.environ["AEON_TOOLFORMAT"] = prev
+
+
+def test_filled_parser_is_one_the_engine_registers():
+    """An unregistered name does not degrade — it kills the serve at startup."""
+    from pod import toolformat
+    for tpl in (_HERMES_TPL, _GLM_TPL):
+        _p, flags = _flags_for({"model_type": "zzz_novel"}, tpl)
+        name = _parser_in(flags)
+        if name:
+            assert name in toolformat.VLLM_TOOL_PARSERS, name
+            assert "--enable-auto-tool-choice" in flags, "a parser without auto-tool-choice is a no-op"
+
+
 def main():
     test_parser_flags_are_cataloged()
     test_detect_resolves_every_family()
@@ -213,7 +327,14 @@ def main():
     test_qwen_sched_flags_restored()
     test_non_gb10_hosts_drop_the_attention_pin()
     test_summary_payload_shape()
-    print("OK  preset matrix: parsers cataloged, all families detected, "
+    test_fingerprint_never_alters_an_existing_parser()
+    test_gemma4_keeps_its_parser_against_a_contradicting_template()
+    test_fingerprint_fills_a_gap_for_an_unknown_family()
+    test_fingerprint_fills_a_gap_for_a_low_confidence_family()
+    test_unrecognised_templates_never_produce_a_guess()
+    test_kill_switch_disables_the_fill()
+    test_filled_parser_is_one_the_engine_registers()
+    print("OK  preset matrix: fingerprint fills gaps but never contradicts, parsers cataloged, all families detected, "
           "family flags hardware-free, GB10 composition regression-exact, "
           "Qwen spec-decode scheduler budgets restored")
 

@@ -1019,6 +1019,28 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> "
                   f"HTTP {st}  {json.dumps(r)[:300]}")
 
+    # TOOL-CALLING PREFLIGHT. Every agentic task in the suite depends on the SERVER converting the
+    # model's tool calls into OpenAI `tool_calls`, which is what --tool-call-parser does. Get that
+    # wrong and nothing errors: the harnesses simply watch an agent that never uses a tool, and
+    # agentic lands near zero for a reason that has nothing to do with the model.
+    #
+    # This does NOT gate the run (owner policy: evaluate either way, and rank). It costs a few
+    # seconds against a suite measured in hours, and it buys three things: the operator is told
+    # BEFORE the wait, the exact remediation flag is printed and stored, and the submission
+    # carries whether tool calling was ever working — so a low agentic score can afterwards be
+    # read as "the model could not" rather than "we could not tell".
+    tool_probe = None
+    if harness_ids:
+        try:
+            from pod import probe_tools
+            tool_probe = probe_tools.probe(target, alias)
+            print(probe_tools.summarize(tool_probe), flush=True)
+        except Exception as e:                       # a diagnostic must never break the run
+            print(f"[pod] tool-calling probe skipped ({type(e).__name__}: {str(e)[:120]})",
+                  flush=True)
+        if isinstance(env, dict) and tool_probe:
+            env["tool_calling"] = tool_probe
+
     # AGENTIC through each REAL harness (agentic-v2 env-execution, fresh container per model-run).
     hstatuses = []
     if harness_ids and difficulty:

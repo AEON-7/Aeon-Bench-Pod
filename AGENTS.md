@@ -513,6 +513,110 @@ broken on GB10. The **64K context floor is enforced** (the Hermes harness refuse
 is allowed). Your flags **merge** server-side over the preset — matching flags replaced, new ones
 appended — and the bench wiring (`--served-model-name` / `--host` / `--port`) is protected.
 
+### 4(e-parsers) Tool-call & reasoning parsers — the setting that quietly costs 30%
+
+*(Why this gets its own section: a wrong `--tool-call-parser` does not error. The model emits
+perfectly good tool calls, the server fails to convert them to OpenAI `tool_calls`, all three
+harnesses see an agent that never uses a tool, and agentic — **30% of the AEON score** — lands near
+zero. On the board that is indistinguishable from a model that simply cannot do agentic work. It
+has already happened: a full GOD MODE run pinned at 2.4 on all three harnesses.)*
+
+**You usually do not need to touch this.** The pod picks both parsers automatically from the
+model's `config.json` family and, where available, from the **chat template itself** — the file
+that defines the tokens the model was trained to emit (`mvp/pod/toolformat.py`). Override only when
+the auto-choice is missing or wrong.
+
+**Set them like any other flag** — your values merge over the preset, replacing matching flags:
+
+```bash
+python -m pod.aeon_pod --hf-link org/Model \
+  --serve-flags '["--tool-call-parser","glm47","--enable-auto-tool-choice","--reasoning-parser","glm47"]'
+```
+
+In the dashboard: **Run tab → ⚙ RECIPE TUNING → extra flags**. Via MCP: `serve_flags` on
+`aeon_pod_run`. To pin the harness build instead, see §2.7.
+
+**`--enable-auto-tool-choice` is required alongside `--tool-call-parser` on vLLM.** A parser with
+no auto-tool-choice is a no-op, and that combination is the most common way this gets set wrong.
+
+#### Finding the right value from the model's own card
+
+In rough order of reliability:
+
+1. **The model card itself.** Serious releases state it. Search the card for `tool-call-parser`,
+   `--tool_call_parser`, `chat_template`, or "function calling" — vendors usually paste a full
+   `vllm serve …` line. Take it verbatim; do not translate the name.
+2. **The chat template — the ground truth.** Open `chat_template.jinja`, or the `chat_template`
+   key inside `tokenizer_config.json`, on the HF "Files" tab, and look at the tokens the template
+   **emits** for a tool call:
+
+   | What the template emits | Wire format | vLLM parser |
+   |---|---|---|
+   | `<tool_call>{json}</tool_call>` | Hermes / Qwen2.5 | `hermes` |
+   | `<tool_call><function=name><parameter=k>` | Qwen3-Coder XML | `qwen3_coder` (or `qwen3_xml`) |
+   | `<tool_call>name<arg_key>k</arg_key>` | GLM 4.5+/5.x | `glm45` / `glm47` |
+   | `<|tool_call>call:name{…}<tool_call|>` | Gemma-4 | `gemma4` |
+   | `<｜tool▁calls▁begin｜>` | DeepSeek V3 line | `deepseek_v3` … `deepseek_v4` |
+   | `[TOOL_CALLS]` + JSON array | Mistral | `mistral` |
+   | `<|python_tag|>` | Llama 3.1+/4 | `llama3_json` |
+   | `functools[{…}]` | Phi-4 | `phi4_mini_json` |
+
+   **Read what it EMITS, not what it mentions.** `message['tool_calls']` is the template reading a
+   field; `'<tool_call>'` in quotes is the token the model types. Gemma-4's template says
+   `tool_call` seven times as field access while emitting something else entirely — searching for
+   the string gets that family wrong.
+3. **Ask the engine what it has.** The name must be one the build registers, or the serve dies at
+   startup rather than degrading:
+   ```bash
+   docker run --rm --entrypoint python3 <your-engine-image> -c "import re;print(sorted(set(re.findall(r'^    .([a-z0-9_.-]+).:', open('/usr/local/lib/python3.12/site-packages/vllm/tool_parsers/__init__.py').read(), re.M))))"
+   ```
+4. **The base model's card**, for a fine-tune, merge, or community quant that documents nothing —
+   these almost always keep the base model's template. Confirm by reading the template anyway.
+
+**Do not guess by vendor.** The parser follows the *format*, not the company: Nemotron-3 emits
+Qwen's format, and GLM-5.x wants a parser whose name matches no model name.
+
+#### Reasoning / thinking flags
+
+`--reasoning-parser` strips a model's `<think>` trace out of `message.content` so the answer is
+scored, not the monologue. Set it whenever the model emits reasoning: usually the same family name
+as the tool parser (`qwen3`, `glm47`, `deepseek_r1`, `gemma4`, `minimax_m2`, `nemotron_v3`, …).
+
+Two things that bite:
+
+- **A reasoning model needs headroom.** Its `<think>` block is counted against `max_tokens`, so a
+  small cap truncates mid-thought and the answer never arrives — it scores as a refusal. This is
+  the single most common cause of an unexplained zero on a reasoning model.
+- **The reasoning parser only cleans the direct chat path.** Agentic harnesses run the model inside
+  their own container and surface its raw text, so the pod strips `<think>` again at every adapter's
+  parse boundary. Nothing for you to configure — just don't conclude the flag is broken because a
+  harness transcript still shows the trace.
+
+#### If you are the human setting this by hand
+
+- **Change one thing at a time and re-run a short bench.** Both parsers at once means you cannot
+  tell which one moved the score.
+- **Check the serve actually came up.** A parser name the engine does not register is a startup
+  crash, not a warning: `docker logs aeon-bench-serve | tail -40`.
+- **Prove tool calling works before committing hours.** One request settles it:
+  ```bash
+  curl -s http://127.0.0.1:8000/v1/chat/completions -H 'Content-Type: application/json' -d '{
+    "model":"model-under-test","messages":[{"role":"user","content":"What is the weather in Paris?"}],
+    "tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object",
+      "properties":{"city":{"type":"string"}},"required":["city"]}}}]}' | head -c 600
+  ```
+  A populated `tool_calls` array means the parser is right. Raw markup sitting in `content` with
+  `tool_calls` null or absent means it is **wrong — and the leaked markup names the correct one**
+  (match it against the table above). Coherent prose with no tool syntax anywhere is a model that
+  was not trained for tools; agentic will be genuinely low and that is a real result.
+- **Record what you changed.** The recipe travels with the submission, so a hand-set parser is
+  visible to anyone comparing runs — which is the point.
+
+**Nothing here blocks a run.** A run with the wrong parser still executes, still submits, and still
+ranks on what it measured. What it will not do is contribute a fabricated agentic number: a harness
+that scores at or below **5** is treated as a plumbing failure rather than a measurement of the
+model, dropped from the agentic average, and the run is badged **agentic not counted**.
+
 ### 4(f) Spec decode — MTP (native) vs full DFlash (drafter)
 
 Speculative decode is lossless (speed only, no quality change). Two kinds:

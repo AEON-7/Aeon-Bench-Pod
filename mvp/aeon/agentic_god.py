@@ -329,5 +329,189 @@ GOD_CASES = [
                             'objective="recover the signal prism";</script></html>',
          "LEVEL.json": '{"rooms": 4, "doors": 3, "drones": 5, '
                        '"objective": "recover the signal prism"}'},
-         "answer": "GOD MODE NEON RUINS COMPLETE"}},
+         "answer": "GOD MODE NEON RUINS COMPLETE"}},
+    # ---- category balance: 5 apps / 5 games / 5 animations ------------------------------------
+    # Everything below is deliberately beyond frontier: a correct implementation requires a real
+    # algorithm, and the manifest must stay numerically consistent with it.
+
+    {"id": "av2-god-11-causal-forge", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "causal_forge.html", "kind": "app",
+                  "prompt_id": "agent.causal_forge"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build causal_forge.html as ONE self-contained causal-inference "
+                "workbench (all CSS/JS inline, no external resources, no libraries). It must: "
+                "(1) render an editable causal DAG on a <canvas> with id=\"dag\" (drag nodes, "
+                "draw directed edges, detect cycles); (2) implement d-separation and use it to "
+                "find a valid BACKDOOR adjustment set, falling back to a FRONTDOOR criterion "
+                "when no backdoor set exists; (3) generate a synthetic confounded dataset "
+                "in-page from a fixed seed; (4) estimate the ATE with BOTH an IPW estimator "
+                "using fitted PROPENSITY scores and a doubly-robust AIPW estimator, with "
+                "BOOTSTRAP confidence intervals; (5) show a sensitivity analysis for unmeasured "
+                "confounding. The estimates must update live when the DAG is edited. ALSO write "
+                "IDENTIFICATION.json with keys \"estimand\": \"ate\", \"strategy\": "
+                "\"backdoor\", \"adjustment_set\": [\"age\", \"severity\"], "
+                "\"estimators\": [\"ipw\", \"aipw\"], and \"bootstrap\": 500. "
+                "Answer exactly: GOD MODE CAUSAL FORGE IDENTIFIED."),
+     "setup_files": {},
+     "success": {
+         "files": {"causal_forge.html": {"contains": ['id="dag"', "<canvas", "backdoor",
+                                                      "frontdoor", "propensity", "aipw",
+                                                      "bootstrap", "sensitivity"]},
+                   "IDENTIFICATION.json": {"contains": ['"estimand": "ate"',
+                                                        '"strategy": "backdoor"',
+                                                        '"adjustment_set"', '"age"', '"severity"',
+                                                        '"ipw"', '"aipw"', '"bootstrap": 500']}},
+         "answer_contains": ["god mode causal forge identified"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "causal_forge.html": '<html><canvas id="dag"></canvas><script>const backdoor=1, '
+                              'frontdoor=1, propensity=1, aipw=1, bootstrap=500, '
+                              'sensitivity=1;</script></html>',
+         "IDENTIFICATION.json": '{"estimand": "ate", "strategy": "backdoor", '
+                                '"adjustment_set": ["age", "severity"], '
+                                '"estimators": ["ipw", "aipw"], "bootstrap": 500}'},
+         "answer": "GOD MODE CAUSAL FORGE IDENTIFIED"}},
+
+    {"id": "av2-god-12-hex-dominion", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "hex_dominion.html", "kind": "game",
+                  "prompt_id": "agent.hex_dominion"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build hex_dominion.html as ONE self-contained turn-based strategy "
+                "game (all CSS/JS inline, no external resources). Requirements: a <canvas> hex "
+                "board using AXIAL coordinates with at least 60 tiles and varied terrain; "
+                "shortest-path movement over terrain costs; FOG of war that reveals by unit "
+                "vision radius; a resource economy with capturable settlements; and an AI "
+                "opponent that plays via MINIMAX with ALPHA-BETA pruning to at least depth 3, "
+                "using a positional evaluation combining material, territory and mobility. The "
+                "match must be deterministic from a fixed seed so a replay reproduces it "
+                "exactly. ALSO write AI.json with keys \"search\": \"alpha-beta\", "
+                "\"depth\": 3, \"eval_terms\": [\"material\", \"territory\", "
+                "\"mobility\"], and \"seed\": 20260808. "
+                "Answer exactly: GOD MODE HEX DOMINION VICTORY."),
+     "setup_files": {},
+     "success": {
+         "files": {"hex_dominion.html": {"contains": ["<canvas", "axial", "alpha-beta",
+                                                      "minimax", "fog", "terrain",
+                                                      "requestAnimationFrame"]},
+                   "AI.json": {"contains": ['"search": "alpha-beta"', '"depth": 3',
+                                            '"material"', '"territory"', '"mobility"',
+                                            '"seed": 20260808']}},
+         "answer_contains": ["god mode hex dominion victory"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "hex_dominion.html": '<html><canvas></canvas><script>const axial=1, minimax=1, '
+                              'fog=1, terrain=1; /* alpha-beta pruning */ '
+                              "requestAnimationFrame(()=>{})</script></html>",
+         "AI.json": '{"search": "alpha-beta", "depth": 3, "eval_terms": '
+                    '["material", "territory", "mobility"], "seed": 20260808}'},
+         "answer": "GOD MODE HEX DOMINION VICTORY"}},
+
+    {"id": "av2-god-13-stable-fluids", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "stable_fluids.html", "kind": "animation",
+                  "prompt_id": "agent.stable_fluids"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build stable_fluids.html as ONE self-contained real-time fluid "
+                "simulation (all CSS/JS inline, no external resources, no libraries). Implement "
+                "an actual incompressible Navier-Stokes solver on a grid of at least 128x128: "
+                "SEMI-LAGRANGIAN advection of velocity and dye, a PRESSURE projection solved "
+                "with at least 40 Jacobi (or multigrid) iterations to keep the field "
+                "DIVERGENCE-free, VORTICITY confinement to restore the small-scale swirls "
+                "numerical diffusion destroys, and viscous diffusion. Drive it with mouse or "
+                "touch forcing that injects both velocity and dye, run on requestAnimationFrame "
+                "with delta-time, and keep it interactive at 60fps. ALSO write SOLVER.json with "
+                "keys \"grid\": 128, \"pressure_iterations\": 40, \"scheme\": "
+                "\"semi-lagrangian\", and \"vorticity_confinement\": true. "
+                "Answer exactly: GOD MODE STABLE FLUIDS CONVERGED."),
+     "setup_files": {},
+     "success": {
+         "files": {"stable_fluids.html": {"contains": ["<canvas", "advect", "vorticity",
+                                                       "divergence", "pressure", "jacobi",
+                                                       "requestAnimationFrame"]},
+                   "SOLVER.json": {"contains": ['"grid": 128', '"pressure_iterations": 40',
+                                                '"scheme": "semi-lagrangian"',
+                                                '"vorticity_confinement": true']}},
+         "answer_contains": ["god mode stable fluids converged"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "stable_fluids.html": '<html><canvas></canvas><script>function advect(){}'
+                               "const vorticity=1, divergence=0, pressure=1, jacobi=40;"
+                               "requestAnimationFrame(()=>{})</script></html>",
+         "SOLVER.json": '{"grid": 128, "pressure_iterations": 40, '
+                        '"scheme": "semi-lagrangian", "vorticity_confinement": true}'},
+         "answer": "GOD MODE STABLE FLUIDS CONVERGED"}},
+
+    {"id": "av2-god-14-photon-cathedral", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "photon_cathedral.html", "kind": "animation",
+                  "prompt_id": "agent.photon_cathedral"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build photon_cathedral.html as ONE self-contained PROGRESSIVE "
+                "PATH TRACER running on a <canvas> in plain JavaScript (all inline, no external "
+                "resources, no WebGL libraries). It must render a cathedral interior of at least "
+                "200 triangles accelerated by a BVH; trace global illumination with COSINE-"
+                "weighted IMPORTANCE sampling, next-event estimation against area lights, and "
+                "RUSSIAN roulette path termination at up to 8 bounces; support a FRESNEL "
+                "dielectric (stained glass) and a rough conductor material; ACCUMULATE samples "
+                "across frames so the image converges and the noise visibly falls; and tone-map "
+                "the accumulated buffer before display. ALSO write RENDER.json with keys "
+                "\"integrator\": \"path\", \"accel\": \"bvh\", \"sampler\": "
+                "\"cosine-weighted\", \"russian_roulette\": true, and \"max_bounces\": 8. "
+                "Answer exactly: GOD MODE PHOTON CATHEDRAL CONVERGED."),
+     "setup_files": {},
+     "success": {
+         "files": {"photon_cathedral.html": {"contains": ["<canvas", "bvh", "fresnel",
+                                                          "russian", "importance", "accumulat",
+                                                          "bounce"]},
+                   "RENDER.json": {"contains": ['"integrator": "path"', '"accel": "bvh"',
+                                                '"sampler": "cosine-weighted"',
+                                                '"russian_roulette": true',
+                                                '"max_bounces": 8']}},
+         "answer_contains": ["god mode photon cathedral converged"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "photon_cathedral.html": '<html><canvas></canvas><script>const bvh=1, fresnel=1, '
+                                  "russian=1, importance=1, bounce=8; function accumulate(){}"
+                                  "</script></html>",
+         "RENDER.json": '{"integrator": "path", "accel": "bvh", '
+                        '"sampler": "cosine-weighted", "russian_roulette": true, '
+                        '"max_bounces": 8}'},
+         "answer": "GOD MODE PHOTON CATHEDRAL CONVERGED"}},
+
+    {"id": "av2-god-15-cloth-requiem", "category": "Agentic", "tier": 0,
+     "difficulty": "god_mode",
+     "artifact": {"file": "cloth_requiem.html", "kind": "animation",
+                  "prompt_id": "agent.cloth_requiem"},
+     "prompt": ("You are working in a sandbox: the CURRENT DIRECTORY is your workdir. Act "
+                "autonomously. Build cloth_requiem.html as ONE self-contained soft-body "
+                "simulation (all CSS/JS inline, no external resources, no libraries). Implement "
+                "XPBD (extended position-based dynamics) on a cloth of at least 64x64 particles "
+                "with distance AND bending CONSTRAINTS, at least 8 SUBSTEPS per frame with "
+                "compliance-correct stiffness, SELF-COLLISION resolved through a spatial hash, "
+                "TEARING when a constraint exceeds a stress threshold, a turbulent WIND field, "
+                "and two-way coupling with a rigid collider the cloth drapes over. It must stay "
+                "stable (no explosion) and interactive at 60fps on requestAnimationFrame with "
+                "delta-time. ALSO write CLOTH.json with keys \"solver\": \"xpbd\", "
+                "\"substeps\": 8, \"grid\": 64, \"self_collision\": true, and "
+                "\"tear_threshold\": 1.8. "
+                "Answer exactly: GOD MODE CLOTH REQUIEM SETTLED."),
+     "setup_files": {},
+     "success": {
+         "files": {"cloth_requiem.html": {"contains": ["<canvas", "xpbd", "substep",
+                                                       "constraint", "tear", "wind",
+                                                       "requestAnimationFrame"]},
+                   "CLOTH.json": {"contains": ['"solver": "xpbd"', '"substeps": 8',
+                                               '"grid": 64', '"self_collision": true',
+                                               '"tear_threshold": 1.8']}},
+         "answer_contains": ["god mode cloth requiem settled"]},
+     "timeout_s": 540,
+     "_expected": {"files": {
+         "cloth_requiem.html": '<html><canvas></canvas><script>const xpbd=1, substep=8, '
+                               "constraint=1, tear=1.8, wind=1;"
+                               "requestAnimationFrame(()=>{})</script></html>",
+         "CLOTH.json": '{"solver": "xpbd", "substeps": 8, "grid": 64, '
+                       '"self_collision": true, "tear_threshold": 1.8}'},
+         "answer": "GOD MODE CLOTH REQUIEM SETTLED"}},
 ]

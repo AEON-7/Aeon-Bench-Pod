@@ -201,9 +201,14 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
                     with open(p, encoding="utf-8", errors="replace") as f:
                         html = f.read()
                     if html.strip():
+                        # Same completeness rule as the arena generator: an agent that ran out of
+                        # turns or tokens leaves a half-written file, and publishing it as a
+                        # working artifact makes our truncation look like the model's bad code.
+                        from pod import arena_gen
                         row["artifact"] = {"kind": art.get("kind"),
                                            "prompt_id": art.get("prompt_id"),
-                                           "html": html[:900_000], "ok": True}
+                                           "html": html[:900_000],
+                                           "ok": arena_gen.is_complete(html)}
                 except OSError:
                     pass
     except Exception as e:                       # NEVER aborts the batch

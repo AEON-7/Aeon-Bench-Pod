@@ -22,6 +22,27 @@ from aeon.targets import OpenAITarget
 MAX_HTML_BYTES = 200 * 1024
 
 
+def is_complete(html: str) -> bool:
+    """Did the model actually FINISH the document, or did we cut it off?
+
+    A generation that hits max_tokens stops mid-token: no closing </html>, an unclosed <script>,
+    a CSS rule ending in `box-shadow:`. Such a file renders as a blank or half-drawn page, and it
+    is indistinguishable from bad code unless we check. Every GOD MODE artifact from the first two
+    external runs failed this test, so the whole gallery for those models was dead.
+
+    Deliberately structural, not a linter: we are detecting OUR truncation, not judging the
+    model's work. A complete-but-buggy artifact is a real result and must still be published."""
+    if not html or not html.strip():
+        return False
+    low = html.lower()
+    if "</html>" not in low:
+        return False
+    # an unbalanced <script> means the tail was cut inside JS
+    if low.count("<script") != low.count("</script>"):
+        return False
+    return True
+
+
 def _cap_html(html: str, limit: int = MAX_HTML_BYTES) -> str:
     b = html.encode("utf-8")
     if len(b) <= limit:
@@ -93,8 +114,23 @@ def _make_target(target_url, alias, api_key, conc=1):
     return OpenAITarget(target_url, alias, api_key=api_key, timeout=max(600, 120 * max(1, conc)))
 
 
+# A self-contained game/app/animation is a big single file, and a god-tier one is bigger still.
+# 8000 tokens truncated EVERY artifact of the first two external GOD MODE runs; the bench's own
+# --max-tokens default is 32768, so arena generation now matches it instead of silently using a
+# quarter of it. Reasoning models need the headroom twice over: their <think> block is spent from
+# this same budget before any HTML appears.
+DEFAULT_ARENA_MAX_TOKENS = 32768
+# GOD-TIER artifacts are asked for a raycaster, a BVH path tracer, an XPBD cloth solver as ONE
+# self-contained file. Measured against the truncated runs, output runs ~3 chars/token, so:
+#     8 000 tok ->  ~23 KB   (what truncated every artifact of the first two external runs)
+#    32 768 tok ->  ~96 KB
+#    65 536 tok -> ~192 KB   (just under MAX_HTML_BYTES, so nothing is spent that cannot be stored)
+# Sized to the storage cap rather than picked round: past this the byte cap truncates instead.
+GOD_ARENA_MAX_TOKENS = 65536
+
+
 def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None,
-                       max_tokens=8000, temperature=0.4, progress_cb=None,
+                       max_tokens=DEFAULT_ARENA_MAX_TOKENS, temperature=0.4, progress_cb=None,
                        only_difficulty=None, concurrency=1):
     """Generate arena artifacts for one model. NEVER raises.
 
@@ -111,6 +147,10 @@ def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None
     counter, so determinism + the (1,N)->(N,N) progress contract are preserved.
     `concurrency<=1` keeps the exact single-stream loop (mock / no-GPU fallback).
     """
+    # A god-tier draw earns the bigger budget: it is the only scope that asks for a raycaster or a
+    # path tracer as ONE self-contained file, and 8000 tokens truncated every one of them.
+    if only_difficulty == "god_mode" and max_tokens < GOD_ARENA_MAX_TOKENS:
+        max_tokens = GOD_ARENA_MAX_TOKENS
     selection = pick_prompts(per_kind=per_kind, seed=seed, only_difficulty=only_difficulty)
     total = len(selection)
     workers = max(1, min(int(concurrency or 1), total or 1))
@@ -131,8 +171,14 @@ def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None
                     {"role": "user", "content": p["prompt"]}]
             resp = target.chat(msgs, temperature=temperature, max_tokens=max_tokens)
             html = _cap_html(arena.extract_html(resp.get("text", "")))
-            ok = bool(html.strip()) and "<" in html
             gen_ms = resp.get("e2e_ms")
+            # A truncated document is OUR failure, not the model's, and must never be published
+            # as a working artifact — it renders blank or half-drawn and cannot be fairly voted on.
+            truncated = bool(html.strip()) and not is_complete(html)
+            ok = bool(html.strip()) and "<" in html and not truncated
+            if truncated:
+                print(f"[pod] arena: {kind}/{pid} TRUNCATED at {len(html)} chars "
+                      f"(hit max_tokens={max_tokens}) - recorded as failed, not published")
             if not ok:
                 html = ""
         except Exception:

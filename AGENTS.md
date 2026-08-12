@@ -16,13 +16,66 @@
 
 ---
 
-## 0. TL;DR for the agent (read this first)
+## THE SHORT VERSION — this is the whole job
 
-**Your job:** deploy the pod, run a COMPLETE VALIDATED benchmark, hand your human the results plus
-a live link. *Validated = the only kind that ranks publicly.* **Never submit a smoke test as
-validated.** Big/slow models take **hours** — that is normal, tell your human up front.
+**If you read nothing else, do this.** Four steps. Everything after this section is reference you
+only need when something is unusual or breaks.
 
-The whole job, in eight moves:
+**1. Start the pod.** Pull first, every session.
+
+```bash
+docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
+docker run -d --name aeon-pod --network host --gpus all \
+  -v /var/run/docker.sock:/var/run/docker.sock -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
+  ghcr.io/aeon-7/aeon-pod:latest
+```
+
+No NVIDIA GPU? Drop `--gpus all` and swap `--network host` for `-p 8091:8091`.
+Check: `curl -s localhost:8091/healthz`.
+
+**2. Point at the model.** One question: *is it already running as a server?*
+
+```
+ALREADY RUNNING  ->  aeon_pod_scan_endpoints()          # gives hf_guess + url
+                     aeon_pod_run(hf_link=<hf_guess>, serve_url=<url>, verify_endpoint=true)
+                     # on another machine, add remote_host="user@host" to BOTH
+
+NOT RUNNING      ->  aeon_pod_run(hf_link="org/Model")  # pod downloads + verifies
+
+ON DISK ALREADY  ->  aeon_pod_scan_models()             # gives repo id + path
+                     aeon_pod_run(hf_link=<repo>, local_dir=<path>)
+```
+
+**3. Wait.** `aeon_pod_jobs()` for progress, `aeon_pod_stats()` for live tok/s. Give the human
+`http://<host>:8091` to watch. **A big model takes HOURS — tell them up front and do not kill it.**
+Interrupted? `aeon_pod_resume()`.
+
+**4. Hand off.** Finished runs submit themselves; `aeon_pod_submit()` if the mothership was down
+(idempotent). Give the human the model, the score, the rank, and the link.
+
+**The defaults are already correct.** `hf_link` is the ONLY required argument. `preset` defaults to
+`comprehensive` — the full exam and the only shape that ranks. Do not set `engine`, `serve_flags`,
+`concurrency`, `preset`, or a parser unless the human asked for something specific: the pod detects
+the hardware and the model family and picks for you.
+
+**No MCP?** Same thing in the browser: **http://localhost:8091 → Run tab → paste the HF link →
+launch**. Or the CLI, which runs INSIDE the container:
+`docker exec -w /app/mvp aeon-pod python -m pod.aeon_pod --hf-link org/Model`
+
+**Five rules.** Always pass `hf_link` (without it a run can never rank). Never present a smoke test
+or subset as validated. Never work around a `WEIGHTS VERIFICATION FAILED` stop — it is correct.
+Never kill a slow run. And a run whose coding-agent score did not land is still worth submitting —
+it ranks on what it measured and is badged with what to fix.
+
+## 0. Detail on those four steps
+
+Everything below expands the four steps above. Read it when something is unusual, when a step
+fails, or when the human asks for a specific engine, recipe, or parser. You do not need it for a
+normal run.
+
+The same job, in more detail:
 
 1. **Check prerequisites — run the §2.7 preflight.** Docker running *and usable by the pod
    through the mounted socket* (the pod BUILDS the agentic harness images on demand); outbound network to

@@ -1,33 +1,29 @@
 ---
 name: run-aeon-benchmark
 description: >
-  Use when asked to run, execute, benchmark, evaluate, or score an LLM with AEON Bench.
-  You deploy the AEON Bench **Pod** locally and drive the whole verified flow — pull or
-  hash-verify a model → serve it → run the comprehensive benchmark (quality + speed +
-  agentic + vision/audio/video) → submit the signed, attested result to the public
-  leaderboard. An AI agent can do the ENTIRE job through the pod's MCP tools, no clicking.
-  The mothership (aeon-bench.com) is a READ-ONLY leaderboard + submission endpoint; it
-  never runs a job — all benchmarking happens on the pod.
+  Use when asked to run, benchmark, evaluate, or score an LLM with AEON Bench.
+  You run the AEON Bench Pod on the user's machine, point it at a model, run the
+  benchmark, and submit the signed result to the public leaderboard at aeon-bench.com.
+  All work happens on the pod. The mothership only shows the board and accepts results.
 ---
 
-# Skill: Run an AEON Bench benchmark (agent-driven, end to end)
+# Run an AEON Bench benchmark
 
-**Two truths up front.** (1) Benchmarking happens on the **Pod** — a local appliance you run on
-the user's hardware. The **mothership** is just the public scoreboard + the place finished results
-are submitted; it never starts a run. (2) Only a **complete, validated (attested)** run ranks:
-the pod pulls/verifies the model against Hugging Face, serves it, runs the *whole* suite, signs
-the result, and submits it. A quick smoke test or a raw-endpoint run is for local eyes only —
-**never present one as validated.**
+**What you are doing:** start a pod (a Docker container), point it at a model, run the benchmark,
+hand the user a link. The pod verifies the model's weights against Hugging Face and signs the
+result, which is what makes it rankable.
 
-Full operational detail lives in [`AGENTS.md`](AGENTS.md) (repo root). This skill is the short
-loop; the judge/scoring determinism contract is `AGENTS.md` **Appendix (the judge role)**.
+**Before you start, tell the user this:** a full run takes **hours** on a large model. That is
+normal. They can close the tab; it keeps going.
 
 ---
 
-## 0. Get a current pod running (always pull latest first)
+## Step 1 — Start the pod
+
+Always pull first. A stale pod produces results that do not match the live board.
 
 ```bash
-docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod   # ALWAYS pull before a session
+docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
 docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
@@ -35,15 +31,13 @@ docker run -d --name aeon-pod --network host --gpus all \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
-Dashboard on **http://localhost:8091**. Platform variants (Apple silicon drops `--gpus`, swaps
-`--network host` for `-p 8091:8091`; CPU-only likewise) are in `AGENTS.md` §2. **Pull latest
-before every benchmarking session** — a stale pod can serve old recipe defaults or an outdated
-suite, so its results won't line up with the live board.
+Every mount matters. Drop the docker socket and the coding-agent tests cannot run.
 
-## 1. Drive it via MCP (the headless path — preferred for agents)
+- **No NVIDIA GPU** (Apple silicon, CPU-only): remove `--gpus all`, replace `--network host` with
+  `-p 8091:8091`.
+- Check it worked: `curl -s localhost:8091/healthz`. The dashboard is http://localhost:8091.
 
-The pod ships a dependency-free MCP server, **`mvp/mcp/aeon_pod_mcp.py`**. Point your MCP client
-at it (it talks to the pod over HTTP; run it wherever your agent runs):
+Then connect the MCP server so you can drive it without clicking:
 
 ```json
 { "mcpServers": { "aeon-bench-pod": {
@@ -53,101 +47,106 @@ at it (it talks to the pod over HTTP; run it wherever your agent runs):
 } } }
 ```
 
-It's a single stdlib file, so you can also just fetch it:
-`curl -O https://raw.githubusercontent.com/AEON-7/Aeon-Bench-Pod/main/mvp/mcp/aeon_pod_mcp.py`.
-(Set `AEON_POD_TOKEN` if the pod has its optional lab lock enabled.)
+No MCP? Use the dashboard: **Run tab → paste the HF link → launch**. Same flow.
 
-**The tools, in the order you use them:**
+---
 
-| Tool | What it does |
+## Step 2 — Decide how to point at the model
+
+**Ask one question: is the model already running as a server?**
+
+**YES — it is already serving.** Use this. It does not download and does not restart their server.
+
+```
+aeon_pod_scan_endpoints()            → gives you `hf_guess` (the model's HF repo) and the URL
+aeon_pod_run(hf_link=<hf_guess>, serve_url=<url>, verify_endpoint=true)
+```
+If the server is on a **different machine**, add `remote_host="user@host"` to BOTH calls, and run
+`aeon_pod_ssh_key()` first so the user can authorize this pod's key on that host. Without
+`remote_host` the result is filed under the wrong hardware.
+
+**NO — it is not running.** Use this. The pod downloads and verifies the weights.
+
+```
+aeon_pod_run(hf_link="org/Model")
+```
+
+**Already downloaded and you want to skip the re-download:**
+
+```
+aeon_pod_scan_models()                                    → gives you the repo id and path
+aeon_pod_run(hf_link=<repo id>, local_dir=<path>)
+```
+
+**`hf_link` is required in all three.** It is the identity the pod hash-verifies. A run without it
+can never rank, so never omit it to "save time".
+
+Point at the **exact repo being served** — the specific quant, not the base model.
+
+---
+
+## Step 3 — Run it
+
+`hf_link` is the only required argument. Everything else already defaults correctly:
+`preset="comprehensive"` is the full exam and the only shape that ranks.
+
+Do not set `preset`, `engine`, `serve_flags`, or `concurrency` unless the user asked for something
+specific. The pod picks the right recipe for their hardware.
+
+One optional improvement: `aeon_pod_champion_recipes()` returns proven settings for the detected
+hardware. If it returns one, pass its `serve_flags` to `aeon_pod_run`.
+
+---
+
+## Step 4 — Watch it
+
+```
+aeon_pod_jobs()      → per-stage progress
+aeon_pod_stats()     → live tokens/sec, proof it is moving
+```
+
+Give the user the dashboard URL so they can watch: `http://<host>:8091`.
+
+**Read what the pod prints before the coding-agent stage.** If it says `WRONG TOOL-CALL PARSER`, it
+also prints the exact flag to restart the serve with. Apply it and re-run — otherwise that third of
+the score comes back near zero for a reason unrelated to the model.
+
+If the run is interrupted: `aeon_pod_resume()` continues from the last scored case. Nothing is lost.
+
+---
+
+## Step 5 — Hand off
+
+Finished runs submit themselves. If the mothership was unreachable, `aeon_pod_submit()` pushes them
+later — it is idempotent, so calling it twice is safe.
+
+Tell the user: the model name, the score and rank, the link, and one sentence on why it is
+trustworthy ("weights hash-verified against Hugging Face and signed").
+
+---
+
+## If something goes wrong
+
+| What you see | What to do |
 |---|---|
-| `aeon_pod_info` | Confirm you're on a live pod (`role: pod`), token required? |
-| `aeon_pod_scan_models` | Models already on disk (each hash-verifiable against its HF repo) |
-| **`aeon_pod_scan_endpoints`** | **Models already RUNNING** — live vLLM/SGLang/TGI/llama.cpp/Ollama/LM Studio serves, each with its HF repo autodetected (`hf_guess`). Check this first. |
-| `aeon_pod_engines` | Engine catalog for this host + the recommended default |
-| `aeon_pod_champion_recipes` | Best proven recipes for the detected hardware (one-click templates) |
-| `aeon_pod_validate` / `aeon_pod_validate_status` | Pre-check a model resolves + hash-verifies (optional) |
-| **`aeon_pod_run`** | **Launch the VALIDATED comprehensive benchmark** (the main event) |
-| `aeon_pod_jobs` / `aeon_pod_job` | Track status + per-stage progress + pending submissions |
-| `aeon_pod_stats` | Live tok/s, active/queued streams, GPU/RAM (proof it's progressing) |
-| `aeon_pod_resume` | Continue an interrupted job from its last scored case |
-| `aeon_pod_submit` | Push a finished job to the mothership (idempotent) if auto-submit failed |
-| `aeon_pod_leaderboard` / `aeon_pod_suite` | Read the board / the suite summary |
-| `aeon_pod_guide` | This verified-path playbook, from the pod |
+| `WEIGHTS VERIFICATION FAILED` | Stop. This is correct behaviour. The repo does not match the weights. Do not work around it. |
+| A harness image will not build | The pod prints the prerequisites and the exact build command. Usually the docker socket mount is missing. |
+| `WRONG TOOL-CALL PARSER` | Restart the serve with the flag it prints, then re-run. |
+| The run finishes but agentic scored ~0 | The plumbing failed, not the model. It still ranks, badged "agentic untested". Fix and re-run when you can. |
+| Submission rejected `NOT_ATTESTED` | The weights were not verified against Hugging Face. Re-run with a correct `hf_link`. |
+| It is taking hours | That is normal. Do not kill it. |
 
-## 2. The VERIFIED PATH — point at a model four ways (all earn attested)
+---
 
-This is the part to get right; it is what makes the result trustworthy and rankable.
+## Rules
 
-1. **Already running? Point at the serve — PREFER THIS.** Call `aeon_pod_scan_endpoints`. It finds
-   live OpenAI-compatible servers and **autodetects each served model's HF repo** (`hf_guess`).
-   Then call `aeon_pod_run` with `hf_link` (that repo) + `serve_url` (the endpoint) +
-   `verify_endpoint: true`. The pod hash-verifies those weights against HF **and binds the live
-   endpoint to them** — a match earns **attested**. It never downloads, never re-serves, and
-   **leaves a production endpoint running**. Fastest path to a ranked result.
-   *The binding is automatic and needs no GPU:* with a local GPU the pod logprob-fingerprints the
-   endpoint (`endpoint_fingerprint`, cheater-resistant); with **no GPU** it sha256s the **running
-   container's** weight files against HF over ssh (`endpoint_verified`, host-asserted, no second
-   model load). So a GPU-less pod can still earn attested — this is the easy way to bench a model
-   already running on the user's own machine. `deep_verify: true` forces the hash check either way.
-   A pre-bench serving-integrity check **halts** the run if the endpoint isn't serving the named model.
-   *On ANOTHER machine?* Get this pod's key with `aeon_pod_ssh_key`, have your human authorize it
-   on the serving host, then pass `remote=user@host` to `aeon_pod_scan_endpoints` and the same
-   `remote_host=user@host` to `aeon_pod_run`. The pod probes THAT host's hardware over ssh (so the
-   result is filed under the serving rig, not this pod) and reads its docker daemon for the real
-   recipe. Omit `remote_host` and a cross-machine run is misattributed to this pod's hardware.
-2. **Fresh Hugging Face pull.** Pass `hf_link` = `org/Model` (or a huggingface.co URL) to
-   `aeon_pod_run`. The pod downloads the weights and **sha256-verifies every file against HF's
-   published LFS manifest** before serving.
-3. **A model already on disk (hash-verified, no re-download).** Call `aeon_pod_scan_models`, pick
-   the entry, then call `aeon_pod_run` with **both** `hf_link` (the reconciled repo id) **and**
-   `local_dir` (the on-disk path). The pod hashes the local bytes against that repo — a match is
-   "good as gold"; a mismatch **hard-stops** the run (it refuses to benchmark unverified weights).
-4. **Point-and-pull.** If the user names a model that isn't local, just use path (2) — the pod's
-   built-in fetch pulls it fresh and verifies it.
+1. **Pull the latest pod image before every session.**
+2. **Always pass `hf_link`.** Without it the run cannot rank.
+3. **Do not present a smoke test, subset, or unverified run as validated.**
+4. **Never bypass weight verification.** A verification stop is by design.
+5. **Do not kill a slow run.** Benchmarks legitimately take days on large models.
+6. **A run missing its coding-agent score is still worth submitting.** It ranks on what it measured
+   and says what to fix. A partial honest result beats no result.
 
-> **Always pass `hf_link`.** A raw OpenAI-style endpoint run *without* one (`base_url` + `model`
-> only) is `self_reported`: shown locally, **never ranked**, because nothing verifies which weights
-> are behind the API. That is the ONLY thing that can't rank — and you rarely need it, because
-> path (1) benches the *same* running server with the weights verified. Use the unverified form
-> only for a deliberate private smoke test, never as the validated deliverable.
->
-> Point at the repo of the **exact artifact being served** — the specific quant, not a base model.
-> Quantized safetensors and a single `.gguf` both hash-verify bit-for-bit.
-
-## 3. Recipe → run → monitor → submit
-
-1. **Recipe.** Prefer `aeon_pod_champion_recipes` → apply the top champion's `serve_flags` (and
-   spec-decode / drafter) via `aeon_pod_run`. Else omit them and the pod auto-applies a family
-   preset. On **unified-memory** boxes (DGX Spark GB10) keep `--gpu-memory-utilization` at
-   **0.6–0.7** — above ~0.8 the shared CPU+GPU pool page-thrashes; discrete-VRAM GPUs can go higher.
-2. **Run comprehensive.** `aeon_pod_run` defaults `preset: "comprehensive"` = the whole exam
-   (text · 3 agentic harnesses · vision · audio · video · arena · perf). **Validated means
-   comprehensive** — do not submit `hard-bench`, subset, or smoke runs as validated.
-3. **Monitor + tell your human.** Poll `aeon_pod_jobs` for per-stage progress and `aeon_pod_stats`
-   for live tok/s + streams. **A big/slow model's full run takes HOURS — say so up front**, and
-   give the human the dashboard URL (`http://<pod-host>:8091`) so they can watch. If interrupted,
-   `aeon_pod_resume` continues from the last scored case.
-4. **Submit.** Completed validated runs auto-submit. If the mothership was unreachable, the
-   results persist and `aeon_pod_submit` pushes them later — idempotently (a finished job can't
-   land twice; you'll get *"job already submitted and available on the Mothership"*).
-
-## 4. Not using MCP? The same flow is in the GUI
-
-Open **http://localhost:8091 → Run tab**, work the **"◉ Validated bench"** card top to bottom
-(paste HF link or ⌕-scan a local model → apply a ★ champion recipe → keep Test plan =
-Comprehensive → launch). The illustrated tour is [`docs/walkthrough/README.md`](docs/walkthrough/README.md).
-
-## The golden rules (don't break these)
-
-- **Pull the latest pod image before you queue any job.**
-- **Only attested + comprehensive runs rank.** Attested = weights hash-verified against HF +
-  recipe + signature; comprehensive = the whole suite (≥90% coverage). Everything else is local-only.
-- **Never dress a smoke test, subset, or endpoint run up as validated.**
-- **Never bypass weight verification** — a `WEIGHTS VERIFICATION FAILED` stop is by design.
-- **The mothership never runs jobs.** All benchmarking is on the pod; the mothership only shows
-  the leaderboard and accepts signed submissions.
-
-*How scoring works (Tier-0 programs + deterministic binary-criteria Tier-1 + a creativity overlay)
-is the determinism contract in `AGENTS.md` Appendix (the judge role) — read it if you need to
-understand or defend a score, not to run a benchmark.*
+Deeper detail — engines, recipe flags, tool-call parsers, remote serves, the scoring contract —
+is in [`AGENTS.md`](AGENTS.md). You do not need it for a normal run.

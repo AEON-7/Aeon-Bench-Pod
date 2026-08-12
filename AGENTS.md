@@ -16,13 +16,66 @@
 
 ---
 
-## 0. TL;DR for the agent (read this first)
+## THE SHORT VERSION — this is the whole job
 
-**Your job:** deploy the pod, run a COMPLETE VALIDATED benchmark, hand your human the results plus
-a live link. *Validated = the only kind that ranks publicly.* **Never submit a smoke test as
-validated.** Big/slow models take **hours** — that is normal, tell your human up front.
+**If you read nothing else, do this.** Four steps. Everything after this section is reference you
+only need when something is unusual or breaks.
 
-The whole job, in eight moves:
+**1. Start the pod.** Pull first, every session.
+
+```bash
+docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
+docker run -d --name aeon-pod --network host --gpus all \
+  -v /var/run/docker.sock:/var/run/docker.sock -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
+  ghcr.io/aeon-7/aeon-pod:latest
+```
+
+No NVIDIA GPU? Drop `--gpus all` and swap `--network host` for `-p 8091:8091`.
+Check: `curl -s localhost:8091/healthz`.
+
+**2. Point at the model.** One question: *is it already running as a server?*
+
+```
+ALREADY RUNNING  ->  aeon_pod_scan_endpoints()          # gives hf_guess + url
+                     aeon_pod_run(hf_link=<hf_guess>, serve_url=<url>, verify_endpoint=true)
+                     # on another machine, add remote_host="user@host" to BOTH
+
+NOT RUNNING      ->  aeon_pod_run(hf_link="org/Model")  # pod downloads + verifies
+
+ON DISK ALREADY  ->  aeon_pod_scan_models()             # gives repo id + path
+                     aeon_pod_run(hf_link=<repo>, local_dir=<path>)
+```
+
+**3. Wait.** `aeon_pod_jobs()` for progress, `aeon_pod_stats()` for live tok/s. Give the human
+`http://<host>:8091` to watch. **A big model takes HOURS — tell them up front and do not kill it.**
+Interrupted? `aeon_pod_resume()`.
+
+**4. Hand off.** Finished runs submit themselves; `aeon_pod_submit()` if the mothership was down
+(idempotent). Give the human the model, the score, the rank, and the link.
+
+**The defaults are already correct.** `hf_link` is the ONLY required argument. `preset` defaults to
+`comprehensive` — the full exam and the only shape that ranks. Do not set `engine`, `serve_flags`,
+`concurrency`, `preset`, or a parser unless the human asked for something specific: the pod detects
+the hardware and the model family and picks for you.
+
+**No MCP?** Same thing in the browser: **http://localhost:8091 → Run tab → paste the HF link →
+launch**. Or the CLI, which runs INSIDE the container:
+`docker exec -w /app/mvp aeon-pod python -m pod.aeon_pod --hf-link org/Model`
+
+**Five rules.** Always pass `hf_link` (without it a run can never rank). Never present a smoke test
+or subset as validated. Never work around a `WEIGHTS VERIFICATION FAILED` stop — it is correct.
+Never kill a slow run. And a run whose coding-agent score did not land is still worth submitting —
+it ranks on what it measured and is badged with what to fix.
+
+## 0. Detail on those four steps
+
+Everything below expands the four steps above. Read it when something is unusual, when a step
+fails, or when the human asks for a specific engine, recipe, or parser. You do not need it for a
+normal run.
+
+The same job, in more detail:
 
 1. **Check prerequisites — run the §2.7 preflight.** Docker running *and usable by the pod
    through the mounted socket* (the pod BUILDS the agentic harness images on demand); outbound network to
@@ -78,6 +131,12 @@ unranked smoke test.
 > `aeon_pod_scan_models` (else, for on-disk weights) → `aeon_pod_champion_recipes` →
 > `aeon_pod_validate` (optional) → **`aeon_pod_run`** (preset `comprehensive`) → `aeon_pod_jobs` /
 > `aeon_pod_stats` → `aeon_pod_resume` / `aeon_pod_submit`.
+> **The defaults are now the ranking shape.** `--preset` defaults to `comprehensive` (all three
+> harnesses + vision/audio/video + arena + perf — the only shape that ranks) and `--mothership`
+> defaults to `https://aeon-bench.com`. A bare
+> `docker exec -w /app/mvp aeon-pod python -m pod.aeon_pod --hf-link org/Model` is a complete,
+> submittable run. Pass `--preset none` only when you deliberately want a local-only subset.
+>
 > `aeon_pod_run` takes `hf_link` (fresh pull), **or** `hf_link` + `local_dir` (hash-verify on-disk
 > bytes), **or** — preferred when a serve is already up — `hf_link` + `serve_url` +
 > `verify_endpoint: true` (bench the live endpoint, weights verified + the serve bound to them, still
@@ -117,6 +176,7 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -130,6 +190,7 @@ docker run -d --name aeon-pod --network host --gpus all `
   -v /var/run/docker.sock:/var/run/docker.sock `
   -v aeon-pod-state:/root/.aeon `
   -v "$env:USERPROFILE/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$env:USERPROFILE/aeon-models" `
+  -v "${env:USERPROFILE}:/host-home:ro" -e AEON_HOST_HOME_DIR="$env:USERPROFILE" `
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -192,6 +253,7 @@ docker run -d --name aeon-pod --network host --gpus all \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v aeon-pod-state:/root/.aeon \
   -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
   ghcr.io/aeon-7/aeon-pod:latest
 ```
 
@@ -396,7 +458,8 @@ Face, which is the only thing that earns the ranked tier — they differ only in
   can't compute a behavioral fingerprint — but `--verify-endpoint` then falls back to **container-hash
   verification** over the same ssh channel: it `docker exec … sha256sum`s the running container's
   weight files against HF and, on a complete match, earns the **`endpoint_verified`** attested tier
-  with no second model load. Add `--deep-verify` to force that hash even when a fingerprint is
+  with no second model load. `--deep-verify` is **already ON for every `--serve-url` run** — pass it
+  only to force that hash when a fingerprint is
   possible. The pod also runs a GPU-free **serving-integrity** pre-check that HALTS the run if the
   endpoint is serving a different model than you named.)
 
@@ -430,7 +493,8 @@ daemon for the real recipe.
 
 **Run it:**
 
-- CLI: `python -m pod.aeon_pod --hf-link <org/exact-quant-repo> --serve-url http://<host>:8000/v1 --remote-host user@host --verify-endpoint --preset comprehensive`
+- CLI (**runs INSIDE the pod container** — there is no `pod` module on your host):
+  `docker exec -w /app/mvp aeon-pod python -m pod.aeon_pod --hf-link <org/exact-quant-repo> --serve-url http://<host>:8000/v1 --remote-host user@host --verify-endpoint`
 - MCP: `aeon_pod_scan_endpoints(remote="user@host")` → `aeon_pod_run(hf_link=…, serve_url=…, remote_host="user@host", verify_endpoint=true)`
 - API: `POST /api/pod/run/verified` with `serve_url`, `remote_host`, `verify_endpoint`; scan via
   `GET /api/pod/scan_endpoints?remote=user@host`.
@@ -438,8 +502,9 @@ daemon for the real recipe.
 `verify_endpoint` earns attested **with or without a GPU on the pod**: with one it logprob-fingerprints
 the endpoint (`endpoint_fingerprint`); without one it falls back automatically to sha256-ing the
 **running container's** weight files against HF over the same ssh channel (`endpoint_verified`, no
-second model load). Add `--deep-verify` / `deep_verify: true` to force that hash even when a
-fingerprint is possible. Both are recorded as `attestation_method` so the board shows which was used.
+second model load). **`--deep-verify` / `deep_verify` defaults ON for `--serve-url` runs** — you do
+not need to pass it; set it explicitly only to force the hash when a fingerprint is also possible,
+or `--no-deep-verify` to skip it. Both are recorded as `attestation_method` so the board shows which was used.
 
 **Rules that bite:**
 
@@ -529,6 +594,8 @@ the auto-choice is missing or wrong.
 **Set them like any other flag** — your values merge over the preset, replacing matching flags:
 
 ```bash
+# every CLI example here runs INSIDE the pod container (there is no `pod` module on the host):
+#   docker exec -w /app/mvp aeon-pod python -m pod.aeon_pod ...
 python -m pod.aeon_pod --hf-link org/Model \
   --serve-flags '["--tool-call-parser","glm47","--enable-auto-tool-choice","--reasoning-parser","glm47"]'
 ```
@@ -616,6 +683,63 @@ Two things that bite:
 ranks on what it measured. What it will not do is contribute a fabricated agentic number: a harness
 that scores at or below **5** is treated as a plumbing failure rather than a measurement of the
 model, dropped from the agentic average, and the run is badged **agentic not counted**.
+
+### 4(e-probe) The pod checks tool calling BEFORE the suite — read what it prints
+
+*(Why: this is the one check that tells you, in seconds rather than hours, whether the agentic
+third of the score is going to work at all.)*
+
+Right before the agentic suite runs, the pod issues a handful of small requests to the served
+model and prints one of four verdicts. It never blocks the run — it tells you what you are about
+to get:
+
+| verdict | what it means | what to do |
+|---|---|---|
+| `OK` | tool calls parse in every mode the harnesses use (non-streaming, streaming, 4-way concurrent) | nothing |
+| `WRONG TOOL-CALL PARSER` | the model emits tool calls the **server** does not convert | restart the serve with the flag it prints, then re-run |
+| `model does not do tool calling` | the model answers normally but never calls a tool, even when forced | nothing — a low agentic score here is a real measurement |
+| `inconclusive` | the endpoint did not answer a plain request | check the serve; nothing is concluded and nothing is gated |
+
+When it finds a parser fault it prints the remediation verbatim, e.g.:
+
+```
+[pod]   restart the serve with:  --tool-call-parser qwen3_coder --enable-auto-tool-choice
+```
+
+It can tell a server fault from a weak model because `tool_choice="required"` is served by
+constrained decoding and needs no parser: if **required** works while **auto** does not, the
+parser is at fault, not the model.
+
+### 4(e-agentic) If agentic does not land, the run still ranks
+
+Agentic is the hardest part to get working on a new machine (a usable Docker socket, three
+harness images, a ≥64K served context). It is no longer a reason to lose the whole run:
+
+- A harness scoring **at or below 5** is treated as a plumbing failure, not a measurement, and is
+  dropped from the agentic average — a weak model still scores *something*; every task at zero
+  means no tool call was ever parsed.
+- If **no** harness produces a usable score, the run still **ranks on what it did measure** and
+  carries a clickable **⚠ agentic untested** badge on the board explaining the fix.
+- What it never does is publish a fabricated zero. Untested is not the same as failed.
+
+So a run is worth submitting even when the harnesses misbehave. Fix the plumbing and re-run when
+you can — the badge tells you (and your human) exactly what to check.
+
+### 4(e-refresh) Updating the harness images
+
+The pod builds `aeon-harness-{hermes,openclaw,opencode}` itself on first use and then caches them
+forever, so they track each harness's latest release **as of that build**. To move to the current
+release deliberately:
+
+```bash
+docker exec -e AEON_HARNESS_REFRESH=1 aeon-pod true   # next run rebuilds --no-cache --pull
+```
+
+Set `AEON_HARNESS_REFRESH=1` in the pod's environment and the next run rebuilds all three. **Tell
+your human first:** a harness update moves agentic scores, so the new numbers are not directly
+comparable to the old ones. To go the other way and reproduce an old run, pin instead:
+`AEON_OPENCLAW_VERSION` / `AEON_OPENCODE_VERSION` / `AEON_HERMES_REF`. An image older than 45 days
+says so at the start of a run; the pod never rebuilds behind your back.
 
 ### 4(f) Spec decode — MTP (native) vs full DFlash (drafter)
 

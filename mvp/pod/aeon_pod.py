@@ -790,7 +790,8 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, harn
 _ARENA_MAX_CONC = max(1, int(os.environ.get("AEON_ARENA_CONCURRENCY", "8") or 8))
 
 
-def _arena_artifacts(target, alias, *, seed=None, per_kind=2, only_difficulty=None, concurrency=1):
+def _arena_artifacts(target, alias, *, seed=None, per_kind=2, only_difficulty=None, concurrency=1,
+                     max_tokens=None):
     """Game/app/animation artifacts from the served model (part of EVERY benchmark). Seeded so
     every model in a sweep answers the IDENTICAL prompts. Returned for the signed submit bundle.
     Generated CONCURRENTLY (bounded) against the same serve, like the other boards — no longer
@@ -806,7 +807,9 @@ def _arena_artifacts(target, alias, *, seed=None, per_kind=2, only_difficulty=No
 
     arts = arena_gen.generate_for_model(target, alias, per_kind=per_kind, seed=seed,
                                         progress_cb=_acb, only_difficulty=only_difficulty,
-                                        concurrency=conc)
+                                        concurrency=conc,
+                                        # the operator's own --max-tokens governs artifact size
+                                        **({"max_tokens": max_tokens} if max_tokens else {}))
     ok = sum(1 for a in arts if a.get("ok"))
     print(f"[pod] arena: {ok}/{len(arts)} artifacts generated")
     return arts
@@ -988,6 +991,7 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
         # ARENA generation (games/apps/animations) ships INSIDE the signed text bundle.
         artifacts = _arena_artifacts(target, alias, seed=bench_seed or suite_mod.SUITE_ID,
                                      per_kind=arena_per_kind, concurrency=concurrency,
+                                     max_tokens=max_tokens,
                                      # a pure-god scope draws ONLY god-tier challenges
                                      only_difficulty=("god_mode" if (difficulty or "").strip() == "god_mode"
                                                       else None)) if arena_per_kind else []

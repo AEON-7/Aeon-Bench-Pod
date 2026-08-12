@@ -304,10 +304,70 @@ def live(board: str = "text"):
 _SHARE_KEY_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
-def _share_info(key: str):
-    """Card payload for a share key (canonical id with '/'->'__'). None when unknown."""
+def _god_share_info(key: str):
+    """GOD MODE card payload, shaped exactly like the global one so the renderer stays shared.
+
+    The headline is the GOD SCORE (0.6 sentinels + 0.4 agentic) and the component chips are the
+    god components, not the global ones - a god run is a different exam and its card should say
+    so rather than borrowing numbers from a board it is not on."""
+    try:
+        gb = scoring.god_leaderboard()
+    except Exception:
+        return None
+    models = gb.get("models") or []          # already sorted by god score desc
+    kl = key.lower()
+    row = rank = None
+    for i, m in enumerate(models):
+        if any((v or "").replace("/", "__").lower() == kl
+               for v in (m.get("canonical"), m.get("model"))):
+            row, rank = m, i + 1
+            break
+    if not row:
+        return None
+    model = row.get("model") or row.get("canonical") or ""
+    org, _, name = model.rpartition("/")
+    avatar = None
+    try:
+        avatar = (modelmeta.resolve(model) or {}).get("avatar_url")
+    except Exception:
+        pass
+    sent = row.get("sentinels") or {}
+    ag = row.get("agentic") or {}
+    # throughput, when the god run also produced a perf grid (god-mode presets do)
+    peak = hw = None
+    try:
+        for pm in scoring.perf_board().get("models", []):
+            if pm.get("canonical") == row.get("canonical"):
+                peak, hw = pm.get("peak_agg_tps"), pm.get("hardware")
+                break
+    except Exception:
+        pass
+    return {
+        "god": True,
+        "model": model, "org": org, "name": name or model, "rank": rank,
+        "aeon": row.get("god_score"),
+        "composite": sent.get("composite"),
+        "provisional": bool(row.get("god_provisional")),
+        "components": {"sentinels": sent.get("composite"), "agentic": ag.get("score")},
+        "agentic_not_counted": bool(row.get("agentic_not_counted")),
+        "ctx_len": row.get("ctx_len"),
+        "peak_tps": peak, "hardware": hw,
+        "trust": "attested" if row.get("record_eligible") else "local",
+        "suite": f"GOD MODE BENCH \u00b7 rank {rank}",
+        "avatar_url": avatar,
+    }
+
+
+def _share_info(key: str, board: str = ""):
+    """Card payload for a share key (canonical id with '/'->'__'). None when unknown.
+
+    `board="god"` (or a key that appears ONLY on the god board) yields the GOD MODE variant. A
+    god-only run is not on the global board at all, so without this the lookup failed and the
+    share fell back to the generic AEON card."""
     if len(key) > 140 or any(ch not in _SHARE_KEY_OK for ch in key):
         return None
+    if (board or "").lower() == "god":
+        return _god_share_info(key) or _share_info(key)     # explicit ask, then graceful fallback
     lb = scoring.leaderboard()
     # Rank EXACTLY as the public board displays: AEON SCORE (composite fallback) descending —
     # the server list is composite-sorted, so indexing it directly can call the AEON #1 "#2".
@@ -322,7 +382,7 @@ def _share_info(key: str):
             row, rank = m, i + 1
             break
     if not row:
-        return None
+        return _god_share_info(key)          # god-only runs live on their own board
     peak = hw = None
     try:
         for pm in scoring.perf_board().get("models", []):
@@ -360,12 +420,16 @@ def _share_info(key: str):
 
 
 @app.get("/api/share/card/{key}.png")
-def share_card(key: str):
-    """The 1200×630 social card PNG for one benchmark (cached; never 500s)."""
+def share_card(key: str, b: str = ""):
+    """The 1200×630 social card PNG for one benchmark (cached; never 500s).
+
+    `?b=god` renders the GOD MODE variant; it is also part of the cache key, so the two boards
+    never serve each other's card for a model that appears on both."""
     from . import sharecard
     try:
-        info = _share_info(key)
-        png = sharecard.cached("m:" + key, (lambda: sharecard.render_model_card(info)) if info
+        info = _share_info(key, b)
+        png = sharecard.cached("m:" + (b or "-") + ":" + key,
+                               (lambda: sharecard.render_model_card(info)) if info
                                else (lambda: sharecard.render_fallback_card()))
     except Exception:
         from . import sharecard as sc
@@ -375,7 +439,7 @@ def share_card(key: str):
 
 
 @app.get("/share/{key}", response_class=HTMLResponse)
-def share_page(key: str, request: Request):
+def share_page(key: str, request: Request, b: str = ""):
     """Scraper-facing share page: OG/Twitter meta + instant hop into the app. The IMAGE carries
     the design; these tags carry the words.
 
@@ -384,14 +448,15 @@ def share_page(key: str, request: Request):
     Here og:url AND the image URL REFLECT the request's query string, so posting
     /share/<key>?v=2 is a genuinely new canonical + image to the unfurler and forces a re-crawl.
     Clean shares (no query string) stay clean — no behavior change for the normal case."""
-    info = _share_info(key)
+    info = _share_info(key, b)
     base = (os.environ.get("AEON_PUBLIC_URL") or "https://aeon-bench.com").rstrip("/")
     qs = request.url.query                       # e.g. "v=2" when the poster cache-busted
     suffix = f"?{qs}" if qs else ""
     if info:
         bits = []
         if info.get("aeon") is not None:
-            bits.append(f"AEON score {info['aeon']:.1f} overall")
+            bits.append((f"GOD SCORE {info['aeon']:.1f}" if info.get("god")
+                         else f"AEON score {info['aeon']:.1f} overall"))
         elif info.get("composite") is not None:
             bits.append(f"composite {info['composite']:.1f}")
         if info.get("ctx_len"):
@@ -401,11 +466,15 @@ def share_page(key: str, request: Request):
             bits.append(f"peak {info['peak_tps']:.0f} tok/s concurrent")
         if info.get("trust") == "attested":
             bits.append("attested")
-        title = f"{info['name']} — rank {info['rank']:02d} on AEON Bench"
+        title = (f"{info['name']} — rank {info['rank']:02d} on the AEON GOD MODE BENCH"
+                 if info.get("god")
+                 else f"{info['name']} — rank {info['rank']:02d} on AEON Bench")
         desc = " · ".join(bits) or "open, attested local-LLM benchmarks"
     else:
         title, desc = "AEON Bench", "Open, attested benchmarks for local LLMs — run a pod on your own hardware."
-    img = f"{base}/api/share/card/{key}.png{suffix}"
+    _bq = ("b=god" if (b or "").lower() == "god" or (info or {}).get("god") else "")
+    _isep = "&" if (qs and _bq) else ("?" if _bq else "")
+    img = f"{base}/api/share/card/{key}.png{suffix}{_isep}{_bq}"
     page_url = f"{base}/share/{key}{suffix}"
     e = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -745,6 +814,64 @@ def _require_admin(request: Request):
         return None
     u = accounts.user_from_request(request)
     return u if accounts.is_admin(u) else None
+
+
+@app.get("/api/admin/live_runs")
+def admin_live_runs(request: Request):
+    """Benches in flight right now — including runs from OTHER PEOPLE'S pods in the wild, which
+    are otherwise invisible until they finish and land (or silently never do). Surfaces who is
+    running what, on which rig, how far along, and whether it has gone quiet."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    now = time.time()
+    out = []
+    for r in db.list_live_runs():
+        env = r.get("env_json")
+        if isinstance(env, str):
+            try:
+                env = json.loads(env)
+            except Exception:
+                env = {}
+        hw = (env or {}).get("hardware") or {}
+        if isinstance(hw, str):
+            hw = {"label": hw}
+        started = r.get("started_at") or 0
+        # LIVENESS. A full bench legitimately runs for DAYS, so time-since-START says nothing
+        # about health — judging on it marks every healthy long run as dead. The only honest
+        # signal is how long since the last scored case actually landed.
+        last = r.get("last_progress_at") or started
+        age = now - started if started else None
+        quiet = now - last if last else None
+        STALE_AFTER = 12 * 3600      # generous: slow rigs go hours between checkpoint batches
+        out.append({
+            "id": r["id"], "model": r.get("model"), "board": r.get("board"),
+            "status": r.get("status"), "progress": r.get("progress") or 0,
+            "n_cases": r.get("n_cases"), "started_at": started,
+            "finished_at": r.get("finished_at"),
+            "elapsed_s": round(age) if age is not None else None,
+            "trust_tier": r.get("trust_tier"), "model_verified": r.get("model_verified"),
+            "harness": r.get("harness"), "flagged": bool(r.get("flagged")),
+            "bench_host": hw.get("bench_host"),
+            "hardware": hw.get("detected_label") or hw.get("label") or hw.get("platform"),
+            "attestation_method": (env or {}).get("attestation_method"),
+            "quiet_s": round(quiet) if quiet is not None else None,
+            "stalled": bool(r.get("status") == "running" and quiet is not None
+                            and quiet > STALE_AFTER),
+        })
+    return {"runs": out, "now": now}
+
+
+@app.get("/api/admin/ingest_log")
+def admin_ingest_log(request: Request, limit: int = 200, rejected: int = 0, hours: int = 168):
+    """Every /api/v1 submission attempt — the only record of REFUSED bundles, which create no run
+    row and (with access-logging off) leave no other trace. Answers "did their pod even try?"."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    limit = max(1, min(500, int(limit or 200)))
+    since = max(1, min(720, int(hours or 168))) * 3600
+    rows = db.list_ingest_log(limit=limit, only_rejected=bool(int(rejected or 0)), since_secs=since)
+    return {"log": rows, "summary": db.ingest_log_summary(since), "now": time.time(),
+            "window_h": since // 3600}
 
 
 @app.get("/api/admin/evaluators")
@@ -1589,7 +1716,33 @@ def v1_enroll(body: EnrollBody, request: Request):
     if not _v1_rate_ok(request, "enroll"):
         return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.enroll(body.public_key, body.challenge, body.signature)
+    _log_v1(request, route="enroll", code=code, payload=r,
+            fingerprint=(r.get("fingerprint") if isinstance(r, dict) else None))
     return r if code == 200 else JSONResponse(r, status_code=code)
+
+
+def _client_ip(request: Request):
+    """Best-effort client address. Behind the WAF/tunnel the socket peer is the proxy, so prefer
+    the forwarded chain's first hop."""
+    xff = request.headers.get("x-forwarded-for") or ""
+    if xff:
+        return xff.split(",")[0].strip()[:64]
+    return (getattr(request.client, "host", None) or "")[:64] or None
+
+
+def _log_v1(request, *, route, code, payload, run_id=None, model=None, board=None,
+            fingerprint=None, n_bytes=None, bench_host=None):
+    """One line per /api/v1 attempt, accepted or refused. This is the ONLY record of a rejected
+    submission: refusals create no run row, and app access-logging is off — without it an operator
+    genuinely cannot tell 'never sent' from 'sent and refused'."""
+    p = payload if isinstance(payload, dict) else {}
+    ok = code == 200 and not p.get("error")
+    db.log_ingest(route=route, status=code, outcome=("accepted" if ok else "rejected"),
+                  run_id=run_id or p.get("run_id"),
+                  reason=(None if ok else (p.get("reason") or p.get("error"))),
+                  model=model, board=board, fingerprint=fingerprint, bench_host=bench_host,
+                  remote_ip=_client_ip(request), n_bytes=n_bytes,
+                  note=(None if ok else (p.get("note") or p.get("error"))))
 
 
 @app.post("/api/v1/runs")
@@ -1597,9 +1750,13 @@ def v1_open_run(body: OpenRunBody, request: Request):
     if (g := _no_trust_stack()):
         return g
     if not _v1_rate_ok(request, "runs"):
+        db.log_ingest(route="open_run", status=429, outcome="rejected", reason="RATE_LIMITED",
+                      model=body.model, board=body.board, remote_ip=_client_ip(request))
         return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.open_run(body.public_key, body.signature, model=body.model,
                               suite_id=body.suite_id, board=body.board)
+    _log_v1(request, route="open_run", code=code, payload=r, model=body.model, board=body.board,
+            fingerprint=ingest._fingerprint(body.public_key) if body.public_key else None)
     return r if code == 200 else JSONResponse(r, status_code=code)
 
 
@@ -1612,6 +1769,17 @@ async def v1_submit_results(run_id: str, request: Request):
     token = request.headers.get("x-aeon-run-token") or ""
     raw = await request.body()
     r, code = ingest.submit_results(run_id, token, raw)
+    # pull identity out of the bundle for the log WITHOUT trusting it — inert data, best effort
+    _model = _board = _host = None
+    try:
+        _b = json.loads(raw.decode("utf-8", "replace")).get("bundle") or {}
+        _model, _board = _b.get("model"), _b.get("board")
+        _hw = ((_b.get("environment") or {}).get("hardware")) or {}
+        _host = _hw.get("bench_host") if isinstance(_hw, dict) else None
+    except Exception:
+        pass
+    _log_v1(request, route="results", code=code, payload=r, run_id=run_id,
+            model=_model, board=_board, bench_host=_host, n_bytes=len(raw or b""))
     return r if code == 200 else JSONResponse(r, status_code=code)
 
 
@@ -1652,21 +1820,14 @@ def _require_pod():
         {"error": "not available on the mothership", "role": ROLE}, status_code=404)
 
 
-@app.on_event("startup")
-def _mothership_ingest_sweep():
-    """Finalize checkpoint-submitted runs whose FINAL commit never arrived (>48h stale
-    'running' with stored rows) — attested data that would otherwise stay invisible while
-    dedup blocks the submitter's retry. ingest is mothership-only, so this is a no-op on
-    pods (their local running runs belong to the resume flow)."""
-    if ingest is None:
-        return
-    try:
-        healed = ingest.sweep_stale_running()
-        if healed:
-            print(f"[mothership] finalized {len(healed)} stale mid-stream submission(s): "
-                  + ", ".join(healed))
-    except Exception as e:                       # a sweep failure must never block serving
-        print(f"[mothership] stale-ingest sweep failed (non-fatal): {e}")
+# DELIBERATELY NO STARTUP SWEEP. There used to be one here that finalized 'running' runs older
+# than 48h as 'succeeded'. Nothing may interfere with someone else's in-flight bench: a single
+# stream against a model that is also serving real traffic legitimately takes DAYS, and the sweep
+# force-closed exactly those — observed in prod finalizing a run at 88/174 while its pod was still
+# checkpointing, which also truncates it below the ranking floor. A run now ends only when its own
+# pod says so (the final checkpoint) or when a human explicitly acts. An abandoned run simply sits
+# as 'running'; the admin Live-benches panel badges it QUIET after 12h of no new cases and leaves
+# it completely alone. Report-only diagnostics live in ingest.stale_running_report().
 
 
 @app.on_event("startup")

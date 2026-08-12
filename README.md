@@ -45,6 +45,20 @@ docker run -d --name aeon-pod --network host --gpus all \
 Then open **http://localhost:8091 → Run tab**. Paste a Hugging Face link (or pick a model already
 on your disk), click the ★ champion recipe for your hardware, and hit launch. That's it.
 
+> ### It figures out the fiddly part for you
+> The single most common way a benchmark goes wrong is the **tool-call parser**: the model emits
+> perfectly good tool calls, the server fails to convert them, and the coding-agent score lands
+> near zero for a reason that has nothing to do with the model. So the pod reads the model's own
+> chat template to work out which parser it needs, and then **actually tests tool calling against
+> the running model before the long suite starts** — if it's wrong you get the exact flag to fix
+> it in seconds, not a wasted afternoon. You can always set
+> `--tool-call-parser` / `--reasoning-parser` yourself; see `AGENTS.md` §4(e-parsers) for how to
+> find the right value on a model's card.
+>
+> And if the coding-agent part can't run at all on your machine, **your result still counts** — it
+> ranks on everything it did measure and is badged "agentic untested" with instructions to fix it.
+> A partial honest result beats no result.
+
 > **A big or slow model can take several hours to benchmark fully — that's normal and expected.**
 > A thorough exam runs the whole suite (text, three coding-agent harnesses, vision/audio/video,
 > and a full performance sweep). You can close the tab and come back; it keeps going and you can
@@ -189,6 +203,14 @@ mothership in checkpoints); relaunch it from the Run tab and it **resumes from w
 validated local weights are reused, no re-download.
 
 <details><summary>Alternative: docker compose (build from source)</summary>
+
+> **The harness images are built on your machine, not downloaded from us.** The three
+> coding-agent harnesses are third-party tools, so the pod carries their Dockerfiles and builds
+> them itself the first time a run needs them — your copy comes straight from upstream and we
+> redistribute nothing. The first benchmark on a new machine is therefore the slow one (a few
+> minutes per harness, cached forever after). This needs the Docker socket mount from the
+> quickstart above; if a build fails, the pod prints the prerequisites and the exact command to
+> run. `AEON_HARNESS_REFRESH=1` moves them to the harnesses' current releases later.
 
 ```bash
 git clone https://github.com/AEON-7/Aeon-Bench-Pod.git && cd Aeon-Bench-Pod

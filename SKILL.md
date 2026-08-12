@@ -141,8 +141,19 @@ Comprehensive → launch). The illustrated tour is [`docs/walkthrough/README.md`
 ## The golden rules (don't break these)
 
 - **Pull the latest pod image before you queue any job.**
-- **Only attested + comprehensive runs rank.** Attested = weights hash-verified against HF +
+- **The defaults are the ranking shape.** `--preset` defaults to `comprehensive` and
+  `--mothership` to `https://aeon-bench.com`, so a bare
+  `docker exec -w /app/mvp aeon-pod python -m pod.aeon_pod --hf-link org/Model` is a complete,
+  submittable run. Only pass `--preset none` when you deliberately want a local-only subset.
+- **Read the tool-calling verdict the pod prints before the agentic suite.** If it says
+  `WRONG TOOL-CALL PARSER` it also prints the exact flag to restart the serve with — apply it and
+  re-run rather than accepting a near-zero agentic score.
+- **Attested + comprehensive is what ranks.** Attested = weights hash-verified against HF +
   recipe + signature; comprehensive = the whole suite (≥90% coverage). Everything else is local-only.
+  **One exception, deliberate:** if the AGENTIC third does not land — no Docker socket, a harness
+  image that would not build, a served context under 64K, or a serve whose tool calls the server
+  never parsed — the run still RANKS on what it did measure and is badged **⚠ agentic untested**.
+  Submit it anyway; a run missing agentic beats no run at all, and the badge says how to fix it.
 - **Never dress a smoke test, subset, or endpoint run up as validated.**
 - **Never bypass weight verification** — a `WEIGHTS VERIFICATION FAILED` stop is by design.
 - **The mothership never runs jobs.** All benchmarking is on the pod; the mothership only shows

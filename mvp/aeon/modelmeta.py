@@ -179,8 +179,15 @@ def _hf_avatar(name: str) -> str | None:
             req = urllib.request.Request(url, headers={"User-Agent": "aeon-bench/0.4"})
             with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as r:
                 data = json.loads(r.read(_MAX_HTTP_BYTES).decode("utf-8", "replace"))  # FIX(LOW): bound read
-            if data.get("avatarUrl"):
-                return data["avatarUrl"]
+            av = data.get("avatarUrl")
+            if av:
+                # HF returns a RELATIVE url for accounts with no custom picture — its generated
+                # identicon, "/avatars/<hash>.svg". Stored verbatim that resolved against
+                # aeon-bench.com and 404'd, so every such creator (most community submitters)
+                # showed no avatar on the boards at all. Absolutise it against huggingface.co.
+                if av.startswith("/"):
+                    av = HF.rstrip("/") + av
+                return av
         except Exception:
             continue
     return None

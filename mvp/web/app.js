@@ -365,9 +365,9 @@ function _aeonTitle(m, headline, isAeon, prov) {
 
 // Share wiring, shared by every board that renders benchmark cards (global, GOD MODE). The
 // stopPropagation matters: the card itself is a button that opens the run.
-function wireShare(scope) {
+function wireShare(scope, board) {
   $$(`${scope} .share-btn`).forEach((b) =>
-    b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
+    b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b, board); });
 }
 
 function globalRow(m, i) {
@@ -2486,7 +2486,7 @@ async function setGod() {
     r.onclick = open;
     r.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } };
   });
-  wireShare("#godBody");
+  wireShare("#godBody", "god");
   // hydrate creator avatars + Get-Model links exactly like the global board
   [...new Set(ms.map((m) => m.model))].forEach((model) => {
     const cached = META.get(model);
@@ -4878,9 +4878,12 @@ function closePodModal() { const m = $("#podModal"); if (m) m.hidden = true; }
 
 // Share a benchmark: copy its /share/<model> link — the server renders a 1200×630 social card
 // (rank · composite · peak concurrent tok/s · owner avatar) wherever the link is posted.
-async function shareBench(model, btn) {
+async function shareBench(model, btn, board) {
+  // ?b=god selects the GOD MODE card. Without it a god-only run is not on the global board at all,
+  // the lookup fails, and the unfurl falls back to the generic AEON image.
   const url = location.origin.replace(/^http:\/\/(127|localhost)[^/]*/, "https://aeon-bench.com")
-    + "/share/" + encodeURIComponent((model || "").replace(/\//g, "__"));
+    + "/share/" + encodeURIComponent((model || "").replace(/\//g, "__"))
+    + (board === "god" ? "?b=god" : "");
   if (!(await copyText(url))) return;
   if (btn) {
     const t = btn.textContent;

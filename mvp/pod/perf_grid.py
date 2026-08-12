@@ -148,7 +148,50 @@ def _r(x, nd=2):
     return round(x, nd) if isinstance(x, (int, float)) else None
 
 
-def _agg(reqs, wall_clock_s, n_errors=0):
+_ENGINE_METRICS_OK: dict = {}     # target_url -> False once we learn it exposes no /metrics
+
+
+def _engine_tokens(target_url):
+    """Total tokens the ENGINE reports having generated so far, or None if it does not say.
+
+    Derived from the serve URL (…/v1 -> …/metrics) so it follows whatever the run is actually
+    benchmarking, local or remote, rather than assuming a fixed port. vLLM and SGLang both expose
+    a Prometheus `generation_tokens_total`; anything else returns None and the caller falls back
+    to client-side counting."""
+    import urllib.request
+    # One probe decides it. Without this the grid pays the full timeout on EVERY cell of every
+    # concurrency level against an engine that will never answer — minutes of dead wall clock
+    # added to the very measurement we are trying to keep honest.
+    if _ENGINE_METRICS_OK.get(target_url) is False:
+        return None
+    base = (target_url or "").rstrip("/")
+    for suffix in ("/v1", "/v1/"):
+        if base.endswith(suffix.rstrip("/")):
+            base = base[: -len(suffix.rstrip("/"))]
+            break
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + "/metrics", timeout=2) as r:
+            text = r.read().decode("utf-8", "replace")
+    except Exception:
+        _ENGINE_METRICS_OK[target_url] = False
+        return None
+    for metric in ("vllm:generation_tokens_total", "sglang:generation_tokens_total",
+                   "generation_tokens_total"):
+        total, found = 0.0, False
+        for ln in text.splitlines():
+            if ln.startswith(metric) and not ln.startswith("#"):
+                try:
+                    total += float(ln.rsplit(None, 1)[1]); found = True
+                except (ValueError, IndexError):
+                    pass
+        if found:
+            _ENGINE_METRICS_OK[target_url] = True
+            return total
+    _ENGINE_METRICS_OK[target_url] = False    # reachable, but no token counter we recognise
+    return None
+
+
+def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None):
     ttfts = [r["ttft_ms"] for r in reqs if r.get("ttft_ms") is not None]
     dtps = [r["decode_tps"] for r in reqs if r.get("decode_tps") is not None]
     ptps = [r["prefill_tps"] for r in reqs if r.get("prefill_tps") is not None]
@@ -172,8 +215,15 @@ def _agg(reqs, wall_clock_s, n_errors=0):
         "tpot_ms_p95": _r(_pct(tpots, 95), 3),
         "output_tokens_total": out_sum,
         "input_tokens_total": in_sum,
-        # AGGREGATE decode tok/s: total generated tokens over the level's wall clock
-        "agg_decode_tps": _r(out_sum / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None,
+        # AGGREGATE decode tok/s: total generated tokens over the level's wall clock. Under
+        # concurrency this IS the headline throughput — every in-flight stream's tokens over the
+        # elapsed time of the batch. Prefer the engine's own counter delta: it tallies every token
+        # it generated (reasoning included) across all streams, so it needs no estimation and
+        # cannot be skewed by how the HTTP stream was framed.
+        "agg_decode_tps": _r((engine_tokens if engine_tokens is not None else out_sum)
+                             / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None,
+        "tokens_source": "engine" if engine_tokens is not None else "client",
+        "engine_tokens_total": _r(engine_tokens) if engine_tokens is not None else None,
         "input_tokens_estimated": any(r.get("input_tokens_estimated") for r in reqs),
     }
 
@@ -193,12 +243,12 @@ def _one_request(target, category, prompt, temperature, max_tokens):
     # measurement (e2e minus ttft over the decode tokens); fall back to 1000/decode_tps.
     out_tok = resp.get("output_tokens") or 0
     e2e = resp.get("e2e_ms")
-    if e2e is not None and ttft is not None and out_tok > 1 and e2e > ttft:
-        tpot = _r((e2e - ttft) / (out_tok - 1), 3)
-    elif resp.get("decode_tps"):
-        tpot = _r(1000.0 / resp["decode_tps"], 3)
-    else:
-        tpot = None
+    # TPOT is the reciprocal of the OBSERVED decode rate, so it inherits that measurement rather
+    # than being recomputed from e2e-minus-ttft. The old fallback had the same defect decode_tps
+    # did: on a response that was not really streamed, e2e-minus-ttft is a few milliseconds spread
+    # over hundreds of tokens, which reads as a 0.005 ms per-token latency. If no decode phase was
+    # observed there is no per-token latency to report, and None says exactly that.
+    tpot = _r(1000.0 / resp["decode_tps"], 3) if resp.get("decode_tps") else None
     return {
         "category": category,
         "ttft_ms": ttft,
@@ -245,11 +295,13 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
         base_counts = {c: max(1, int(repeats)) * len(PROMPTS[c]) for c in CATEGORIES}
         total = sum(max(base_counts[c], int(conc)) for c in CATEGORIES)
         done, wall_sum = 0, 0.0
+        cell_engine_tokens = []
         for cat in CATEGORIES:
             base = [p for _ in range(max(1, int(repeats))) for p in PROMPTS[cat]]
             n = max(len(base), int(conc))        # saturate the level with THIS category only
             tasks = [_bust(base[i % len(base)], i) for i in range(n)]
             reqs, errors = [], []
+            eng0 = _engine_tokens(target_url)    # engine tally BEFORE this cell
             t0 = time.perf_counter()
             with ThreadPoolExecutor(max_workers=int(conc)) as ex:
                 futs = [(p, ex.submit(_one_request, target, cat, p, temperature, max_tokens))
@@ -267,16 +319,25 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
                     if progress_cb:
                         progress_cb(conc, done, total)
             cw = time.perf_counter() - t0
+            eng1 = _engine_tokens(target_url)    # …and AFTER: the delta is what this cell generated
             wall_sum += cw
-            cell = _agg(reqs, cw, n_errors=len(errors))   # aggregates over the CELL's wall
+            eng_delta = (eng1 - eng0) if (eng0 is not None and eng1 is not None
+                                          and eng1 >= eng0) else None
+            cell = _agg(reqs, cw, n_errors=len(errors),   # aggregates over the CELL's wall
+                        engine_tokens=eng_delta)
             cell["cell_wall_s"] = round(cw, 3)
+            cell_engine_tokens.append(eng_delta)
             cats[cat] = cell
             all_reqs.extend(reqs)
             all_errs.extend(errors)
         grid["levels"][int(conc)] = {
             "conc": int(conc),
             "wall_clock_s": round(wall_sum, 3),
-            "overall": _agg(all_reqs, wall_sum, n_errors=len(all_errs)),
+            "overall": _agg(all_reqs, wall_sum, n_errors=len(all_errs),
+                            engine_tokens=(sum(cell_engine_tokens)
+                                           if cell_engine_tokens
+                                           and all(t is not None for t in cell_engine_tokens)
+                                           else None)),
             "categories": cats,
             "requests": all_reqs,
             "errors": all_errs,

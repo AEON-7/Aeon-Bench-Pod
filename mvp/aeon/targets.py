@@ -158,6 +158,42 @@ def _http_timeout():
         return _BASE_TIMEOUT
 
 
+def _generated_tokens(usage_tokens, gen_chars):
+    """(tokens, estimated?) for one generation.
+
+    NEVER counts streamed FRAMES. That was the old fallback and it is only a token count if the
+    server emits one token per frame — exactly the assumption that breaks when a server or proxy
+    coalesces the stream. On the live GLM-5.2 run it recorded 1-4 "tokens" for answers hundreds of
+    tokens long, which understated aggregate throughput by ~100x and inflated the decode rate by
+    ~1000x.
+
+    `gen_chars` counts EVERYTHING generated, reasoning included: hidden thinking is produced work
+    and belongs in throughput even though it never reaches the answer."""
+    if usage_tokens:
+        return int(usage_tokens), False
+    return max(1, gen_chars // 4), True          # ~4 chars/token; wrong by tens of percent, not 100x
+
+
+def _decode_rate(out_tok, tok_chunks, t_first_tok, t_last_tok):
+    """Observed decode rate in tok/s, or None when no decode phase was observed.
+
+    Measured across the REAL token window — first token-bearing chunk to last — not to stream
+    close, so trailing [DONE]/usage frames and teardown never enter the denominator.
+
+    `tok_chunks < 2` means every token arrived in a single delta: the server did not really
+    stream, or a proxy coalesced the frames. There is then no inter-token interval anywhere in
+    the data, so the rate is UNDEFINED and we say so. This is not a judgement about how fast
+    hardware can be — a genuinely very fast serve that streams properly is measured and believed."""
+    if tok_chunks < 2 or t_first_tok is None or t_last_tok is None:
+        return None
+    span = t_last_tok - t_first_tok
+    if span <= 0:
+        return None
+    # the first chunk's tokens were produced BEFORE this window opened (they are TTFT's business)
+    decoded = max(1, (out_tok or 1) - 1)
+    return decoded / span
+
+
 class OpenAITarget:
     def __init__(self, base_url, model, api_key=None, timeout=None, extra_body=None):
         self.base_url = _ipv4(base_url.rstrip("/"))
@@ -237,7 +273,9 @@ class OpenAITarget:
         payload = self._apply_extra(payload, max_tokens)
         t0 = time.perf_counter()
         ttft = None          # time to the FIRST generated token of ANY kind (incl. hidden reasoning)
-        chunks = 0           # streamed token-chunks (reasoning + content) — for timing + fallback count
+        t_last_tok = None    # timestamp of the LAST token-bearing chunk (the decode window's end)
+        gen_chars = 0        # ALL generated characters (content + hidden reasoning) — token estimate
+        chunks = 0           # streamed token-chunks (reasoning + content) — timing only, NEVER a token count
         parts = []           # ANSWER text only (content); reasoning is never part of the answer
         usage = None
         finish = None        # finish_reason of the last choice; "length" == hit max_tokens (truncated)
@@ -273,6 +311,8 @@ class OpenAITarget:
                         ttft = time.perf_counter() - t0
                     if c or reasoning:
                         chunks += 1
+                        gen_chars += len(c or "") + len(reasoning or "")
+                        t_last_tok = time.perf_counter()   # the real end of the token window
                     if c:
                         parts.append(c)
                 if obj.get("usage"):
@@ -282,16 +322,19 @@ class OpenAITarget:
         if not text and chunks == 0:
             # Server streamed nothing useful — treat as a non-stream fallback.
             return self._chat_once(messages, temperature, max_tokens)
-        out_tok = (usage or {}).get("completion_tokens") or chunks or max(1, len(text) // 4)
+        out_tok, out_est = _generated_tokens((usage or {}).get("completion_tokens"), gen_chars)
         in_tok, in_est = _input_tokens(messages, usage)
-        decode_span = (t_last - t0) - (ttft or 0.0)
-        tps = (out_tok / decode_span) if decode_span > 1e-6 else None
+        tps = _decode_rate(out_tok, chunks,
+                           (t0 + ttft) if ttft is not None else None, t_last_tok)
         return {
             "text": text,
             "ttft_ms": round(ttft * 1000, 2) if ttft is not None else None,
             "decode_tps": round(tps, 2) if tps else None,
             "e2e_ms": round((t_last - t0) * 1000, 2),
             "output_tokens": out_tok,
+            # measured from the server's usage block, or estimated from generated characters —
+            # a consumer computing throughput deserves to know which
+            "output_tokens_estimated": out_est,
             "input_tokens": in_tok,
             "input_tokens_estimated": in_est,
             "finish_reason": finish,
@@ -320,7 +363,8 @@ class OpenAITarget:
         choice0 = (obj.get("choices") or [{}])[0]
         text = choice0.get("message", {}).get("content", "") or ""
         finish = choice0.get("finish_reason")
-        out_tok = (obj.get("usage") or {}).get("completion_tokens") or max(1, len(text) // 4)
+        out_tok, out_est = _generated_tokens(
+            (obj.get("usage") or {}).get("completion_tokens"), len(text))
         in_tok, in_est = _input_tokens(messages, obj.get("usage"))
         return {
             "text": text,
@@ -328,6 +372,9 @@ class OpenAITarget:
             "decode_tps": None,
             "e2e_ms": round((t_last - t0) * 1000, 2),
             "output_tokens": out_tok,
+            # measured from the server's usage block, or estimated from generated characters —
+            # a consumer computing throughput deserves to know which
+            "output_tokens_estimated": out_est,
             "input_tokens": in_tok,
             "input_tokens_estimated": in_est,
             "finish_reason": finish,
@@ -409,7 +456,9 @@ class AnthropicTarget:
         payload = self._base_payload(messages, max_tokens, True)
         t0 = time.perf_counter()
         ttft = None
-        chunks = 0
+        t_last_tok = None    # timestamp of the LAST token-bearing chunk (the decode window's end)
+        gen_chars = 0        # ALL generated characters (text + thinking) — token estimate
+        chunks = 0           # frames, for timing only — NEVER a token count
         parts = []
         usage = {}
         stop_reason = None
@@ -438,6 +487,8 @@ class AnthropicTarget:
                         ttft = time.perf_counter() - t0
                     if text:
                         chunks += 1
+                        gen_chars += len(text)
+                        t_last_tok = time.perf_counter()   # the real end of the token window
                     if delta.get("type") == "text_delta" and delta.get("text"):
                         parts.append(delta["text"])
                 elif typ == "message_delta":
@@ -447,9 +498,9 @@ class AnthropicTarget:
                     break
         t_last = time.perf_counter()
         text = "".join(parts)
-        out_tok = usage.get("output_tokens") or chunks or max(1, len(text) // 4)
-        decode_span = (t_last - t0) - (ttft or 0.0)
-        tps = (out_tok / decode_span) if decode_span > 1e-6 else None
+        out_tok, out_est = _generated_tokens(usage.get("output_tokens"), gen_chars)
+        tps = _decode_rate(out_tok, chunks,
+                           (t0 + ttft) if ttft is not None else None, t_last_tok)
         return {
             "text": text,
             "ttft_ms": round(ttft * 1000, 2) if ttft else None,
@@ -476,7 +527,8 @@ class AnthropicTarget:
             b.get("text", "") for b in obj.get("content", [])
             if b.get("type") == "text"
         )
-        out_tok = (obj.get("usage") or {}).get("output_tokens") or max(1, len(text) // 4)
+        out_tok, out_est = _generated_tokens(
+            (obj.get("usage") or {}).get("output_tokens"), len(text))
         stop_reason = obj.get("stop_reason")
         return {
             "text": text,

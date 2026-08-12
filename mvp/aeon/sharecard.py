@@ -109,6 +109,16 @@ def _chip(d, x, y, label, value, color, pad=16, fsize=30, check=False, h=78):
     return x + w + 14
 
 
+def _fmt_tps(n):
+    """Throughput, without lying about precision: a 9.96 tok/s serve read as a flat "10" in the
+    footer. Sub-10 keeps a decimal; above that the integer is the honest resolution."""
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{n:.1f}" if n < 10 else f"{n:,.0f}"
+
+
 def _fmt_ctx(n):
     """65536 -> '64K' (the boards' context grammar); sub-1K windows stay literal."""
     return f"{round(n / 1024)}K" if n >= 1024 else str(n)
@@ -283,6 +293,12 @@ def render_model_card(info: dict) -> bytes:
         elif key == "agentic" and info.get("agentic_not_counted"):
             # an untested component is stated, never silently dropped and never shown as 0
             x = _chip(d, x, cy, lab, "UNTESTED", MUTED, fsize=24, h=64, pad=14)
+    # PEAK THROUGHPUT rides the chip line, not just the footer: it is a headline measurement of
+    # the model+rig, and on a god card (where a component may be untested) it is often the most
+    # concrete number on the image.
+    tps = info.get("peak_tps")
+    if tps:
+        x = _chip(d, x, cy, "PEAK TOK/S", _fmt_tps(tps), CYAN, fsize=24, h=64, pad=14)
     ctx = info.get("ctx_len")
     if ctx:
         x = _chip(d, x, cy, "MAX CTX", _fmt_ctx(ctx), CYAN, fsize=24, h=64, pad=14)
@@ -298,7 +314,7 @@ def render_model_card(info: dict) -> bytes:
         foot.append(str(hw).upper())
     tps = info.get("peak_tps")
     if tps:
-        foot.append(f"PEAK {tps:.0f} TOK/S CONCURRENT")
+        foot.append(f"PEAK {_fmt_tps(tps)} TOK/S CONCURRENT")
     if foot:
         d.text((58, H - 76), " · ".join(foot), font=_font(18), fill=MUTED)
     site = "aeon-bench.com"

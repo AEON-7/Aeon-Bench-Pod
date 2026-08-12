@@ -2528,7 +2528,10 @@ function godRow(m, i) {
     dial(s && s.composite != null ? s.composite : null, "sentinels",
          { title: "god sentinels — atomic all-or-nothing checkers; a 90%-right answer scores 0" }),
     dial(ag && ag.score != null ? ag.score : null, "agentic", { title: agTip }),
-    dial(pf && pf.score != null ? pf.score : null, "performance", { title: pfTip }),
+    // the SAME race instrument the global board draws (peak tok/s + tach + C/ctx), not a bare
+    // percentile dial — throughput is a measurement and belongs on a god card as much as anywhere.
+    // perfInstrument reads m.dials.performance, so hand it the god row's flat field in that shape.
+    perfInstrument({ dials: { performance: pf }, ctx_len: m.ctx_len }),
   ].join("");
   const title = `GOD SCORE — 0.6 \u00d7 sentinels + 0.4 \u00d7 agentic${prov ? " (renormalized: a component is untested)" : ""}`;
   return `<div class="mrow${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}"${bestRun ? ` data-run="${escA(bestRun)}"` : ""} data-trust="${m.record_eligible ? "verified" : "local"}" tabindex="0" role="button" aria-label="open the god run for ${escA(m.model)}" style="--i:${i}">

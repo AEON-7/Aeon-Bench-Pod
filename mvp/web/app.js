@@ -4012,8 +4012,16 @@ async function pollLive() {
         LIVE_FEED.since = lt.latest || LIVE_FEED.since;
         LIVE_FEED.live = !!lt.live;
         LIVE_FEED.age = lt.age_s;
+        LIVE_FEED.fails = 0;
       }
-    } catch (e) { /* older pods have no feed — Live degrades to the strips */ }
+    } catch (e) {
+      // `live` is only ever WRITTEN on success, so a feed that stops answering keeps flying the
+      // green ● LIVE badge over its own last frame — the pod went off the network entirely and the
+      // page still claimed the bench was talking. Two failed polls (~10s) is past any normal blip,
+      // so stop asserting liveness we can no longer observe. The lines stay: the last thing the
+      // bench said is still the most useful thing on screen.
+      if ((LIVE_FEED.fails = (LIVE_FEED.fails || 0) + 1) >= 2) LIVE_FEED.live = false;
+    }
     // The wall: what each CONCURRENT case is saying. Same unconditional poll as the feed, and for
     // the same reason — the moment it matters most is the one where nothing else has data.
     try {

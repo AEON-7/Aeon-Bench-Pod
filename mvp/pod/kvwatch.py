@@ -1,0 +1,239 @@
+"""Sustained-load telemetry: does this serve DEGRADE as KV pressure builds?
+
+The concurrency ladder answers "how fast is this serve when we ask it to be fast" — a fresh engine,
+a short burst, a clean cache. It cannot answer the question an operator actually lives with: after
+three hours under load, is it still that fast?
+
+The mechanism is visible in the engine's own counters. As `kv_cache_usage_perc` climbs, vLLM starts
+PREEMPTING sequences and recomputing them. Throughput falls and nothing errors — no log line, no
+failed request, just a serve that is quietly slower than its benchmark said. `num_preemptions_total`
+is the smoking gun, and it is free to read.
+
+Everything here is the engine's own tally sampled on a wall clock, and every rate is a delta
+between two samples. Nothing is inferred, and a serve that exposes no /metrics simply produces no
+section rather than a fabricated one.
+"""
+from __future__ import annotations
+
+import re
+import threading
+import time
+import urllib.request
+
+# Counters (monotonic — rates come from deltas) and gauges (instantaneous).
+_COUNTERS = {
+    "gen_tok": "generation_tokens_total",
+    "prompt_tok": "prompt_tokens_total",
+    "preempt": "num_preemptions_total",
+    "pfx_hits": "prefix_cache_hits_total",
+    "pfx_queries": "prefix_cache_queries_total",
+}
+_GAUGES = {
+    "kv_pct": "kv_cache_usage_perc",
+    "running": "num_requests_running",
+    "waiting": "num_requests_waiting",
+}
+
+MAX_POINTS = 600            # a day-long run stays renderable; older points are thinned, never cut
+DEFAULT_EVERY_S = 15.0
+
+
+def _metrics_url(target_url):
+    """…/v1 -> …/metrics, so it follows whatever the run is actually benchmarking."""
+    base = (target_url or "").rstrip("/")
+    for suffix in ("/v1", "/v1/"):
+        if base.endswith(suffix.rstrip("/")):
+            base = base[: -len(suffix.rstrip("/"))]
+            break
+    return base.rstrip("/") + "/metrics"
+
+
+def _scrape(url, timeout=4):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        text = r.read().decode("utf-8", "replace")
+    out = {}
+    for key, name in {**_COUNTERS, **_GAUGES}.items():
+        m = re.search(r"^vllm:%s(?:\{[^}]*\})? ([0-9.eE+-]+)$" % re.escape(name), text, re.M)
+        if m:
+            try:
+                out[key] = float(m.group(1))
+            except ValueError:
+                pass
+    return out
+
+
+class Watcher:
+    """Samples the engine for the LIFETIME OF A BENCH, in the background.
+
+    Never raises and never blocks the run: a telemetry failure must not be able to damage the
+    benchmark it is reporting on, so a dead endpoint just means an empty series."""
+
+    def __init__(self, target_url, every_s=DEFAULT_EVERY_S):
+        self.url = _metrics_url(target_url)
+        self.every = max(2.0, float(every_s))
+        self.points = []
+        self._stop = threading.Event()
+        self._t = None
+        self._prev = None
+        self._prev_t = None
+        self.available = None       # None until the first scrape decides
+
+    # ---- lifecycle ------------------------------------------------------------------------
+    def start(self):
+        if self._t:
+            return self
+        self._t = threading.Thread(target=self._loop, name="kvwatch", daemon=True)
+        self._t.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+        if self._t:
+            self._t.join(timeout=self.every + 2)
+        return self.summary()
+
+    def _loop(self):
+        while not self._stop.is_set():
+            self._sample()
+            self._stop.wait(self.every)
+        self._sample()          # a final reading, so the tail of the run is represented
+
+    def _sample(self):
+        try:
+            now = time.time()
+            cur = _scrape(self.url)
+            if not cur:
+                self.available = False
+                return
+            self.available = True
+            p = {"t": round(now, 2)}
+            for k in _GAUGES:
+                if k in cur:
+                    p[k] = round(cur[k], 4)
+            if self._prev and self._prev_t:
+                dt = now - self._prev_t
+                if dt > 0:
+                    for k in _COUNTERS:
+                        if k in cur and k in self._prev:
+                            d = cur[k] - self._prev[k]
+                            if d >= 0:
+                                p[k + "_rate"] = round(d / dt, 2)
+                                if k == "preempt":
+                                    p["preempt_d"] = round(d, 2)
+            self._prev, self._prev_t = cur, now
+            self.points.append(p)
+            if len(self.points) > MAX_POINTS * 2:
+                # THIN, never truncate: keeping every other point preserves the SHAPE of the whole
+                # run. Dropping the head would hide exactly the early, low-pressure baseline the
+                # later samples have to be compared against.
+                self.points = self.points[::2]
+        except Exception:
+            pass
+
+    # ---- the question this module exists to answer ----------------------------------------
+    def summary(self):
+        """Throughput at LOW vs HIGH KV pressure, and what it cost.
+
+        Returns None when there is nothing honest to say — no /metrics, or too few samples to
+        compare two regimes. A section that cannot be computed must be absent, not zero."""
+        pts = [p for p in self.points if p.get("gen_tok_rate") is not None
+               and p.get("kv_pct") is not None]
+        if len(pts) < 6:
+            return None
+        # Only samples where the engine was actually working: idle gaps between dimensions would
+        # otherwise average a run's throughput toward zero and invent a degradation that is really
+        # just the bench thinking.
+        busy = [p for p in pts if (p.get("running") or 0) > 0 and p["gen_tok_rate"] > 0]
+        if len(busy) < 6:
+            return None
+        # Compare the LOWEST-pressure third against the HIGHEST-pressure third, by slicing the
+        # sorted samples directly. Comparing against boundary VALUES instead is off by one — with
+        # `<= kv[n//3]` the low group swallows the first sample of the middle third, which on a
+        # 9-sample run pulled a 400 tok/s baseline down to 375 and understated the degradation.
+        ranked = sorted(busy, key=lambda p: p["kv_pct"])
+        third = max(1, len(ranked) // 3)
+        lo_pts, hi_pts = ranked[:third], ranked[-third:]
+        kv = [p["kv_pct"] for p in ranked]
+        lo_cut, hi_cut = lo_pts[-1]["kv_pct"], hi_pts[0]["kv_pct"]
+        lo = [p["gen_tok_rate"] for p in lo_pts]
+        hi = [p["gen_tok_rate"] for p in hi_pts]
+        if not lo or not hi:
+            return None
+        lo_tps = sum(lo) / len(lo)
+        hi_tps = sum(hi) / len(hi)
+        preempt = sum(p.get("preempt_d") or 0 for p in busy)
+        pq = [p for p in busy if p.get("pfx_queries_rate")]
+        hit_rate = None
+        if pq:
+            q = sum(p["pfx_queries_rate"] for p in pq)
+            h = sum(p.get("pfx_hits_rate") or 0 for p in pq)
+            hit_rate = round(100.0 * h / q, 1) if q else None
+        return {
+            "n_samples": len(self.points), "n_busy": len(busy),
+            "window_s": round(busy[-1]["t"] - busy[0]["t"], 1),
+            "kv_pct_min": round(min(kv), 4), "kv_pct_max": round(max(kv), 4),
+            "kv_lo_cut": round(lo_cut, 4), "kv_hi_cut": round(hi_cut, 4),
+            "tps_at_low_kv": round(lo_tps, 1), "tps_at_high_kv": round(hi_tps, 1),
+            # NEGATIVE means it got FASTER under pressure, which happens (bigger batches amortise
+            # better) and is a real result — not something to clamp to zero.
+            "degradation_pct": round(100.0 * (lo_tps - hi_tps) / lo_tps, 1) if lo_tps else None,
+            "preemptions": round(preempt, 0),
+            "prefix_cache_hit_pct": hit_rate,
+            "peak_running": max((p.get("running") or 0) for p in busy),
+            "peak_waiting": max((p.get("waiting") or 0) for p in busy),
+        }
+
+    def series(self, limit=MAX_POINTS):
+        """The points themselves, thinned to `limit` — for the chart."""
+        pts = self.points
+        if len(pts) <= limit:
+            return pts
+        step = max(1, len(pts) // limit)
+        return pts[::step][:limit]
+
+
+# ---- process-level lifecycle -----------------------------------------------------------------
+# The watcher has to span the WHOLE bench — sentinels, arena, harnesses, then the perf grid — because
+# "sustained" is the entire point: a ladder run against a fresh engine cannot show degradation. It is
+# started once near the top of a run and read at the end, in two places far apart in the call graph.
+#
+# Deliberately a module singleton rather than a parameter threaded through the run functions: a pod
+# process runs ONE bench, and threading an optional argument through every signature between those
+# two points is how this session already shipped a --think-budget that never reached _run_boards.
+
+_ACTIVE = None
+
+
+def begin(target_url, every_s=DEFAULT_EVERY_S):
+    """Start sampling for this bench. Safe to call twice; never raises."""
+    global _ACTIVE
+    try:
+        if _ACTIVE is None:
+            _ACTIVE = Watcher(target_url, every_s=every_s).start()
+    except Exception:
+        _ACTIVE = None
+    return _ACTIVE
+
+
+def finish():
+    """(summary, series) for the bench, or (None, []) when there was nothing to measure."""
+    global _ACTIVE
+    w = _ACTIVE
+    _ACTIVE = None
+    if not w:
+        return None, []
+    try:
+        return w.stop(), w.series()
+    except Exception:
+        return None, []
+
+
+def snapshot():
+    """Current summary WITHOUT stopping — for the live view mid-run."""
+    w = _ACTIVE
+    if not w:
+        return None
+    try:
+        return w.summary()
+    except Exception:
+        return None

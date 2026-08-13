@@ -784,6 +784,25 @@ def _perf_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, harn
             print(f"  [perf] harness {h}: " + json.dumps(ht.get("levels", {}))[:160], flush=True)
         except Exception as e:
             print(f"  [perf] harness {h} timing failed (non-fatal): {e}")
+    # SUSTAINED LOAD: harvest the watcher that has been sampling since the engine came up. This is
+    # the last thing a bench does, so the series covers the whole run — which is the only way to
+    # show a serve degrading under pressure rather than sprinting for a ladder.
+    try:
+        from pod import kvwatch
+        _sum, _series = kvwatch.finish()
+        _srows = perf_grid.sustained_rows(_sum, _series)
+        rows += _srows
+        if _sum:
+            print(f"  [perf] sustained load: {_sum.get('tps_at_low_kv')} tok/s at "
+                  f"{round(100 * (_sum.get('kv_lo_cut') or 0))}% KV -> {_sum.get('tps_at_high_kv')} "
+                  f"at {round(100 * (_sum.get('kv_hi_cut') or 0))}%  "
+                  f"({_sum.get('degradation_pct')}% change, {int(_sum.get('preemptions') or 0)} "
+                  f"preemptions over {_sum.get('window_s')}s)", flush=True)
+        elif _series:
+            print("  [perf] sustained load: too few busy samples to compare two KV regimes "
+                  "— section omitted rather than guessed", flush=True)
+    except Exception as e:
+        print(f"  [perf] sustained-load telemetry unavailable (non-fatal): {e}")
     mrid = _mirror_local(suite_id=perf_grid.SUITE_ID, results=rows, repo=repo, target=target,
                          env=env, board="perf", recipe=provenance.get("recipe"),
                          bench_seed=provenance.get("bench_seed"))
@@ -1455,6 +1474,15 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             print(f"[pod] served id adopted from endpoint: '{alias}'  (endpoint serves {ids})")
         served_ok = alias in ids
         print(f"[pod] engine ready; served = {ids}  (alias present: {served_ok})")
+        # SUSTAINED-LOAD telemetry starts here and runs for the whole bench — sentinels, arena,
+        # harnesses, then the perf grid. It has to span all of it: a concurrency ladder against a
+        # fresh engine measures a best case, and cannot show a serve slowing down as KV pressure
+        # builds over hours. Harvested in _perf_and_submit.
+        try:
+            from pod import kvwatch
+            kvwatch.begin(target)
+        except Exception:
+            pass
         if serve and not served_ok:
             # our own serve MUST expose our alias — anything else means a different server answered
             raise SystemExit(f"[pod] served ids {ids} do not include the bench alias '{alias}' — "

@@ -438,6 +438,20 @@ def _cell_speed(cell):
             "streamed": True}
 
 
+def sustained_rows(summary, series):
+    """The sustained-load section as submission rows.
+
+    Rides the existing perf bundle as `perf.sustained.*` — no schema change, no new board. Absent
+    entirely when there was nothing honest to measure (no /metrics, too few samples to compare two
+    pressure regimes): a section that cannot be computed must not render as zeros."""
+    if not summary:
+        return []
+    rows = [_row("perf.sustained.summary", dict(summary), speed={})]
+    if series:
+        rows.append(_row("perf.sustained.timeline", {"points": series, "n": len(series)}, speed={}))
+    return rows
+
+
 def to_results(grid):
     """Flatten a run_direct_grid / run_harness_timing dict into submission-ready
     result rows for suite aeon-perf-v1."""

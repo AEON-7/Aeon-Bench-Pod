@@ -2968,6 +2968,75 @@ function _perfRecipe(m) {
 }
 
 // (b) drill-down: back → model header → metric lens → curves + heatmap + harness table
+// SUSTAINED LOAD — degradation across the whole run, not a rung of the ladder.
+function _perfSustained(m) {
+  const su = m.sustained;
+  if (!su || su.tps_at_low_kv == null || su.tps_at_high_kv == null) return "";
+  const deg = su.degradation_pct;
+  // NEGATIVE degradation means it got FASTER under pressure — real (bigger batches amortise
+  // better), so it is reported as a gain rather than hidden or clamped to zero.
+  const band = deg == null ? "na" : deg >= 20 ? "fail" : deg >= 8 ? "part" : "pass";
+  const verdict = deg == null ? "not comparable"
+    : deg < -1 ? `${Math.abs(deg).toFixed(1)}% FASTER under pressure`
+    : deg <= 1 ? "held steady under pressure"
+    : `${deg.toFixed(1)}% slower under pressure`;
+  const pct = (v) => v == null ? "—" : Math.round(v * 100) + "%";
+  const pre = Number(su.preemptions || 0);
+  return `<div class="perf-card sus-card">
+    <h3 class="perf-h3">sustained load
+      <span class="micro">the ladder above measures a FRESH engine; this is the same engine across the whole
+      bench as KV cache fills — the number an operator actually lives with</span></h3>
+    <div class="sus-row">
+      <div class="sus-verdict ${band}">
+        <div class="sus-big">${escH(verdict)}</div>
+        <div class="sus-sub">${_pfv(su.tps_at_low_kv)} → ${_pfv(su.tps_at_high_kv)} tok/s aggregate</div>
+      </div>
+      <div class="sus-cells">
+        <div class="sus-cell"><b>${pct(su.kv_lo_cut)}</b><span>KV low third</span></div>
+        <div class="sus-cell"><b>${pct(su.kv_hi_cut)}</b><span>KV high third</span></div>
+        <div class="sus-cell${pre > 0 ? " warn" : ""}" title="vLLM evicts and RECOMPUTES a sequence when KV fills — the mechanism behind a slowdown that never errors">
+          <b>${pre.toLocaleString()}</b><span>preemptions</span></div>
+        <div class="sus-cell"><b>${Math.round((su.window_s || 0) / 60)}m</b><span>under load</span></div>
+        ${su.prefix_cache_hit_pct != null
+          ? `<div class="sus-cell"><b>${su.prefix_cache_hit_pct}%</b><span>prefix hits</span></div>` : ""}
+      </div>
+    </div>
+    ${_susSpark(m.sustained_series)}
+    <p class="micro sus-note">${su.n_busy} busy samples over ${Math.round((su.window_s || 0) / 60)} minutes ·
+      KV ${pct(su.kv_pct_min)}–${pct(su.kv_pct_max)} · peak ${su.peak_running} concurrent${
+      su.peak_waiting ? ", " + su.peak_waiting + " queued" : ""}</p>
+  </div>`;
+}
+
+// Throughput over time with KV utilisation behind it. Plain SVG — same as the rest of the board,
+// no chart library, so it renders inside a sandboxed page with no network.
+function _susSpark(series) {
+  const pts = (series || []).filter((p) => p && p.gen_tok_rate != null && p.kv_pct != null);
+  if (pts.length < 4) return "";
+  const W = 720, H = 120, PAD = 4;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t || (t0 + 1);
+  const span = Math.max(1e-6, t1 - t0);
+  const maxT = Math.max(...pts.map((p) => p.gen_tok_rate)) || 1;
+  const x = (p) => PAD + ((p.t - t0) / span) * (W - 2 * PAD);
+  const yT = (p) => H - PAD - (p.gen_tok_rate / maxT) * (H - 2 * PAD);
+  const yK = (p) => H - PAD - Math.min(1, p.kv_pct) * (H - 2 * PAD);
+  const line = (f) => pts.map((p, i) => (i ? "L" : "M") + x(p).toFixed(1) + " " + f(p).toFixed(1)).join(" ");
+  const kvArea = `M${PAD} ${H - PAD} ` + pts.map((p) => "L" + x(p).toFixed(1) + " " + yK(p).toFixed(1)).join(" ")
+    + ` L${(W - PAD).toFixed(1)} ${H - PAD} Z`;
+  // preemption events marked where they happened — the moment throughput had a reason to drop
+  const marks = pts.filter((p) => (p.preempt_d || 0) > 0).map((p) =>
+    `<line x1="${x(p).toFixed(1)}" y1="${PAD}" x2="${x(p).toFixed(1)}" y2="${H - PAD}" class="sus-pre"/>`).join("");
+  return `<svg class="sus-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="throughput and KV utilisation over the run">
+    <path d="${kvArea}" class="sus-kv"/>${marks}
+    <path d="${line(yT)}" class="sus-tps"/>
+  </svg>
+  <div class="sus-legend"><span class="k-tps">▬ aggregate tok/s</span>
+    <span class="k-kv">▬ KV utilisation</span>
+    ${marks ? `<span class="k-pre">▮ preemption</span>` : ""}
+    <span class="k-max">peak ${_pfv(maxT)} tok/s</span></div>`;
+}
+
 function renderPerfDetail(m) {
   const met = PERF_METRICS.find((x) => x[0] === PERF_SEL.metric) || PERF_METRICS[0];
   const [key, label, better] = met;
@@ -2994,6 +3063,7 @@ function renderPerfDetail(m) {
        <div class="perf-card"><h3 class="perf-h3">category × concurrency <span class="micro">brighter = better</span></h3>${_perfHeat(m, key, better)}</div>
      </div>
      ${_perfHarness(m)}
+     ${_perfSustained(m)}
      <p class="note" style="text-align:left">ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")} · benched ${fmtDate(m.started_at)}</p>`;
   $("#perfBack").onclick = () => { PERF_SEL.model = null; renderPerf(); };
   { const sb = $("#perfShare"); if (sb) sb.onclick = () => shareBench(sb.dataset.share, sb); }

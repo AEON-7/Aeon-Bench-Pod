@@ -621,6 +621,17 @@ def perf_board():
     for (c, _bucket), info in latest.items():
         direct, dconcs = perf_direct_grid(info["results"])
         harness, concs = {}, set(dconcs)
+        # SUSTAINED LOAD: throughput at low vs high KV pressure over the WHOLE run, with the
+        # preemption count that explains it. The concurrency ladder measures a fresh engine
+        # sprinting; this is what the serve does after hours under load. Absent on runs that
+        # predate it, and absent when the pod had nothing honest to report — never zeros.
+        sustained, sustained_series = None, None
+        for x in info["results"]:
+            cid = x.get("case_id") or ""
+            if cid == "perf.sustained.summary":
+                sustained = x.get("evidence") or None
+            elif cid == "perf.sustained.timeline":
+                sustained_series = (x.get("evidence") or {}).get("points")
         for x in info["results"]:
             cid, ev = x.get("case_id") or "", x.get("evidence") or {}
             parts = cid.split(".")
@@ -702,6 +713,9 @@ def perf_board():
             "quality_run": (q or {}).get("run"),
             "recipe": recipe,               # raw serve recipe; the endpoint assembles docker_run + drafter
             "direct": direct, "harness": harness,
+            # null on runs that predate the section, and on runs where the pod could not
+            # compare two KV regimes honestly — the frontend renders nothing rather than 0%.
+            "sustained": sustained, "sustained_series": sustained_series,
         })
     models.sort(key=lambda m: -(m["peak_agg_tps"] or 0))
     hardwares = sorted({m["hardware"] for m in models if m["hardware"]})

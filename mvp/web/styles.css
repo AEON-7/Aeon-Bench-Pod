@@ -510,6 +510,37 @@ details.how .note { text-align: left; max-width: 78ch; }
 .mcard-name .mlink { font-size: 16px; font-weight: 600; color: var(--text); border: 0;
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 .mcard-name .mlink:hover { color: var(--accent); }
+/* SUSTAINED LOAD: what the serve does after hours, not in a sprint. The verdict is the headline
+   because "held steady" vs "31% slower" is the whole finding; the cells qualify it. */
+.sus-card { margin-top: 14px; }
+.sus-row { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.sus-verdict { min-width: 260px; }
+.sus-big { font-size: 20px; font-weight: 700; letter-spacing: .01em; }
+.sus-verdict.pass .sus-big { color: #2bff88; }
+.sus-verdict.part .sus-big { color: #ffb000; }
+.sus-verdict.fail .sus-big { color: #ff5e5e; }
+.sus-verdict.na   .sus-big { color: var(--faint); }
+.sus-sub { font-size: 12px; color: var(--dim); margin-top: 2px; font-family: ui-monospace, monospace; }
+.sus-cells { display: flex; gap: 10px; flex-wrap: wrap; }
+.sus-cell {
+  border: 1px solid var(--line); border-radius: 3px; padding: 5px 10px; min-width: 78px;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.sus-cell b { font-size: 15px; color: var(--fg); font-family: ui-monospace, monospace; }
+.sus-cell span { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.sus-cell.warn { border-color: #ffb00055; }
+.sus-cell.warn b { color: #ffb000; }
+.sus-spark { width: 100%; height: 120px; display: block; }
+.sus-kv { fill: rgba(0,240,255,.10); stroke: rgba(0,240,255,.35); stroke-width: 1; }
+.sus-tps { fill: none; stroke: #2bff88; stroke-width: 1.6; }
+.sus-pre { stroke: #ff5e5e; stroke-width: 1; opacity: .45; }
+.sus-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 10px; color: var(--faint); margin-top: 4px; }
+.sus-legend .k-tps { color: #2bff88; }
+.sus-legend .k-kv { color: #00f0ff; }
+.sus-legend .k-pre { color: #ff5e5e; }
+.sus-note { color: var(--faint); margin-top: 6px; }
+@media (max-width: 640px) { .sus-row { gap: 10px; } .sus-verdict { min-width: 0; } }
+
 /* LIVE terminal: the bench's own stdout. Present in every phase — including arena / harness /
    perf, which create no db run, and hand-launched benches, which have no job row. It is the
    reassurance that something is happening, so it reads like a terminal and never hides. */

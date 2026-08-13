@@ -423,10 +423,12 @@ yourself.** Tell them what they will see:
 - **Run tab** — the model picker, engine + recipe tuning, and the **launch** button; below it the
   **job queue** ("recent runs"), each job with a live stage strip. This is where you configure the
   benchmark.
-- **Live view** — the running bench in real time: a **wall of live terminals** (one per concurrent
-  case, showing the model's reasoning and answer as they stream), the bench's own **output feed**,
-  the dot-matrix **aggregate tok/s + active/queued streams** throughput dash, and a per-dimension
-  stage strip. All four render for **every** bench, whichever board and however it was launched.
+- **Live view** — the running bench in real time, in this order: **completion stats** (percent done
+  and per-category bars, scaled to the plan the run is actually executing), the dot-matrix
+  **aggregate tok/s + active/queued streams** throughput dash with its stage strip and host gauges,
+  a **wall of live terminals** (one per concurrent case, showing the model's reasoning and answer as
+  they stream), the scored-answers feed, and the bench's own **output feed**. All of it renders for
+  **every** bench, whichever board and however it was launched.
 - **The boards** (Leaderboard / Vision / Audio / Performance / Harnesses / …) — fill in locally as
   results land.
 
@@ -1072,21 +1074,33 @@ perf grid (concurrency ladder × categories). On capable hardware a *typical* mo
 c=32, takes HOURS — say so plainly.** The weight pull (first run) and the multi-minute model load add
 to it. This is normal, not a hang.
 
-**What to watch (the Live view):**
+**What to watch (the Live view).** It reads top to bottom as *how far · how fast · what it is
+saying · everything*, and every block renders for **every** bench, whichever board and however it
+was launched:
 
-- **Terminal wall** — one live terminal per in-flight case: the model's **reasoning** (dim) and its
-  **answer** (bright) as they stream, plus characters produced and **seconds idle**. With 16
-  concurrent cases you get 16 tiles. This is the answer to "is it doing anything?" during a god-tier
-  case that thinks for twenty minutes before emitting a single line — the idle counter goes amber
-  past 30 s and orange past 120 s, but a high number is **information, not a verdict**: hard cases
-  legitimately go quiet for a long time. Finished tiles linger briefly with their score, and a
-  `no_answer` tile keeps its reasoning — usually the most informative thing on the wall.
-- **Bench output feed** — the run's own stdout (stage markers, scored cases, banners). The one
-  source that exists in **every** phase, including arena / harness / perf, which create no DB run.
-- **Dot-matrix throughput dash** — aggregate **tok/s** (engine-wide across every concurrent stream),
-  **active streams**, **queued**, **peak-hold**, and **prefill tok/s**. Sourced from the engine's
-  Prometheus metrics; appears whenever a model is serving — including a bench launched by hand
-  rather than from the Run tab.
+1. **Completion stats** — `done/n_cases`, percent, running mean, and a per-category bar. The
+   denominators follow the **plan this run is executing**, so a GOD MODE run divides by the 24-case
+   god tier (`Coding 6/6`), not by the whole 174-case suite.
+2. **Dot-matrix throughput dash** — aggregate **tok/s** (engine-wide across every concurrent
+   stream), **active streams**, **queued**, **peak-hold**, **prefill tok/s**, straight off the
+   engine's Prometheus counters. Followed by the per-dimension stage strip and the host gauges
+   (VRAM / RAM / CPU). The dash is read whenever the engine is serving — it is deliberately *not*
+   gated on a job row or on recent output, because during a long agentic phase both go quiet and
+   throughput becomes the only proof the box is working.
+3. **Terminal wall** — one live terminal per in-flight case: the model's **reasoning** (dim) and its
+   **answer** (bright) as they stream, plus characters produced and **seconds idle**. With 16
+   concurrent cases you get 16 tiles. This is the answer to "is it doing anything?" during a god-tier
+   case that thinks for twenty minutes before emitting a single line — the idle counter goes amber
+   past 30 s and orange past 120 s, but a high number is **information, not a verdict**: hard cases
+   legitimately go quiet for a long time. Finished tiles linger briefly with their score, and a
+   `no_answer` tile keeps its reasoning — usually the most informative thing on the wall.
+4. **Latest scored answers** — the Q/A feed of cases already judged.
+5. **Bench output feed** — the run's own stdout (stage markers, scored cases, banners). The one
+   source that exists in **every** phase, including arena / harness / perf, which create no DB run.
+6. **Bench queue** — work not yet started.
+
+If the run-progress query hiccups you get a one-line note in place of block 1 and *everything else
+keeps streaming* — the other blocks come from different endpoints and stay current.
 - **Per-dimension stage strip** — one mini-bar per dimension as the job walks
   `queued → resolving → pulling → verifying → serving → benchmarking → harness / vision / audio /
   video / perf / arena → submitting → done`. During `serving` the multi-minute weight load shows as

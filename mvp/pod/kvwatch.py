@@ -122,6 +122,17 @@ class Watcher:
                                     p["preempt_d"] = round(d, 2)
             self._prev, self._prev_t = cur, now
             self.points.append(p)
+            # Heartbeat every ~20 samples (5 min at the default cadence): proof of life in the
+            # live feed, and an early warning if KV is already saturated.
+            if len(self.points) % 20 == 0:
+                try:
+                    print("[pod] sustained-load: %d samples · KV %.0f%% · %d running · "
+                          "%d preemptions so far"
+                          % (len(self.points), 100 * (p.get("kv_pct") or 0),
+                             int(p.get("running") or 0),
+                             int(sum(x.get("preempt_d") or 0 for x in self.points))), flush=True)
+                except Exception:
+                    pass
             if len(self.points) > MAX_POINTS * 2:
                 # THIN, never truncate: keeping every other point preserves the SHAPE of the whole
                 # run. Dropping the head would hide exactly the early, low-pressure baseline the
@@ -205,12 +216,20 @@ _ACTIVE = None
 
 
 def begin(target_url, every_s=DEFAULT_EVERY_S):
-    """Start sampling for this bench. Safe to call twice; never raises."""
+    """Start sampling for this bench. Safe to call twice; never raises.
+
+    Announces itself on stdout — which the live feed tees — because the watcher otherwise produces
+    NO observable output until it is harvested hours later, at the very end of the run. A telemetry
+    thread that silently failed to start would look identical to one working perfectly, right up
+    until the section was missing from the results."""
     global _ACTIVE
     try:
         if _ACTIVE is None:
             _ACTIVE = Watcher(target_url, every_s=every_s).start()
-    except Exception:
+            print("[pod] sustained-load telemetry: sampling %s every %ss for the whole bench"
+                  % (_ACTIVE.url, int(every_s)), flush=True)
+    except Exception as e:
+        print("[pod] sustained-load telemetry unavailable (non-fatal): %r" % (e,), flush=True)
         _ACTIVE = None
     return _ACTIVE
 

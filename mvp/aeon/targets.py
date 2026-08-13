@@ -22,6 +22,22 @@ class TargetError(RuntimeError):
     pass
 
 
+def _streams():
+    """The live-stream buffer, or None. Imported lazily and cached: aeon/ runs on the mothership
+    too, where buffering model output would be pointless and unwanted."""
+    global _STREAMS_MOD
+    try:
+        return _STREAMS_MOD
+    except NameError:
+        pass
+    try:
+        from pod import livestreams as _ls
+        _STREAMS_MOD = _ls
+    except Exception:
+        _STREAMS_MOD = None
+    return _STREAMS_MOD
+
+
 def no_answer_reason(exc=None, text=None):
     """Classify ONE generation attempt for the no-answer fairness rule: a case that yields
     NO ANSWER is a technical glitch, not a wrong answer — the runner re-runs it in up to
@@ -262,6 +278,16 @@ class OpenAITarget:
         return payload
 
     def _chat_stream(self, messages, temperature, max_tokens):
+        # The case id rides the prompt as an internal tag (_clean strips it before sending), so a
+        # stream can be attributed to its case without threading anything new through the runner.
+        _live_cid = None
+        try:
+            _live_cid = messages[0].get("_case_id") if messages else None
+            _ls = _streams()
+            if _ls is not None and _ls.enabled() and _live_cid:
+                _ls.begin(_live_cid)
+        except Exception:
+            _live_cid = None
         payload = {
             "model": self.model,
             "messages": _clean(messages),
@@ -313,6 +339,14 @@ class OpenAITarget:
                         chunks += 1
                         gen_chars += len(c or "") + len(reasoning or "")
                         t_last_tok = time.perf_counter()   # the real end of the token window
+                        # LIVE: publish the delta so the dashboard can render this stream as a
+                        # terminal. Cheap and best-effort — never in the timing path's way.
+                        _ls = _streams()
+                        if _ls is not None and _ls.enabled() and _live_cid:
+                            if reasoning:
+                                _ls.chunk(_live_cid, reasoning, "reasoning")
+                            if c:
+                                _ls.chunk(_live_cid, c, "answer")
                     if c:
                         parts.append(c)
                 if obj.get("usage"):

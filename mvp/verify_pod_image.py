@@ -14,10 +14,16 @@ judge variance, cache-bust salt, averaged boards, artifact budget, live feed).
 A matching commit hash proves what was built, not what works. This exercises each change inside
 the running container — the same image a stranger gets from `docker pull`.
 """
+import os
 import sys
 
 sys.path.insert(0, "/app/mvp")
 ok = fail = 0
+
+# Piped in over stdin (`python3 - < …`), so there is no __file__ — locate the tree through an
+# imported package instead, which also lets this run against a local checkout unchanged.
+import aeon as _aeon                                             # noqa: E402
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(_aeon.__file__)))
 
 
 def check(name, cond, detail=""):
@@ -116,6 +122,40 @@ from pod import livelog
 livelog.emit("[verify] image check", "stage")
 recs, latest, age = livelog.tail()
 check("live feed writes + reads", any("[verify]" in (r.get("s") or "") for r in recs))
+
+# ---- terminal wall ------------------------------------------------------------------------------
+# The wall is worth verifying IN THE IMAGE because it spans three files that ship independently:
+# the buffer (pod/), the publish call inside the decode loop (aeon/targets.py) and the endpoint
+# (aeon/app.py). Any one of them missing degrades silently to "no streams", which looks identical
+# to an idle bench — the exact failure the wall exists to eliminate.
+from pod import livestreams
+check("terminal-wall buffer present",
+      all(hasattr(livestreams, n) for n in ("enable", "begin", "chunk", "end", "snapshot", "read")))
+check("bench enables the wall at launch", "livestreams.enable(True)" in src)
+_tsrc = open(os.path.join(BASE, "aeon", "targets.py"), encoding="utf-8").read()
+check("deltas published from inside the decode loop",
+      '_ls.chunk(_live_cid, reasoning, "reasoning")' in _tsrc
+      and '_ls.chunk(_live_cid, c, "answer")' in _tsrc)
+_rsrc = open(os.path.join(BASE, "aeon", "runner.py"), encoding="utf-8").read()
+check("every result closes its terminal with a verdict", "livestreams.end(res[\"cid\"]" in _rsrc)
+_asrc = open(os.path.join(BASE, "aeon", "app.py"), encoding="utf-8").read()
+check("wall endpoint served", '@app.get("/api/pod/streams")' in _asrc)
+livestreams.clear()
+livestreams.enable(True)
+livestreams.begin("verify.case.01")
+livestreams.chunk("verify.case.01", "thinking", "reasoning")
+livestreams.chunk("verify.case.01", "answered", "answer")
+livestreams._write(livestreams.snapshot())
+_wall = livestreams.read()
+check("wall crosses the process boundary",
+      _wall["live"] and _wall["streams"] and _wall["streams"][0]["answer"] == "answered")
+livestreams.clear()
+_js = open(os.path.join(BASE, "web", "app.js"), encoding="utf-8", errors="replace").read()
+check("dashboard polls + renders the wall",
+      "/api/pod/streams" in _js and "function streamWall(" in _js and "streamWall() +" in _js)
+check("live strips no longer gated on a job", "const _anyLive =" in _js)
+_css = open(os.path.join(BASE, "web", "styles.css"), encoding="utf-8").read()
+check("wall is styled", ".sw-grid" in _css and ".sw-reason" in _css)
 
 print()
 print("PUBLISHED IMAGE: %d ok, %d failed" % (ok, fail))

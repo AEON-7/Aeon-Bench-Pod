@@ -1957,6 +1957,17 @@ def main():
     except Exception:
         pass
 
+    # THE TERMINAL WALL. The feed above is the bench NARRATING itself — stages, scores, banners.
+    # This is the model's own voice: one live terminal per in-flight case, reasoning included. With
+    # 16 concurrent cases the wall is the difference between "16 things are thinking" and a
+    # progress bar that has not moved in twenty minutes.
+    try:
+        from pod import livestreams
+        livestreams.clear()
+        livestreams.enable(True)
+    except Exception:
+        pass
+
     if a.concurrency <= 0:                            # 0 = AUTO: bias high when the box can handle it
         a.concurrency = _auto_concurrency()
         print(f"[pod] concurrency=auto -> {a.concurrency} (detected capacity; pin with --concurrency N)")

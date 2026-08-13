@@ -570,6 +570,56 @@ details.how .note { text-align: left; max-width: 78ch; }
 .lt-err .lt-s { color: #ff5e5e; }
 @media (max-width: 640px) { .lt-body { max-height: 220px; font-size: 11px; } }
 
+/* THE TERMINAL WALL — one tile per concurrent case, the model's own output as it streams.
+   Auto-fit rather than a fixed column count: 1 stream reads as a terminal, 16 read as a wall,
+   and nothing in between needs a breakpoint. */
+.stream-wall { background: #04060a; }
+.sw-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.sw-grid.sw-solo { grid-template-columns: 1fr; }
+/* Separators live on the TILES, not as a grid gap over a painted background: 7 streams in a
+   4-wide grid leave an empty cell, and a painted background turns that hole into a slab of
+   border colour the size of a terminal. */
+.sw-tile {
+  background: #05070c; display: flex; flex-direction: column; min-width: 0;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+/* A finished tile recedes but does not vanish — the last thing a case said is often the most
+   interesting thing on the wall, especially when it said nothing. */
+.sw-tile-done { opacity: .62; }
+.sw-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 11px;
+}
+.sw-head b { color: #cfe3f5; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-run { color: #2bff88; flex: 0 0 auto; animation: ltpulse 1.6s ease-in-out infinite; }
+.sw-run.sw-slow { color: #ffc14d; }
+.sw-run.sw-stall { color: #ff8a3d; }
+.sw-done { flex: 0 0 auto; font-weight: 700; }
+.sw-done.pass { color: #2bff88; }
+.sw-done.part { color: #ffc14d; }
+.sw-done.fail { color: #ff5e5e; }
+.sw-body {
+  height: 190px; overflow-y: auto; padding: 7px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+.sw-solo .sw-body { height: 300px; font-size: 12px; }
+/* Reasoning dim, answer bright: the switch from one to the other is the event worth watching. */
+.sw-reason { color: #55708c; }
+.sw-ans { color: #9fe8c0; }
+.sw-wait { color: #35506b; }
+.sw-foot {
+  padding: 4px 8px; border-top: 1px solid var(--line); font-size: 10px; color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sw-more { margin-left: auto; font-size: 10px; }
+@media (max-width: 640px) {
+  .sw-grid { grid-template-columns: 1fr; }
+  .sw-body { height: 150px; }
+}
+
 .mcard-vram { font-size: 11px; color: var(--faint); }
 /* The spread behind an averaged headline: "3× 0.0–45.8". Deliberately quiet — it qualifies the
    score, it does not compete with it — but always legible, because a wide spread is the single

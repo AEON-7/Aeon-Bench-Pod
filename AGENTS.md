@@ -104,9 +104,10 @@ The same job, in more detail:
    perf). **VALIDATED MEANS COMPREHENSIVE.** Never submit `--fast`/`--limit`/subset runs as
    validated. *(Why: only a complete pass ranks; partial runs are blocked or filtered off the
    board.)*
-7. **Launch and monitor** — watch the Live view (aggregate tok/s, active/queued streams, per-stage
-   strip). Set the human's time expectation. If interrupted, use **⟲ RESUME**. *(Why: a big model's
-   comprehensive pass runs long; resume never re-runs finished work.)*
+7. **Launch and monitor** — watch the Live view (terminal wall of per-case model output, bench
+   output feed, aggregate tok/s, active/queued streams, per-stage strip). Set the human's time
+   expectation. If interrupted, use **⟲ RESUME**. *(Why: a big model's comprehensive pass runs long;
+   resume never re-runs finished work.)*
 8. **Submit and hand off** — validated runs auto-submit when complete; if the mothership was down,
    press **⬆ SUBMIT TO MOTHERSHIP** later (idempotent). Give your human the model, the score + rank,
    the live link, tok/s, and the one-line reason it's trustworthy. *(Why: the deliverable is a
@@ -422,8 +423,10 @@ yourself.** Tell them what they will see:
 - **Run tab** — the model picker, engine + recipe tuning, and the **launch** button; below it the
   **job queue** ("recent runs"), each job with a live stage strip. This is where you configure the
   benchmark.
-- **Live view** — the running bench in real time, including the dot-matrix **aggregate tok/s +
-  active/queued streams** throughput dash and a per-dimension stage strip.
+- **Live view** — the running bench in real time: a **wall of live terminals** (one per concurrent
+  case, showing the model's reasoning and answer as they stream), the bench's own **output feed**,
+  the dot-matrix **aggregate tok/s + active/queued streams** throughput dash, and a per-dimension
+  stage strip. All four render for **every** bench, whichever board and however it was launched.
 - **The boards** (Leaderboard / Vision / Audio / Performance / Harnesses / …) — fill in locally as
   results land.
 
@@ -1071,9 +1074,19 @@ to it. This is normal, not a hang.
 
 **What to watch (the Live view):**
 
+- **Terminal wall** — one live terminal per in-flight case: the model's **reasoning** (dim) and its
+  **answer** (bright) as they stream, plus characters produced and **seconds idle**. With 16
+  concurrent cases you get 16 tiles. This is the answer to "is it doing anything?" during a god-tier
+  case that thinks for twenty minutes before emitting a single line — the idle counter goes amber
+  past 30 s and orange past 120 s, but a high number is **information, not a verdict**: hard cases
+  legitimately go quiet for a long time. Finished tiles linger briefly with their score, and a
+  `no_answer` tile keeps its reasoning — usually the most informative thing on the wall.
+- **Bench output feed** — the run's own stdout (stage markers, scored cases, banners). The one
+  source that exists in **every** phase, including arena / harness / perf, which create no DB run.
 - **Dot-matrix throughput dash** — aggregate **tok/s** (engine-wide across every concurrent stream),
   **active streams**, **queued**, **peak-hold**, and **prefill tok/s**. Sourced from the engine's
-  Prometheus metrics; the dash appears only while a model is serving.
+  Prometheus metrics; appears whenever a model is serving — including a bench launched by hand
+  rather than from the Run tab.
 - **Per-dimension stage strip** — one mini-bar per dimension as the job walks
   `queued → resolving → pulling → verifying → serving → benchmarking → harness / vision / audio /
   video / perf / arena → submitting → done`. During `serving` the multi-minute weight load shows as

@@ -3989,8 +3989,11 @@ async function pollLive() {
       // the pod runs ONE bench at a time — everything else waits its turn here
       queued = all.filter((x) => x.status === "queued").reverse();   // list is newest-first; queue runs oldest-first
     } catch (e) { /* jobs API optional — Live still renders db runs */ }
-    // serve-watch telemetry: only while a job runs (idle Live polls stay cheap)
-    if (job) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
+    // Serve-watch telemetry whenever ANY bench is live — a job, a running DB run, or a warm
+    // output feed. Gating this on `job` is what left a hand-launched run with no throughput panel
+    // and no host strip: not a different board, just a different launcher.
+    const _anyLive = !!job || ((d && d.running) || []).length > 0 || LIVE_FEED.live;
+    if (_anyLive) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
     // The bench's own stdout — the only source present in EVERY phase and under every launch
     // method. Polled unconditionally (not gated on `job`), because the case it exists for is
     // precisely when there is no job and no db run.
@@ -4004,6 +4007,17 @@ async function pollLive() {
         LIVE_FEED.age = lt.age_s;
       }
     } catch (e) { /* older pods have no feed — Live degrades to the strips */ }
+    // The wall: what each CONCURRENT case is saying. Same unconditional poll as the feed, and for
+    // the same reason — the moment it matters most is the one where nothing else has data.
+    try {
+      const sw = await api("/api/pod/streams?limit=24", { headers: podHeaders() });
+      if (sw && Array.isArray(sw.streams)) {
+        LIVE_STREAMS.rows = sw.streams;
+        LIVE_STREAMS.live = !!sw.live;
+        LIVE_STREAMS.age = sw.age_s;
+        LIVE_STREAMS.n = sw.n_total || sw.streams.length;
+      }
+    } catch (e) { /* older pods publish no wall — the feed still carries the run */ }
   }
   renderLive(d, job, queued, tele);
 }
@@ -4139,21 +4153,128 @@ function liveTerminal() {
   </div>`;
 }
 
+const LIVE_STREAMS = { rows: [], live: false, age: null, n: 0 };
+
+// THE TERMINAL WALL — one tile per in-flight case, the model's own voice as it arrives.
+//
+// Shape matters here. Sixteen concurrent streams in one scrolling log interleave into noise; as a
+// grid they read as sixteen separate things, which is what they are. Tiles are ordered live-first
+// (the buffer already sorts them that way), so finished cases sink and never push a running one
+// off the visible rows.
+function streamWall() {
+  const rows = LIVE_STREAMS.rows || [];
+  if (!rows.length) return "";
+  const runningN = rows.filter((r) => !r.done).length;
+  const state = LIVE_STREAMS.live
+    ? `<span class="lt-live">● ${runningN} STREAMING</span>`
+    : `<span class="lt-idle">idle${LIVE_STREAMS.age != null ? " · " + Math.round(LIVE_STREAMS.age) + "s ago" : ""}</span>`;
+  const more = LIVE_STREAMS.n > rows.length
+    ? `<span class="note sw-more">+${LIVE_STREAMS.n - rows.length} more</span>` : "";
+  // One tile is wide when it is the only one — a lone stream should read like a terminal, not
+  // like a card that lost its neighbours.
+  const solo = rows.length === 1 ? " sw-solo" : "";
+  return `<div class="live-term stream-wall">
+    <div class="lt-head">▮ live model output <span class="tag">${rows.length} stream${rows.length === 1 ? "" : "s"}</span> ${state} ${more}</div>
+    <div class="sw-grid${solo}">${rows.map(swTile).join("")}</div>
+  </div>`;
+}
+
+function swTile(r) {
+  const reason = r.reasoning || "";
+  const ans = r.answer || "";
+  // IDLE is the diagnostic. A case can legitimately think for minutes, so this is graduated, not
+  // binary: quiet at first, then amber, then loud — never a verdict, just the number.
+  const idle = r.idle_s == null ? null : Math.round(r.idle_s);
+  const idleCls = idle == null ? "" : idle > 120 ? "sw-stall" : idle > 30 ? "sw-slow" : "";
+  const st = r.done
+    ? (r.status === "scored"
+        ? `<span class="sw-done ${r.score >= 0.999 ? "pass" : r.score > 0 ? "part" : "fail"}">${
+            r.score == null ? "scored" : (100 * r.score).toFixed(0) + "%"}</span>`
+        : `<span class="sw-done fail">${escH(r.status || "done")}</span>`)
+    : `<span class="sw-run ${idleCls}">${idle == null ? "live" : idle + "s idle"}</span>`;
+  const counts = [
+    r.n_reason ? `${r.n_reason.toLocaleString()} reasoning` : "",
+    r.n_answer ? `${r.n_answer.toLocaleString()} answer` : "",
+  ].filter(Boolean).join(" · ") || "waiting for first token";
+  // Answer LAST and bright: it is the newest text and the thing being judged. Reasoning above it
+  // and dim, because it is context for why the answer looks the way it does.
+  const body = (reason ? `<span class="sw-reason">${escH(reason)}</span>` : "")
+             + (ans ? `<span class="sw-ans">${escH(ans)}</span>` : "");
+  return `<div class="sw-tile${r.done ? " sw-tile-done" : ""}">
+    <div class="sw-head"><b class="mono">${escH(r.label || r.case || "?")}</b>${st}</div>
+    <div class="sw-body" data-case="${escA(r.case || "")}">${
+      body || `<span class="sw-wait">…</span>`}</div>
+    <div class="sw-foot mono">${escH(counts)}${
+      r.elapsed_s != null ? ` · ${Math.round(r.elapsed_s)}s` : ""}</div>
+  </div>`;
+}
+
+// Each tile pins to its own newest text, and remembers per-case whether the operator scrolled up.
+// The 5s rebuild would otherwise throw away the position of whichever tile they were reading.
+const _SW_PIN = new Map();
+function _swPin() {
+  document.querySelectorAll("#liveBody .sw-body").forEach((el) => {
+    const k = el.dataset.case || "";
+    if (_SW_PIN.get(k) !== false) _pinBottom(el);
+    el.onscroll = () => {
+      if (el._progScroll) { el._progScroll = false; return; }   // ours, not the operator's
+      _SW_PIN.set(k, el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+    };
+  });
+}
+
+// Scroll to the newest text and SAY SO, because the scroll event a programmatic scroll fires is
+// byte-identical to the one a human fires. Without the flag, an autoscroll that lands short — the
+// element mid-layout, a font still loading — reads back as "the operator scrolled up", and since
+// that verdict latches, the tile never follows its own output again. Observed: one tile on the
+// wall frozen at the top while the other six tracked live.
+function _pinBottom(el) {
+  el._progScroll = true;
+  el.scrollTop = el.scrollHeight;
+}
+
 // Pin to the newest line, but never yank the view while someone is reading back through it.
 let _LT_PINNED = true;
 function _ltPin() {
   const el = document.getElementById("ltBody");
   if (!el) return;
-  if (_LT_PINNED) el.scrollTop = el.scrollHeight;
+  if (_LT_PINNED) _pinBottom(el);
   el.onscroll = () => {
+    if (el._progScroll) { el._progScroll = false; return; }
     _LT_PINNED = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
   };
+}
+
+// Stages parsed straight out of the live feed's "[pod][stage] <name> <done>/<total>" markers —
+// the same lines pod/jobs.py parses for a queued job. Latest value per stage wins, and insertion
+// order is preserved so the strip reads in the order the bench actually ran them.
+function _stagesFromFeed() {
+  const out = new Map();
+  (LIVE_FEED.lines || []).forEach((r) => {
+    const m = /\[pod\]\[stage\]\s+(\S+)\s+(\d+)\/(\d+)/.exec(r.s || "");
+    if (m) out.set(m[1], { name: m[1], done: +m[2], total: +m[3] });
+  });
+  return [...out.values()];
 }
 
 function renderLive(d, job, queued, tele) {
   queued = queued || [];
   const runs = (d && d.running) || [];
-  const activeJob = job && job.status === "running" ? job : null;
+  let activeJob = job && job.status === "running" ? job : null;
+  // NO JOB, but a bench is clearly running (hand-launched, or a phase that creates no DB run).
+  // Build the minimum a job provides so the SAME strips render: identity for the throughput
+  // panel's peak tracker, a model name, and the stage list from the feed's own markers.
+  if (!activeJob && (runs.length || LIVE_FEED.live)) {
+    const st = _stagesFromFeed();
+    activeJob = {
+      id: "live:" + ((runs[0] && runs[0].run) || "bench"),
+      model: (runs[0] && runs[0].model) || LIVE_FEED.model || "benchmark in progress",
+      status: "running",
+      stage: st.length ? st[st.length - 1].name : "running",
+      stages: st,
+      _synthetic: true,
+    };
+  }
   const live = runs.length > 0 || !!activeJob || queued.length > 0;
   const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", live);
   const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", live);
@@ -4169,11 +4290,11 @@ function renderLive(d, job, queued, tele) {
     // The terminal comes FIRST and stands alone when nothing else exists. A bench in its arena /
     // harness / perf phases has no db run, and a hand-launched one has no job — the old copy then
     // claimed nothing was running, which is the opposite of true.
-    $("#liveBody").innerHTML = term + jobStrip
+    $("#liveBody").innerHTML = streamWall() + term + jobStrip
       + (term ? "" : (activeJob
           ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf).</p>`
           : `<p class="board-empty">No benchmark is running right now. When a pod is mid-run, its stages, output and per-case answers stream here live.</p>`));
-    _ltPin();
+    _ltPin(); _swPin();
     $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
     return;
   }
@@ -4182,7 +4303,7 @@ function renderLive(d, job, queued, tele) {
   // the 5s innerHTML rebuild must not steal the operator's reading position
   const _feedScroll = [...document.querySelectorAll("#liveBody .live-feed")].map((e) => e.scrollTop);
   const _preScroll = [...document.querySelectorAll("#liveBody .live-a pre")].map((e) => e.scrollTop);
-  $("#liveBody").innerHTML = liveTerminal() + jobStrip + runs.map((r) => {
+  $("#liveBody").innerHTML = streamWall() + liveTerminal() + jobStrip + runs.map((r) => {
     const runKey = r.run || r.run_id || r.id || r.model || "?";
     let LIVE_SEEN = LIVE_SEEN_MAP.get(runKey);
     if (!LIVE_SEEN) { LIVE_SEEN = new Set(); LIVE_SEEN_MAP.set(runKey, LIVE_SEEN); }
@@ -4219,6 +4340,7 @@ function renderLive(d, job, queued, tele) {
       <h4 class="live-feed-h">latest answers</h4>
       <div class="live-feed">${feed}</div></div>`;
   }).join("");
+  _ltPin(); _swPin();
   [...document.querySelectorAll("#liveBody .live-feed")].forEach((e, i) => { if (_feedScroll[i]) e.scrollTop = _feedScroll[i]; });
   [...document.querySelectorAll("#liveBody .live-a pre")].forEach((e, i) => { if (_preScroll[i]) e.scrollTop = _preScroll[i]; });
   $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));

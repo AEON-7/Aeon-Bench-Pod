@@ -298,6 +298,14 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
         db.save_result(run_id, res["cid"], category=res["category"], tier=res["tier"],
                        status=res["status"], score=res["score"], raw_output=res["text"],
                        evidence=res["evidence"], speed=res["speed"])
+        # Close this case's live terminal with its VERDICT. Every result reaches the DB through
+        # here, so this is the one place that sees each case end exactly once — including the
+        # no-answer rows, whose terminals are the ones most worth reading.
+        try:
+            from pod import livestreams
+            livestreams.end(res["cid"], status=res["status"], score=res["score"])
+        except Exception:
+            pass
         if progress_cb:
             progress_cb(res["cid"], res["score"], res["status"])
 

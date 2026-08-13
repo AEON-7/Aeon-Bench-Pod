@@ -2187,6 +2187,23 @@ def pod_live_tail(request: Request, since: float = 0.0, limit: int = 200):
             "live": bool(age is not None and age < 120)}
 
 
+@app.get("/api/pod/streams")
+def pod_streams(request: Request, limit: int = 24):
+    """What each CONCURRENT case is saying right now — reasoning and answer, as they stream.
+
+    live_tail is the bench's narration: stages, scores, banners. This is the model's own voice, one
+    terminal per in-flight case. On a god-tier suite a case can think for twenty minutes before its
+    first line of answer, and that silence is precisely when a healthy run looks hung."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import livestreams
+    out = livestreams.read()
+    rows = out.get("streams") or []
+    return {**out, "streams": rows[: max(1, min(int(limit), 64))], "n_total": len(rows)}
+
+
 @app.get("/api/pod/stats")
 def pod_stats(request: Request):
     """POD-ONLY: live host telemetry (GPU VRAM/util, host RAM, CPU load, serve-container

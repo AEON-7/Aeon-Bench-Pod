@@ -510,6 +510,35 @@ details.how .note { text-align: left; max-width: 78ch; }
 .mcard-name .mlink { font-size: 16px; font-weight: 600; color: var(--text); border: 0;
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 .mcard-name .mlink:hover { color: var(--accent); }
+/* LIVE terminal: the bench's own stdout. Present in every phase — including arena / harness /
+   perf, which create no db run, and hand-launched benches, which have no job row. It is the
+   reassurance that something is happening, so it reads like a terminal and never hides. */
+.live-term {
+  border: 1px solid var(--line); border-radius: 4px; margin: 0 0 14px;
+  background: #05070c; overflow: hidden;
+}
+.lt-head {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim);
+  padding: 6px 10px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.02);
+  display: flex; align-items: center; gap: 8px;
+}
+.lt-live { color: #2bff88; font-weight: 700; animation: ltpulse 1.6s ease-in-out infinite; }
+.lt-idle { color: var(--faint); font-weight: 400; }
+@keyframes ltpulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+.lt-body {
+  max-height: 340px; overflow-y: auto; padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.5;
+}
+.lt-row { display: flex; gap: 10px; white-space: pre-wrap; word-break: break-word; }
+.lt-t { color: #35506b; flex: 0 0 auto; }
+.lt-s { color: #9fb3c8; }
+.lt-pod .lt-s { color: #cfe3f5; }
+.lt-stage .lt-s { color: #00f0ff; }
+.lt-score .lt-s { color: #2bff88; }
+.lt-err .lt-s { color: #ff5e5e; }
+@media (max-width: 640px) { .lt-body { max-height: 220px; font-size: 11px; } }
+
 .mcard-vram { font-size: 11px; color: var(--faint); }
 /* The spread behind an averaged headline: "3× 0.0–45.8". Deliberately quiet — it qualifies the
    score, it does not compete with it — but always legible, because a wide spread is the single

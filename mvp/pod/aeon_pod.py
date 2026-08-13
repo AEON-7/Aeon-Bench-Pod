@@ -1918,6 +1918,17 @@ def main():
         "gate normally refuses a partial bench; the GUI never sets this)")
     a = ap.parse_args()
 
+    # LIVE FEED. Tee stdout/stderr into a bounded ring the dashboard can read, so the Live view
+    # has something to show in EVERY phase — including arena, the harnesses and the perf grid,
+    # which create no DB run, and including a bench launched by hand, which has no job row. Both
+    # of those were blank before, which on a multi-hour run reads as "nothing is happening".
+    try:
+        from pod import livelog
+        livelog.reset("[pod] live feed attached")
+        livelog.install()
+    except Exception:
+        pass
+
     if a.concurrency <= 0:                            # 0 = AUTO: bias high when the box can handle it
         a.concurrency = _auto_concurrency()
         print(f"[pod] concurrency=auto -> {a.concurrency} (detected capacity; pin with --concurrency N)")

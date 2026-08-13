@@ -2168,6 +2168,25 @@ def pod_jobs(request: Request):
     return {"jobs": jobs.list_jobs(), "pending": jobs.list_pending_submits()}
 
 
+@app.get("/api/pod/live_tail")
+def pod_live_tail(request: Request, since: float = 0.0, limit: int = 200):
+    """The running bench's own stdout — the ONLY live source that exists in every phase.
+
+    /api/live lists DB runs, and arena/harness/perf create none; /api/pod/jobs carries a stage
+    strip, and a hand-launched bench has no job. This has neither dependency: the bench tees its
+    output here, so the Live view can always show what is happening."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import livelog
+    lines, latest, age = livelog.tail(since=since, limit=max(1, min(int(limit), 500)))
+    return {"lines": lines, "latest": latest, "age_s": age,
+            # the client shows a feed as LIVE only while it is still being written to; a stale
+            # tail must never be rendered as though the bench were still talking.
+            "live": bool(age is not None and age < 120)}
+
+
 @app.get("/api/pod/stats")
 def pod_stats(request: Request):
     """POD-ONLY: live host telemetry (GPU VRAM/util, host RAM, CPU load, serve-container

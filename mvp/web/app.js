@@ -3921,6 +3921,19 @@ async function pollLive() {
     } catch (e) { /* jobs API optional — Live still renders db runs */ }
     // serve-watch telemetry: only while a job runs (idle Live polls stay cheap)
     if (job) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
+    // The bench's own stdout — the only source present in EVERY phase and under every launch
+    // method. Polled unconditionally (not gated on `job`), because the case it exists for is
+    // precisely when there is no job and no db run.
+    try {
+      const lt = await api("/api/pod/live_tail?since=" + (LIVE_FEED.since || 0) + "&limit=200",
+                           { headers: podHeaders() });
+      if (lt && Array.isArray(lt.lines)) {
+        LIVE_FEED.lines = LIVE_FEED.lines.concat(lt.lines).slice(-400);
+        LIVE_FEED.since = lt.latest || LIVE_FEED.since;
+        LIVE_FEED.live = !!lt.live;
+        LIVE_FEED.age = lt.age_s;
+      }
+    } catch (e) { /* older pods have no feed — Live degrades to the strips */ }
   }
   renderLive(d, job, queued, tele);
 }
@@ -4027,6 +4040,46 @@ function teleStrip(t, j) {
 // with multiple concurrent runs and with a killed+relaunched run of the same model.
 let LIVE_SEEN_MAP = new Map();
 
+// Rolling tail of the bench's stdout. `since` is the newest timestamp we hold, so each poll
+// asks only for what is new.
+const LIVE_FEED = { lines: [], since: 0, live: false, age: null };
+
+// The terminal pane. Rendered whenever the feed has anything, INCLUDING when no db run and no job
+// exist — that combination is the whole reason it was written.
+function liveTerminal() {
+  if (!LIVE_FEED.lines.length) return "";
+  const cls = (r) => {
+    const t = r.s || "";
+    if (r.k === "err" || /Traceback|Error|FAILED|refus/i.test(t)) return "lt-err";
+    if (/\[pod\]\[stage\]/.test(t)) return "lt-stage";
+    if (/scored\s+[0-9]/.test(t)) return "lt-score";
+    if (/^\s*\[pod\]/.test(t)) return "lt-pod";
+    return "";
+  };
+  const rows = LIVE_FEED.lines.slice(-200).map((r) =>
+    `<div class="lt-row ${cls(r)}"><span class="lt-t">${escH(fmtClock(r.t))}</span>`
+    + `<span class="lt-s">${escH(r.s || "")}</span></div>`).join("");
+  const state = LIVE_FEED.live
+    ? `<span class="lt-live">● LIVE</span>`
+    : `<span class="lt-idle">idle${LIVE_FEED.age != null ? " · last output "
+        + Math.round(LIVE_FEED.age) + "s ago" : ""}</span>`;
+  return `<div class="live-term">
+    <div class="lt-head">▮ bench output ${state}</div>
+    <div class="lt-body" id="ltBody">${rows}</div>
+  </div>`;
+}
+
+// Pin to the newest line, but never yank the view while someone is reading back through it.
+let _LT_PINNED = true;
+function _ltPin() {
+  const el = document.getElementById("ltBody");
+  if (!el) return;
+  if (_LT_PINNED) el.scrollTop = el.scrollHeight;
+  el.onscroll = () => {
+    _LT_PINNED = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
+}
+
 function renderLive(d, job, queued, tele) {
   queued = queued || [];
   const runs = (d && d.running) || [];
@@ -4042,9 +4095,15 @@ function renderLive(d, job, queued, tele) {
       ${dashStrip(tele, activeJob)}${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "") + queueStrip(queued);
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
-    $("#liveBody").innerHTML = (activeJob || queued.length)
-      ? jobStrip + (activeJob ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf). Case-by-case output appears here during the text and vision suites.</p>` : "")
-      : `<p class="board-empty">No benchmark is running right now. When a controlled pod is mid-run, its per-category progress and the prompts + answers stream here live.</p>`;
+    const term = liveTerminal();
+    // The terminal comes FIRST and stands alone when nothing else exists. A bench in its arena /
+    // harness / perf phases has no db run, and a hand-launched one has no job — the old copy then
+    // claimed nothing was running, which is the opposite of true.
+    $("#liveBody").innerHTML = term + jobStrip
+      + (term ? "" : (activeJob
+          ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf).</p>`
+          : `<p class="board-empty">No benchmark is running right now. When a pod is mid-run, its stages, output and per-case answers stream here live.</p>`));
+    _ltPin();
     $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
     return;
   }
@@ -4053,7 +4112,7 @@ function renderLive(d, job, queued, tele) {
   // the 5s innerHTML rebuild must not steal the operator's reading position
   const _feedScroll = [...document.querySelectorAll("#liveBody .live-feed")].map((e) => e.scrollTop);
   const _preScroll = [...document.querySelectorAll("#liveBody .live-a pre")].map((e) => e.scrollTop);
-  $("#liveBody").innerHTML = jobStrip + runs.map((r) => {
+  $("#liveBody").innerHTML = liveTerminal() + jobStrip + runs.map((r) => {
     const runKey = r.run || r.run_id || r.id || r.model || "?";
     let LIVE_SEEN = LIVE_SEEN_MAP.get(runKey);
     if (!LIVE_SEEN) { LIVE_SEEN = new Set(); LIVE_SEEN_MAP.set(runKey, LIVE_SEEN); }

@@ -539,7 +539,7 @@ def _collect_results(rid):
 
 def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0,
                        judge=None, judge_url=None, judge_key=None, checkpoint=None, checkpoint_every=8,
-                       retry_max_tokens=None, concurrency=1,
+                       retry_max_tokens=None, think_budget=None, concurrency=1,
                        hf_repo=None, trust_tier="self_reported", model_verified=None,
                        rid=None, job_sig=None, done_case_ids=None, resume=False):
     """Benchmark `model` at `target` into the pod-local DB; return (rid, results, mean). If a
@@ -566,7 +566,8 @@ def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TO
                 print(f"[pod] checkpoint submit failed (non-fatal, retried next batch): {e}")
 
     params = {"temperature": temperature, "max_tokens": max_tokens,
-              "retry_max_tokens": retry_max_tokens, "retries": 1, "concurrency": concurrency}
+              "retry_max_tokens": retry_max_tokens, "retries": 1, "concurrency": concurrency,
+              "think_budget": think_budget}
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
                          judge_model=judge, judge_url=judge_url, judge_key=judge_key,
                          hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
@@ -988,7 +989,7 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
                                        local_rid=rid, extra=submit_extra)
         _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
             temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
-            retry_max_tokens=retry_max_tokens, concurrency=concurrency,
+            retry_max_tokens=retry_max_tokens, think_budget=think_budget, concurrency=concurrency,
             hf_repo=repo, trust_tier="attested", model_verified="verified",
             rid=rid, job_sig=jsig, done_case_ids=done_ids, resume=bool(done_ids),
             checkpoint=pending.checkpoint_fn(pod, ses))
@@ -1164,7 +1165,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
                    judge_key=None, harness_ids=None, limit=None, serve=True, fast=False, seed=None,
                    per_cell=1, difficulty=None, category=None, vision=True, concurrency=1,
                    local_dir=None, serve_url=None, engine_image=None, serve_flags=None,
-                   drafter_hf=None, retry_max_tokens=None, audio=True, video=True, perf=False,
+                   drafter_hf=None, retry_max_tokens=None, think_budget=None, audio=True, video=True, perf=False,
                    perf_max_conc=None, arena_per_kind=6, harness_only=False, serve_cmd=None,
                    resume=False, force_submit=False, spark_nodes=None, verify_endpoint=False,
                    endpoint_model=None, remote_host=None, deep_verify=None):
@@ -1635,7 +1636,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             target=target, alias=alias, env=env, provenance=provenance, board=board,
             suite_id=suite_id, harness_ids=harness_ids, harness_only=harness_only,
             judge=judge, judge_url=judge_url, judge_key=judge_key, max_tokens=max_tokens,
-            retry_max_tokens=retry_max_tokens, temperature=temperature, concurrency=concurrency,
+            retry_max_tokens=retry_max_tokens, think_budget=think_budget, temperature=temperature, concurrency=concurrency,
             vision=vision, audio=audio, video=video, perf=perf, perf_max_conc=perf_max_conc,
             arena_per_kind=arena_per_kind, difficulty=difficulty, bench_seed=bench_seed,
             job_ctx=job_ctx, resume=resume, force_submit=force_submit)
@@ -1675,7 +1676,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
 def run_attested(target, modelref_path, mothership, *, hardware=None, board="text", suite_id=None,
                  key_path=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None,
                  judge_key=None, harness_ids=None, limit=None, difficulty=None, category=None,
-                 fast=False, seed=None, per_cell=1, retry_max_tokens=None, concurrency=1, vision=True,
+                 fast=False, seed=None, per_cell=1, retry_max_tokens=None, think_budget=None, concurrency=1, vision=True,
                  arena_per_kind=6, audio=True, video=True, perf=False, perf_max_conc=None,
                  harness_only=False, resume=False, force_submit=False):
     """Split-pod path: a `pull` sidecar already PULLED + HASH-VERIFIED the weights (writing
@@ -1743,7 +1744,7 @@ def run_attested(target, modelref_path, mothership, *, hardware=None, board="tex
     return _run_boards(pod, repo=repo, rev=rev, ver=ver, recipe=recipe, target=target, alias=alias,
         env=env, provenance=provenance, board=board, suite_id=suite_id, harness_ids=harness_ids,
         harness_only=harness_only, judge=judge, judge_url=judge_url, judge_key=judge_key,
-        max_tokens=max_tokens, retry_max_tokens=retry_max_tokens, temperature=temperature,
+        max_tokens=max_tokens, retry_max_tokens=retry_max_tokens, think_budget=think_budget, temperature=temperature,
         concurrency=concurrency, vision=vision, audio=audio, video=video, perf=perf,
         perf_max_conc=perf_max_conc, arena_per_kind=arena_per_kind, difficulty=difficulty,
         bench_seed=bench_seed, job_ctx=job_ctx, resume=resume, force_submit=force_submit)
@@ -1855,6 +1856,12 @@ def main():
         "difficulty) cell (1=20 cases; 5=~100; a thorough-but-feasible balanced sample)")
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
         help="generation cap (reasoning models need headroom; default 32768)")
+    ap.add_argument("--think-budget", type=int, default=_env_int("AEON_THINK_BUDGET", 0),
+        help="cap THINKING tokens per answer (vLLM thinking_token_budget). NOT a smaller "
+        "--max-tokens: the engine CLOSES the reasoning block at this budget so the rest of the "
+        "allowance goes to an ACTUAL ANSWER. A reasoning model on a hard case otherwise spends "
+        "its whole budget thinking and returns EMPTY content, which scores as a no-answer. "
+        "0 = unbounded (default). Applies to the model under test, never to the judge.")
     ap.add_argument("--retry-max-tokens", type=int, default=None, help="if a case is CUT OFF mid-reasoning "
         "(finish_reason=length) and has no/incorrect answer, RE-RUN it once at this higher ceiling (e.g. "
         "50000) so the model can finish — a no-answer is usually truncation, not a real miss")
@@ -1987,7 +1994,7 @@ def main():
             suite_id=a.suite_id, key_path=a.key, max_tokens=a.max_tokens, temperature=a.temperature,
             judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key, harness_ids=hids, limit=a.limit,
             difficulty=a.difficulty, category=a.category, fast=a.fast, seed=a.seed, per_cell=a.per_cell,
-            retry_max_tokens=a.retry_max_tokens, concurrency=a.concurrency, vision=not a.no_vision,
+            retry_max_tokens=a.retry_max_tokens, think_budget=a.think_budget, concurrency=a.concurrency, vision=not a.no_vision,
             arena_per_kind=a.arena, audio=not a.no_audio, video=not a.no_video, perf=a.perf,
             perf_max_conc=a.perf_max_conc, harness_only=a.harness_only,
             resume=a.resume, force_submit=a.force_submit)
@@ -2003,7 +2010,7 @@ def main():
             serve_flags=(json.loads(a.serve_flags) if a.serve_flags else None),
             drafter_hf=a.drafter_hf, serve_cmd=a.serve_cmd,
             # comprehensive dimensions — previously dropped on the --hf-link (GUI) path
-            retry_max_tokens=a.retry_max_tokens, audio=not a.no_audio, video=not a.no_video,
+            retry_max_tokens=a.retry_max_tokens, think_budget=a.think_budget, audio=not a.no_audio, video=not a.no_video,
             perf=a.perf, perf_max_conc=a.perf_max_conc, arena_per_kind=a.arena,
             harness_only=a.harness_only, resume=a.resume, force_submit=a.force_submit,
             spark_nodes=a.spark_nodes, verify_endpoint=a.verify_endpoint,

@@ -103,7 +103,8 @@ class DeadTarget(MockTarget):
 def run_with(target, rid, **kw):
     """run_benchmark against an injected in-process target (build_target monkeypatch)."""
     orig = runner.build_target
-    runner.build_target = lambda model, url, api_key=None: target
+    # **kw so the stub keeps working as build_target grows options (think_budget, ...)
+    runner.build_target = lambda model, url, api_key=None, **kw: target
     try:
         return runner.run_benchmark(rid, target.model, "mock", **kw)
     finally:

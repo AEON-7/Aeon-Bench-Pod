@@ -30,13 +30,24 @@ from .evaluators import evaluate
 from .targets import MockTarget, OpenAITarget, TargetError, no_answer_reason
 
 
-def build_target(model, target_url, api_key=None):
+def build_target(model, target_url, api_key=None, think_budget=None):
+    """`think_budget` caps THINKING tokens (vLLM SamplingParams.thinking_token_budget).
+
+    It is not a shorter max_tokens: the engine CLOSES the reasoning block at the budget, so the
+    remaining allowance is spent on an actual answer. Measured on Qwen3.6-27B, one hard prompt at
+    max_tokens=3000: unbounded finished `length` with 8,543 chars of reasoning and ZERO content —
+    a null the suite has to score as a no-answer. The same prompt at budget=600 finished `stop`
+    in 1,288 tokens with a complete 2,282-char answer. Fewer tokens, and a gradeable result
+    instead of nothing.
+
+    Rides extra_body, which _apply_extra merges into the request payload verbatim."""
     if target_url == "mock":
         return MockTarget(model)
     if str(target_url or "").startswith("frontier://"):
         from . import frontier
         return frontier.build_target(str(target_url).split("://", 1)[1], api_key=api_key)
-    return OpenAITarget(target_url, model, api_key=api_key)
+    extra = {"thinking_token_budget": int(think_budget)} if think_budget else None
+    return OpenAITarget(target_url, model, api_key=api_key, extra_body=extra)
 
 
 # Total passes an unanswered case gets before it is CLASSIFIED: ONE attempt + FIVE retries.
@@ -193,7 +204,7 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
     # `done_case_ids` (its already-scored cases) are skipped — the pod's resume path.
     from . import judge_policy
     params = params or {"temperature": 0.0, "max_tokens": 512}
-    target = build_target(model, target_url, api_key)
+    target = build_target(model, target_url, api_key, think_budget=params.get("think_budget"))
     # Judge policy: a FRONTIER model OR deterministic-only — NEVER the model under test
     # (self-judge) and never a weak/arbitrary judge (aeon.judge_policy). The frontier judge
     # runs on its own endpoint/key; with no valid judge, subjective cases are left unscored.

@@ -6,11 +6,17 @@ model by default) → persist. Speed + deterministic scores always record.
 
 NO-ANSWER FAIRNESS (pinned contract with mothership scoring): a case whose attempt
 produced NO ANSWER — a transport/HTTP/timeout failure or an empty/whitespace-only
-completion — is a technical glitch, not a wrong answer. Such cases are re-run in up
-to two retry passes (_run_retry_passes); only after all RETRY_PASSES attempts fail
-does the case persist as status='no_answer' with score NULL (the mothership weights
-it at ¼ of a case — distinct from 'error'-class statuses). An answered case scores
-normally: a wrong answer stays 0 at full weight.
+completion — may be a technical glitch rather than a wrong answer, so it is re-run:
+ONE attempt plus FIVE retries (RETRY_PASSES, _run_retry_passes). Give it every
+chance, then believe the result — a case still unanswered after all six passes is a
+TRUE FAIL: score 0.0 at FULL weight, scored exactly like a wrong answer. status stays
+'no_answer' so the reason survives on the record.
+
+That is deliberate: the old contract scored it NULL and weighted it a quarter of a
+case, which made the worst outcome the least legible — a model that never answered
+was neither passed nor failed, just discounted. It also split the numbers, because
+the boards applied the ¼-rule while the submission cards averaged only SCORED cases.
+Legacy rows (score NULL) keep the ¼ weighting; new rows never produce one.
 """
 from __future__ import annotations
 
@@ -33,13 +39,16 @@ def build_target(model, target_url, api_key=None):
     return OpenAITarget(target_url, model, api_key=api_key)
 
 
-# Total attempts an unanswered case gets before it is CLASSIFIED (first pass + two retry
-# passes). THE RULE (pinned contract with mothership scoring): a case that yields NO ANSWER
-# (transport/HTTP/timeout failure, or an empty/whitespace-only completion) is a technical
-# glitch, not a wrong answer — retry it; only after every pass fails does it get
-# status='no_answer' with score NULL (weighted ¼ of a case by the mothership, distinct from
-# 'error'). An ANSWERED case scores normally: a wrong answer stays 0 at full weight.
-RETRY_PASSES = 3
+# Total passes an unanswered case gets before it is CLASSIFIED: ONE attempt + FIVE retries.
+# THE RULE (pinned contract with mothership scoring): a case that yields NO ANSWER
+# (transport/HTTP/timeout failure, or an empty/whitespace-only completion) MIGHT be a
+# technical glitch rather than a wrong answer, so retry it — generously, because a false fail
+# is a lie about the model. But six chances is enough to stop guessing: still unanswered after
+# all of them is a TRUE FAIL, score 0.0 at FULL weight.
+#
+# Only unanswered cases retry, so a healthy run pays nothing for this; a run against a wedged
+# endpoint pays six timeouts per case, which is the case the DEAD-ENDPOINT GUARD below aborts.
+RETRY_PASSES = 6
 
 
 def _run_retry_passes(pending, attempt, persist, *, concurrency=1):
@@ -56,11 +65,11 @@ def _run_retry_passes(pending, attempt, persist, *, concurrency=1):
       * a mid-retry kill leaves the case ROWLESS: _missing_case_ids counts it as missing
         (completeness gate holds) and a resume re-attempts it with a fresh pass budget.
 
-    Pass structure: pass 1 covers every pending case; unanswered cases are re-run in pass 2,
-    then pass 3 ('[pod] retry pass N: M unanswered cases'). Still unanswered after pass
-    RETRY_PASSES -> ONE row with status='no_answer', score NULL, evidence carrying the
-    per-pass reasons. A case answered on a retry pass persists normally with the retry
-    history merged into its evidence.
+    Pass structure: pass 1 covers every pending case; unanswered cases are re-run in passes
+    2..RETRY_PASSES ('[pod] retry pass N: M unanswered cases'). Still unanswered after the last
+    pass -> ONE row with status='no_answer' and score 0.0 — a TRUE FAIL at full weight, with
+    evidence carrying true_fail and the per-pass reasons. A case answered on a retry pass
+    persists normally with the retry history merged into its evidence.
 
     DEAD-ENDPOINT GUARD: if pass 1 answers NOTHING and every attempt failed in transport
     (never a mere empty completion), the endpoint is down/misconfigured — raise TargetError
@@ -93,9 +102,13 @@ def _run_retry_passes(pending, attempt, persist, *, concurrency=1):
                 reasons.setdefault(case["id"], []).append(res["unanswered"])
                 if pass_no < RETRY_PASSES:
                     retry.append(case)              # not persisted — the next pass owns it
-                else:                               # out of passes: classify, score NULL
-                    _resolved({**res, "status": "no_answer", "score": None,
-                               "evidence": {"no_answer": True, "attempts": RETRY_PASSES,
+                else:                               # out of passes: a TRUE FAIL, full weight
+                    # score 0.0, not None: after six chances "it never answered" IS the result,
+                    # and NULL would hide it behind a ¼-weight discount on the boards and drop it
+                    # out of the submission card's average entirely.
+                    _resolved({**res, "status": "no_answer", "score": 0.0,
+                               "evidence": {"no_answer": True, "true_fail": True,
+                                            "attempts": RETRY_PASSES,
                                             "reasons": reasons[case["id"]]}}, pass_no)
             else:
                 answered += 1

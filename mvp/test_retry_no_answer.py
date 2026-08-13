@@ -153,7 +153,10 @@ ok("[pod] retry pass 2: 1 unanswered cases" in out
 ok(len(events) == len(PLAN) and {c for c, _, _ in events} == set(PLAN),
    "(e) progress_cb fired EXACTLY once per planned case (retries never inflate totals)")
 
-# ---------- (b) always-fails -> no_answer, score NULL, run completes ----------
+ok(runner.RETRY_PASSES >= 6,
+   "one attempt + at least five retries before anything is called a failure")
+
+# ---------- (b) always-fails -> no_answer TRUE FAIL (score 0.0), run completes ----------
 t = FlakyTarget(fail_case=PLAN[2], fail_times=99, mode="raise")
 rid_b = uuid.uuid4().hex[:10]
 events = []
@@ -162,13 +165,21 @@ with contextlib.redirect_stdout(io.StringIO()):
 run = db.get_run(rid_b)
 rows = {r["case_id"]: r for r in run["results"]}
 ok(run["status"] == "succeeded", "(b) an unanswerable case never blocks run completion")
-ok(rows[PLAN[2]]["status"] == "no_answer" and rows[PLAN[2]]["score"] is None,
-   "(b) still unanswered after pass 3 -> status='no_answer', score NULL")
-ok(t.attempts[PLAN[2]] == 3, "(b) exactly 3 attempts, then classified")
+# A no-answer that survives EVERY retry is a TRUE FAIL, not an ambiguity: score 0.0 at full
+# weight, exactly like a wrong answer. Scoring it NULL used to weight it a quarter of a case,
+# which made the worst outcome the least legible — and split the boards from the cards, since
+# the cards average only SCORED rows and dropped no-answers entirely.
+ok(rows[PLAN[2]]["status"] == "no_answer" and rows[PLAN[2]]["score"] == 0.0,
+   "(b) still unanswered after every pass -> status='no_answer', score 0.0 (TRUE FAIL)")
+ok(rows[PLAN[2]]["score"] is not None,
+   "(b) and NOT NULL — a NULL would earn the legacy quarter-weight discount")
+ok(t.attempts[PLAN[2]] == runner.RETRY_PASSES,
+   "(b) exactly RETRY_PASSES (%d) attempts, then classified" % runner.RETRY_PASSES)
 ev = rows[PLAN[2]]["evidence"]
-ok(ev.get("no_answer") is True and ev.get("attempts") == 3
-   and len(ev.get("reasons") or []) == 3,
-   "(b) no_answer evidence records all 3 per-pass reasons")
+ok(ev.get("no_answer") is True and ev.get("true_fail") is True
+   and ev.get("attempts") == runner.RETRY_PASSES
+   and len(ev.get("reasons") or []) == runner.RETRY_PASSES,
+   "(b) evidence marks true_fail and records every per-pass reason")
 ok(all(rows[c]["status"] == "scored" for c in PLAN if c != PLAN[2]),
    "(b) every answered case scored normally")
 ok(len(events) == len(PLAN), "(e) progress totals sane with a no_answer classification")
@@ -176,8 +187,8 @@ ok(len(events) == len(PLAN), "(e) progress totals sane with a no_answer classifi
 ok(_missing_case_ids(pending.collect_results(rid_b)) == [],
    "(b) completeness gate: no_answer rows leave nothing missing")
 snap = {r["case_id"]: r for r in pending.collect_results(rid_b)}
-ok(snap[PLAN[2]]["status"] == "no_answer" and snap[PLAN[2]]["score"] is None,
-   "(b) the submit bundle snapshot carries status='no_answer' + NULL score")
+ok(snap[PLAN[2]]["status"] == "no_answer" and snap[PLAN[2]]["score"] == 0.0,
+   "(b) the submit bundle snapshot carries status='no_answer' + a 0.0 TRUE-FAIL score")
 
 # ---------- (c) empty/whitespace completions classify unanswered ----------
 t = FlakyTarget(fail_case=PLAN[0], fail_times=99, mode="empty")
@@ -185,11 +196,12 @@ rid_c = uuid.uuid4().hex[:10]
 with contextlib.redirect_stdout(io.StringIO()):
     run_with(t, rid_c)
 rows = {r["case_id"]: r for r in db.get_run(rid_c)["results"]}
-ok(rows[PLAN[0]]["status"] == "no_answer" and rows[PLAN[0]]["score"] is None,
-   "(c) 200-but-whitespace completions end as no_answer")
-ok(rows[PLAN[0]]["evidence"]["reasons"] == ["empty_completion"] * 3,
+ok(rows[PLAN[0]]["status"] == "no_answer" and rows[PLAN[0]]["score"] == 0.0,
+   "(c) 200-but-whitespace completions end as a no_answer TRUE FAIL (0.0)")
+ok(rows[PLAN[0]]["evidence"]["reasons"] == ["empty_completion"] * runner.RETRY_PASSES,
    "(c) all 3 reasons are 'empty_completion'")
-ok(t.attempts[PLAN[0]] == 3, "(c) empty completions get the full 3-pass budget")
+ok(t.attempts[PLAN[0]] == runner.RETRY_PASSES,
+   "(c) empty completions get the full %d-pass budget" % runner.RETRY_PASSES)
 
 # ---------- (c2) empty-but-answered-later: empties on pass 1+2, answers pass 3 ----------
 t = FlakyTarget(fail_case=PLAN[3], fail_times=2, mode="empty")
@@ -274,13 +286,18 @@ bundle = {"run_id": opened["run_id"], "run_nonce": opened["run_nonce"], "final":
                "evidence": {"no_answer": True, "attempts": 3,
                             "reasons": ["transport: simulated"] * 3}},
           ]}
-ok(ingest._validate_bundle(bundle), "ingest schema accepts status='no_answer' + NULL score")
+# LEGACY SHAPE ON PURPOSE: a pod on older code still sends score=None for an exhausted
+# no-answer. The mothership must keep accepting it and must preserve the NULL, because the
+# quarter-weight rule in scoring is what those historical rows are scored by. Current pods
+# send 0.0 (a true fail) and never produce this shape again.
+ok(ingest._validate_bundle(bundle),
+   "ingest schema still accepts the LEGACY status='no_answer' + NULL score")
 raw = json.dumps({"bundle": bundle, "signature": pod_client._sign(_canon(bundle))}).encode()
 resp, code = ingest.submit_results(opened["run_id"], opened["run_token"], raw)
 ok(code == 200 and resp.get("ok"), "signed no_answer bundle commits")
 mrows = {r["case_id"]: r for r in db.get_run(opened["run_id"])["results"]}
 ok(mrows["c2"]["status"] == "no_answer" and mrows["c2"]["score"] is None,
-   "mothership row keeps status='no_answer' + NULL score (ingest passthrough)")
+   "legacy no_answer row keeps its NULL score (quarter-weight rule still applies to it)")
 ok(mrows["c1"]["status"] == "scored" and mrows["c1"]["score"] == 1.0,
    "answered cases in the same bundle commit unchanged")
 
@@ -322,9 +339,9 @@ run = db.get_run(rid_m)
 rows = {r["case_id"]: r for r in run["results"]}
 ok(run["status"] == "succeeded" and len(run["results"]) == len(APLAN),
    "audio board: run completes with a row per case")
-ok(rows[APLAN[1]]["status"] == "no_answer" and rows[APLAN[1]]["score"] is None
-   and t.attempts[APLAN[1]] == 3,
-   "audio board: unanswerable case -> no_answer after exactly 3 attempts")
+ok(rows[APLAN[1]]["status"] == "no_answer" and rows[APLAN[1]]["score"] == 0.0
+   and t.attempts[APLAN[1]] == runner.RETRY_PASSES,
+   "audio board: unanswerable case -> no_answer TRUE FAIL after every pass")
 ok(all(rows[c]["status"] == "scored" and rows[c]["score"] == 1.0 for c in APLAN if c != APLAN[1]),
    "audio board: answered cases score normally")
 ok(len(aevents) == len(APLAN), "audio board: progress fired once per case")

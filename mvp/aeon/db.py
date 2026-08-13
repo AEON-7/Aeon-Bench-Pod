@@ -10,6 +10,7 @@ import os
 import sqlite3
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 
 from . import blobstore
@@ -156,7 +157,15 @@ CREATE TABLE IF NOT EXISTS pod_submissions (
     status       TEXT DEFAULT 'open',   -- open | committed | quarantined | duplicate
     reason       TEXT,                  -- reject/quarantine reason code on failure
     created_at   REAL,
-    committed_at REAL
+    committed_at REAL,
+    -- REFUSAL TRAIL. A NOT_ATTESTED refusal must NOT consume the session (it can be transient, and
+    -- the pod legitimately retries on the next checkpoint), so status stays 'open'. That made a
+    -- refused session indistinguishable from one that never submitted at all — 13 god-mode
+    -- sessions sat 'open' with zero rows and no way to tell which. These columns record the
+    -- refusal WITHOUT blocking the retry.
+    refused_at     REAL,
+    refused_reason TEXT,
+    refused_n      INTEGER DEFAULT 0
 );
 
 -- Shared (multi-replica-safe) challenge + rate-limit state, replacing in-process dicts.
@@ -193,6 +202,28 @@ CREATE TABLE IF NOT EXISTS pod_launches (
     model       TEXT,
     params_json TEXT NOT NULL
 );
+
+-- INGEST LOG: every /api/v1 submission attempt, ACCEPTED OR REJECTED. Without this a refused
+-- bundle (e.g. NOT_ATTESTED under AEON_ATTESTED_ONLY) leaves no trace anywhere — no row is
+-- created, and access logging is off — so an operator cannot tell "never sent" from "sent and
+-- refused". Admin-only surface; pruned to INGEST_LOG_KEEP rows.
+CREATE TABLE IF NOT EXISTS ingest_log (
+    id          TEXT PRIMARY KEY,
+    at          REAL,
+    route       TEXT,                  -- enroll | open_run | results
+    run_id      TEXT,
+    status      INTEGER,               -- HTTP status returned
+    outcome     TEXT,                  -- accepted | rejected
+    reason      TEXT,                  -- NOT_ATTESTED / BAD_SIG / SCHEMA_INVALID / ...
+    model       TEXT,
+    board       TEXT,
+    fingerprint TEXT,                  -- enrolled-key fingerprint (pseudonymous submitter id)
+    bench_host  TEXT,                  -- serving rig the bundle claims, when present
+    remote_ip   TEXT,
+    n_bytes     INTEGER,
+    note        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_log_at ON ingest_log(at);
 """
 
 
@@ -331,11 +362,22 @@ def _ensure_columns(c):
                      # unified benchmark cards can group text/agentic/vision/audio/video/perf
                      # runs into ONE card. Absent (NULL) on old pods' runs — those cluster
                      # by time instead (cards.LEGACY_JOB_GAP_S).
-                     ("job_group", "TEXT")):
+                     ("job_group", "TEXT"),
+                     # LIVENESS: epoch of the last scored case. started_at cannot tell a slow
+                     # run from a dead one — a full bench legitimately takes DAYS — so anything
+                     # that judges "is this pod still alive" must measure from the last result,
+                     # never from the start.
+                     ("last_progress_at", "REAL")):
         if col not in runs_cols:
             c.execute(f"ALTER TABLE runs ADD COLUMN {col} {ddl}")
     c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_sig ON runs(job_sig)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_runs_job_group ON runs(job_group)")
+    # refusal trail on the session (see the pod_submissions DDL) — MUST mirror _ensure_columns_pg
+    ps_cols = {r["name"] for r in c.execute("PRAGMA table_info(pod_submissions)")}
+    for col, ddl in (("refused_at", "REAL"), ("refused_reason", "TEXT"),
+                     ("refused_n", "INTEGER DEFAULT 0")):
+        if col not in ps_cols:
+            c.execute(f"ALTER TABLE pod_submissions ADD COLUMN {col} {ddl}")
     res_cols = {r["name"] for r in c.execute("PRAGMA table_info(results)")}
     if "board" not in res_cols:
         c.execute("ALTER TABLE results ADD COLUMN board TEXT DEFAULT 'text'")
@@ -382,9 +424,16 @@ def _ensure_columns_pg(c):
         ("runs", "weights_hash", "TEXT"), ("runs", "recipe", "TEXT"),
         ("runs", "deployment_manifest", "TEXT"), ("runs", "bench_seed", "TEXT"),
         ("runs", "job_sig", "TEXT"), ("runs", "job_group", "TEXT"),
+        # liveness clock — see _ensure_columns(); MUST mirror the SQLite list or the mothership
+        # (PG) selects a column that does not exist and every read of it 500s
+        ("runs", "last_progress_at", "DOUBLE PRECISION"),
         ("results", "board", "TEXT DEFAULT 'text'"), ("results", "creativity", "DOUBLE PRECISION"),
         ("results", "raw_output_ref", "TEXT"), ("results", "raw_output_hash", "TEXT"),
         ("results", "disputed", "INTEGER DEFAULT 0"), ("results", "disputed_reason", "TEXT"),
+        # refusal trail — mirrors the SQLite list in _ensure_columns()
+        ("pod_submissions", "refused_at", "DOUBLE PRECISION"),
+        ("pod_submissions", "refused_reason", "TEXT"),
+        ("pod_submissions", "refused_n", "INTEGER DEFAULT 0"),
         ("arena_artifacts", "bogus", "INTEGER DEFAULT 0"),
         ("arena_votes", "user_id", "TEXT"), ("arena_votes", "is_test", "INTEGER DEFAULT 0"),
         ("arena_votes", "test_passed", "INTEGER"),
@@ -476,7 +525,10 @@ def save_result(run_id, case_id, *, category, tier, status, score, raw_output, e
             (run_id, case_id, category, tier, board, status, score, creativity,
              inline, out_ref, out_hash, json.dumps(evidence), json.dumps(speed)),
         )
-        c.execute("UPDATE runs SET progress = progress + 1 WHERE id = ?", (run_id,))
+        # stamp the liveness clock with every scored case — this is the ONLY signal that
+        # separates a slow-but-healthy bench from a pod that went away
+        c.execute("UPDATE runs SET progress = progress + 1, last_progress_at = ? WHERE id = ?",
+                  (time.time(), run_id))
 
 
 def result_output(row):
@@ -532,6 +584,38 @@ def run_category_scores():
     out = {}
     for r in rows:
         out.setdefault(r["run_id"], {})[r["category"]] = round(100 * (r["m"] or 0), 1)
+    return out
+
+
+def run_category_weighted_scores():
+    """{run_id: {category: {"pct", "n", "na"}}} — per-category scores that COUNT the cases the
+    model never answered, using the same ¼-rule the boards apply:
+
+        pct = 100 * sum(scores) / (n_scored + 0.25 * n_no_answer)
+
+    run_category_scores() above filters `score IS NOT NULL`, so a run that answered 10 of 24
+    questions was averaged over the 10 it managed — which is why a submission card could read
+    70.8 for a run the GOD board scored 45.8. Same rows, two different definitions of "the
+    score", and no way for a reader to reconcile them.
+
+    Only LEGACY rows carry a NULL score now: a current pod retries an unanswered case six times
+    and then records a true fail (score 0.0, full weight), so `na` is 0 for anything benched
+    after that change and this collapses to the plain mean."""
+    with connect() as c:
+        rows = c.execute(
+            "SELECT run_id, category, "
+            "       SUM(CASE WHEN score IS NOT NULL THEN score ELSE 0 END) AS s, "
+            "       SUM(CASE WHEN score IS NOT NULL THEN 1 ELSE 0 END) AS n, "
+            "       SUM(CASE WHEN score IS NULL AND status = 'no_answer' THEN 1 ELSE 0 END) AS na "
+            "FROM results GROUP BY run_id, category").fetchall()
+    out = {}
+    for r in rows:
+        n, na = int(r["n"] or 0), int(r["na"] or 0)
+        denom = n + 0.25 * na
+        if not denom:
+            continue
+        out.setdefault(r["run_id"], {})[r["category"]] = {
+            "pct": round(100 * (float(r["s"] or 0)) / denom, 1), "n": n, "na": na}
     return out
 
 
@@ -652,6 +736,67 @@ def list_runs(limit=100):
             "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(x) for x in rows]
+
+
+INGEST_LOG_KEEP = 4000                 # rolling window; pruned on write
+
+
+def log_ingest(*, route, status, outcome, run_id=None, reason=None, model=None, board=None,
+               fingerprint=None, bench_host=None, remote_ip=None, n_bytes=None, note=None):
+    """Record one /api/v1 attempt. Best-effort by contract: logging must NEVER break ingest, so
+    every failure here is swallowed — a lost log line is always better than a refused bundle."""
+    try:
+        with connect() as c:
+            c.execute(
+                """INSERT INTO ingest_log (id, at, route, run_id, status, outcome, reason, model,
+                                           board, fingerprint, bench_host, remote_ip, n_bytes, note)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (uuid.uuid4().hex[:16], time.time(), route, run_id, status, outcome, reason, model,
+                 board, fingerprint, bench_host, remote_ip, n_bytes,
+                 (note or "")[:400] or None))
+            # keep the window bounded without a cron: prune the tail occasionally
+            if int(time.time()) % 20 == 0:
+                c.execute("DELETE FROM ingest_log WHERE id NOT IN "
+                          "(SELECT id FROM ingest_log ORDER BY at DESC LIMIT ?)", (INGEST_LOG_KEEP,))
+    except Exception:
+        pass
+
+
+def list_ingest_log(limit=200, only_rejected=False, since_secs=None):
+    q = "SELECT * FROM ingest_log WHERE 1=1"
+    args = []
+    if only_rejected:
+        q += " AND outcome = 'rejected'"
+    if since_secs:
+        q += " AND at > ?"; args.append(time.time() - since_secs)
+    q += " ORDER BY at DESC LIMIT ?"; args.append(limit)
+    with connect() as c:
+        return [dict(x) for x in c.execute(q, args).fetchall()]
+
+
+def ingest_log_summary(since_secs=86400):
+    """Counts by outcome+reason for the window — the at-a-glance health line."""
+    with connect() as c:
+        rows = c.execute(
+            "SELECT outcome, reason, COUNT(*) AS n FROM ingest_log WHERE at > ? "
+            "GROUP BY outcome, reason ORDER BY n DESC", (time.time() - since_secs,)).fetchall()
+    return [dict(x) for x in rows]
+
+
+def list_live_runs(limit=40, include_recent_secs=900):
+    """Benches currently IN FLIGHT (status='running'), plus any that finished very recently, so
+    the admin view shows a job land instead of having it vanish mid-glance. Newest first.
+
+    `progress` is the scored-case count the ingest checkpoints bump on every submission, so a
+    stalled pod is visible as a progress value that stops advancing while started_at recedes —
+    that is the only signal we get, since a dead pod never sends a 'failed' status."""
+    cols = ("id, model, board, status, COALESCE(progress,0) AS progress, n_cases, started_at, "
+            "finished_at, trust_tier, model_verified, harness, env_json, last_progress_at, "
+            "COALESCE(flagged,0) AS flagged")
+    q = (f"SELECT {cols} FROM runs WHERE status='running' OR "
+         f"(finished_at IS NOT NULL AND finished_at > ?) ORDER BY started_at DESC LIMIT ?")
+    with connect() as c:
+        return [dict(x) for x in c.execute(q, (time.time() - include_recent_secs, limit)).fetchall()]
 
 
 def list_submissions(board=None, model=None, limit=300):
@@ -1346,6 +1491,23 @@ def get_pod_run(run_id):
     with connect() as c:
         r = c.execute("SELECT * FROM pod_submissions WHERE run_id=?", (run_id,)).fetchone()
         return dict(r) if r else None
+
+
+def note_pod_run_refusal(run_id, reason):
+    """Record that a results POST for this session was REFUSED, without consuming the session.
+
+    Deliberately does NOT touch `status`: claim_pod_run() only moves a row `WHERE status='open'`,
+    so flipping the status here would make the session permanently uncommittable and break the
+    pod's legitimate retry (a NOT_ATTESTED can be transient — the refusal text itself says 'retry
+    shortly'). Best-effort: never let bookkeeping fail a request."""
+    try:
+        with connect() as c:
+            c.execute(
+                "UPDATE pod_submissions SET refused_at=?, refused_reason=?, "
+                "refused_n=COALESCE(refused_n,0)+1 WHERE run_id=?",
+                (time.time(), reason, run_id))
+    except Exception:
+        pass
 
 
 def claim_pod_run(run_id, status, reason=None):

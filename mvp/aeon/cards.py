@@ -41,7 +41,10 @@ ANSWER_CAP = 4000
 _ART_SLACK_BEFORE = 900
 _ART_SLACK_AFTER = 3600
 
-_SINGLE_BOARDS = ("text", "vision", "audio", "video")   # one run -> one card slot each
+# One run -> one card slot each. "god" belongs here: a GOD MODE job produces exactly one
+# god run, and leaving it out meant a god card rendered every SUPPORTING chip (agentic,
+# perf, arena) while dropping the god score itself.
+_SINGLE_BOARDS = ("text", "god", "vision", "audio", "video")
 
 
 def _env(run):
@@ -122,12 +125,28 @@ def _groups(runs):
 # ---- card assembly ---------------------------------------------------------------------
 
 
-def _score_slot(run, cats, counts):
-    """The text-shaped board payload: composite + per-category scores for one run."""
-    c = cats.get(run["id"]) or {}
+def _score_slot(run, cats, counts, weighted=None):
+    """The text-shaped board payload: composite + per-category scores for one run.
+
+    The composite COUNTS the cases the model never answered (db.run_category_weighted_scores,
+    the same ¼-rule the boards apply). Averaging only the answered cases made an incomplete run
+    look like a strong one — a god run that answered 10 of 24 questions read 70.8 on its card
+    while the board scored it 45.8, and nothing on the page explained the gap.
+
+    `answered` / `unanswered` ride along so the card can SAY the run was partial rather than
+    quietly discount it."""
+    w = (weighted or {}).get(run["id"]) or {}
+    if w:
+        c = {k: v["pct"] for k, v in w.items()}
+        answered = sum(v["n"] for v in w.values())
+        unanswered = sum(v["na"] for v in w.values())
+    else:                                   # no weighted rows (e.g. harness board) — plain means
+        c = cats.get(run["id"]) or {}
+        answered, unanswered = (counts.get(run["id"]) or {}).get("rows", 0), 0
     composite = round(sum(c.values()) / len(c), 1) if c else 0.0
     return {"run": run["id"], "composite": composite, "categories": c,
             "n_cases": (counts.get(run["id"]) or {}).get("rows", 0),
+            "answered": answered, "unanswered": unanswered,
             "suite_id": run.get("suite_id"), "flagged": bool(run.get("flagged"))}
 
 
@@ -201,20 +220,31 @@ def _arena_slot(card_runs, artifacts):
             "note": "attributed by model name + job time window (artifacts carry no run link)"}
 
 
-def _card(card_id, runs, cats, counts, means, artifacts):
+def _primary(runs):
+    """The runs that carry a job's IDENTITY: its text pass, or its god pass when the job was a
+    GOD MODE bench (which produces no text run at all). Used to pick the card's anchor, its
+    served context and its recipe — all of which previously looked only for text and therefore
+    fell back to an arbitrary supporting run on every god job."""
+    text = [r for r in runs if r.get("board") == "text" and not r.get("harness")]
+    if text:
+        return text
+    return [r for r in runs if r.get("board") == "god" and not r.get("harness")]
+
+
+def _card(card_id, runs, cats, counts, means, artifacts, weighted=None):
     """One unified benchmark card over a job's runs — the list-endpoint contract shape."""
     runs = sorted(runs, key=lambda r: r.get("started_at") or 0)
-    # identity comes from the primary (non-harness text) run when present, else the first
-    text = [r for r in runs if r.get("board") == "text" and not r.get("harness")]
+    # identity comes from the primary (non-harness text OR god) run when present, else the first
+    text = _primary(runs)
     anchor = (text or runs)[0]
     hf_repo = next((r.get("hf_repo") for r in runs if r.get("hf_repo")), None)
-    boards = {"text": None, "agentic": [], "vision": None, "audio": None, "video": None,
-              "perf": None, "arena": None}
+    boards = {"text": None, "god": None, "agentic": [], "vision": None, "audio": None,
+              "video": None, "perf": None, "arena": None}
     for b in _SINGLE_BOARDS:
         # latest run wins the slot if a cluster ever holds two passes of one board
         slot = [r for r in runs if r.get("board") == b and not r.get("harness")]
         if slot:
-            boards[b] = _score_slot(slot[-1], cats, counts)
+            boards[b] = _score_slot(slot[-1], cats, counts, weighted)
     seen_h = {}
     for r in runs:                                     # latest run per harness id
         if r.get("harness"):
@@ -265,6 +295,7 @@ def submission_cards(limit=100):
     cats = db.run_category_scores()
     counts = db.run_case_counts()
     means = db.run_mean_scores()
+    weighted = db.run_category_weighted_scores()   # counts the cases never answered
     try:
         artifacts = db.list_artifacts()
     except Exception:
@@ -272,7 +303,7 @@ def submission_cards(limit=100):
     cards = []
     for card_id, rs in _groups(runs):
         try:
-            cards.append(_card(card_id, rs, cats, counts, means, artifacts))
+            cards.append(_card(card_id, rs, cats, counts, means, artifacts, weighted))
         except Exception:
             continue
     cards.sort(key=lambda c: c.get("started_at") or 0, reverse=True)
@@ -319,10 +350,14 @@ def _run_cases(run_id):
     return out
 
 
-def _text_section(run, cats):
-    c = cats.get(run["id"]) or {}
+def _text_section(run, cats, weighted=None):
+    """Same ¼-rule as the card and the boards — see _score_slot. Unanswered cases COUNT."""
+    w = (weighted or {}).get(run["id"]) or {}
+    c = {k: v["pct"] for k, v in w.items()} if w else (cats.get(run["id"]) or {})
     return {"composite": round(sum(c.values()) / len(c), 1) if c else 0.0,
             "categories": c, "suite_id": run.get("suite_id"),
+            "answered": sum(v["n"] for v in w.values()) if w else None,
+            "unanswered": sum(v["na"] for v in w.values()) if w else None,
             "suite_hash": run.get("suite_hash"), "cases": _run_cases(run["id"])}
 
 
@@ -378,7 +413,7 @@ def _recipe_section(card_runs):
     """Serve-recipe disclosure for one side: engine/image/digest + the SANITIZED applyable
     flags (scoring._champion_flags strips bench wiring + anything credential-shaped — this
     payload is public) and the drafter disclosure object as spec_decode."""
-    text = [r for r in card_runs if r.get("board") == "text" and not r.get("harness")]
+    text = _primary(card_runs)
     ordered = text + [r for r in card_runs if r not in text]
     for r in ordered:
         rec = _recipe(r)
@@ -401,14 +436,14 @@ def _recipe_section(card_runs):
     return None
 
 
-def _sections_for(card_runs, cats, means, artifacts):
+def _sections_for(card_runs, cats, means, artifacts, weighted=None):
     """One side's per-section payloads (None where the card lacks the section)."""
     runs = sorted(card_runs, key=lambda r: r.get("started_at") or 0)
     out = {}
     for b in _SINGLE_BOARDS:
         slot = [r for r in runs if r.get("board") == b and not r.get("harness")]
         try:
-            out[b] = _text_section(slot[-1], cats) if slot else None
+            out[b] = _text_section(slot[-1], cats, weighted) if slot else None
         except Exception:
             out[b] = None
     hruns = {}
@@ -436,7 +471,8 @@ def _sections_for(card_runs, cats, means, artifacts):
 
 
 # every key the compare contract promises, in render order — ALWAYS present in "sections"
-SECTION_KEYS = ("text", "agentic", "vision", "audio", "video", "perf", "arena", "recipe")
+SECTION_KEYS = ("text", "god", "agentic", "vision", "audio", "video", "perf", "arena",
+                "recipe")
 
 
 def compare_cards(a, b):
@@ -452,6 +488,7 @@ def compare_cards(a, b):
     cats = db.run_category_scores()
     counts = db.run_case_counts()
     means = db.run_mean_scores()
+    weighted = db.run_category_weighted_scores()   # counts the cases never answered
     try:
         artifacts = db.list_artifacts()
     except Exception:
@@ -462,10 +499,10 @@ def compare_cards(a, b):
         g = rs[0].get("job_group")
         return ("jg:" + g) if g else ("lg:" + rs[0]["id"])
 
-    sa = _sections_for(ga, cats, means, artifacts)
-    sb = _sections_for(gb, cats, means, artifacts)
+    sa = _sections_for(ga, cats, means, artifacts, weighted)
+    sb = _sections_for(gb, cats, means, artifacts, weighted)
     return {
-        "a": _card(_cid(ga), ga, cats, counts, means, artifacts),
-        "b": _card(_cid(gb), gb, cats, counts, means, artifacts),
+        "a": _card(_cid(ga), ga, cats, counts, means, artifacts, weighted),
+        "b": _card(_cid(gb), gb, cats, counts, means, artifacts, weighted),
         "sections": {k: {"a": sa.get(k), "b": sb.get(k)} for k in SECTION_KEYS},
     }

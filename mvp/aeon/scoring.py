@@ -998,6 +998,59 @@ def _god_cases_for(suite_id):
     return {c["id"] for c in suite_mod.legacy_cases(suite_id) if c.get("difficulty") == "god_mode"}
 
 
+def _avg_harness(passes):
+    """One record per harness, averaged over its passes (attested-first, same rule as
+    _avg_sentinels). n/started_at/trust_tier describe the LATEST pass so the row still points at
+    something real."""
+    elig = [p for p in passes if p.get("trust_tier") in ELIGIBLE_TIERS]
+    use = elig or passes
+    # AGENTIC_FAILURE_FLOOR applies PER PASS, before the mean. A pass pinned at/below the floor
+    # measured the plumbing (a wrong tool-call parser, a harness that never connected), not the
+    # model — averaging it in would let our own breakage halve a model's score, which is the exact
+    # thing the floor exists to prevent. Applying it after the mean is too late: mean(100, 0) = 50
+    # sails over the floor carrying the failure inside it. If EVERY pass failed that way, keep
+    # them so the caller still sees a failed harness and marks the run provisional.
+    live = [p for p in use if p["score"] > AGENTIC_FAILURE_FLOOR]
+    use = live or use
+    latest = max(use, key=lambda p: p.get("started_at") or 0)
+    return {"score": round(sum(p["score"] for p in use) / len(use), 1),
+            "n": latest["n"], "started_at": latest["started_at"],
+            "trust_tier": latest["trust_tier"], "n_runs": len(use),
+            "scores": [p["score"] for p in sorted(use, key=lambda p: p.get("started_at") or 0)]}
+
+
+def _avg_sentinels(entries):
+    """One sentinel record per model, averaged over its passes.
+
+    Prefers the attested passes when the model has any: mixing a self-reported pass into an
+    attested model's average would let an unrankable run move a ranked number. Categories are
+    averaged across the passes that HAVE that category, so a pass that never reached a category
+    neither invents a zero nor dilutes it."""
+    elig = [e for e in entries if e["eligible"]]
+    use = elig or entries
+    comps = [e["composite"] for e in use]
+    cats = {}
+    for e in use:
+        for k, v in (e["categories"] or {}).items():
+            cats.setdefault(k, []).append(v)
+    latest = max(use, key=lambda e: e.get("started_at") or 0)
+    best = max(use, key=lambda e: e["composite"])
+    return {
+        "run": best["run"],                       # the pass a reader lands on from the board
+        "model": latest["model"],
+        "composite": round(sum(comps) / len(comps), 1),
+        "categories": {k: round(sum(v) / len(v), 1) for k, v in cats.items()},
+        "n_attempted": latest["n_attempted"], "n_total": latest["n_total"],
+        "trust_tier": latest["trust_tier"], "eligible": bool(elig),
+        "started_at": latest["started_at"], "suite_id": latest["suite_id"],
+        "n_runs": len(use),
+        "runs": [{"run": e["run"], "composite": e["composite"],
+                  "started_at": e.get("started_at"),
+                  "n_attempted": e.get("n_attempted"), "n_total": e.get("n_total")}
+                 for e in sorted(use, key=lambda e: e.get("started_at") or 0)],
+    }
+
+
 def god_leaderboard():
     """GOD MODE BENCH — a first-class scoreboard of its OWN (board='god'), exclusively the
     hardest tier: the god sentinels, god agentic tasks through the harnesses, and god-tier
@@ -1030,12 +1083,14 @@ def god_leaderboard():
         if info["harness"]:
             sc = [r["score"] for r in info["results"] if r["score"] is not None]
             if sc:
+                # Every pass of this harness counts: the board averages a model over the runs it
+                # actually did, so a harness benched three times contributes all three rather
+                # than only whichever ran last.
                 h = agentic.setdefault(canon, {})
-                cur = h.get(info["harness"])
-                if not cur or (info["started_at"] or 0) > (cur["started_at"] or 0):
-                    h[info["harness"]] = {"score": round(100 * sum(sc) / len(sc), 1),
-                                          "n": len(sc), "started_at": info["started_at"],
-                                          "trust_tier": info["trust_tier"]}
+                h.setdefault(info["harness"], []).append(
+                    {"score": round(100 * sum(sc) / len(sc), 1),
+                     "n": len(sc), "started_at": info["started_at"],
+                     "trust_tier": info["trust_tier"]})
             continue
         god_ids = _god_cases_for(info["suite_id"])
         if not god_ids:
@@ -1063,10 +1118,17 @@ def god_leaderboard():
                  "categories": cat_scores, "n_attempted": attempted, "n_total": len(god_ids),
                  "trust_tier": info["trust_tier"], "eligible": info["trust_tier"] in ELIGIBLE_TIERS,
                  "started_at": info["started_at"], "suite_id": info["suite_id"]}
-        cur = sentinels.get(canon)
-        if (not cur or (entry["eligible"], entry["composite"])
-                > (cur["eligible"], cur["composite"])):
-            sentinels[canon] = entry
+        sentinels.setdefault(canon, []).append(entry)
+
+    # AVERAGE PER MODEL, not best-of. Attested passes only when any exist — a self-reported
+    # pass cannot rank on its own and must not drag down (or prop up) a model that has attested
+    # ones. Ties in eligibility keep every pass, so a model benched three times is judged on all
+    # three, and `runs` discloses each so the submissions page can show how they individually
+    # scored.
+    sentinels = {c: _avg_sentinels(v) for c, v in sentinels.items()}
+
+    agentic = {c: {hid: _avg_harness(v) for hid, v in hs.items()}
+               for c, hs in agentic.items()}
 
     models = []
     for canon in set(sentinels) | set(agentic):
@@ -1094,12 +1156,17 @@ def god_leaderboard():
             "run": (s or {}).get("run"),
             "god_score": god_score,
             "god_provisional": not (s and ag_score is not None),
+            # n_runs/runs disclose WHAT the average is over, so a reader can reconcile the
+            # board with the individual passes on the submissions page.
             "sentinels": s and {k: s[k] for k in ("run", "composite", "categories",
-                                                  "n_attempted", "n_total", "suite_id")},
+                                                  "n_attempted", "n_total", "suite_id",
+                                                  "n_runs", "runs")},
             # harnesses shows every cell (including the failed ones — the board should say what
             # happened); `excluded` names the ones the mean dropped.
             "agentic": ({"score": ag_score,
                          "harnesses": {k: v["score"] for k, v in h.items()},
+                         "n_runs": {k: v.get("n_runs") for k, v in h.items()},
+                         "pass_scores": {k: v.get("scores") for k, v in h.items()},
                          "excluded": sorted(set(h) - set(h_live))} if h else None),
             "trust_tier": (s or {}).get("trust_tier")
                           or next(iter(h.values()))["trust_tier"],

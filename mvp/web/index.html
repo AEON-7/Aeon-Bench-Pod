@@ -505,9 +505,15 @@
     <section class="panel" id="subsPanel" hidden>
       <div class="lbhead">
         <h2>Submissions — full transparency</h2>
-        <select id="subsBoard">
-          <option value="">all boards</option><option value="text">text</option><option value="vision">vision</option>
-          <option value="audio">audio</option><option value="video">video</option>
+        <select id="subsBoard" title="show only benchmarks that produced this board">
+          <option value="">all boards</option><option value="text">text</option><option value="god">god mode</option>
+          <option value="vision">vision</option><option value="audio">audio</option>
+          <option value="video">video</option><option value="perf">performance</option>
+        </select>
+        <select id="subsSort" title="order the benchmark cards">
+          <option value="new">newest first</option>
+          <option value="comp">best composite</option>
+          <option value="perf">best performance</option>
         </select>
       </div>
       <p class="lede">Every run, fully inspectable: prompt, answer, score, judge.</p>
@@ -730,6 +736,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=122"></script>
+  <script src="/static/app.js?v=125"></script>
 </body>
 </html>

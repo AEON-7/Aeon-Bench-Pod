@@ -511,6 +511,14 @@ details.how .note { text-align: left; max-width: 78ch; }
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 .mcard-name .mlink:hover { color: var(--accent); }
 .mcard-vram { font-size: 11px; color: var(--faint); }
+/* The spread behind an averaged headline: "3× 0.0–45.8". Deliberately quiet — it qualifies the
+   score, it does not compete with it — but always legible, because a wide spread is the single
+   most important thing to know before copying someone's recipe. */
+.run-spread {
+  font-size: 11px; color: var(--faint); letter-spacing: .02em; white-space: nowrap;
+  border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px;
+}
+.run-spread b { color: var(--dim); font-weight: 600; }
 /* served-context chip — quiet mono, same grammar on board rows / run detail / bench cards */
 .mcard-ctx { font-size: 11px; color: var(--muted); border: 1px solid var(--line);
   background: var(--chip); padding: 0 6px; border-radius: 2px; white-space: nowrap; }

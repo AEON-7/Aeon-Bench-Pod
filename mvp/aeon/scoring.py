@@ -1039,6 +1039,7 @@ def _avg_sentinels(entries):
         "run": best["run"],                       # the pass a reader lands on from the board
         "model": latest["model"],
         "composite": round(sum(comps) / len(comps), 1),
+        "best": round(max(comps), 1), "worst": round(min(comps), 1),
         "categories": {k: round(sum(v) / len(v), 1) for k, v in cats.items()},
         "n_attempted": latest["n_attempted"], "n_total": latest["n_total"],
         "trust_tier": latest["trust_tier"], "eligible": bool(elig),
@@ -1155,12 +1156,17 @@ def god_leaderboard():
             "model": (s or {}).get("model") or canon,
             "run": (s or {}).get("run"),
             "god_score": god_score,
+            # Flat best/worst/n_runs mirror the global board's row shape, so ONE renderer draws
+            # the spread on either board. An average alone cannot tell a consistent model from an
+            # erratic one, and that is exactly what you want to know before copying its recipe.
+            "best": (s or {}).get("best"), "worst": (s or {}).get("worst"),
+            "n_runs": (s or {}).get("n_runs"),
             "god_provisional": not (s and ag_score is not None),
             # n_runs/runs disclose WHAT the average is over, so a reader can reconcile the
             # board with the individual passes on the submissions page.
             "sentinels": s and {k: s[k] for k in ("run", "composite", "categories",
                                                   "n_attempted", "n_total", "suite_id",
-                                                  "n_runs", "runs")},
+                                                  "n_runs", "runs", "best", "worst")},
             # harnesses shows every cell (including the failed ones — the board should say what
             # happened); `excluded` names the ones the mean dropped.
             "agentic": ({"score": ag_score,

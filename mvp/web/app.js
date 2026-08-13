@@ -370,6 +370,19 @@ function wireShare(scope, board) {
     b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b, board); });
 }
 
+// The spread behind an averaged score. Absent when a model has one pass (nothing to spread) or
+// when best == worst — a range of "46.9-46.9" is noise, not information. Used by BOTH boards, so
+// they can never drift into describing the same idea two ways.
+function runSpread(m) {
+  const n = m.n_runs || 0;
+  if (n < 2 || m.best == null || m.worst == null) return "";
+  const same = Math.abs(m.best - m.worst) < 0.05;
+  const label = same ? `${fmtComp(m.best)}` : `${fmtComp(m.worst)}\u2013${fmtComp(m.best)}`;
+  return `<span class="run-spread" title="averaged over ${n} benchmark runs${same ? "" :
+    ` \u2014 worst ${fmtComp(m.worst)}, best ${fmtComp(m.best)}`}. The headline is the MEAN; a wide spread means the result is not repeatable.">`
+    + `<b>${n}\u00d7</b> ${escH(label)}</span>`;
+}
+
 function globalRow(m, i) {
   const isAeon = m.aeon_score != null;
   const headline = isAeon ? m.aeon_score : (m.comp ?? 0);
@@ -401,6 +414,7 @@ function globalRow(m, i) {
   const frontierChip = fr
     ? `<span class="frontier-chip" title="validated hosted frontier API reference">${escH(fr.brand || fr.provider)} · ${escH(fr.version || fr.model)} · effort ${escH(fr.effort || "default")}</span>`
     : "";
+  const spread = runSpread(m);   // best/worst across this model's averaged passes
   return `<div class="mrow${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}"${bestRun ? ` data-run="${escA(bestRun)}"` : ""} data-trust="${m.record_eligible ? "verified" : "local"}" tabindex="0" role="button" aria-label="open the best submission for ${escA(m.model)}" style="--i:${i}">
     <div class="mrow-rank">${String(i + 1).padStart(2, "0")}</div>
     <div class="mrow-aeon ${band}${prov ? " prov" : ""}" title="${escA(_aeonTitle(m, headline, isAeon, prov))}">
@@ -414,7 +428,7 @@ function globalRow(m, i) {
           <img class="model-avatar${fr ? " frontier" : ""}" data-meta-avatar="${escA(m.model)}" src="${escA(ava)}" alt="" loading="lazy" width="40" height="40">
         </a>
         <span class="mrow-model">${fmtModel(m.model)}</span>
-        ${badge}${vram}${ctx}
+        ${badge}${vram}${ctx}${spread}
       </div>
       ${frontierChip}
       ${catBars(m.categories)}
@@ -1881,7 +1895,7 @@ async function loadAdminArtifacts() {
 // ---- Submissions transparency browser (every run fully inspectable) ----
 // view: "cards" = unified benchmark cards (one plate per bench JOB, default) ·
 //       "runs"  = the flat per-run pass list (the old view, kept behind the toggle)
-const SUBS = { board: "", model: null, view: "cards", cards: null };
+const SUBS = { board: "", model: null, view: "cards", cards: null, sort: "new" };
 
 // keepHash: a caller about to open a run detail (openBestRun) skips the plain
 // #/submissions write, so the detail's single pushState is the only history entry —
@@ -1965,6 +1979,30 @@ function _trustChip(tier, verified) {
 }
 
 // board-chip row: every section this job produced, scored, in one strip. Absent boards get NO chip.
+function _cardPrimaryScore(c) {
+  const b = (c && c.boards) || {};
+  const h = b.text || b.god;                       // a GOD MODE job has no text pass
+  return h && h.composite != null ? h.composite : null;
+}
+function _cardPeakTps(c) {
+  const p = ((c && c.boards) || {}).perf;
+  return p && p.peak_agg_tps != null ? p.peak_agg_tps : null;
+}
+function _sortCards(cards) {
+  const key = SUBS.sort === "comp" ? _cardPrimaryScore
+            : SUBS.sort === "perf" ? _cardPeakTps : null;
+  if (!key) return cards.slice().sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+  // null last: a card with no score for this axis has nothing to say about it, and ranking it
+  // as a zero would push genuinely-bad results above genuinely-absent ones.
+  return cards.slice().sort((a, b) => {
+    const x = key(a), y = key(b);
+    if (x == null && y == null) return (b.started_at || 0) - (a.started_at || 0);
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return y - x;
+  });
+}
+
 function _cardChips(c) {
   const b = c.boards || {}, out = [];
   const flag = (f) => f ? `<span class="chip-flag" title="this run is flagged">⚑</span>` : "";
@@ -1974,6 +2012,7 @@ function _cardChips(c) {
   const qual = (key, s) => { if (s) chip(key.toUpperCase(), s.composite != null ? fmtComp(s.composite) : "—", s.run, s.flagged,
     `${key} · ${s.suite_id || "?"} · ${s.n_cases} cases — open this run`, band(s.composite)); };
   qual("text", b.text);
+  qual("god", b.god);            // a GOD MODE job has no text run — this IS its headline score
   (b.agentic || []).forEach((h) => chip((h.harness || "?").toUpperCase(), h.score != null ? String(Math.round(h.score)) : "—",
     h.run, h.flagged, `agentic · ${h.harness || "?"}${h.harness_version ? " " + fmtHver(h.harness_version) : ""} · ${h.n_cases} tasks — open this run`, band(h.score)));
   qual("vision", b.vision); qual("audio", b.audio); qual("video", b.video);
@@ -1985,7 +2024,10 @@ function _cardChips(c) {
 
 function _benchCard(c) {
   const b = c.boards || {};
-  const comp = b.text && b.text.composite != null ? b.text.composite : null;
+  // A GOD MODE bench produces no text run, so its headline is the god composite. Without this
+  // the card renders a blank score above chips that clearly show one.
+  const _head = b.text || b.god;
+  const comp = _head && _head.composite != null ? _head.composite : null;
   const scls = comp == null ? "" : comp >= 80 ? " pass" : comp >= 40 ? " part" : " fail";
   const prim = _cardPrimaryRun(c);
   const nRuns = (c.run_ids || []).length;
@@ -2005,16 +2047,26 @@ function _benchCard(c) {
 }
 
 function renderBenchCards() {
-  let cards = [...(SUBS.cards || [])].sort((x, y) => (y.started_at || 0) - (x.started_at || 0));
+  let cards = _sortCards(SUBS.cards || []);
   if (SUBS.model) cards = cards.filter((c) => c.model === SUBS.model || c.canonical === SUBS.model);
   if (SUBS.board) cards = cards.filter((c) => (c.boards || {})[SUBS.board]);
   const hdr = SUBS.model
     ? `<div class="subs-filter">for <b>${escH(SUBS.model)}</b> · <button class="ghost" id="subsClear">all models</button></div>` : "";
-  const days = {};
-  cards.forEach((c) => { (days[_dayKey(c.started_at)] = days[_dayKey(c.started_at)] || []).push(c); });
-  const body = Object.keys(days).map((day) =>
-    `<div class="subs-day">${escH(day)}</div>` + days[day].map(_benchCard).join("")).join("")
-    || `<p class="note" style="text-align:left">No benchmarks${SUBS.model ? " for this model" : ""} yet.</p>`;
+  const empty = `<p class="note" style="text-align:left">No benchmarks${SUBS.model ? " for this model" : ""} yet.</p>`;
+  let body;
+  if (SUBS.sort === "new") {
+    const days = {};
+    cards.forEach((c) => { (days[_dayKey(c.started_at)] = days[_dayKey(c.started_at)] || []).push(c); });
+    body = Object.keys(days).map((day) =>
+      `<div class="subs-day">${escH(day)}</div>` + days[day].map(_benchCard).join("")).join("") || empty;
+  } else {
+    // Ranked views are a FLAT list on purpose: day headers would re-cluster by date and fight
+    // the ordering the reader just asked for.
+    const label = SUBS.sort === "comp" ? "best composite first" : "best peak throughput first";
+    body = (cards.length
+      ? `<div class="subs-day">${escH(label)}</div>` + cards.map(_benchCard).join("")
+      : empty);
+  }
   $("#subsList").innerHTML = _subsViewBar() + hdr + body;
   _bindViewBar();
   const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
@@ -2510,6 +2562,7 @@ function godRow(m, i) {
     : `<span class="elig-badge local" title="not an attested run — shown, not record-eligible">local</span>`;
   const vram = m.vram_est_gb != null
     ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
+  const spread = runSpread(m);
   const ctx = ctxChip(m.ctx_len);
   const cov = s
     ? `<span class="god-cov" title="god sentinels attempted of the run's suite">${s.n_attempted}/${s.n_total} sentinels</span>` : "";
@@ -2546,7 +2599,7 @@ function godRow(m, i) {
           <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40">
         </a>
         <span class="mrow-model">${fmtModel(m.model)}</span>
-        ${badge}${vram}${ctx}${cov}
+        ${badge}${vram}${ctx}${cov}${spread}
       </div>
       ${catBars(s && s.categories)}
       <div class="god-harns">${ag && ag.harnesses
@@ -3319,6 +3372,7 @@ const CC_SECTIONS = [
 function _cardBoardInitials(c) {
   const b = (c && c.boards) || {}, parts = [];
   if (b.text) parts.push("T");
+  if (b.god) parts.push("G");
   if ((b.agentic || []).length) parts.push("H" + b.agentic.length);
   if (b.vision) parts.push("V");
   if (b.audio) parts.push("A");
@@ -3492,8 +3546,10 @@ async function loadCardCompare(a, b, push = true) {
 // A/B card head plates: same fixed-row symmetry as the run-compare heads
 function _ccHead(side, card, other) {
   const c = card || {}, b = c.boards || {};
-  const comp = b.text && b.text.composite != null ? b.text.composite : null;
-  const oComp = other && other.boards && other.boards.text ? other.boards.text.composite : null;
+  const _h = b.text || b.god;                       // god jobs have no text pass
+  const comp = _h && _h.composite != null ? _h.composite : null;
+  const _oh = other && other.boards ? (other.boards.text || other.boards.god) : null;
+  const oComp = _oh ? _oh.composite : null;
   const win = comp != null && oComp != null && comp > oComp;
   const nRuns = (c.run_ids || []).length;
   return `<div class="cmp2-head side-${side === "A" ? "a" : "b"}${win ? " win" : ""}">
@@ -5698,6 +5754,7 @@ async function init() {
     routeApply(h);
   });
   $("#subsBoard").onchange = () => { SUBS.board = $("#subsBoard").value; loadSubs(); };
+  { const ss = $("#subsSort"); if (ss) ss.onchange = () => { SUBS.sort = ss.value; loadSubs(); }; }
   $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); loadAdminLive(); loadIngestLog(); };
   { const f = $("#ingestFilter"); if (f) f.onchange = loadIngestLog; }
   $("#adminKind").onchange = loadAdminArtifacts;

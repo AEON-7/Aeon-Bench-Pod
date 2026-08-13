@@ -379,6 +379,36 @@ as-is.
 **Do not launch a comprehensive run until this preflight passes.** If it can't be fixed, say so to
 your human before spending their hardware: tell them agentic will score 0 and the run will not rank.
 
+#### Give the benchmark the box to itself
+
+A performance grid measures *this model on this hardware*. Anything else holding GPU memory or
+issuing requests during the run is silently included in that number, and the result is unreproducible
+without being obviously wrong. Before a run that will be published, stop the other services — and
+**check that they stay stopped**, which is the part people miss:
+
+```bash
+docker ps --format '{{.Names}}' > ~/.aeon/prebench-running.txt     # 1. record, so you can restore
+docker ps --format '{{.Names}}' | while read n; do \
+  echo "$n $(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' $n)"; done
+```
+
+Two things resurrect a container you just stopped:
+
+1. **A restart policy.** `unless-stopped` / `always` bring it back. Neutralise it for the window with
+   `docker update --restart=no <name>` — record the old value, and restore it afterwards.
+2. **An external supervisor** — a cron watchdog, a systemd unit, a healthcheck script. Check
+   `crontab -l` and `systemctl list-units --state=running`. Stopping the container is not enough;
+   the supervisor must also be told to stand down, or it will restart the service mid-run.
+
+Wait one full supervisor interval (usually a minute) and run `docker ps` again to confirm the box is
+actually quiet before you launch. Use `docker stop` only — **never `docker rm`**, and never touch a
+database volume; you are borrowing the machine, not reinstalling it. Restore everything when the run
+finishes.
+
+> Writing a watchdog yourself? Give it a hold file (e.g. `[ -f ~/.benchwindow_active ] && exit 0`)
+> so a benchmark can suspend it without editing cron. Remember to remove the flag afterwards — a
+> forgotten hold file silently disables the watchdog forever.
+
 ---
 
 ## 3. Open the dashboard — and SHOW YOUR HUMAN
@@ -559,6 +589,39 @@ Public repos need no token.
 
 Applying a template or preset only **fills** the controls — everything stays editable, and the final
 recipe travels with the result.
+
+### 4(c-quant) Quantized checkpoints — READ THE MODEL CARD FIRST
+
+**Before you write any recipe for a quantized model, open its Hugging Face card and find its serve
+block.** Quantized formats carry per-format requirements that nothing can infer from `config.json`,
+and getting one wrong fails *after* the weights load — minutes in, with an error that names a CUDA
+kernel rather than the flag that caused it. The card is the authority for its own checkpoint; the
+table below is what to look for.
+
+| Format | Required | Why |
+|---|---|---|
+| **NVFP4 / `modelopt`** | `--quantization modelopt` | It is **not** `compressed-tensors` — a different on-disk format. Auto-detection guesses wrong on some repos, so state it. |
+| | `VLLM_NVFP4_GEMM_BACKEND=flashinfer-cutlass` | Selects the NVFP4 GEMM kernel. Confirm it took: the log prints `Using FlashInferCutlassNvFp4LinearKernel for NVFP4 GEMM`. |
+| | `VLLM_USE_FLASHINFER_MOE_FP4=0` | The FP4 MoE path is not correct for every NVFP4 repo; the cards that need it say so explicitly. |
+| **NVFP4_AWQ** | a different engine image | Crashes the default `aeon-vllm-ultimate`. Needs the AWQ-capable image via `--engine-image`, still with `--quantization modelopt`. |
+| **GGUF** | engine `llama.cpp` | vLLM does not serve GGUF. |
+
+Environment variables are **not** serve flags — they go on the container, not after `serve`:
+
+```bash
+docker run -d --name aeon-vllm --gpus all --ipc=host --net=host \
+  -e VLLM_NVFP4_GEMM_BACKEND=flashinfer-cutlass \
+  -e VLLM_USE_FLASHINFER_MOE_FP4=0 \
+  -e VLLM_USE_FLASHINFER_SAMPLER=1 \
+  -v /path/to/weights:/model:ro \
+  --entrypoint vllm ghcr.io/aeon-7/aeon-vllm-ultimate:latest \
+  serve /model --served-model-name aeon --quantization modelopt --trust-remote-code
+```
+
+> **A model card's `--gpu-memory-utilization` is for the card's hardware, not yours.** Cards are
+> usually written on discrete-VRAM GPUs and quote 0.9+. On unified memory (DGX Spark GB10) that
+> figure hangs the box — substitute **0.6–0.7** (§4(i)). Take everything else from the card; override
+> this one.
 
 ### 4(d) Engine choice — and when to switch off the default
 
@@ -759,6 +822,38 @@ Speculative decode is lossless (speed only, no quality change). Two kinds:
 Larger `n` trades single-stream latency against concurrent throughput — the champion recipe already
 picks a good `n` for the hardware.
 
+**When a checkpoint ships BOTH** (increasingly common — e.g. a repo with a grafted MTP head that
+also has a published `z-lab/<Model>-DFlash` drafter), they are mutually exclusive: `--speculative-config`
+takes ONE method. Choose by what you are measuring:
+
+| Pick | When | Cost |
+|---|---|---|
+| **MTP** | You want the model's *shipped* configuration — nothing to download, nothing to mount, and the model card's own numbers are reproducible. The honest default for a leaderboard run of "this repo". | Shallower: MTP heads top out around n=3–4 before the drafter diverges and acceptance collapses. |
+| **DFlash** | You want maximum throughput and a matching drafter exists. Deeper speculation (n up to 15) and a separately trained drafter usually beat an MTP head at concurrency. | An extra hash-validated download + mount, and the run now describes model **+ drafter**, not the model alone. |
+
+**Choosing `n`.** Start from the DRAFTER's card, not from a general rule — z-lab's Qwen3.6-27B card
+specifies 15. Higher `n` drafts more tokens per step, but every rejected token is wasted compute, so
+acceptance rate decides whether it pays. Verify from the engine's own counters rather than guessing:
+
+```bash
+curl -s http://127.0.0.1:8000/metrics | grep -E "^vllm:spec_decode_num_(draft|accepted)_tokens_total"
+```
+
+`accepted / draft` is the acceptance rate and `draft_tokens_total / drafts_total` confirms the `n`
+actually in force. Below ~25% acceptance, lower `n`.
+
+**Check the drafter fits the target BEFORE launching.** A DFlash drafter hooks specific layers of the
+target; if it names a layer the target does not have, the engine fails late (after the weights load):
+
+```bash
+python -c "import json;print(json.load(open('/drafter/config.json'))['dflash_config']['target_layer_ids'])"
+python -c "import json;d=json.load(open('/model/config.json'));t=d.get('text_config') or d;print(t['num_hidden_layers'])"
+```
+
+Every id must be **less than** the target's layer count. (A 64-layer target with drafter ids
+`[1,16,31,46,61]` is fine.) The engine logs the mapping it settled on as
+`Using auxiliary layers from speculative config: (...)` — check that line before assuming it armed.
+
 ### 4(g) Modalities — auto-detected; override only to force or skip
 
 Vision / audio / video are **auto-detected** from the model's HF config and **probed at bench time**,
@@ -805,7 +900,18 @@ Two numbers, both usually best left at their defaults:
   the 0.6-0.7 unified-memory value onto a discrete-GPU recipe.
 - **`--perf-max-conc`** — caps the **performance-grid** concurrency ladder only (default **32**). The
   perf ladder runs `1,4,8,16,32`; rungs above the cap drop, and a non-standard cap becomes the new
-  top rung (24 → 1/4/8/16/24). Leave at 32 unless the hardware can't sustain the top rung.
+  top rung (24 → 1/4/8/16/24).
+
+  **Set it to the serve's `--max-num-seqs`.** These two must agree, and this is the most commonly
+  missed pairing. `--max-num-seqs` is how many sequences the engine will run *at once*; requests
+  beyond it **queue inside the engine**. So a ladder rung above `--max-num-seqs` does not measure
+  more concurrency — it measures **queueing delay**, which inflates per-request latency while total
+  throughput stays flat at the engine's real ceiling. The published **peak aggregate tok/s** is taken
+  across the ladder, so the extra rung adds wall-clock and tells you nothing.
+
+  Serving with `--max-num-seqs 16` → pass `--perf-max-conc 16`. Serving with the default 32 → leave
+  it at 32. If you deliberately want to characterise queueing behaviour past saturation, exceeding it
+  is legitimate — just know that is what the top rung is showing you.
 
 *(More concurrency background in §6.)*
 

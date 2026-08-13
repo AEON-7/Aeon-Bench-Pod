@@ -88,13 +88,30 @@ Point at the **exact repo being served** — the specific quant, not the base mo
 ## Step 3 — Run it
 
 `hf_link` is the only required argument. Everything else already defaults correctly:
-`preset="comprehensive"` is the full exam and the only shape that ranks.
+`preset="comprehensive"` is the full exam and the only shape that ranks **on the global board**.
 
 Do not set `preset`, `engine`, `serve_flags`, or `concurrency` unless the user asked for something
 specific. The pod picks the right recipe for their hardware.
 
 One optional improvement: `aeon_pod_champion_recipes()` returns proven settings for the detected
 hardware. If it returns one, pass its `serve_flags` to `aeon_pod_run`.
+
+**The two presets that rank**, so you can pick when the user asks for one by name:
+
+| Preset | What it is | Where it ranks |
+|---|---|---|
+| `comprehensive` *(default)* | The full exam: text · 3 coding-agent harnesses · vision · audio · video · arena · performance. | Global leaderboard. |
+| `god-mode` | Beyond-frontier only: god-tier questions + 15 god coding-agent tasks + arena + performance. Most models score low; that is the point. | Its own GOD MODE board. |
+
+Anything else (`--fast`, `--limit`, `--difficulty`, `--category`) is a local check and never ranks.
+
+**If the user hands you a specific serve recipe**, use it as given and change only what is unsafe
+for their hardware. The one value to check: `--gpu-memory-utilization` above ~0.8 hangs a
+unified-memory box (DGX Spark) — drop it to 0.6–0.7 and say you did. Also set `--perf-max-conc` to
+match the serve's `--max-num-seqs`, or the top of the performance ladder measures queueing instead
+of throughput. Everything else — quantization flags, spec-decode, parsers — comes from the model's
+Hugging Face card; read it before writing a recipe. Details in [`AGENTS.md`](AGENTS.md) §4(c-quant)
+and §4(f).
 
 ---
 

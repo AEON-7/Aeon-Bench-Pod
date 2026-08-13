@@ -237,11 +237,11 @@ Docs: [**illustrated walkthrough**](docs/walkthrough/README.md) ·
 
 | Dimension | Suite | How |
 |---|---|---|
-| Text (5 categories × 6 difficulty tiers) | `aeon-suite-v3` | deterministic Tier-0 + binary-rubric Tier-1, 155 cases |
-| Agentic | `aeon-agentic-v2` | environment-execution tasks (file ops + app/game/animation codegen) through **three real coding-agent harnesses** (Hermes / OpenClaw / OpenCode) in fresh containers, scored on observable file outcomes |
+| Text (5 categories × 6 difficulty tiers) | `aeon-suite-v4` | deterministic Tier-0 + binary-rubric Tier-1, 174 cases |
+| Agentic | `aeon-agentic-v2.5` | environment-execution tasks (file ops + app/game/animation codegen) through **three real coding-agent harnesses** (Hermes / OpenClaw / OpenCode) in fresh containers, scored on observable file outcomes |
 | Vision | `aeon-vision-v2` | probe-gated image suite (31 cases, deterministic) |
 | Audio | `aeon-audio-v2` | probe-gated, deterministic synthetic stimuli (21 cases) |
-| Video | `aeon-video-v1` | probe-gated deterministic video suite (keyword/element-graded) |
+| Video | `aeon-video-v1` | probe-gated deterministic video suite (10 cases, keyword/element-graded) |
 | Generative arena | apps / games / animations | seeded prompts, playable artifacts ship with the signed bundle |
 | Performance | `aeon-perf-v1` | direct + through-harness grid, aggregate tok/s + TTFT across a concurrency ladder |
 

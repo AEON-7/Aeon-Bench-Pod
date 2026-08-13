@@ -18,11 +18,31 @@ import os
 # ---------------------------------------------------------------- extraction
 
 
+def _boxed_spans(text):
+    """Every \\boxed{...} span, matched with BALANCED braces.
+
+    A regex cannot do this: `[^{}]*` stops at the first inner brace, so `\\boxed{\\frac{1}{2}}`
+    extracted nothing and the checker fell back to scanning the whole reply — which for a numeric
+    check means grading against every number the model happened to mention."""
+    out = []
+    for m in re.finditer(r"\\boxed\s*\{", text):
+        i, depth = m.end(), 1
+        while i < len(text) and depth:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        if depth == 0:
+            out.append(text[m.end():i - 1])
+    return out
+
+
 def extract_boxed(text):
     """Return the content of the last \\boxed{...} or <answer>...</answer>."""
-    m = list(re.finditer(r"\\boxed\{([^{}]*)\}", text))
+    m = _boxed_spans(text or "")
     if m:
-        return m[-1].group(1).strip()
+        return m[-1].strip()
     m = list(re.finditer(r"<answer>\s*(.*?)\s*</answer>", text, re.S | re.I))
     if m:
         return m[-1].group(1).strip()
@@ -60,15 +80,96 @@ def _numbers(s):
 # Each checker returns (satisfied: bool, evidence: str).
 
 
+# What a model wraps around an answer when it is being helpful. Stripped from BOTH sides of an
+# exact match, never from one — see _undecorate.
+_ANSWER_LEAD = re.compile(
+    r"^(?:the\s+)?(?:final\s+)?(?:answer|result|output|solution)\s*(?:is)?\s*[:\-\u2014]?\s*", re.I)
+_FENCE = re.compile(r"^```[a-zA-Z0-9_+-]*\s*\n?(.*?)\n?```$", re.S)
+# Opening/closing pairs. A curly-quoted answer never satisfies s[0] == s[-1]:
+# U+201C opens and U+201D closes, so the naive symmetric test silently missed them.
+_QUOTE_PAIRS = (('"', '"'), ("'", "'"), ("\u201c", "\u201d"), ("\u2018", "\u2019"))
+
+
+# Typography a model substitutes without meaning anything by it. Folded on BOTH sides.
+_TYPO = {
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"',
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2212": "-",
+    "\u00a0": " ", "\u2007": " ", "\u202f": " ", "\u2009": " ",
+    "\u2026": "...",
+}
+
+
+def _fold(s):
+    """Unicode + whitespace normalisation. Symmetric, so it can never break a correct answer that
+    genuinely contains a curly apostrophe or a double space — the expected value is folded too."""
+    import unicodedata
+    s = unicodedata.normalize("NFKC", s or "")
+    for a, b in _TYPO.items():
+        s = s.replace(a, b)
+    return re.sub(r"\s+", " ", s).strip()      # collapse runs INCLUDING newlines
+
+
+def _undecorate(s):
+    """Strip PRESENTATION from an answer, never content.
+
+    Applied identically to the candidate and the expected value, which is the whole safety
+    argument: a case whose correct answer really does end in a period still matches, because the
+    expected value is stripped the same way. Nothing here can make a wrong answer look right — it
+    only removes the wrapping that made a right one look wrong."""
+    s = (s or "").strip()
+    # A FIXPOINT, not a single pass. `Answer: **x**.` needs the lead stripped, then the emphasis,
+    # then the period — and each layer only becomes strippable once the one outside it is gone
+    # (the trailing period alone stops `**x**.` matching the emphasis pattern). Bounded so a
+    # pathological string cannot spin.
+    for _ in range(6):
+        before = s
+        m = _FENCE.match(s)                  # a fenced block holding just the answer
+        if m:
+            s = m.group(1).strip()
+        s = _ANSWER_LEAD.sub("", s).strip()  # "Answer:", "The final answer is", ...
+        t = re.sub(r"^([*_`]{1,3})(.+?)\1$", r"\2", s, flags=re.S).strip()   # ***bold italic***
+        if t != s:
+            s = t
+        for lo, hi in _QUOTE_PAIRS:
+            if len(s) > 1 and s[0] == lo and s[-1] == hi:
+                s = s[1:-1].strip()
+                break
+        if s.endswith(".") and not s.endswith(".."):  # one full stop, never an ellipsis
+            s = s[:-1].rstrip()
+        if s == before:
+            break
+    return s
+
+
 def chk_exact_match(candidate, p):
     val = p["value"]
     cand = candidate
-    if p.get("normalize", True):
-        cand = candidate.strip()
-        if p.get("ignore_case", True):
-            cand, val = cand.lower(), val.lower()
-    ok = cand == val
-    return ok, (f"got {candidate.strip()!r}" if not ok else f"matched {p['value']!r}")
+    if not p.get("normalize", True):
+        return (cand == val), (f"got {candidate.strip()!r}" if cand != val
+                               else f"matched {p['value']!r}")
+
+    fold = p.get("ignore_case", True)
+
+    def norm(x):
+        # SYMMETRIC: whatever we do to the answer, we do to the expected value too.
+        x = _fold(_undecorate(x))
+        return x.lower() if fold else x
+
+    want = norm(val)
+    if norm(candidate) == want:
+        return True, f"matched {p['value']!r}"
+
+    # EXTRA-LINE FALLBACK: a one-line expected value against a multi-line reply. Models append a
+    # preamble the task did not ask for and put the answer last. Tried ONLY after a direct compare
+    # failed, so it can add a match and never take one away — and only when the expected value is
+    # itself a single line, or we would be comparing a line against a paragraph.
+    if "\n" not in (val or "").strip():
+        lines = [ln for ln in (candidate or "").splitlines() if ln.strip()]
+        for ln in reversed(lines[-3:]):          # last few only — not a search of the whole reply
+            if norm(ln) == want:
+                return True, f"matched {p['value']!r} (on the reply's final line)"
+    return False, f"got {candidate.strip()!r}"
 
 
 def chk_numeric_tolerance(candidate, p):

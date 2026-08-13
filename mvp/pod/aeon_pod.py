@@ -867,6 +867,36 @@ def _serve(recipe):
     return subprocess.Popen(cmd)
 
 
+def _assert_token_headroom(recipe, max_tokens):
+    """A request needs prompt + max_tokens <= served context. Refuse a bench that cannot fit one.
+
+    WHY THIS IS A HARD STOP, NOT A WARNING. Serving at exactly DEFAULT_MAX_TOKENS looks entirely
+    reasonable — 65536 is both our default generation budget and a common --max-model-len — but it
+    leaves ZERO room for the prompt, so the engine 400s every single request. Observed: a 24-case
+    god run where all 24 failed instantly and identically, reported only as "endpoint answered none
+    of the 24 attempted cases (every attempt failed in transport)", which reads like a dead endpoint
+    and sends you hunting the engine instead of the arithmetic. Nothing clamps max_tokens to the
+    served window, so this is the only place it can be caught — and it costs one comparison against
+    a number the recipe already knows, versus a full model load and 24 doomed requests.
+    """
+    try:
+        ctx = int((recipe or {}).get("context_len") or 0)
+    except (TypeError, ValueError):
+        return
+    if not ctx or not max_tokens:
+        return
+    if max_tokens >= ctx:
+        raise SystemExit(
+            f"[pod] --max-tokens {max_tokens} leaves no prompt room in a {ctx}-token context: every "
+            f"request needs prompt + {max_tokens} <= {ctx}, so the engine would reject all of them "
+            f"with 400. Serve a larger --max-model-len (the model's native context), or lower "
+            f"--max-tokens below {ctx}.")
+    head = ctx - max_tokens
+    if head < 2048:
+        print(f"[pod] WARNING: only {head} tokens of prompt headroom ({ctx} context - {max_tokens} "
+              f"max-tokens). Long prompts will 400.", flush=True)
+
+
 def _wait_ready(base_url, timeout=1200, interval=4, server=None):
     """Poll the OpenAI /models endpoint until the engine is serving; return the served ids.
 
@@ -1474,6 +1504,7 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
             print(f"[pod] served id adopted from endpoint: '{alias}'  (endpoint serves {ids})")
         served_ok = alias in ids
         print(f"[pod] engine ready; served = {ids}  (alias present: {served_ok})")
+        _assert_token_headroom(recipe, max_tokens)
         # SUSTAINED-LOAD telemetry starts here and runs for the whole bench — sentinels, arena,
         # harnesses, then the perf grid. It has to span all of it: a concurrency ladder against a
         # fresh engine measures a best case, and cannot show a serve slowing down as KV pressure

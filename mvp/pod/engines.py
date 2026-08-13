@@ -482,15 +482,40 @@ def _has_cuda() -> bool:
 
 
 def _daemon_has_nvidia() -> bool:
-    """Ask the DOCKER DAEMON whether the host has the NVIDIA runtime. The containerized
+    """Ask the DOCKER DAEMON whether the host can give a container GPUs. The containerized
     dashboard may lack GPU access itself (someone forgot --gpus all), but sibling engine
-    containers it launches CAN still get GPUs — the daemon, not this container, is the truth."""
+    containers it launches CAN still get GPUs — the daemon, not this container, is the truth.
+
+    TWO signals, because one stopped being enough. Docker <=28 registered a separate `nvidia`
+    RUNTIME, so its name appeared in `docker info`. Docker 29 wires GPUs through CDI instead and
+    the Runtimes map lists only runc — on a DGX Spark where `docker run --gpus all` works
+    perfectly. Trusting the old signal alone made the pod conclude accel=cpu, which cost it both
+    the `--gpus all` flag on the engine container (vLLM then died with "Failed to infer device
+    type") and the right engine choice. So also accept a visible NVIDIA CDI spec.
+    """
     try:
         out = subprocess.run(["docker", "info", "--format", "{{json .Runtimes}}"],
                              capture_output=True, text=True, timeout=8)
-        return out.returncode == 0 and "nvidia" in (out.stdout or "")
+        if out.returncode == 0 and "nvidia" in (out.stdout or ""):
+            return True
     except Exception:
-        return False
+        pass
+    # CDI path (Docker 29+). Ask the daemon where its spec dirs are rather than guessing, then look
+    # for an nvidia spec in them. Requires the dirs to be readable here — mount them into the pod
+    # (-v /var/run/cdi:/var/run/cdi:ro) or set AEON_ACCEL=cuda when they are not.
+    try:
+        out = subprocess.run(["docker", "info", "--format", "{{json .CDISpecDirs}}"],
+                             capture_output=True, text=True, timeout=8)
+        dirs = json.loads(out.stdout or "[]") if out.returncode == 0 else []
+        for d in list(dirs) + ["/etc/cdi", "/run/cdi", "/var/run/cdi"]:
+            try:
+                if any("nvidia" in f.lower() for f in os.listdir(d)):
+                    return True
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return False
 
 
 _PLAT_CACHE: dict | None = None
@@ -515,7 +540,16 @@ def host_platform() -> dict:
     except AttributeError:
         apple_vm = False
     accel_source = "probe"
-    if _has_cuda():
+    # OPERATOR OVERRIDE, checked first. Detection is a heuristic over someone else's machine, and
+    # on a borrowed box it can be wrong in the safe-looking direction: a missed GPU silently
+    # degrades to accel=cpu, which drops --gpus all from the engine container and picks llama.cpp
+    # as the engine — two confusing failures downstream of one wrong guess. AEON_ACCEL lets the
+    # operator assert what they can see with nvidia-smi. Same escape hatch as AEON_SYSTEM.
+    _forced = (os.environ.get("AEON_ACCEL") or "").strip().lower()
+    if _forced in ("cuda", "rocm", "metal", "cpu"):
+        accel = _forced
+        accel_source = "AEON_ACCEL"
+    elif _has_cuda():
         accel = "cuda"
     elif _has_rocm():
         accel = "rocm"

@@ -14,11 +14,15 @@ Run: python3 mvp/test_live_plan_counts.py
 """
 import os
 import sys
+import tempfile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 os.environ.setdefault("AEON_ROLE", "pod")
-os.environ.setdefault("AEON_DB", os.path.join(BASE, ".test_live_plan.db"))
+# A scratch DB, in a temp dir. Pointing AEON_DB inside the repo makes importing aeon.app create a
+# 172KB sqlite file next to the source, which a later `git add -A` will happily commit — it already
+# reached the PUBLIC pod repo once that way.
+os.environ.setdefault("AEON_DB", os.path.join(tempfile.mkdtemp(prefix="aeon_planct_"), "t.db"))
 
 from aeon import app as A          # noqa: E402
 from aeon import suite as S        # noqa: E402

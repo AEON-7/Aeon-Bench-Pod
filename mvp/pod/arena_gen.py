@@ -19,7 +19,21 @@ from aeon.targets import OpenAITarget
 
 # Hard per-artifact cap (bytes of UTF-8). The mothership enforces the same cap on
 # ingest — keep the two in sync so a bundle is never rejected for size.
-MAX_HTML_BYTES = 200 * 1024
+#
+# 50 MB is a RUNAWAY GUARD, not a target. The old 200 KB was sized for pure hand-written HTML,
+# where the token budget binds first (65 536 tok is only ~192 KB of text). It stops being enough
+# the moment an artifact embeds its own assets: a base64 data: URI for a texture, a sprite sheet,
+# a few seconds of audio: each is megabytes, and the 200 KB cap cut them mid-string — producing
+# exactly the truncated artifacts we now refuse to publish. A cap that mangles legitimate content
+# is worse than no cap; this one only exists so a pathological generation cannot exhaust memory.
+MAX_HTML_BYTES = 50 * 1024 * 1024
+
+# What ONE submission may carry in artifacts, all told. Per-artifact and per-bundle are different
+# questions: 50 MB is fine for a single asset-heavy artifact, but a bundle carries up to
+# MAX_ARTIFACTS of them, and 24 x 50 MB is not a POST anyone should try to make. The pod fills up
+# to this budget in order and SAYS what did not fit — a bundle the edge rejects loses the whole
+# run, so trimming here is the graceful failure and silence would not be.
+MAX_BUNDLE_ARTIFACT_BYTES = 64 * 1024 * 1024
 
 
 def is_complete(html: str) -> bool:
@@ -41,6 +55,28 @@ def is_complete(html: str) -> bool:
     if low.count("<script") != low.count("</script>"):
         return False
     return True
+
+
+def fit_bundle(artifacts, budget: int = MAX_BUNDLE_ARTIFACT_BYTES):
+    """Trim an artifact list to what one submission can actually carry.
+
+    Per-artifact and per-bundle are different limits. An asset-heavy artifact may legitimately be
+    tens of megabytes, but the whole bundle still has to survive one POST — and a bundle the edge
+    rejects loses the ENTIRE run, not just the artifact that overflowed it. Dropping the tail is
+    the graceful failure; the un-postable bundle is not.
+
+    Keeps corpus order (so per-prompt coverage degrades evenly rather than by kind) and returns
+    (kept, dropped) so the caller can say out loud what did not fit. Never silent: a bundle that
+    quietly shipped 6 of 18 artifacts would read on the board as "this model made 6"."""
+    kept, dropped, used = [], [], 0
+    for a in artifacts or []:
+        n = len((a.get("html") or "").encode("utf-8"))
+        if kept and used + n > budget:          # always keep at least one, even if huge
+            dropped.append(a)
+            continue
+        kept.append(a)
+        used += n
+    return kept, dropped
 
 
 def _cap_html(html: str, limit: int = MAX_HTML_BYTES) -> str:
@@ -124,8 +160,10 @@ DEFAULT_ARENA_MAX_TOKENS = 32768
 # self-contained file. Measured against the truncated runs, output runs ~3 chars/token, so:
 #     8 000 tok ->  ~23 KB   (what truncated every artifact of the first two external runs)
 #    32 768 tok ->  ~96 KB
-#    65 536 tok -> ~192 KB   (just under MAX_HTML_BYTES, so nothing is spent that cannot be stored)
-# Sized to the storage cap rather than picked round: past this the byte cap truncates instead.
+#    65 536 tok -> ~192 KB
+# The TOKEN budget is now the only thing that bounds a text artifact — the byte cap sits three
+# orders of magnitude above these figures and is a runaway guard, not a storage ceiling. So this
+# number answers one question only: how much thinking + code a god-tier task deserves.
 GOD_ARENA_MAX_TOKENS = 65536
 
 

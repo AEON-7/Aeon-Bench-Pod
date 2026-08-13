@@ -83,7 +83,7 @@ def _sha256_file(path: str, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def verify(local_dir: str, ref: dict) -> dict:
+def verify(local_dir: str, ref: dict, progress_cb=None) -> dict:
     """STRICT bit-for-bit verification of a local weight set against HF's manifest.
 
     Contract: the local WEIGHT SET must EQUAL the repo@revision's weight set — every
@@ -96,21 +96,31 @@ def verify(local_dir: str, ref: dict) -> dict:
     expected = {n: s for n, s in (ref.get("files") or {}).items()
                 if n.lower().endswith(WEIGHT_EXT)}
     per_file, mismatches, lfs_checked = {}, [], 0
+    # Enumerate BEFORE hashing so there is a denominator to report against. Hashing a 27 GB weight
+    # set is minutes of apparent silence, and a run that looks hung is a run someone kills.
+    todo = []
     for root, _, files in os.walk(local_dir):
         for fn in files:
-            if not fn.lower().endswith(WEIGHT_EXT):
-                continue
-            rel = os.path.relpath(os.path.join(root, fn), local_dir).replace("\\", "/")
-            digest = _sha256_file(os.path.join(root, fn))
-            per_file[rel] = digest
-            if rel not in expected:
-                mismatches.append(f"extra:{rel}")       # not part of the repo -> adulterated set
-                continue
-            adv = expected[rel]
-            if adv:                                     # hash published (LFS) -> must match exactly
-                lfs_checked += 1
-                if adv != digest:
-                    mismatches.append(f"hash:{rel}")
+            if fn.lower().endswith(WEIGHT_EXT):
+                todo.append(os.path.join(root, fn))
+    todo.sort()
+    for i, path in enumerate(todo, 1):
+        rel = os.path.relpath(path, local_dir).replace("\\", "/")
+        digest = _sha256_file(path)
+        per_file[rel] = digest
+        if progress_cb:
+            try:
+                progress_cb(i, len(todo))
+            except Exception:
+                pass                                    # progress must never fail a verification
+        if rel not in expected:
+            mismatches.append(f"extra:{rel}")           # not part of the repo -> adulterated set
+            continue
+        adv = expected[rel]
+        if adv:                                         # hash published (LFS) -> must match exactly
+            lfs_checked += 1
+            if adv != digest:
+                mismatches.append(f"hash:{rel}")
     # Completeness. Sharded model repos (safetensors/torch) need EVERY weight file — a
     # missing shard is an unservable, unverifiable set. GGUF repos are collections of
     # SELF-CONTAINED artifacts (many quantizations of one model; LM Studio downloads just

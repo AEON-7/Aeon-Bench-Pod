@@ -142,6 +142,10 @@ ok(len(failed) == len(arena.KINDS) and all(not a["ok"] and a["html"] == "" for a
 
 # ---------- (c) ingest path (temp sqlite) ----------
 GOOD_HTML = "<!DOCTYPE html><html><body><h1>hi</h1></body></html>"
+# 250 KB: oversized under the OLD 200 KB cap, ordinary under the current one. Artifacts now
+# legitimately embed their own assets (base64 textures, audio), so a quarter-megabyte file is
+# normal content and must survive whole. Truncation itself is exercised against an explicit
+# limit below rather than by allocating a 50 MB string here.
 BIG_HTML = "<!DOCTYPE html><html><body>" + "x" * (250 * 1024) + "</body></html>"
 
 def art(i, **over):
@@ -155,7 +159,7 @@ artifacts = [
     art(2, kind="game", prompt_id="game.snake"),   # saved
     art(3, ok=False),                              # skipped: failed generation
     art(4, html="   "),                            # skipped: empty html
-    art(5, html=BIG_HTML),                         # saved TRUNCATED to 200KB
+    art(5, html=BIG_HTML),                         # saved WHOLE (250 KB is under the cap now)
     art(6, kind="weird"),                          # skipped: unknown kind
     art(7, prompt_id="<img src=x>"),               # saved with sanitized prompt_id
 ] + [art(10 + i, kind="animation", prompt_id="anim.balls",           # 5 DISTINCT generations of one
@@ -188,9 +192,16 @@ ok(all(not set('<>"\'`') & set(r["model"]) and len(r["model"]) <= 80 for r in ro
    "ingest: model sanitized (no markup, <=80 chars)")
 ok(all(not set('<>"\'`') & set(r["prompt_id"]) for r in rows), "ingest: prompt_id sanitized")
 ok(all(len(r["html"].encode("utf-8")) <= ingest.MAX_ARTIFACT_HTML for r in rows),
-   "ingest: html truncated to 200KB")
-ok(any(len(r["html"].encode("utf-8")) == ingest.MAX_ARTIFACT_HTML for r in rows),
-   "ingest: oversized artifact was truncated, not dropped")
+   "ingest: every stored artifact is within the per-artifact cap")
+ok(any(r["html"] == BIG_HTML for r in rows),
+   "ingest: a 250KB asset-bearing artifact is stored WHOLE, not truncated")
+# Truncation still applies past the cap — checked against an explicit limit so the test does
+# not have to allocate a 50 MB string to prove it.
+_small = ingest._cap_html(BIG_HTML, limit=1024)
+ok(len(_small.encode("utf-8")) == 1024,
+   "ingest: past the cap an artifact is TRUNCATED, not dropped")
+ok(ingest._html_complete(_small) is False,
+   "ingest: and a truncated artifact is detected as incomplete (so it never reaches the gallery)")
 ok(db.get_run(pod["run_id"])["status"] == "succeeded" and len(db.result_case_ids(pod["run_id"])) == 2,
    "ingest: results committed alongside artifacts")
 

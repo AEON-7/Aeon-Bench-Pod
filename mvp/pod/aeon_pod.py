@@ -848,8 +848,15 @@ def _wait_ready(base_url, timeout=1200, interval=4, server=None):
     import time
     import urllib.request
     url = base_url.rstrip("/") + "/models"
-    deadline = time.time() + timeout
+    t0 = time.time()
+    deadline = t0 + timeout
     last = None
+    # Loading a large quantized model is weights -> compile -> cudagraph capture -> autotune, and
+    # on a 27B NVFP4 set that is ~9 minutes during which the engine answers nothing. There is no
+    # honest completion fraction to report (the engine does not expose one), so report ELAPSED
+    # against the timeout: it moves, it is true, and it tells you how much patience is left.
+    _stage("serve-boot", 0, timeout)
+    _last_tick = t0
     while time.time() < deadline:
         if server is not None and server.poll() is not None:
             raise SystemExit(f"[pod] the serve process exited (code {server.returncode}) before "
@@ -859,9 +866,14 @@ def _wait_ready(base_url, timeout=1200, interval=4, server=None):
             with urllib.request.urlopen(url, timeout=5) as r:
                 ids = [m.get("id") for m in json.loads(r.read()).get("data", [])]
             if ids:
+                _stage("serve-boot", timeout, timeout)          # ready — fill the bar
                 return ids
         except Exception as e:
             last = e
+        now = time.time()
+        if now - _last_tick >= 15:                              # a tick every 15s, not every poll
+            _stage("serve-boot", int(now - t0), timeout)
+            _last_tick = now
         time.sleep(interval)
     raise SystemExit(f"[pod] engine not ready at {base_url} within {timeout}s ({last})")
 
@@ -995,6 +1007,16 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
                                      # a pure-god scope draws ONLY god-tier challenges
                                      only_difficulty=("god_mode" if (difficulty or "").strip() == "god_mode"
                                                       else None)) if arena_per_kind else []
+        # An artifact may legitimately be tens of MB once it embeds its own textures/audio, but
+        # the BUNDLE still has to survive one POST — and an oversized bundle loses the whole run,
+        # not just the artifact that overflowed it. Trim to the budget and say what did not fit.
+        from pod import arena_gen
+        artifacts, _over = arena_gen.fit_bundle(artifacts)
+        if _over:
+            _mb = sum(len((a.get("html") or "").encode("utf-8")) for a in _over) / 1048576.0
+            print(f"[pod] artifacts: {len(_over)} of {len(artifacts) + len(_over)} did NOT fit the "
+                  f"{arena_gen.MAX_BUNDLE_ARTIFACT_BYTES // 1048576} MB per-bundle budget "
+                  f"({_mb:.1f} MB dropped) — the run submits without them", flush=True)
         # Mirror the artifacts into the pod's own arena/gallery (the mothership saves its
         # copy from the signed bundle; the pod keeps its own).
         try:
@@ -1037,7 +1059,9 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
     if harness_ids:
         try:
             from pod import probe_tools
+            _stage("tool-probe", 0, 1)               # a minute of silence otherwise
             tool_probe = probe_tools.probe(target, alias)
+            _stage("tool-probe", 1, 1)
             print(probe_tools.summarize(tool_probe), flush=True)
         except Exception as e:                       # a diagnostic must never break the run
             print(f"[pod] tool-calling probe skipped ({type(e).__name__}: {str(e)[:120]})",
@@ -1199,7 +1223,11 @@ def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="te
         print(f"[pod] pulling weights -> {dest}  (first run can take a while)")
         local_dir = modelhost.pull(repo, ref.get("revision") or rev, dest)
 
-    ver = modelhost.verify(local_dir, ref)
+    # Hashing a sharded 27 GB weight set is minutes of silence on the dashboard. Report it as a
+    # real stage with a real denominator — "verify 6/14" is the difference between a run that
+    # looks wedged and one someone is willing to leave alone.
+    ver = modelhost.verify(local_dir, ref,
+                           progress_cb=lambda d, t: _stage_throttled("verify", d, t))
     if not ver["verified"]:
         if not keep_weights:
             shutil.rmtree(local_dir, ignore_errors=True)

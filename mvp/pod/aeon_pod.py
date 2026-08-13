@@ -946,7 +946,8 @@ def _mirror_local(*, suite_id, results, repo, target, env, board="text", judge=N
 def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, board, suite_id,
                 harness_ids, harness_only, judge, judge_url, judge_key, max_tokens, retry_max_tokens,
                 temperature, concurrency, vision, audio, perf, perf_max_conc, arena_per_kind,
-                difficulty, bench_seed, job_ctx, resume=False, force_submit=False, video=True):
+                difficulty, bench_seed, job_ctx, resume=False, force_submit=False, video=True,
+                think_budget=None):
     """Run EVERY benchmark dimension against an ALREADY-served, hash-verified model and submit
     each as its own attested bundle: text (+ arena artifacts) → agentic-v2 through each harness →
     vision → audio → video → perf grid. Shared by run_attested (split-pod) and run_controlled

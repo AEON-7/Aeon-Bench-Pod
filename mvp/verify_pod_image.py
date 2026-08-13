@@ -88,6 +88,29 @@ check("artifact cap is 50MB", arena_gen.MAX_HTML_BYTES == 50 * 1024 * 1024)
 check("per-bundle artifact budget", hasattr(arena_gen, "fit_bundle"))
 check("completeness check present", arena_gen.is_complete("<html><body>x</body></html>") is True)
 
+# ---- sustained load ----------------------------------------------------------------------------
+from pod import kvwatch
+check("sustained-load watcher present", hasattr(kvwatch, "begin") and hasattr(kvwatch, "finish"))
+check("metrics url derived from the target",
+      kvwatch._metrics_url("http://h:8000/v1") == "http://h:8000/metrics")
+_w = kvwatch.Watcher("http://x/v1")
+_w.points = [{"t": 1000.0 + 15 * i, "kv_pct": kv, "gen_tok_rate": tps, "running": 8,
+              "waiting": 0, "preempt_d": pre}
+             for i, (kv, tps, pre) in enumerate(
+                 [(0.10, 400, 0), (0.12, 396, 0), (0.15, 404, 0),
+                  (0.40, 300, 0), (0.45, 296, 1), (0.50, 304, 2),
+                  (0.85, 200, 5), (0.88, 196, 6), (0.92, 204, 7)])]
+_s = _w.summary()
+check("degradation computed from terciles", _s and _s["degradation_pct"] == 50.0,
+      str(_s and _s["degradation_pct"]))
+check("preemptions counted", _s and _s["preemptions"] == 21)
+check("silent when it cannot compare regimes", kvwatch.Watcher("http://x/v1").summary() is None)
+check("rides the perf bundle as rows",
+      len(perf_grid.sustained_rows(_s, _w.series())) == 2)
+check("and no rows when there is no summary", perf_grid.sustained_rows(None, []) == [])
+check("bench starts the watcher at engine-ready", "kvwatch.begin(target)" in src)
+check("and harvests it at perf submit", "kvwatch.finish()" in src)
+
 # ---- live feed ----------------------------------------------------------------------------------
 from pod import livelog
 livelog.emit("[verify] image check", "stage")

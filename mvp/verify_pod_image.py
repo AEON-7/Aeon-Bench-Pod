@@ -152,8 +152,37 @@ check("wall crosses the process boundary",
 livestreams.clear()
 _js = open(os.path.join(BASE, "web", "app.js"), encoding="utf-8", errors="replace").read()
 check("dashboard polls + renders the wall",
-      "/api/pod/streams" in _js and "function streamWall(" in _js and "streamWall() +" in _js)
-check("live strips no longer gated on a job", "const _anyLive =" in _js)
+      "/api/pod/streams" in _js and "function streamWall(" in _js and "streamWall()" in _js)
+# The racing dash reads the engine. Gating that fetch on a job hid it from every hand-launched run;
+# gating it on "anything looks live" hid it during a quiet agentic phase, when it is the only proof
+# of life left. Assert the ungated form, and that neither old gate came back.
+check("engine telemetry fetched unconditionally",
+      'try { tele = await api("/api/pod/stats"' in _js
+      and 'if (job) { try { tele = await api("/api/pod/stats"' not in _js
+      and 'if (_anyLive) { try { tele = await api("/api/pod/stats"' not in _js)
+# Completion leads the page: statsHtml is concatenated before the instruments, the wall and the log.
+_order = [_js.find(x) for x in ('statsHtml.join("")', "pipeStrip(false)", "streamWall()",
+                                'feedHtml.join("")', "liveTerminal()")]
+check("live view puts completion stats first",
+      all(i > 0 for i in _order[:2]) and _order[0] < _order[1] < _js.find("queueStrip(queued);      "))
+check("a failing /api/live no longer blanks the live view",
+      "lost = true;" in _js and "Run progress unavailable" in _js)
+check("peak-hold survives a phase change", "_LIVE_RUN_KEY" in _js)
+
+# ---- live progress denominators ----------------------------------------------------------------
+# A god run is the god_mode tier alone; dividing its progress by the whole suite pinned every bar
+# near 12% for the entire run.
+from aeon import app as _app
+from aeon import suite as _suite
+_full = _app._suite_cat_counts()
+_gcount = sum(_app._difficulty_cat_counts().get("god_mode", {}).values())
+_plan = _app._plan_cat_counts(_gcount, suite_id=_suite.SUITE_ID)
+check("god-tier run divides by the god tier, not the suite",
+      sum(_plan.values()) == _gcount and _plan != _full, "%d cases" % _gcount)
+check("a full run is unchanged",
+      _app._plan_cat_counts(len(_suite.CASES), suite_id=_suite.SUITE_ID) == _full)
+check("another suite is never matched against text tiers",
+      _app._plan_cat_counts(_gcount, suite_id="aeon-vision-v2") == _full)
 _css = open(os.path.join(BASE, "web", "styles.css"), encoding="utf-8").read()
 check("wall is styled", ".sw-grid" in _css and ".sw-reason" in _css)
 

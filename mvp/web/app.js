@@ -3966,17 +3966,20 @@ async function setLive() {
 
 let LIVE_FAILS = 0;
 async function pollLive() {
-  let d;
+  let d, lost = false;
   try { d = await api("/api/live"); LIVE_FAILS = 0; }
   catch (e) {
+    // /api/live is ONE of five sources, and the only one that used to be able to blank the others.
+    // Bailing here froze the throughput dash, the terminal wall and the bench log too — all fed by
+    // endpoints that were answering perfectly — so one hiccup in the run query made a healthy bench
+    // look dead. Carry on with no db run and say so instead.
+    d = { running: [] };
+    lost = true;
     // after 2 consecutive failures the REC light must stop lying
     if (++LIVE_FAILS >= 2) {
       const dot = $("#liveDot"); if (dot) dot.classList.remove("on");
       const lt = $("#tabs [data-live]"); if (lt) lt.classList.remove("has-live");
-      if (active === "live" && LIVE_FAILS === 2)
-        $("#liveBody").insertAdjacentHTML("afterbegin", `<p class="note err" style="text-align:left">stream lost — retrying…</p>`);
     }
-    return;
   }
   // A run spends long stretches in NON-STREAMING dimensions (arena / harness / perf) where no
   // db run is live — the active JOB's stage strip keeps Live honest through those phases.
@@ -3989,11 +3992,15 @@ async function pollLive() {
       // the pod runs ONE bench at a time — everything else waits its turn here
       queued = all.filter((x) => x.status === "queued").reverse();   // list is newest-first; queue runs oldest-first
     } catch (e) { /* jobs API optional — Live still renders db runs */ }
-    // Serve-watch telemetry whenever ANY bench is live — a job, a running DB run, or a warm
-    // output feed. Gating this on `job` is what left a hand-launched run with no throughput panel
-    // and no host strip: not a different board, just a different launcher.
-    const _anyLive = !!job || ((d && d.running) || []).length > 0 || LIVE_FEED.live;
-    if (_anyLive) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
+    // The dash is an INSTRUMENT, not a decoration: read the engine whenever the engine is there.
+    //
+    // Gating this on `job` is what left a hand-launched run with no throughput panel at all. But
+    // the obvious replacement — "fetch when anything looks live" — fails the same way in a subtler
+    // spot: during an agentic phase there is no db run, and if the case has been thinking quietly
+    // for over two minutes the feed is not "live" either, so every predicate goes false AT ONCE
+    // and the dash disappears in the one stretch where throughput is the only proof the box is
+    // working. Cost of not gating: one loopback Prometheus scrape per poll, on a pod-only view.
+    try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {}
     // The bench's own stdout — the only source present in EVERY phase and under every launch
     // method. Polled unconditionally (not gated on `job`), because the case it exists for is
     // precisely when there is no job and no db run.
@@ -4019,7 +4026,7 @@ async function pollLive() {
       }
     } catch (e) { /* older pods publish no wall — the feed still carries the run */ }
   }
-  renderLive(d, job, queued, tele);
+  renderLive(d, job, queued, tele, lost);
 }
 
 // Pending-bench queue strip: runs execute one at a time; paused host containers are
@@ -4257,7 +4264,11 @@ function _stagesFromFeed() {
   return [...out.values()];
 }
 
-function renderLive(d, job, queued, tele) {
+// The bench's identity, remembered across the phases that have no db run — see the synthetic job
+// below. Cleared when a different bench takes over, never on a phase change.
+let _LIVE_RUN_KEY = null, _LIVE_RUN_MODEL = null;
+
+function renderLive(d, job, queued, tele, lost) {
   queued = queued || [];
   const runs = (d && d.running) || [];
   let activeJob = job && job.status === "running" ? job : null;
@@ -4266,9 +4277,15 @@ function renderLive(d, job, queued, tele) {
   // panel's peak tracker, a model name, and the stage list from the feed's own markers.
   if (!activeJob && (runs.length || LIVE_FEED.live)) {
     const st = _stagesFromFeed();
+    // The id has to be STABLE for the whole bench, because the dash keys its peak-hold on it. The
+    // db run exists only during the scored dimensions, so deriving the id purely from `runs` makes
+    // it flip when the bench moves into arena / harness / perf — and the redline silently resets
+    // mid-run. Remember the last real run id and keep using it until a genuinely different bench
+    // shows up, which then correctly starts its own peak.
+    if (runs.length && runs[0].run) { _LIVE_RUN_KEY = runs[0].run; _LIVE_RUN_MODEL = runs[0].model; }
     activeJob = {
-      id: "live:" + ((runs[0] && runs[0].run) || "bench"),
-      model: (runs[0] && runs[0].model) || LIVE_FEED.model || "benchmark in progress",
+      id: "live:" + (_LIVE_RUN_KEY || "bench"),
+      model: (runs[0] && runs[0].model) || _LIVE_RUN_MODEL || LIVE_FEED.model || "benchmark in progress",
       status: "running",
       stage: st.length ? st[st.length - 1].name : "running",
       stages: st,
@@ -4280,20 +4297,37 @@ function renderLive(d, job, queued, tele) {
   const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", live);
   const phaseTag = activeJob && activeJob.serve_phase && activeJob.stage === "serving"
     ? ` <span class="tag tele-phase">engine: ${escH(activeJob.serve_phase)}</span>` : "";
-  const jobStrip = (activeJob ? `<div class="live-job">
-      <h4 class="live-feed-h">run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}
+  // The instrument block: throughput dash, stage strip, host telemetry. Split from the queue,
+  // which belongs at the BOTTOM — it is about work not yet started, and nothing about a bench in
+  // flight should be read after it.
+  //
+  // When a run card is rendered above, it already names the model in a bigger typeface; repeating
+  // it here two lines later just makes the operator read the same string twice. The stage tag is
+  // kept either way, because the run card cannot show it — a db run knows nothing about the
+  // arena / harness / perf phases that follow it.
+  const pipeStrip = (naming) => (activeJob ? `<div class="live-job">
+      <h4 class="live-feed-h">${naming
+        ? `run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}`
+        : "bench pipeline"}
         <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span>${phaseTag}</h4>
-      ${dashStrip(tele, activeJob)}${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "") + queueStrip(queued);
+      ${dashStrip(tele, activeJob)}${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "");
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
     const term = liveTerminal();
-    // The terminal comes FIRST and stands alone when nothing else exists. A bench in its arena /
-    // harness / perf phases has no db run, and a hand-launched one has no job — the old copy then
-    // claimed nothing was running, which is the opposite of true.
-    $("#liveBody").innerHTML = streamWall() + term + jobStrip
+    // NO db run — an arena / harness / perf phase, or a bench that has not opened one yet. There
+    // are no completion stats to lead with, so the instrument block takes the top: its stage strip
+    // IS the progress in these phases. Terminals follow, then the raw log, then the queue.
+    // Scope the failure to the source that actually failed. Everything else on this page comes
+    // from other endpoints and is still current; a blanket "stream lost" over a live wall would be
+    // its own kind of lie.
+    const lostNote = lost
+      ? `<p class="note err" style="text-align:left">Run progress unavailable — retrying. Output below is still live.</p>`
+      : "";
+    $("#liveBody").innerHTML = lostNote + pipeStrip(true) + streamWall() + term
       + (term ? "" : (activeJob
           ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf).</p>`
-          : `<p class="board-empty">No benchmark is running right now. When a pod is mid-run, its stages, output and per-case answers stream here live.</p>`));
+          : `<p class="board-empty">No benchmark is running right now. When a pod is mid-run, its stages, output and per-case answers stream here live.</p>`))
+      + queueStrip(queued);
     _ltPin(); _swPin();
     $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
     return;
@@ -4303,7 +4337,16 @@ function renderLive(d, job, queued, tele) {
   // the 5s innerHTML rebuild must not steal the operator's reading position
   const _feedScroll = [...document.querySelectorAll("#liveBody .live-feed")].map((e) => e.scrollTop);
   const _preScroll = [...document.querySelectorAll("#liveBody .live-a pre")].map((e) => e.scrollTop);
-  $("#liveBody").innerHTML = streamWall() + liveTerminal() + jobStrip + runs.map((r) => {
+  // ORDER: completion first. An operator opening this page is asking "how far along is it, and is
+  // it passing" — that has to be readable without scrolling past sixteen terminals. Then the
+  // instruments (throughput, stage, host), then the live terminals, then the raw bench log, then
+  // the queue. Read top to bottom it goes: how far · how fast · what it is saying · everything.
+  //
+  // The run card used to carry BOTH — its completion stats and its "latest answers" feed — as one
+  // block, so the stats could not be lifted without dragging a live window up with them. Split in
+  // two here: statsHtml leads the page, feedHtml joins the other live windows below.
+  const statsHtml = [], feedHtml = [];
+  runs.forEach((r) => {
     const runKey = r.run || r.run_id || r.id || r.model || "?";
     let LIVE_SEEN = LIVE_SEEN_MAP.get(runKey);
     if (!LIVE_SEEN) { LIVE_SEEN = new Set(); LIVE_SEEN_MAP.set(runKey, LIVE_SEEN); }
@@ -4329,17 +4372,25 @@ function renderLive(d, job, queued, tele) {
     const _mp = (r.model || "").split("/");
     const mName = _mp[_mp.length - 1] || "model";               // the model being tested (real repo, not the served alias)
     const mOrg = _mp.length > 1 ? _mp.slice(0, -1).join("/") + "/" : "";
-    return `<div class="live-run">
+    statsHtml.push(`<div class="live-run live-run-stats">
       <div class="live-run-h"><b>${escH(mName)}</b>
         <span class="elig-badge run" title="a benchmark is running against this model right now">● Benchmarking Live</span>
         ${mOrg ? `<span class="note mono">${escH(mOrg)}</span>` : ""}
         <span class="mono">${r.done}/${r.n_cases} · ${pct}%</span>${r.mean != null ? ` · mean <b>${r.mean.toFixed(1)}</b>` : ""}
         ${r.trust_tier === "attested" ? ' <span class="elig-badge verified">✓ attested</span>' : ""}</div>
       <div class="live-bar big"><div class="live-bar-fill" style="width:${pct}%"></div></div>
-      <div class="live-cats">${cats}</div>
-      <h4 class="live-feed-h">latest answers</h4>
-      <div class="live-feed">${feed}</div></div>`;
-  }).join("");
+      <div class="live-cats">${cats}</div></div>`);
+    feedHtml.push(`<div class="live-run live-run-feed">
+      <h4 class="live-feed-h">latest scored answers — ${escH(mName)}</h4>
+      <div class="live-feed">${feed}</div></div>`);
+  });
+  $("#liveBody").innerHTML =
+    statsHtml.join("")          // 1. how far along, and is it passing
+    + pipeStrip(false)          // 2. how fast — the racing dash, stage strip, host telemetry
+    + streamWall()              // 3. what each concurrent case is saying right now
+    + feedHtml.join("")         // 4. the answers already scored
+    + liveTerminal()            // 5. the raw bench log
+    + queueStrip(queued);       // 6. work not yet started
   _ltPin(); _swPin();
   [...document.querySelectorAll("#liveBody .live-feed")].forEach((e, i) => { if (_feedScroll[i]) e.scrollTop = _feedScroll[i]; });
   [...document.querySelectorAll("#liveBody .live-a pre")].forEach((e, i) => { if (_preScroll[i]) e.scrollTop = _preScroll[i]; });

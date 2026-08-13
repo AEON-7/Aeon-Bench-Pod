@@ -217,6 +217,73 @@ def _suite_cat_counts():
     return _CAT_COUNTS
 
 
+_DIFF_CATS = None
+
+
+def _difficulty_cat_counts():
+    """{difficulty: {category: n}} over the current text suite."""
+    global _DIFF_CATS
+    if _DIFF_CATS is None:
+        from collections import Counter
+        per = {}
+        for c in suite_mod.CASES:
+            per.setdefault(c.get("difficulty"), Counter())[c["category"]] += 1
+        _DIFF_CATS = {d: dict(v) for d, v in per.items()}
+    return _DIFF_CATS
+
+
+def _plan_cat_counts(n_cases, seen_difficulties=(), suite_id=None):
+    """Per-category denominators for THE PLAN THIS RUN IS ACTUALLY EXECUTING.
+
+    A GOD MODE run is 24 cases — the god_mode tier alone — but the live view divided its progress
+    by the whole 174-case suite, so a finished category read "4 / 34" and every bar sat near 12%
+    for the entire run. A progress bar that cannot reach the end is worse than no bar: it says
+    "barely started" to an operator watching a run that is nearly done.
+
+    `--difficulty` filters by whole tiers (aeon_pod: `c["difficulty"] in want`), so the plan is
+    always a UNION OF COMPLETE TIERS and is recoverable from n_cases alone — 24 is uniquely
+    god_mode. When a size is ambiguous (25 is both {hard} and {easy,medium}) the difficulties
+    already observed in the run's own results break the tie. If nothing resolves it, fall back to
+    the full-suite counts: a slightly pessimistic bar beats an invented one.
+    """
+    full = _suite_cat_counts()
+    total = len(suite_mod.CASES)
+    if not n_cases or n_cases >= total:
+        return full
+    # Only the text suite is described by these counts. A vision run (31 cases) must never be
+    # matched against a text-suite tier that happens to share its size.
+    if suite_id and suite_id != suite_mod.SUITE_ID:
+        return full
+    import itertools
+    per = _difficulty_cat_counts()
+    diffs = sorted(d for d in per if d)
+    cands = []
+    for r in range(1, len(diffs) + 1):
+        for combo in itertools.combinations(diffs, r):
+            if sum(sum(per[d].values()) for d in combo) == n_cases:
+                cands.append(combo)
+    want = {d for d in seen_difficulties if d}
+    if want:
+        cands = [c for c in cands if want <= set(c)]
+    if len(cands) != 1:
+        return full
+    out = {}
+    for d in cands[0]:
+        for cat, n in per[d].items():
+            out[cat] = out.get(cat, 0) + n
+    return out
+
+
+_CASE_DIFF = None
+
+
+def _case_difficulty():
+    global _CASE_DIFF
+    if _CASE_DIFF is None:
+        _CASE_DIFF = {c["id"]: c.get("difficulty") for c in suite_mod.CASES}
+    return _CASE_DIFF
+
+
 # A run killed without finalizing (crash, pod restart mid-run) leaves a 'running' row that
 # would keep the REC light on forever. Results rows carry no timestamp, so freshness is
 # progress-change tracking: a 'running' row whose progress hasn't moved in _LIVE_STALE_S is
@@ -270,7 +337,6 @@ def live(board: str = "text"):
             seen.add(m); dedup.append(r)
     running = dedup
     pm = _prompt_map(board)
-    expected = _suite_cat_counts()
     out = []
     for run in running[:4]:
         full = db.get_run(run["id"])
@@ -282,6 +348,14 @@ def live(board: str = "text"):
             s = x.get("score")
             if isinstance(s, (int, float)):
                 b["sum"] += s; b["scored"] += 1
+        # Denominators for THIS run's plan, not the whole suite — per run, because two live runs
+        # can be executing different tiers. See _plan_cat_counts: a god run's bars used to top out
+        # near 12% because 24 god cases were divided by 174.
+        _cd = _case_difficulty()
+        expected = _plan_cat_counts(
+            full.get("n_cases") or run.get("n_cases"),
+            seen_difficulties={_cd.get(x["case_id"]) for x in results},
+            suite_id=full.get("suite_id") or run.get("suite_id"))
         cats = []
         for c in suite_mod.CATEGORIES:
             b = by_cat.get(c, {"done": 0, "sum": 0.0, "scored": 0})

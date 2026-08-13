@@ -570,6 +570,12 @@ details.how .note { text-align: left; max-width: 78ch; }
 .lt-err .lt-s { color: #ff5e5e; }
 @media (max-width: 640px) { .lt-body { max-height: 220px; font-size: 11px; } }
 
+/* The completion block leads the Live view, so it carries the accent edge — an operator glancing
+   at the page should land on "how far along, and is it passing" before anything else. The answers
+   feed, split off from the same card, sits with the other live windows further down. */
+.live-run-stats { border-left: 2px solid var(--accent); padding-left: 10px; }
+.live-run-feed { margin-top: 14px; }
+
 /* THE TERMINAL WALL — one tile per concurrent case, the model's own output as it streams.
    Auto-fit rather than a fixed column count: 1 stream reads as a terminal, 16 read as a wall,
    and nothing in between needs a breakpoint. */

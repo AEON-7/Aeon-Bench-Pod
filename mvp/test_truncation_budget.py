@@ -50,10 +50,13 @@ print("the pod arms it by default")
 import argparse  # noqa: E402
 
 
+from pod.aeon_pod import DEFAULT_MAX_TOKENS   # noqa: E402  (read the REAL default, not a copy)
+
+
 def resolve(argv):
     """The CLI's default-resolution for retry_max_tokens, as aeon_pod applies it."""
     ap = argparse.ArgumentParser()
-    ap.add_argument("--max-tokens", type=int, default=32768)
+    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     ap.add_argument("--retry-max-tokens", type=int, default=None)
     a = ap.parse_args(argv)
     if a.retry_max_tokens is None:
@@ -62,7 +65,10 @@ def resolve(argv):
 
 
 a = resolve([])
-check("unset -> 2x max_tokens (65536)", a.retry_max_tokens == 65536)
+check("unset -> 2x the REAL default (%d -> %d)" % (DEFAULT_MAX_TOKENS, 2 * DEFAULT_MAX_TOKENS),
+      a.retry_max_tokens == 2 * DEFAULT_MAX_TOKENS)
+check("the default ceiling is 64k — 32k was measured hitting a real wall",
+      DEFAULT_MAX_TOKENS == 65536)
 check("and that ARMS the re-run",
       armed({"max_tokens": a.max_tokens, "retry_max_tokens": a.retry_max_tokens}) is True)
 a = resolve(["--max-tokens", "8000"])

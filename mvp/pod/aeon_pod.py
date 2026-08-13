@@ -41,7 +41,16 @@ _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
 if _MVP not in sys.path:
     sys.path.insert(0, _MVP)
 
-DEFAULT_MAX_TOKENS = 32768
+# Generation ceiling per case. 64k because 32k was measured hitting a real wall, not a theoretical
+# one: on a live GOD MODE run 73% of requests finished `length` at 32,768 with a mean of 21.9k, and
+# a coding answer came back as 93k chars of unterminated source — the model was still writing when
+# we cut it off, so its asserts failed on a SyntaxError rather than on its algorithm. That is our
+# ceiling being measured, not the model.
+#
+# The cost is real and worth knowing: a case that runs to the ceiling takes twice as long, and at
+# high concurrency 16 x 64k of KV cache can exceed what the serve reserved, so requests queue.
+# Lower it for a quick pass; raise --gpu-memory-utilization headroom if the engine starts waiting.
+DEFAULT_MAX_TOKENS = 65536
 
 
 def _gpu_desc(gpu_line):

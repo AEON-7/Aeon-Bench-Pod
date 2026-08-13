@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
@@ -262,11 +263,25 @@ def _one_request(target, category, prompt, temperature, max_tokens):
     }
 
 
-def _bust(prompt, i):
-    """Unique per-replica tag: when a category's prompts are tiled to fill a concurrency
-    level, duplicates would otherwise hit vLLM's prefix cache and measure a fantasy
-    prefill. The tag changes the first tokens, so every stream pays real prefill."""
-    return f"[measurement {i:04d}] {prompt}"
+# Per-PROCESS nonce. Two benchmark runs against the same serve would otherwise replay identical
+# prompts and the second would inherit the first's prefix cache — unmeasurable, and there is no
+# reset endpoint on this engine build to clear it.
+_RUN_NONCE = uuid.uuid4().hex[:6]
+
+
+def _bust(prompt, i, salt=""):
+    """Unique per-replica tag so every stream pays REAL prefill.
+
+    `i` alone is not enough. It restarts at 0 for each concurrency level and each run, so
+    "[measurement 0000] X" at c1 is byte-identical to the same string at c4 — c1 primes vLLM's
+    prefix cache and every higher level then measures free prefill on its overlapping indices.
+    Since levels tile 0..n-1, the overlap is systematic and grows with the ladder: the curve
+    reports prefill getting CHEAPER as concurrency rises, which is an artifact, not a result.
+
+    `salt` carries the level and a per-process nonce, so no two measured requests in this run —
+    or in any other run against the same serve — share a prefix. That matters because this engine
+    build exposes no cache-reset endpoint, so there is nothing to clear between runs."""
+    return f"[measurement {salt}{i:04d}] {prompt}"
 
 
 def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16, 32),
@@ -299,7 +314,10 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
         for cat in CATEGORIES:
             base = [p for _ in range(max(1, int(repeats))) for p in PROMPTS[cat]]
             n = max(len(base), int(conc))        # saturate the level with THIS category only
-            tasks = [_bust(base[i % len(base)], i) for i in range(n)]
+            # salt = per-run nonce + level + category, so a prompt is never repeated verbatim
+            # anywhere: not across replicas, not across levels, not across runs on this serve.
+            _salt = f"{_RUN_NONCE}-c{int(conc)}-{cat[:3]}-"
+            tasks = [_bust(base[i % len(base)], i, _salt) for i in range(n)]
             reqs, errors = [], []
             eng0 = _engine_tokens(target_url)    # engine tally BEFORE this cell
             t0 = time.perf_counter()

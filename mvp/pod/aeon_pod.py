@@ -1909,6 +1909,20 @@ def main():
     eff = _scale_http_timeout(a.concurrency)
     print(f"[pod] per-request HTTP timeout: {eff}s (scaled for concurrency {a.concurrency})")
 
+    # TRUNCATION RE-RUN, ON BY DEFAULT. A reasoning model on a hard case spends its whole budget
+    # thinking and never closes the block, so `content` is empty — which the no-answer rule reads
+    # as a technical glitch and retries at the SAME ceiling, deterministically hitting the same
+    # wall. Token starvation is fixed by budget, not by repetition.
+    #
+    # Measured on a live GOD MODE run launched without this: 73% of requests finished
+    # `length`, mean 21.9k tokens against a 32.8k cap, and the suite spent hours re-running cases
+    # that could never succeed. Defaulting to 2x means a cut-off case gets one genuine chance to
+    # finish instead of several identical failures. Pass --retry-max-tokens 0 to disable.
+    if a.retry_max_tokens is None:
+        a.retry_max_tokens = a.max_tokens * 2
+        print(f"[pod] truncation re-run: a cut-off case retries once at {a.retry_max_tokens} "
+              f"tokens (2x --max-tokens; pass --retry-max-tokens 0 to disable)")
+
     # Presets resolve to the underlying knobs BEFORE dispatch, so every downstream path (harness
     # expansion + run_attested/run_controlled) sees a plain, already-normalised set of flags.
     if a.preset == "none":                        # explicit opt-out: the old default, now deliberate

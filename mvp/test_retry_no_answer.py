@@ -21,8 +21,10 @@ normally (a wrong answer stays 0 at full weight). Covered here, fully offline:
     inflate them) — sequential and concurrency>1;
   * dead-endpoint guard: pass 1 answers nothing + every failure transport-class ->
     TargetError abort (run 'failed', zero rows, resumable) instead of an all-no_answer run;
-  * ingest passthrough: a signed bundle carrying a no_answer result commits with the
-    status + NULL score intact on the mothership row;
+  * submission channel: the pod canonicalises + ed25519-signs a bundle carrying a
+    no_answer result with the NULL score intact and tamper-evident (pod side, always
+    runs); the mothership then schema-accepts it and commits the NULL (needs
+    aeon/ingest.py, which is mothership-only — those checks print SKIP in the pod repo);
   * the shared driver on a multimodal board (audio): same retry + no_answer treatment.
 
 Runs fully offline. From the mvp dir:  python test_retry_no_answer.py
@@ -45,7 +47,7 @@ os.environ["AEON_DB"] = os.path.join(_TMP, "test.db")
 os.environ.pop("AEON_DB_URL", None)
 os.environ.pop("AEON_ATTESTED_ONLY", None)
 
-from aeon import db, ingest, runner                        # noqa: E402
+from aeon import attest, db, runner                        # noqa: E402
 from aeon import suite as suite_mod                        # noqa: E402
 from aeon import targets as targets_mod                    # noqa: E402
 from aeon.targets import MockTarget, TargetError, no_answer_reason  # noqa: E402
@@ -53,11 +55,21 @@ from pod import pending                                    # noqa: E402
 from pod.aeon_pod import _missing_case_ids                 # noqa: E402
 from pod.aeon_submit import Pod, _canon                    # noqa: E402
 
+# MOTHERSHIP-ONLY. aeon/ingest.py is the server side of the submission channel and is
+# deliberately never shipped in the public pod repo. Import it when it is there; when it
+# is not, every pod-side assertion below still runs and the four server-side ones print a
+# named SKIP line and are counted in the summary — never silently dropped.
+try:
+    from aeon import ingest                                # noqa: E402
+except ImportError:                                        # pod repo: no mothership modules
+    ingest = None
+
 db.init_db()
 pending.DIR = os.path.join(_TMP, "pending_submits")        # never touch the real ~/.aeon
 KEY = os.path.join(_TMP, "device_key.pem")
 
 PASS = 0
+SKIPPED = []
 
 
 def ok(cond, label):
@@ -65,6 +77,13 @@ def ok(cond, label):
     assert cond, "FAIL: " + label
     PASS += 1
     print("PASS:", label)
+
+
+def skip(label, why):
+    """A check that CANNOT run in this repo. Named, printed, and counted — so a missing
+    module shows up as a hole in the report, not as a quietly shorter run."""
+    SKIPPED.append(label)
+    print("SKIP:", label, "--", why)
 
 
 class FlakyTarget(MockTarget):
@@ -268,39 +287,73 @@ ok(run["status"] == "failed", "guard: the run is marked failed (resumable), not 
 ok(t.calls == len(PLAN), "guard: aborts after ONE pass — no pass-2/3 timeout burn")
 ok(len(run["results"]) == 0, "guard: no interim rows were persisted")
 
-# ---------- ingest passthrough: status='no_answer' + NULL score commit intact ----------
+# ---------- submission channel: status='no_answer' + NULL score survives the wire ----------
+# Two halves. The POD half — bundle shape, canonical JSON, ed25519 signature — is
+# pod/aeon_submit.py, lives in this repo, and always runs. The MOTHERSHIP half — schema
+# acceptance + commit — is aeon/ingest.py, which is mothership-only; it SKIPs here.
 pod_client = Pod("http://mothership.invalid", KEY)
-ch = ingest.issue_challenge()
-r, code = ingest.enroll(pod_client.pub, ch, pod_client._sign(ch.encode()))
-assert code == 200, r
-body = {"action": "open_run", "public_key": pod_client.pub, "model": "lab/na-model",
-        "suite_id": "aeon-suite-v3", "board": "text"}
-opened, code = ingest.open_run(pod_client.pub, pod_client._sign(_canon(body)),
-                               model="lab/na-model", suite_id="aeon-suite-v3", board="text")
-assert code == 200, opened
-bundle = {"run_id": opened["run_id"], "run_nonce": opened["run_nonce"], "final": True,
-          "results": [
-              {"case_id": "c1", "category": "math", "tier": 0, "status": "scored",
-               "score": 1.0, "raw_output": "ok"},
-              {"case_id": "c2", "category": "math", "tier": 0, "status": "no_answer",
-               "score": None, "raw_output": "",
-               "evidence": {"no_answer": True, "attempts": 3,
-                            "reasons": ["transport: simulated"] * 3}},
-          ]}
-# LEGACY SHAPE ON PURPOSE: a pod on older code still sends score=None for an exhausted
-# no-answer. The mothership must keep accepting it and must preserve the NULL, because the
-# quarter-weight rule in scoring is what those historical rows are scored by. Current pods
-# send 0.0 (a true fail) and never produce this shape again.
-ok(ingest._validate_bundle(bundle),
-   "ingest schema still accepts the LEGACY status='no_answer' + NULL score")
-raw = json.dumps({"bundle": bundle, "signature": pod_client._sign(_canon(bundle))}).encode()
-resp, code = ingest.submit_results(opened["run_id"], opened["run_token"], raw)
-ok(code == 200 and resp.get("ok"), "signed no_answer bundle commits")
-mrows = {r["case_id"]: r for r in db.get_run(opened["run_id"])["results"]}
-ok(mrows["c2"]["status"] == "no_answer" and mrows["c2"]["score"] is None,
-   "legacy no_answer row keeps its NULL score (quarter-weight rule still applies to it)")
-ok(mrows["c1"]["status"] == "scored" and mrows["c1"]["score"] == 1.0,
-   "answered cases in the same bundle commit unchanged")
+
+
+def na_bundle(run_id, run_nonce):
+    """One scored row + one LEGACY no_answer row (score=None).
+
+    LEGACY SHAPE ON PURPOSE: a pod on older code still sends score=None for an exhausted
+    no-answer. The mothership must keep accepting it and must preserve the NULL, because the
+    quarter-weight rule in scoring is what those historical rows are scored by. Current pods
+    send 0.0 (the TRUE FAIL asserted in (b) above) and never produce this shape again."""
+    return {"run_id": run_id, "run_nonce": run_nonce, "final": True,
+            "results": [
+                {"case_id": "c1", "category": "math", "tier": 0, "status": "scored",
+                 "score": 1.0, "raw_output": "ok"},
+                {"case_id": "c2", "category": "math", "tier": 0, "status": "no_answer",
+                 "score": None, "raw_output": "",
+                 "evidence": {"no_answer": True, "attempts": 3,
+                              "reasons": ["transport: simulated"] * 3}},
+            ]}
+
+
+# --- pod side (pod/aeon_submit.py): always runs, mothership or not ---
+wire = _canon(na_bundle("r-na", "n-na"))
+ok(b'"score":null' in wire and b'"status":"no_answer"' in wire,
+   "pod canon puts the legacy no_answer on the wire as JSON null (not dropped, not 0)")
+ok(_canon(na_bundle("r-na", "n-na")) == wire
+   and _canon({"b": 1, "a": 2}) == _canon({"a": 2, "b": 1}) == b'{"a":2,"b":1}',
+   "pod canon is deterministic + key-order-independent (byte contract with ingest._canon)")
+sig = pod_client._sign(wire)
+ok(attest.verify(wire, sig, pod_client.pub),
+   "the no_answer bundle is ed25519-signed by the pod device key and verifies")
+_tampered = na_bundle("r-na", "n-na")
+_tampered["results"][1]["score"] = 0.0                     # flip the NULL in flight
+ok(not attest.verify(_canon(_tampered), sig, pod_client.pub),
+   "flipping a no_answer score in flight breaks the signature (tamper-evident)")
+
+# --- mothership side (aeon/ingest.py): mothership-only, SKIPs in the pod repo ---
+if ingest is None:
+    for _lbl in ("ingest schema still accepts the LEGACY status='no_answer' + NULL score",
+                 "signed no_answer bundle commits",
+                 "legacy no_answer row keeps its NULL score (quarter-weight rule applies)",
+                 "answered cases in the same bundle commit unchanged"):
+        skip(_lbl, "needs aeon.ingest (mothership-only, never shipped in the pod repo)")
+else:
+    ch = ingest.issue_challenge()
+    r, code = ingest.enroll(pod_client.pub, ch, pod_client._sign(ch.encode()))
+    assert code == 200, r
+    body = {"action": "open_run", "public_key": pod_client.pub, "model": "lab/na-model",
+            "suite_id": "aeon-suite-v3", "board": "text"}
+    opened, code = ingest.open_run(pod_client.pub, pod_client._sign(_canon(body)),
+                                   model="lab/na-model", suite_id="aeon-suite-v3", board="text")
+    assert code == 200, opened
+    bundle = na_bundle(opened["run_id"], opened["run_nonce"])
+    ok(ingest._validate_bundle(bundle),
+       "ingest schema still accepts the LEGACY status='no_answer' + NULL score")
+    raw = json.dumps({"bundle": bundle, "signature": pod_client._sign(_canon(bundle))}).encode()
+    resp, code = ingest.submit_results(opened["run_id"], opened["run_token"], raw)
+    ok(code == 200 and resp.get("ok"), "signed no_answer bundle commits")
+    mrows = {r["case_id"]: r for r in db.get_run(opened["run_id"])["results"]}
+    ok(mrows["c2"]["status"] == "no_answer" and mrows["c2"]["score"] is None,
+       "legacy no_answer row keeps its NULL score (quarter-weight rule applies)")
+    ok(mrows["c1"]["status"] == "scored" and mrows["c1"]["score"] == 1.0,
+       "answered cases in the same bundle commit unchanged")
 
 # ---------- multimodal (audio board): same driver, same treatment ----------
 from aeon import audio_suite as aus                        # noqa: E402
@@ -348,3 +401,8 @@ ok(all(rows[c]["status"] == "scored" and rows[c]["score"] == 1.0 for c in APLAN 
 ok(len(aevents) == len(APLAN), "audio board: progress fired once per case")
 
 print(f"\nOK  no-answer fairness (retry passes + status='no_answer'): {PASS} checks passed")
+if SKIPPED:
+    print(f"    {len(SKIPPED)} mothership-only check(s) SKIPPED "
+          f"(aeon.ingest is not part of the pod repo) — they run on the mothership:")
+    for _s in SKIPPED:
+        print("      -", _s)

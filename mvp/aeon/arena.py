@@ -600,5 +600,13 @@ def submit_vote(user, match_id, winner):
 
 
 def _self_state(uid):
-    from . import accounts
+    # `accounts` is mothership-only and is never synced to the public pod repo, so on a pod this
+    # import raises and takes submit_vote() down on its own SUCCESS path. It stayed hidden because
+    # /api/arena/vote 404s earlier via _no_trust_stack — but anything calling submit_vote directly
+    # hits it. A pod has no evaluator accounts, so there is no per-user trust state to report and
+    # omitting it is the honest answer rather than a fallback value.
+    try:
+        from . import accounts
+    except ImportError:
+        return None
     return accounts.public_state(uid)

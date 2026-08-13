@@ -30,17 +30,29 @@ os.environ["AEON_DB"] = os.path.join(_TMP, "test.db")
 os.environ.pop("AEON_DB_URL", None)
 os.environ.pop("AEON_ATTESTED_ONLY", None)
 
-from aeon import db, ingest, runner                        # noqa: E402
+from aeon import db, runner                                # noqa: E402
 from aeon import suite as suite_mod                        # noqa: E402
 from pod import pending                                    # noqa: E402
 from pod.aeon_pod import _job_ctx, _job_sig, _missing_case_ids   # noqa: E402
 from pod.aeon_submit import Pod, _canon                    # noqa: E402
+
+# aeon/ingest.py is the MOTHERSHIP receiving side and is deliberately absent from the public pod
+# repo, where this file also runs. Everything it checks about the POD — job_sig minting, the signed
+# bundle, the completeness gate, resume, the local run rows — needs no ingest at all. Only the
+# sections that drive the server's enroll/commit/duplicate path do, and those announce themselves
+# as SKIP rather than quietly vanishing: a test that silently drops coverage is a test that stopped
+# complaining. (Same guard as test_artifact_size_budget.py.)
+try:
+    from aeon import ingest                                # noqa: E402
+except ImportError:
+    ingest = None
 
 db.init_db()
 pending.DIR = os.path.join(_TMP, "pending_submits")        # never touch the real ~/.aeon
 KEY = os.path.join(_TMP, "device_key.pem")
 
 PASS = 0
+SKIPPED = []
 
 
 def ok(cond, label):
@@ -48,6 +60,12 @@ def ok(cond, label):
     assert cond, "FAIL: " + label
     PASS += 1
     print("PASS:", label)
+
+
+def skip(label):
+    """Announce a section that cannot run HERE. Loud and counted — never silent."""
+    SKIPPED.append(label)
+    print("SKIP:", label, "— needs aeon/ingest.py (mothership-only, not in the pod repo)")
 
 
 # ---------- 1) job_sig: determinism + presence in the signed bundle ----------
@@ -79,7 +97,30 @@ ok(st == 200 and captured["bundle"]["job_sig"] == s1, "Pod.submit carries job_si
 ok(captured["bundle"]["job_group"] == jc["group"], "Pod.submit carries job_group in the bundle")
 ok("signature" in captured, "the bundle is still signed")
 
-# ---------- 2) ingest duplicate path (real ed25519, ingest functions directly) ----------
+# ---------- 2a) the dedup ANCHOR itself (aeon/db.py — present in the pod repo) ----------
+# The mothership's idempotent-duplicate answer is built on db.find_run_by_job_sig. That function
+# lives in aeon/db.py, which IS here, so its contract stays covered on the pod side even when the
+# ingest caller is absent. A DISTINCT job_sig from the ingest block below, so seeding this row can
+# never masquerade as the duplicate the ingest section is trying to provoke.
+SIG_LOCAL = "9" * 24
+GROUP_LOCAL = "8" * 24
+rid_anchor = uuid.uuid4().hex[:10]
+db.create_run(rid_anchor, model="lab/anchor", target_url="pod-submission", judge_model=None,
+              judge_is_self=False, suite_id="aeon-suite-v3", suite_hash="h", n_cases=1,
+              params={}, env={}, job_sig=SIG_LOCAL, job_group=GROUP_LOCAL)
+db.save_result(rid_anchor, "c1", category="math", tier=0, status="scored", score=1.0,
+               raw_output="ok", evidence={}, speed={})
+ok(db.get_run(rid_anchor)["job_sig"] == SIG_LOCAL, "job_sig is stored on the run row")
+ok(db.get_run(rid_anchor)["job_group"] == GROUP_LOCAL, "job_group is stored on the run row")
+ok(db.find_run_by_job_sig(SIG_LOCAL) is None,
+   "an UNFINISHED run carrying the job_sig is NOT an anchor (a retry is never blocked)")
+db.finish_run(rid_anchor, "succeeded")
+ok(db.find_run_by_job_sig(SIG_LOCAL)["id"] == rid_anchor,
+   "find_run_by_job_sig anchors the COMMITTED run")
+ok(db.find_run_by_job_sig(None) is None and db.find_run_by_job_sig("0" * 24) is None,
+   "an empty/unknown job_sig anchors nothing")
+
+# ---------- 2b) ingest duplicate path (real ed25519, ingest functions directly) ----------
 SIG = "f" * 24
 GROUP = "e" * 24
 
@@ -108,36 +149,41 @@ def signed_submit(opened, job_sig=None, job_group=None):
     return ingest.submit_results(opened["run_id"], opened["run_token"], raw)
 
 
-o1 = enroll_and_open()
-r1, c1 = signed_submit(o1, job_sig=SIG, job_group=GROUP)
-ok(c1 == 200 and r1.get("ok") and not r1.get("duplicate"), "first submit commits normally")
-ok(db.get_run(o1["run_id"])["job_sig"] == SIG, "job_sig stored on the committed run row")
-ok(db.get_run(o1["run_id"])["job_group"] == GROUP, "job_group stored on the committed run row")
-ok(db.find_run_by_job_sig(SIG)["id"] == o1["run_id"], "find_run_by_job_sig anchors the committed run")
+if ingest is None:
+    skip("mothership duplicate path (enroll -> open_run -> double signed submit)")
+else:
+    o1 = enroll_and_open()
+    r1, c1 = signed_submit(o1, job_sig=SIG, job_group=GROUP)
+    ok(c1 == 200 and r1.get("ok") and not r1.get("duplicate"), "first submit commits normally")
+    ok(db.get_run(o1["run_id"])["job_sig"] == SIG, "job_sig stored on the committed run row")
+    ok(db.get_run(o1["run_id"])["job_group"] == GROUP, "job_group stored on the committed run row")
+    ok(db.find_run_by_job_sig(SIG)["id"] == o1["run_id"],
+       "find_run_by_job_sig anchors the committed run")
 
-o2 = enroll_and_open()
-r2, c2 = signed_submit(o2, job_sig=SIG)
-ok(c2 == 200 and r2.get("ok") and r2.get("duplicate") is True, "second submit answers idempotent success")
-ok(r2.get("run_id") == o1["run_id"], "duplicate answer points at the EXISTING run")
-ok(r2.get("message") == "job already submitted and available on the Mothership",
-   "duplicate message is the owner's exact wording")
-ok(db.get_run(o2["run_id"]) is None, "no second run row was stored")
-with db.connect() as c:
-    n = c.execute("SELECT COUNT(*) FROM runs WHERE job_sig=?", (SIG,)).fetchone()[0]
-ok(n == 1, "exactly one run carries the job_sig")
-pr2 = db.get_pod_run(o2["run_id"])
-ok(pr2["status"] == "duplicate" and pr2["reason"] == "DUPLICATE_JOB",
-   "the duplicate's nonce is released cleanly (status 'duplicate', not quarantined)")
-k = db.get_enrolled_key(pod_client.pub)
-ok(k["status"] == "active" and not k["fail_count"], "duplicate never bumps the forgery counter")
+    o2 = enroll_and_open()
+    r2, c2 = signed_submit(o2, job_sig=SIG)
+    ok(c2 == 200 and r2.get("ok") and r2.get("duplicate") is True,
+       "second submit answers idempotent success")
+    ok(r2.get("run_id") == o1["run_id"], "duplicate answer points at the EXISTING run")
+    ok(r2.get("message") == "job already submitted and available on the Mothership",
+       "duplicate message is the owner's exact wording")
+    ok(db.get_run(o2["run_id"]) is None, "no second run row was stored")
+    with db.connect() as c:
+        n = c.execute("SELECT COUNT(*) FROM runs WHERE job_sig=?", (SIG,)).fetchone()[0]
+    ok(n == 1, "exactly one run carries the job_sig")
+    pr2 = db.get_pod_run(o2["run_id"])
+    ok(pr2["status"] == "duplicate" and pr2["reason"] == "DUPLICATE_JOB",
+       "the duplicate's nonce is released cleanly (status 'duplicate', not quarantined)")
+    k = db.get_enrolled_key(pod_client.pub)
+    ok(k["status"] == "active" and not k["fail_count"], "duplicate never bumps the forgery counter")
 
-# back-compat: bundles WITHOUT job_sig behave exactly as today (both commit)
-oa, ob = enroll_and_open(model="lab/legacy"), enroll_and_open(model="lab/legacy")
-ra, ca = signed_submit(oa)
-rb, cb = signed_submit(ob)
-ok(ca == 200 and cb == 200 and not ra.get("duplicate") and not rb.get("duplicate"),
-   "no-job_sig bundles: two submits -> two committed runs (old pods unchanged)")
-ok(db.get_run(oa["run_id"]) and db.get_run(ob["run_id"]), "both legacy runs stored")
+    # back-compat: bundles WITHOUT job_sig behave exactly as today (both commit)
+    oa, ob = enroll_and_open(model="lab/legacy"), enroll_and_open(model="lab/legacy")
+    ra, ca = signed_submit(oa)
+    rb, cb = signed_submit(ob)
+    ok(ca == 200 and cb == 200 and not ra.get("duplicate") and not rb.get("duplicate"),
+       "no-job_sig bundles: two submits -> two committed runs (old pods unchanged)")
+    ok(db.get_run(oa["run_id"]) and db.get_run(ob["run_id"]), "both legacy runs stored")
 
 # ---------- 3) completeness gate: no submit for a partial run; force overrides ----------
 rid_part = uuid.uuid4().hex[:10]
@@ -235,20 +281,29 @@ def _mk_running(age_h, with_rows=True):
     return rid
 
 
-stale_rows = _mk_running(72)                 # >48h + rows  -> finalized
-fresh_rows = _mk_running(2)                  # <48h         -> untouched (may still be streaming)
-stale_bare = _mk_running(72, with_rows=False)  # >48h, no rows -> untouched (nothing to show)
+# A RUNNING bench is never finalized on a timer. There used to be a startup sweep that closed any
+# ingest still 'running' after 48h, on the theory that it was a zombie. Elapsed time is not evidence
+# of death: a large model benching a 174-case suite through three harnesses legitimately runs for
+# days, and the sweep closed a live external run at 88/174 — publishing a half-finished result as
+# 'succeeded'. Liveness is "did a case land recently", which only the pod can know, so the sweep is
+# gone and these rows must survive untouched no matter how old they are.
 
-healed = ingest.sweep_stale_running()
-ok(stale_rows in healed and len([h for h in healed if h == stale_rows]) == 1,
-   "sweep finalizes a >48h running ingest that has stored rows")
-ok(db.get_run(stale_rows)["status"] == "succeeded" and db.get_run(stale_rows)["finished_at"],
-   "finalized zombie is 'succeeded' with a finished_at (renders + ranks via coverage floor)")
-ok(fresh_rows not in healed and db.get_run(fresh_rows)["status"] == "running",
-   "a fresh running ingest is untouched — it may still be checkpoint-streaming")
-ok(stale_bare not in healed and db.get_run(stale_bare)["status"] == "running",
-   "a rowless zombie stays untouched (nothing to surface)")
-ok(ingest.sweep_stale_running() == [], "sweep is idempotent — second pass finds nothing")
+stale_rows = _mk_running(72)                   # >48h + rows   — mid-run, just slow
+fresh_rows = _mk_running(2)                    # <48h          — obviously live
+stale_bare = _mk_running(72, with_rows=False)  # >48h, no rows — still not ours to close
+
+if ingest is None:
+    skip("mothership assertion that no age-based sweep function exists")
+else:
+    ok(not hasattr(ingest, "sweep_stale_running"),
+       "no age-based sweep exists — bringing one back would kill live benches again")
+# The rows themselves are pure aeon/db.py and are checked either way: nothing on the POD side may
+# finalize a run just because it is old.
+for _rid, _label in ((stale_rows, ">48h WITH rows"), (fresh_rows, "<48h"),
+                     (stale_bare, ">48h rowless")):
+    _r = db.get_run(_rid)
+    ok(_r["status"] == "running" and not _r["finished_at"],
+       f"a {_label} running ingest stays running — age alone never finalizes it")
 
 # ---- artifacts checkpoint with rows (content dedup — the PrismaAURA artifact loss) ---------
 
@@ -260,15 +315,23 @@ _BUNDLE = {"results": [{"case_id": "case-1", "category": "Math", "tier": 1,
                         "status": "scored", "score": 1.0, "raw_output": "ok"}],
            "artifacts": [_ART], "suite_hash": "h"}
 
-n1 = ingest._save_artifacts(_POD, _BUNDLE)
-n2 = ingest._save_artifacts(_POD, _BUNDLE)   # checkpoint resend — content-identical
-ok(n1 == 1 and n2 == 0, "artifact saves once, checkpoint resend dedups by content")
-ok(len([a for a in db.list_artifacts(kind="game") if a["model"] == "lab/ckpt-artifact-model"]) == 1,
-   "exactly one stored artifact after two checkpoint commits")
-ingest._commit(_POD, _BUNDLE, final=False)
-run_mid = db.get_run(_POD["run_id"])
-ok(run_mid and run_mid["status"] == "running"
-   and len([a for a in db.list_artifacts(kind="game") if a["model"] == "lab/ckpt-artifact-model"]) == 1,
-   "a NON-final commit already persists artifacts (no more final-commit-only loss)")
+if ingest is None:
+    skip("mothership artifact checkpoint dedup (_save_artifacts / non-final _commit)")
+else:
+    n1 = ingest._save_artifacts(_POD, _BUNDLE)
+    n2 = ingest._save_artifacts(_POD, _BUNDLE)   # checkpoint resend — content-identical
+    ok(n1 == 1 and n2 == 0, "artifact saves once, checkpoint resend dedups by content")
+    ok(len([a for a in db.list_artifacts(kind="game")
+            if a["model"] == "lab/ckpt-artifact-model"]) == 1,
+       "exactly one stored artifact after two checkpoint commits")
+    ingest._commit(_POD, _BUNDLE, final=False)
+    run_mid = db.get_run(_POD["run_id"])
+    ok(run_mid and run_mid["status"] == "running"
+       and len([a for a in db.list_artifacts(kind="game")
+                if a["model"] == "lab/ckpt-artifact-model"]) == 1,
+       "a NON-final commit already persists artifacts (no more final-commit-only loss)")
 
 print(f"\nOK  resume + deferred idempotent submission: {PASS} checks passed")
+if SKIPPED:
+    print(f"    {len(SKIPPED)} mothership-only section(s) skipped (aeon/ingest.py is not in this "
+          f"repo): " + "; ".join(SKIPPED))

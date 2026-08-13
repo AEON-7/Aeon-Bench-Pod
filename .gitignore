@@ -42,3 +42,7 @@ mvp/aeon/provision_admin.py
 mvp/aeon/ingest.py
 mvp/aeon/arena_trust.py
 PRE-PUBLIC-CHECKLIST.md
+
+# scratch DBs a test run leaves behind (one reached this repo that way)
+mvp/.test_*.db
+mvp/*.test.db

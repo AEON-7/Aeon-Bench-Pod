@@ -716,7 +716,8 @@ Two things that bite:
 
 - **A reasoning model needs headroom.** Its `<think>` block is counted against `max_tokens`, so a
   small cap truncates mid-thought and the answer never arrives — it scores as a refusal. This is
-  the single most common cause of an unexplained zero on a reasoning model.
+  the single most common cause of an unexplained zero on a reasoning model. Two flags exist for
+  it and they solve *different* halves — see §4(e-thinking).
 - **The reasoning parser only cleans the direct chat path.** Agentic harnesses run the model inside
   their own container and surface its raw text, so the pod strips `<think>` again at every adapter's
   parse boundary. Nothing for you to configure — just don't conclude the flag is broken because a
@@ -746,6 +747,41 @@ Two things that bite:
 ranks on what it measured. What it will not do is contribute a fabricated agentic number: a harness
 that scores at or below **5** is treated as a plumbing failure rather than a measurement of the
 model, dropped from the agentic average, and the run is badged **agentic not counted**.
+
+### 4(e-thinking) When a reasoning model runs out of room — two flags, two different problems
+
+*(Why: on a hard suite this is the dominant failure. A measured GOD MODE run had **73% of requests
+finish `length`** — mean 21.9k tokens against a 32.8k cap — meaning the model reasoned until it was
+cut off and `content` came back EMPTY. Every one of those is scored as a no-answer, so the hardest
+questions produced no information at all, and the run spent hours re-running them.)*
+
+The two flags look similar and are not interchangeable:
+
+| Flag | What it does | Use it when |
+|---|---|---|
+| **`--retry-max-tokens N`** *(default: 2× `--max-tokens`)* | A case cut off mid-reasoning is **re-run once at a bigger ceiling** so it can finish. | Always — it is on by default now. The model needs *more* room and deserves one real attempt at it. |
+| **`--think-budget N`** *(default: off)* | The engine **CLOSES the `<think>` block at N tokens**, leaving the rest of `max_tokens` for an answer. | When you would rather have a committed answer than an unbounded monologue. |
+
+**`--think-budget` is not a smaller `--max-tokens`.** A smaller cap truncates and you get nothing;
+a budget forces the model to stop thinking and answer with what it has. Measured on one hard prompt
+at `--max-tokens 3000`:
+
+```
+unbounded            finish=length   8,543 reasoning chars      0 content chars   <- a null
+--think-budget 600   finish=stop     1,899 reasoning chars  2,282 content chars   <- an answer
+```
+
+Fewer than half the tokens, and a gradeable result instead of nothing. It rides vLLM's
+`thinking_token_budget`, so the engine enforces it — the model does not have to cooperate, and no
+prompt is modified. The **judge is never budgeted**: capping a judge's reasoning changes the
+grading rather than the thing being graded.
+
+> **A thinking budget changes what the benchmark measures.** It turns "can it solve this" into
+> "can it solve this within a reasoning allowance". That is a legitimate exam to set, but if you
+> use it on a ranked run it must be the same for every model and it rides in the recipe, or a model
+> that needs 40k is quietly penalised against one that needs 5k. Leave it OFF for a comparable
+> ranked run; reach for it when you are deliberately measuring reasoning efficiency, or as a safety
+> valve on a suite where models otherwise return nothing.
 
 ### 4(e-probe) The pod checks tool calling BEFORE the suite — read what it prints
 

@@ -4197,19 +4197,32 @@ function harnessWall(hRows) {
   const byH = {};
   hRows.forEach((r) => { (byH[swHarness(r)] = byH[swHarness(r)] || []).push(r); });
   const liveTotal = hRows.filter((r) => !r.done).length;
+  // Tiles alone CANNOT tell "finished" from "never started". livestreams evicts a stream
+  // DONE_LINGER_S after it ends, so ~20s past its last task a completed harness has no tiles and
+  // looks identical to one that has not run — and the panel then told the operator "not started"
+  // about a harness that had just scored 25/25. The feed's own
+  // "[pod][stage] harness:<id> <done>/<total>" marker is the authority, and it never expires.
+  const prog = {};
+  _stagesFromFeed().forEach((s) => {
+    const m = /^harness:(.+)$/.exec(s.name || "");
+    if (m) prog[m[1]] = s;
+  });
   const panels = HARNESS_PANELS.map((h) => {
     const mine = byH[h.id] || [];
     const live = mine.filter((r) => !r.done);
-    // Three states, because "empty" means two different things: not started yet, versus finished.
-    const cls = live.length ? "hw-active" : mine.length ? "hw-done" : "hw-idle";
+    const st = prog[h.id];
+    const finished = !!st && st.done >= st.total;
+    const cls = finished ? "hw-done" : (st || live.length) ? "hw-active" : "hw-idle";
     const badge = live.length
       ? `<span class="lt-live">● ${live.length} running</span>`
-      : mine.length
-        ? `<span class="sw-done">${mine.length} task${mine.length === 1 ? "" : "s"}</span>`
-        : `<span class="lt-idle">waiting</span>`;
+      : finished
+        ? `<span class="sw-done pass">${st.done}/${st.total} done</span>`
+        : st
+          ? `<span class="sw-done">${st.done}/${st.total}</span>`
+          : `<span class="lt-idle">waiting</span>`;
     const body = mine.length
       ? `<div class="sw-grid${mine.length === 1 ? " sw-solo" : ""}">${mine.map(swTile).join("")}</div>`
-      : `<div class="hw-empty">not started</div>`;
+      : `<div class="hw-empty">${finished ? "complete" : st ? "starting…" : "not started"}</div>`;
     return `<div class="hw-panel ${cls}">
       <div class="hw-head"><b>${escH(h.name)}</b> ${badge}</div>
       ${body}

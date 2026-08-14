@@ -12,8 +12,9 @@ Invocation (one one-shot container per task; the pod code runs ON the DGX):
     {"models": {"providers": {"dgx": {"baseUrl": <model_base_url>, "apiKey": "sk-local",
                                       "api": "openai-completions",
                                       "models": [{"id": "<alias>", "name": "<alias>",
-                                                  "contextWindow": 32768,
-                                                  "maxTokens": 8192}]}}},
+                                                  "contextWindow": <the endpoint's own
+                                                      max_model_len, asked at config time>,
+                                                  "maxTokens": <per-turn ceiling>}]}}},
      "agents": {"defaults": {"model": {"primary": "dgx/<alias>"}}}}
 
 Because /root/.openclaw is where OpenClaw also keeps its session state, mounting a fresh dir
@@ -32,7 +33,7 @@ import shutil
 import tempfile
 
 from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_io,
-                   safe_name, strip_reasoning)
+                   safe_name, served_context, strip_reasoning)
 
 # Published multi-arch by the pod repo's harness-images workflow, so ANY pod can pull it.
 # It used to default to the bare local name, which only existed on a rig that had built it
@@ -43,6 +44,9 @@ from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_
 IMAGE = os.environ.get("AEON_OPENCLAW_IMAGE", "aeon-harness-openclaw:latest")
 _PROVIDER_ID = "dgx"
 _API_KEY = "sk-local"
+# Used only when the endpoint will not report its own window (see base.served_context).
+_CTX_FALLBACK = 131072
+_MAX_OUTPUT_TOKENS = int(os.environ.get("AEON_OPENCLAW_MAX_TOKENS", "16384"))
 
 
 def _copy_tree_into(src: str, dst: str) -> None:
@@ -80,6 +84,8 @@ def _rm_root_owned(path: str) -> None:
 
 def build_config(model_base_url: str, served_alias: str) -> dict:
     """The exact openclaw.json this model-run uses (verified schema — see module docstring)."""
+    _ctx = served_context(model_base_url) or _CTX_FALLBACK
+    _max_out = min(_MAX_OUTPUT_TOKENS, max(1024, _ctx // 4))
     return {
         "models": {
             "providers": {
@@ -87,8 +93,13 @@ def build_config(model_base_url: str, served_alias: str) -> dict:
                     "baseUrl": model_base_url,
                     "apiKey": _API_KEY,
                     "api": "openai-completions",
+                    # Declared from the endpoint's own /v1/models, not hardcoded. The literals
+                    # here (131072) and in this module's docstring (32768) had drifted apart from
+                    # each other AND from the recipes, which serve 229376-262144. maxTokens is a
+                    # per-TURN ceiling: it must fit a large artifact without letting one reply
+                    # spend the whole task budget (see hermes._ensure_cfg for the measurement).
                     "models": [{"id": served_alias, "name": served_alias,
-                                "contextWindow": 131072, "maxTokens": 8192}],
+                                "contextWindow": _ctx, "maxTokens": _max_out}],
                 }
             }
         },

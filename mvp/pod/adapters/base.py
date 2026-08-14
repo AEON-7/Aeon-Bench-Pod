@@ -32,11 +32,13 @@ stub handlers (each adapter notes how). The success spec is never shown to the m
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import threading
 import time
+import urllib.request
 import uuid
 from typing import Any
 
@@ -142,6 +144,34 @@ def run_container_io(image: str, args: list, *, seed=None, seed_optional=None, c
             run_argv(["docker", "rm", "-f", cname], 30)
         except Exception:
             pass
+
+
+def served_context(base_url, timeout=10):
+    """The endpoint's REAL context window, from its own /v1/models. None when it will not say.
+
+    ASKED, not threaded down from the run's `--max-model-len`, because that flag only exists when
+    the POD started the serve — a `--serve-url` run benches an endpoint whose recipe we never see.
+    One request, and it cannot go stale the way three hardcoded copies did: hermes declared 65536
+    ("our serves cap max-model-len at 32K"), openclaw's code said 131072 while its own docstring
+    said 32768, and the recipes actually serve 229376-262144.
+
+    Declaring the wrong window is not cosmetic. Hermes derives its compaction threshold from
+    `context_length - max_tokens`, so a window four times too small parked it in that function's
+    degenerate branch for an entire run. Never raises: a harness config is not worth failing a
+    multi-hour benchmark over, and every caller has a floor to fall back to."""
+    if not base_url:
+        return None
+    try:
+        with urllib.request.urlopen(base_url.rstrip("/") + "/models", timeout=timeout) as r:
+            doc = json.loads(r.read().decode("utf-8", "replace"))
+        for m in (doc.get("data") or []):
+            for key in ("max_model_len", "context_length", "max_context_length"):
+                v = m.get(key)
+                if isinstance(v, int) and v > 0:
+                    return v
+    except Exception:
+        pass
+    return None
 
 
 def run_argv(argv: list[str], timeout: float, cwd: str | None = None, on_line=None):

@@ -45,6 +45,18 @@ from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_
 IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes:latest")
 _API_KEY = "sk-local"
 _MAX_TURNS = int(os.environ.get("AEON_HERMES_MAX_TURNS", "8"))
+# A ceiling on ONE TURN's output, not a budget to maximise.
+#
+# The custom provider defaults this to 65536, and on 2026-08-14 a god task truncated at exactly
+# that: the model emitted 65k tokens in a single reply. At the 20-40 tok/s these serves sustain
+# that is 27-55 MINUTES — longer than the whole 1800s task budget, spent on one turn, after which
+# the task dies with nothing written. Bounding it costs that one turn and leaves the agent its
+# other seven. 16384 tokens is roughly a 60KB file, ample for these artifacts.
+#
+# Hermes needs no help with the INPUT side: it reads the real window off the endpoint
+# (observed "Context limit: 262,144 tokens (compress at 75% = 196,608)") and auto-compacts. Only
+# the output ceiling is ours to set.
+_MAX_OUTPUT_TOKENS = int(os.environ.get("AEON_HERMES_MAX_TOKENS", "16384"))
 
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
@@ -114,18 +126,23 @@ class HermesAdapter(Adapter):
         self._disabled = os.environ.get("AEON_HERMES_DISABLED_TOOLSETS", "").strip()
 
     def _ensure_cfg(self) -> str:
-        """Hermes REFUSES models whose reported context window is <64K (its tool-calling
-        minimum). Our bench serves cap max-model-len at 32K purely for GB10 memory — the
-        models' true windows are >=256K — so per Hermes' own guidance ("if your server
-        reports a window smaller than the model's true window, set model.context_length")
-        we mount a config declaring 65536: the smallest value that passes the gate, so a
-        runaway transcript still fails honestly at the server's real 32K cap."""
+        """Floor the declared window so Hermes accepts the model, and cap one turn's output.
+
+        `context_length: 65536` is a FLOOR, not a description. Hermes refuses any model reporting
+        under 64K (its tool-calling minimum), and this guarantees the gate is cleared even by a
+        serve that under-reports. It is not how Hermes actually sizes the run: measured 2026-08-14
+        it reads the endpoint itself and logged "Context limit: 262,144 tokens (compress at 75% =
+        196,608)" against a 262144 serve — so the input side is auto-detected and auto-compacted,
+        and this line only matters when the endpoint says something smaller.
+
+        `max_tokens` is the half we do have to set — see _MAX_OUTPUT_TOKENS. Left at the custom
+        provider's 65536 default, one reply can outlast the entire task budget."""
         if self._cfg_path and os.path.isfile(self._cfg_path):
             return self._cfg_path
         d = self._run_dir or tempfile.mkdtemp(prefix="aeon_hermes_cfg_")
         p = os.path.join(d, "hermes-config.yaml")
         with open(p, "w", encoding="utf-8") as f:
-            f.write("model:\n  context_length: 65536\n")
+            f.write("model:\n  context_length: 65536\n  max_tokens: %d\n" % _MAX_OUTPUT_TOKENS)
         self._cfg_path = p
         return p
 

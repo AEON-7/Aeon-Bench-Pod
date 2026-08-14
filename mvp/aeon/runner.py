@@ -295,7 +295,11 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
                 "score": score, "text": text, "evidence": evidence, "speed": speed, "unanswered": None}
 
     def _persist(res):                                        # main thread only: DB write + progress + checkpoint
-        db.save_result(run_id, res["cid"], category=res["category"], tier=res["tier"],
+        # `board=board` is required SEPARATELY from the one on create_run, and forgetting it makes
+        # that one inert: db.all_results_with_runs() filters `WHERE r.board = ?` — the RESULTS row,
+        # not the run row — so a correctly-labelled run whose rows say 'text' is still invisible to
+        # the god board. _board_persist (line 187) has always passed it; this path never did.
+        db.save_result(run_id, res["cid"], category=res["category"], tier=res["tier"], board=board,
                        status=res["status"], score=res["score"], raw_output=res["text"],
                        evidence=res["evidence"], speed=res["speed"])
         # Close this case's live terminal with its VERDICT. Every result reaches the DB through

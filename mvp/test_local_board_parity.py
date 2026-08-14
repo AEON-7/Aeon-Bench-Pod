@@ -117,4 +117,31 @@ rows = [r for r in db.list_runs(50) if (r.get("board") or "text") == "god"]
 ok(any(r["id"] == "godrow" for r in rows), "the god row is FOUND by a board='god' query")
 ok(not any(r["id"] == "txtrow" for r in rows), "the text row is not swept into the god board")
 
+# ---- THE SECOND BOARD COLUMN, which made the first fix inert -------------------------------------
+# db.all_results_with_runs() — the query every leaderboard is built from — filters
+# `WHERE r.board = ?`: the RESULTS row, NOT the run row. So labelling the run correctly and leaving
+# its result rows at the 'text' default keeps the sentinels invisible to the god board, and the
+# GOD SCORE still renders from agentic alone. runner._persist forgot exactly this while
+# _board_persist (the multimodal path) had always passed it.
+#
+# This check goes through the REAL query rather than asserting on source, so it cannot be satisfied
+# by a fix that looks right and does nothing.
+def result(run_id, cid, board):
+    db.save_result(run_id, cid, category="Math", tier=0, status="scored", score=1.0,
+                   raw_output="x", evidence={}, speed={}, board=board)
+
+
+result("godrow", "v4.math.god_mode.01", "god")
+result("godrow", "v4.math.god_mode.02", "text")     # the bug's signature: god run, text-boarded row
+db.finish_run("godrow", "succeeded")
+joined = db.all_results_with_runs(board="god")
+cids = {r["case_id"] for r in joined if r["run"] == "godrow"}
+ok("v4.math.god_mode.01" in cids,
+   "a god-boarded RESULT row reaches the god board through the real join")
+ok("v4.math.god_mode.02" not in cids,
+   "…and a text-boarded row under the SAME god run does not — results.board is what the board sees")
+
+ok(not unguarded_calls(runner, {"save_result"}),
+   "every save_result in the runner carries a board — _persist included")
+
 print("\nOK  local/global board parity: %d checks passed" % PASS)

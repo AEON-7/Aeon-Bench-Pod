@@ -166,7 +166,7 @@ def main():
     _text_run(FULL, score=1.0)
     _harness_run(FULL, "hermes", [0.8])
     _harness_run(FULL, "opencode", [0.6])
-    _perf_run(FULL, HW_SPARK, 100.0)          # fastest of 3 in the Spark bucket -> 100
+    full_perf = _perf_run(FULL, HW_SPARK, 100.0)   # fastest of 3 in the Spark bucket -> 100
     _perf_run(MID, HW_SPARK, 60.0)            # middle of 3 -> 50
     _perf_run(SLOW, HW_SPARK, 30.0)           # slowest of 3 -> 0
     _perf_run(LONER, HW_5090, 20.0)           # only row in its bucket -> 100
@@ -213,8 +213,13 @@ def main():
           and d["agentic"]["excluded"] == [] and d["agentic"]["all_failed"] is False,
           "agentic dial = mean of available harness scores")
     check(d["performance"] == {"score": 100.0, "peak_agg_tps": 100.0, "hw": spark_bucket,
-                               "conc": 8},
+                               "conc": 8, "run": full_perf},
           "performance dial = top percentile in its hw bucket (+ the peak cell's concurrency)")
+    # The run is what makes the dial CLICKABLE. Without it the board's PERFORMANCE instrument has
+    # nothing to open and a click falls through to the row handler, which opens the model's best
+    # INTELLIGENCE submission — a tachometer that shows you the text run.
+    check(d["performance"]["run"] == full_perf,
+          "…and names the perf run that demonstrated the peak, so the instrument can open it")
     check(d["audio"] == {"score": 50.0, "run": row(ab, FULL)["run"]},
           "audio dial joined from the audio board")
     check(d["vision"] is None and d["video"] is None,

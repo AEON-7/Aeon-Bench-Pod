@@ -2989,6 +2989,14 @@ select:focus {
      down the whole board, however many dials a given row draws */
   order: 99;
 }
+/* Only the instrument that HAS a perf run to open advertises itself as clickable. The row is
+   clickable too, so without a distinct affordance the tachometer looks like the rest of the row
+   and its own destination stays hidden. */
+.perf-inst.pi-open { cursor: pointer; border-radius: 8px; transition: background .12s, box-shadow .12s; }
+.perf-inst.pi-open:hover { background: rgba(120, 190, 255, .07); }
+.perf-inst.pi-open:focus-visible {
+  outline: none; box-shadow: 0 0 0 2px rgba(120, 190, 255, .55);
+}
 .pi-tps {
   font: 800 24px/1 ui-monospace, monospace; letter-spacing: -1px;
   color: var(--accent); text-shadow: 0 0 18px rgba(0, 240, 255, .45);

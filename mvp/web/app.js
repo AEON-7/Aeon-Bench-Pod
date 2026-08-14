@@ -323,7 +323,15 @@ function perfInstrument(m) {
   }
   const subs = [p.conc != null ? `C${p.conc}` : "", ctx].filter(Boolean).join(" · ");
   const pct = p.score != null ? Math.min(100, Math.max(0, +p.score)) : 0;
-  return `<div class="perf-inst" role="img" aria-label="performance: peak ${fmtTps(p.peak_agg_tps)} tokens per second" title="peak aggregate throughput demonstrated during the benchmark${p.conc != null ? ` at concurrency ${p.conc}` : ""}${p.hw ? ` on ${p.hw}` : ""} — tach shows standing within this hardware class · full curves on the Performance tab">
+  // A dial labelled PERFORMANCE has to open PERFORMANCE. It used to carry no handler of its own,
+  // so a click fell through to the row's, which opens the model's best INTELLIGENCE submission —
+  // you clicked the tachometer and got the text run. `p.run` is the perf run that demonstrated
+  // this peak (scoring._perf_percentile_index); when it is present the instrument becomes a real
+  // control, and when it is absent it stays exactly the readout it was.
+  const hit = p.run ? ` data-perf-run="${escA(p.run)}"` : "";
+  const role = p.run ? `role="button" tabindex="0"` : `role="img"`;
+  const act = p.run ? " — open this run's performance metrics" : "";
+  return `<div class="perf-inst${p.run ? " pi-open" : ""}"${hit} ${role} aria-label="performance: peak ${fmtTps(p.peak_agg_tps)} tokens per second${act}" title="peak aggregate throughput demonstrated during the benchmark${p.conc != null ? ` at concurrency ${p.conc}` : ""}${p.hw ? ` on ${p.hw}` : ""} — tach shows standing within this hardware class${act || " · full curves on the Performance tab"}">
     <span class="pi-tps">${fmtTps(p.peak_agg_tps)}</span><span class="pi-unit">tok/s peak</span>
     <span class="pi-tach"><i style="--p:${pct.toFixed(1)}%"></i></span>
     <span class="pi-lbl">performance</span>
@@ -556,6 +564,15 @@ function renderClassicBoard(models) {
     renderChart();
   });
   $$("#board .mlink").forEach((a) => a.onclick = () => openSubmissionsFor(a.dataset.model));
+  // The PERFORMANCE instrument opens the perf run, not the row's intelligence submission.
+  // stopPropagation is the whole point: the row handler is still there and still correct for
+  // every other part of the row, so without it a click would open BOTH and the perf panel would
+  // lose the race. Keyboard gets the same treatment — the instrument is role=button now.
+  $$("#board [data-perf-run]").forEach((el) => {
+    const open = (e) => { e.stopPropagation(); openSubmission(el.dataset.perfRun); };
+    el.onclick = open;
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } };
+  });
   wireShare("#board");
   // instrument boot: composite counts up in sync with the gauge-ring sweep — first load only
   if ($("#board").classList.contains("fresh")) {

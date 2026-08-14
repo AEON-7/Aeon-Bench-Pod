@@ -334,7 +334,14 @@ def _perf_percentile_index():
                 out[m["canonical"]] = {"score": pct, "peak_agg_tps": m["peak_agg_tps"],
                                        "hw": m["hw_bucket"],
                                        # the demonstrated peak's cohort size — the racing readout
-                                       "conc": cell.get("conc")}
+                                       "conc": cell.get("conc"),
+                                       # WHICH run demonstrated it. Without this the board's
+                                       # PERFORMANCE instrument has nothing to open: the row click
+                                       # falls through to the model's best INTELLIGENCE submission,
+                                       # so clicking a dial labelled PERFORMANCE showed the text
+                                       # run. The perf board row already knows; only this index
+                                       # dropped it.
+                                       "run": m.get("run")}
     return out
 
 

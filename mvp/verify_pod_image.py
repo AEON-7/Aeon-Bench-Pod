@@ -237,6 +237,19 @@ _pgsrc = inspect.getsource(perf_grid.run_direct_grid)
 check("the grid opens/feeds/closes a tile per cell",
       all(s in _pgsrc for s in ("perf_stream.cell", ".tick(", ".close(")))
 
+# A DIAL LABELLED PERFORMANCE MUST OPEN PERFORMANCE. The instrument carried no handler, so a
+# click fell through to the row's — which opens the model's best INTELLIGENCE submission. Both
+# ends are needed: the index has to forward the run, and the row has to bind it.
+check("the performance dial carries the run that demonstrated the peak",
+      '"run": m.get("run")' in inspect.getsource(scoring._perf_percentile_index))
+check("the instrument becomes a real control when it has one",
+      'data-perf-run=' in _js and 'role="button"' in _js)
+check("and its click does not also trigger the row's intelligence open",
+      "[data-perf-run]" in _js and "stopPropagation" in _js)
+check("keyboard reaches it too", "onkeydown" in _js and "openSubmission(el.dataset.perfRun)" in _js)
+check("the clickable state is styled distinctly from the readout",
+      ".pi-open" in _css and ":focus-visible" in _css)
+
 print()
 print("PUBLISHED IMAGE: %d ok, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)

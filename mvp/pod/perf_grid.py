@@ -319,6 +319,11 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
             _salt = f"{_RUN_NONCE}-c{int(conc)}-{cat[:3]}-"
             tasks = [_bust(base[i % len(base)], i, _salt) for i in range(n)]
             reqs, errors = [], []
+            # A live tile for this cell — the sweep used to publish nothing for hours. Opened
+            # BEFORE the clock starts and closed after the aggregate, so the tile's lifetime is
+            # the cell's; see pod/perf_stream.py.
+            from pod import perf_stream
+            _tile = perf_stream.cell("direct", cat, int(conc), len(tasks))
             eng0 = _engine_tokens(target_url)    # engine tally BEFORE this cell
             t0 = time.perf_counter()
             with ThreadPoolExecutor(max_workers=int(conc)) as ex:
@@ -326,13 +331,17 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
                         for p in tasks]
                 for p, fut in futs:
                     try:
-                        reqs.append(fut.result())
+                        _r_ = fut.result()
+                        reqs.append(_r_)
+                        _tile.tick(_r_)
                     except TargetError as e:
                         errors.append({"category": cat, "error": str(e)[:300], "prompt_head": p[:80]})
+                        _tile.error(e)
                     except Exception as e:
                         errors.append({"category": cat,
                                        "error": f"{type(e).__name__}: {e}"[:300],
                                        "prompt_head": p[:80]})
+                        _tile.error(e)
                     done += 1
                     if progress_cb:
                         progress_cb(conc, done, total)
@@ -344,6 +353,7 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
             cell = _agg(reqs, cw, n_errors=len(errors),   # aggregates over the CELL's wall
                         engine_tokens=eng_delta)
             cell["cell_wall_s"] = round(cw, 3)
+            _tile.close(cell)                    # publish the figure that reaches the perf board
             cell_engine_tokens.append(eng_delta)
             cats[cat] = cell
             all_reqs.extend(reqs)

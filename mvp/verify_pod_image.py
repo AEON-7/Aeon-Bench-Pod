@@ -218,6 +218,25 @@ check("three harness panels render", "function harnessWall(" in _js
 check("harness panels are styled",
       ".hw-grid" in _css and ".hw-active" in _css and ".hw-idle" in _css)
 
+# THE PERF SWEEP IS THE LAST AND ONE OF THE LONGEST PHASES, and it used to publish nothing — a
+# stage counter moved for hours while the numbers being measured stayed invisible. Same seam as
+# the harness wall, so assert both ends of it here too.
+from pod import perf_stream, perf_grid                                # noqa: E402
+check("perf cells are inert when the wall is off",
+      perf_stream.cell("direct", "Math", 4, 8) is perf_stream.NULL)
+livestreams.enable(True)
+_pc = perf_stream.cell("direct", "Math", 4, 8)
+_pc.tick({"ttft_ms": 542.0, "decode_tps": 47.0, "output_tokens": 962})
+_psnap = {s["case"]: s for s in livestreams.snapshot(limit=16)}
+check("a perf cell streams its measurements live",
+      "perf:direct.math.c4" in _psnap and "47.0 tok/s" in _psnap["perf:direct.math.c4"]["answer"])
+_pc.close({"agg_tps": 180.4})
+livestreams.enable(False)
+livestreams.clear()
+_pgsrc = inspect.getsource(perf_grid.run_direct_grid)
+check("the grid opens/feeds/closes a tile per cell",
+      all(s in _pgsrc for s in ("perf_stream.cell", ".tick(", ".close(")))
+
 print()
 print("PUBLISHED IMAGE: %d ok, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)

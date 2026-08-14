@@ -78,6 +78,14 @@ class FakeServer:
                     "content": "<tool_call>{\"name\": \"get\""}
         return self._good(tool_choice, stream)
 
+    # A HEALTHY BUT SLOW serve: the one-word control comes back, every tool request times out.
+    # `_call` renders that as {ok: False, tool_calls: []} — byte-identical to a model that answered
+    # and chose not to call anything.
+    @staticmethod
+    def _slow(tool_choice, stream):
+        return {"ok": False, "tool_calls": [], "content": "",
+                "error": "TimeoutError: The read operation timed out"}
+
     # a model with no tool training at all — answers, never calls, leaks nothing
     @staticmethod
     def _untrained(tool_choice, stream):
@@ -145,6 +153,23 @@ def test_untrained_model_is_not_blamed_on_the_parser():
     res, _ = run("untrained")
     assert res["verdict"] == "model_incapable", res
     assert res["leaked_format"] is None and res["required_oracle"] is False
+
+
+def test_a_slow_serve_is_inconclusive_not_incapable():
+    """Latency must never be reported as incapacity — least of all on the big slow models this
+    probe exists to serve.
+
+    MEASURED 2026-08-14 on Qwen3.6-35B: the probe ran 62.7s and returned "model does not do tool
+    calling"; the very same serve then scored 1.0 on the first six tool-using harness tasks. The
+    identical probe against a faster endpoint returned OK in 17.9s. Three runs of one model
+    produced three verdicts, tracking probe LATENCY rather than the model.
+
+    The verdict text itself gives the game away — "the endpoint answers normally but never
+    produces a tool call" is a claim that requires an answer, and a timed-out request is not one."""
+    res, _ = run("slow")
+    assert res["verdict"] == "inconclusive", res
+    assert "NOT evidence" in res["detail"], res["detail"]
+    assert res["modes"]["nonstream"] is False, "the mode still records the failure honestly"
 
 
 def test_partial_parse_counts_as_failure():

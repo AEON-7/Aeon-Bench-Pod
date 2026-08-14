@@ -259,17 +259,31 @@ def _probe(base_url: str, model: str, *, api_key: str | None = "sk-local",
     out["budget_s"] = round(budget_s, 1)
 
     leaks: list[str] = []
+    answered: list[bool] = []
 
-    def _record_leak(res):
+    def _note(res):
+        """Record what a response tells us: a leaked tool format, and whether the endpoint
+        answered AT ALL.
+
+        The second half is load-bearing. `_call` converts every exception — including a read
+        timeout — into {ok: False, tool_calls: []}, which at the mode level is indistinguishable
+        from a clean answer containing no tool call. Untracked, a serve that was merely SLOW earns
+        the `model_incapable` verdict, whose own text claims "the endpoint answers normally".
+
+        Measured on Qwen3.6-35B (2026-08-14): the probe ran 62.7s and reported "model does not do
+        tool calling"; the same serve then scored 1.0 on the first six tool-using harness tasks.
+        The same probe on a faster serve returned OK in 17.9s. The verdict tracked probe LATENCY,
+        not model capability."""
         fmt = toolformat.scan_leak(res.get("content") or "")
         if fmt:
             leaks.append(fmt)
+        answered.append(bool(res.get("ok")))
 
     # ---- 1. auto, non-streaming ------------------------------------------------------------
     r1 = _call(base_url, model, api_key=api_key, tools=[PROBE_TOOL], stream=False,
                timeout=min(req_timeout, max(3.0, _left())))
     ok1, why1 = _called_ok(r1)
-    _record_leak(r1)
+    _note(r1)
     out["modes"]["nonstream"] = ok1
 
     # ---- 2. auto, streaming (what the harnesses actually do) --------------------------------
@@ -278,7 +292,7 @@ def _probe(base_url: str, model: str, *, api_key: str | None = "sk-local",
         r2 = _call(base_url, model, api_key=api_key, tools=[PROBE_TOOL], stream=True,
                    timeout=min(req_timeout, max(3.0, _left())))
         ok2, why2 = _called_ok(r2)
-        _record_leak(r2)
+        _note(r2)
         out["modes"]["stream"] = ok2
 
     # ---- 3. auto, concurrent (shared parser state) ------------------------------------------
@@ -293,7 +307,7 @@ def _probe(base_url: str, model: str, *, api_key: str | None = "sk-local",
                 results = [f.result() for f in futs]
             checks = [_called_ok(r) for r in results]
             for r in results:
-                _record_leak(r)
+                _note(r)
             ok3 = all(c[0] for c in checks)
             why3 = next((c[1] for c in checks if not c[0]), "all concurrent calls parsed")
         except Exception as e:
@@ -312,7 +326,7 @@ def _probe(base_url: str, model: str, *, api_key: str | None = "sk-local",
         rr = _call(base_url, model, api_key=api_key, tools=[PROBE_TOOL], tool_choice="required",
                    stream=False, timeout=min(req_timeout, max(3.0, _left())))
         okr, _whyr = _called_ok(rr)
-        _record_leak(rr)
+        _note(rr)
         out["required_oracle"] = okr
 
     leaked = leaks[0] if leaks else None
@@ -337,6 +351,18 @@ def _probe(base_url: str, model: str, *, api_key: str | None = "sk-local",
                "tool_choice=required produced a call while tool_choice=auto did not, which is "
                "the server's parser, not the model")
         return _finish(verdict="parser_fault", detail=why + ". " + str(first_why))
+
+    # "The model cannot do this" requires the model to have SPOKEN. If no probe request ever came
+    # back, what was measured is the clock and the network — not tool calling. Saying otherwise
+    # tells an operator their model is incapable when their serve was merely slow, and that is the
+    # opposite of what this probe exists to do. `inconclusive` gates nothing, exactly like the
+    # control-request failure above.
+    if not any(answered):
+        return _finish(verdict="inconclusive",
+                       detail="no probe request returned a usable response within the per-request "
+                              "timeout, so tool calling could not be assessed — a slow or "
+                              "unreachable serve, NOT evidence that the model lacks tool use. "
+                              + str(first_why))
 
     return _finish(verdict="model_incapable",
                    detail="the endpoint answers normally but never produces or emits a tool call, "

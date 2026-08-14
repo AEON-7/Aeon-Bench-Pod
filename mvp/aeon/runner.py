@@ -196,7 +196,7 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
                   progress_cb=None, api_key=None, judge_url=None, judge_key=None,
                   hf_repo=None, trust_tier="self_reported", model_verified=None,
                   env_extra=None, canonical_id=None, job_sig=None,
-                  done_case_ids=None, resume=False):
+                  done_case_ids=None, resume=False, board="text"):
     # `model` is the served alias used for the actual /v1 requests (e.g. "model-under-test").
     # `hf_repo`/`trust_tier` carry the REAL verified identity so the pod-local run — and thus the
     # live view — shows the true model + badge while inference still targets the served alias.
@@ -230,7 +230,7 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
             suite_id=suite_mod.SUITE_ID, suite_hash=suite_mod.suite_hash(),
             n_cases=len(suite_mod.CASES), params=params, env=env,
             hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
-            canonical_id=canonical_id, job_sig=job_sig,
+            canonical_id=canonical_id, job_sig=job_sig, board=board,
         )
     done_ids = set(done_case_ids or ())          # already-scored cases a resume skips
     cases = [c for c in suite_mod.CASES if c["id"] not in done_ids]

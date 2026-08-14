@@ -451,7 +451,8 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
                          env_extra={"frontier": frontier_meta} if frontier_meta else None,
                          canonical_id=canonical_id,
                          model_verified="frontier_api" if frontier_meta else None,
-                         job_sig=jsig, done_case_ids=done_ids, resume=bool(done_ids))
+                         job_sig=jsig, done_case_ids=done_ids, resume=bool(done_ids),
+                         board=board)
 
     results = pending.collect_results(rid)
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
@@ -550,7 +551,7 @@ def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TO
                        judge=None, judge_url=None, judge_key=None, checkpoint=None, checkpoint_every=8,
                        retry_max_tokens=None, think_budget=None, concurrency=1,
                        hf_repo=None, trust_tier="self_reported", model_verified=None,
-                       rid=None, job_sig=None, done_case_ids=None, resume=False):
+                       rid=None, job_sig=None, done_case_ids=None, resume=False, board="text"):
     """Benchmark `model` at `target` into the pod-local DB; return (rid, results, mean). If a
     `checkpoint(results)` callback is given, it's called every `checkpoint_every` cases with the
     CUMULATIVE results-so-far — for incremental submission so a mid-run kill loses nothing.
@@ -1046,7 +1047,7 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
         if not ses:
             ses = pending.open_session(pod, job_sig=jsig, model=repo, suite_id=sid, board=board,
                                        local_rid=rid, extra=submit_extra)
-        _rid, results, mean = _bench_and_results(alias, target, max_tokens=max_tokens,
+        _rid, results, mean = _bench_and_results(alias, target, board=board, max_tokens=max_tokens,
             temperature=temperature, judge=judge, judge_url=judge_url, judge_key=judge_key,
             retry_max_tokens=retry_max_tokens, think_budget=think_budget, concurrency=concurrency,
             hf_repo=repo, trust_tier="attested", model_verified="verified",

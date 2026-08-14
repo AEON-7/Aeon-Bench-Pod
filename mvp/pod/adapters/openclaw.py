@@ -194,13 +194,18 @@ class OpenClawAdapter(Adapter):
             # docker-cp I/O (run_container_io): a bind mount of this pod-local `home` breaks
             # when the pod is containerized (daemon resolves the path on the HOST -> empty
             # /root/.openclaw -> "Unknown model: dgx/<alias>" and no task files).
-            out, err, rc, dur = run_container_io(
-                self.IMAGE,
-                ["agent", "--local", "--json", "--agent", "main",
-                 "-m", task.get("prompt", ""), "--model", model],
-                seed=[(home, "/root/.openclaw")],
-                collect=[("/root/.openclaw/workspace/.", ws)],
-                timeout=timeout, name_hint=f"claw_{served_alias}")
+            from .. import harness_stream      # local: keeps pod.adapters free of a package cycle
+            _obs = harness_stream.observer("openclaw", task.get("id"))
+            try:
+                out, err, rc, dur = run_container_io(
+                    self.IMAGE,
+                    ["agent", "--local", "--json", "--agent", "main",
+                     "-m", task.get("prompt", ""), "--model", model],
+                    seed=[(home, "/root/.openclaw")],
+                    collect=[("/root/.openclaw/workspace/.", ws)],
+                    timeout=timeout, name_hint=f"claw_{served_alias}", on_line=_obs)
+            finally:
+                _obs.close()
             _copy_tree_into(ws, workdir)   # bring the agent's file outcomes back for scoring
         finally:
             _rm_root_owned(home)           # best-effort cleanup (docker-cp output is pod-owned)

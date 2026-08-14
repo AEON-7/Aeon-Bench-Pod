@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 import time
 import uuid
 from typing import Any
@@ -75,7 +76,8 @@ def strip_reasoning(text: str) -> str:
 
 
 def run_container_io(image: str, args: list, *, seed=None, seed_optional=None, collect=None,
-                     timeout: float = 240, name_hint: str = "task", env=None, workdir=None):
+                     timeout: float = 240, name_hint: str = "task", env=None, workdir=None,
+                     on_line=None):
     """Run a one-shot harness container with file I/O that works no matter where the POD
     itself runs — bare metal OR inside a container. Bind-mounting a pod-local path breaks
     when the pod is containerized: the docker CLI talks to the HOST daemon, which resolves
@@ -126,7 +128,9 @@ def run_container_io(image: str, args: list, *, seed=None, seed_optional=None, c
                 _cp_in(src, dst, required=False)
             except AdapterError:
                 pass
-        out, err, rcode, dur = run_argv(["docker", "start", "-a", cname], timeout)
+        # Only the TASK run streams. The seed/collect/create calls around it are quick and
+        # produce nothing an operator wants on the wall.
+        out, err, rcode, dur = run_argv(["docker", "start", "-a", cname], timeout, on_line=on_line)
         for src, dst in (collect or []):
             try:
                 run_argv(["docker", "cp", f"{cname}:{src}", dst], 120)
@@ -140,23 +144,70 @@ def run_container_io(image: str, args: list, *, seed=None, seed_optional=None, c
             pass
 
 
-def run_argv(argv: list[str], timeout: float, cwd: str | None = None):
+def run_argv(argv: list[str], timeout: float, cwd: str | None = None, on_line=None):
     """Run one subprocess (typically `docker run --rm ...`) and capture everything.
 
     Returns `(stdout, stderr, returncode, duration_s)`. Raises AdapterError on launch
     failure or timeout — the caller (run_harness2) turns that into a per-task
     `harness_error` without aborting the batch.
+
+    `on_line` opts into STREAMING: each line is handed over as it arrives, in addition to being
+    accumulated for the normal return value. Without it this takes the original blocking path
+    verbatim, so every non-task docker call (cp, create, rm, --version) is byte-for-byte
+    unchanged. That split is deliberate — the timeout here is the god-task budget, and it is not
+    worth re-deriving that behaviour for calls that produce no interesting output.
     """
     t0 = time.monotonic()
+    if on_line is None:
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", timeout=timeout, cwd=cwd)
+        except FileNotFoundError as e:
+            raise AdapterError(f"cannot launch {argv[0]!r}: {e}") from e
+        except subprocess.TimeoutExpired as e:
+            raise AdapterError(f"{argv[0]} timed out after {timeout}s "
+                               f"(cmd: {' '.join(argv[:8])}...)") from e
+        return proc.stdout or "", proc.stderr or "", proc.returncode, time.monotonic() - t0
+
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, cwd=cwd)
+        popen = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, encoding="utf-8", errors="replace", cwd=cwd)
     except FileNotFoundError as e:
         raise AdapterError(f"cannot launch {argv[0]!r}: {e}") from e
-    except subprocess.TimeoutExpired as e:
+
+    # stdout and stderr stay SEPARATE: callers diagnose failures from stderr, and merging the two
+    # to save a thread would silently change what a harness_error reports.
+    bufs: dict = {"out": [], "err": []}
+
+    def _pump(pipe, key):
+        try:
+            for line in pipe:
+                bufs[key].append(line)
+                try:
+                    on_line(line)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    threads = [threading.Thread(target=_pump, args=(popen.stdout, "out"), daemon=True),
+               threading.Thread(target=_pump, args=(popen.stderr, "err"), daemon=True)]
+    for th in threads:
+        th.start()
+    try:
+        popen.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        popen.kill()
+        try:
+            popen.wait(timeout=10)
+        except Exception:
+            pass
+        # Same message as the blocking path: run_harness2 and the operator both read this string.
         raise AdapterError(f"{argv[0]} timed out after {timeout}s "
-                           f"(cmd: {' '.join(argv[:8])}...)") from e
-    return proc.stdout or "", proc.stderr or "", proc.returncode, time.monotonic() - t0
+                           f"(cmd: {' '.join(argv[:8])}...)") from None
+    for th in threads:
+        th.join(timeout=5)
+    return "".join(bufs["out"]), "".join(bufs["err"]), popen.returncode, time.monotonic() - t0
 
 
 # ---- harness images: BUILT HERE, never redistributed -----------------------------------------

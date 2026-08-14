@@ -27,6 +27,12 @@ _COUNTERS = {
     "preempt": "num_preemptions_total",
     "pfx_hits": "prefix_cache_hits_total",
     "pfx_queries": "prefix_cache_queries_total",
+    # Speculative decoding, when the serve runs a drafter. Acceptance is the MECHANISM behind
+    # most long-run throughput decay: a drafter conditions on a fraction of what the target sees,
+    # so the deeper the sequence the less it lands. Without these two counters the timeline
+    # records the symptom (gen_tok_rate falling) with no way to explain it.
+    "spec_accept": "spec_decode_num_accepted_tokens_total",
+    "spec_draft": "spec_decode_num_draft_tokens_total",
 }
 _GAUGES = {
     "kv_pct": "kv_cache_usage_perc",
@@ -48,9 +54,13 @@ def _metrics_url(target_url):
     return base.rstrip("/") + "/metrics"
 
 
-def _scrape(url, timeout=4):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        text = r.read().decode("utf-8", "replace")
+def _parse_metrics(text):
+    """Prometheus text -> {our key: float}.
+
+    The trailing `$` and the anchored name are load-bearing. vLLM publishes
+    `spec_decode_num_accepted_tokens_per_pos_total` right beside
+    `spec_decode_num_accepted_tokens_total`; an unanchored search would let the per-position
+    histogram shadow the counter and silently report a nonsense acceptance rate."""
     out = {}
     for key, name in {**_COUNTERS, **_GAUGES}.items():
         m = re.search(r"^vllm:%s(?:\{[^}]*\})? ([0-9.eE+-]+)$" % re.escape(name), text, re.M)
@@ -60,6 +70,49 @@ def _scrape(url, timeout=4):
             except ValueError:
                 pass
     return out
+
+
+def _scrape(url, timeout=4):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        text = r.read().decode("utf-8", "replace")
+    return _parse_metrics(text)
+
+
+MIN_REGIME_SAMPLES = 6      # fewer than this cannot be split into thirds and mean anything
+
+
+def _mean(group, key):
+    vals = [p[key] for p in group if p.get(key) is not None]
+    return round(sum(vals) / len(vals), 1) if vals else None
+
+
+def _regime(group):
+    """Low-KV vs high-KV throughput WITHIN a single concurrency regime.
+
+    Slices the sorted samples directly rather than comparing against boundary VALUES: with
+    `<= kv[n//3]` the low group swallows the first sample of the middle third, which on a
+    9-sample run pulled a 400 tok/s baseline down to 375 and understated the degradation."""
+    ranked = sorted(group, key=lambda p: p["kv_pct"])
+    third = max(1, len(ranked) // 3)
+    lo_pts, hi_pts = ranked[:third], ranked[-third:]
+    lo_tps = sum(p["gen_tok_rate"] for p in lo_pts) / len(lo_pts)
+    hi_tps = sum(p["gen_tok_rate"] for p in hi_pts) / len(hi_pts)
+    return {
+        "running": int(round(group[0].get("running") or 0)),
+        "n": len(group),
+        "kv_lo_cut": round(lo_pts[-1]["kv_pct"], 4),
+        "kv_hi_cut": round(hi_pts[0]["kv_pct"], 4),
+        "tps_at_low_kv": round(lo_tps, 1),
+        "tps_at_high_kv": round(hi_tps, 1),
+        # NEGATIVE means it genuinely got faster as its OWN KV deepened, at unchanged concurrency.
+        # That is a real result and is not clamped to zero.
+        "degradation_pct": round(100.0 * (lo_tps - hi_tps) / lo_tps, 1) if lo_tps else None,
+        # Speculative-decode acceptance across those same two buckets, when the serve runs a
+        # drafter. This is usually WHY the throughput moved: a drafter sees a fraction of the
+        # context the target does, so the deeper the sequence the less of its draft survives.
+        "accept_at_low_kv": _mean(lo_pts, "spec_accept_pct"),
+        "accept_at_high_kv": _mean(hi_pts, "spec_accept_pct"),
+    }
 
 
 class Watcher:
@@ -120,6 +173,13 @@ class Watcher:
                                 p[k + "_rate"] = round(d / dt, 2)
                                 if k == "preempt":
                                     p["preempt_d"] = round(d, 2)
+                    # Acceptance as a share of what was DRAFTED, over this same delta window.
+                    # A ratio of lifetime totals would average the whole run into one number and
+                    # bury the decay this series exists to expose.
+                    drafted = p.get("spec_draft_rate")
+                    if drafted:
+                        p["spec_accept_pct"] = round(
+                            100.0 * (p.get("spec_accept_rate") or 0.0) / drafted, 1)
             self._prev, self._prev_t = cur, now
             self.points.append(p)
             # Heartbeat every ~20 samples (5 min at the default cadence): proof of life in the
@@ -143,10 +203,17 @@ class Watcher:
 
     # ---- the question this module exists to answer ----------------------------------------
     def summary(self):
-        """Throughput at LOW vs HIGH KV pressure, and what it cost.
+        """Throughput at LOW vs HIGH KV pressure, MEASURED AT FIXED CONCURRENCY.
 
         Returns None when there is nothing honest to say — no /metrics, or too few samples to
-        compare two regimes. A section that cannot be computed must be absent, not zero."""
+        compare two regimes. A section that cannot be computed must be absent, not zero.
+
+        Holding concurrency fixed is the whole correctness story. KV% and concurrency climb
+        together, so a bench that walks a c1/c4/c8 ladder files its single-stream samples under
+        "low KV" and its 8-way samples under "high KV" — comparing those two measures BATCHING
+        and prints it as degradation. On a real Gemma-4-26B god run that read 191.2 -> 445.8 tok/s
+        for -133.1% "degradation", which is a property of the ladder, not of the serve. Comparing
+        only within one `running` value leaves KV depth as the one thing that moved."""
         pts = [p for p in self.points if p.get("gen_tok_rate") is not None
                and p.get("kv_pct") is not None]
         if len(pts) < 6:
@@ -157,21 +224,17 @@ class Watcher:
         busy = [p for p in pts if (p.get("running") or 0) > 0 and p["gen_tok_rate"] > 0]
         if len(busy) < 6:
             return None
-        # Compare the LOWEST-pressure third against the HIGHEST-pressure third, by slicing the
-        # sorted samples directly. Comparing against boundary VALUES instead is off by one — with
-        # `<= kv[n//3]` the low group swallows the first sample of the middle third, which on a
-        # 9-sample run pulled a 400 tok/s baseline down to 375 and understated the degradation.
-        ranked = sorted(busy, key=lambda p: p["kv_pct"])
-        third = max(1, len(ranked) // 3)
-        lo_pts, hi_pts = ranked[:third], ranked[-third:]
-        kv = [p["kv_pct"] for p in ranked]
-        lo_cut, hi_cut = lo_pts[-1]["kv_pct"], hi_pts[0]["kv_pct"]
-        lo = [p["gen_tok_rate"] for p in lo_pts]
-        hi = [p["gen_tok_rate"] for p in hi_pts]
-        if not lo or not hi:
-            return None
-        lo_tps = sum(lo) / len(lo)
-        hi_tps = sum(hi) / len(hi)
+        groups = {}
+        for p in busy:
+            groups.setdefault(int(round(p.get("running") or 0)), []).append(p)
+        regimes = [_regime(g) for _, g in sorted(groups.items())
+                   if len(g) >= MIN_REGIME_SAMPLES]
+        regimes = [r for r in regimes if r["degradation_pct"] is not None]
+        # The headline quotes the regime with the most evidence behind it, so its two throughput
+        # figures and its percentage always reconcile with each other. Every other regime stays
+        # visible in by_concurrency rather than being averaged into a number nobody can check.
+        primary = max(regimes, key=lambda r: r["n"]) if regimes else None
+        kv = [p["kv_pct"] for p in busy]
         preempt = sum(p.get("preempt_d") or 0 for p in busy)
         pq = [p for p in busy if p.get("pfx_queries_rate")]
         hit_rate = None
@@ -179,20 +242,34 @@ class Watcher:
             q = sum(p["pfx_queries_rate"] for p in pq)
             h = sum(p.get("pfx_hits_rate") or 0 for p in pq)
             hit_rate = round(100.0 * h / q, 1) if q else None
-        return {
+        out = {
             "n_samples": len(self.points), "n_busy": len(busy),
             "window_s": round(busy[-1]["t"] - busy[0]["t"], 1),
             "kv_pct_min": round(min(kv), 4), "kv_pct_max": round(max(kv), 4),
-            "kv_lo_cut": round(lo_cut, 4), "kv_hi_cut": round(hi_cut, 4),
-            "tps_at_low_kv": round(lo_tps, 1), "tps_at_high_kv": round(hi_tps, 1),
-            # NEGATIVE means it got FASTER under pressure, which happens (bigger batches amortise
-            # better) and is a real result — not something to clamp to zero.
-            "degradation_pct": round(100.0 * (lo_tps - hi_tps) / lo_tps, 1) if lo_tps else None,
             "preemptions": round(preempt, 0),
             "prefix_cache_hit_pct": hit_rate,
             "peak_running": max((p.get("running") or 0) for p in busy),
             "peak_waiting": max((p.get("waiting") or 0) for p in busy),
+            "by_concurrency": regimes,
         }
+        if primary:
+            out.update({
+                "concurrency": primary["running"],
+                "kv_lo_cut": primary["kv_lo_cut"], "kv_hi_cut": primary["kv_hi_cut"],
+                "tps_at_low_kv": primary["tps_at_low_kv"],
+                "tps_at_high_kv": primary["tps_at_high_kv"],
+                "degradation_pct": primary["degradation_pct"],
+                "accept_at_low_kv": primary["accept_at_low_kv"],
+                "accept_at_high_kv": primary["accept_at_high_kv"],
+            })
+        else:
+            # Enough busy samples to describe the run, but no single concurrency held still long
+            # enough to attribute a throughput change to KV depth. Say so, rather than publish a
+            # percentage we cannot defend.
+            out["degradation_pct"] = None
+            out["degradation_note"] = ("no concurrency regime held for %d+ busy samples"
+                                       % MIN_REGIME_SAMPLES)
+        return out
 
     def series(self, limit=MAX_POINTS):
         """The points themselves, thinned to `limit` — for the chart."""

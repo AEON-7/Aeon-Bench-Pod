@@ -17,10 +17,12 @@ always correct; only the LOCAL MIRROR was mislabelled.
 
 Run: python3 mvp/test_local_board_parity.py
 """
+import ast
 import inspect
 import os
 import sys
 import tempfile
+import textwrap
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
@@ -49,12 +51,54 @@ ok(rb["board"].default == "text", "…defaulting to text, so non-god callers are
 ba = inspect.signature(aeon_pod._bench_and_results).parameters
 ok("board" in ba, "_bench_and_results accepts a board")
 
-src = inspect.getsource(runner.run_benchmark)
-ok("board=board" in src, "run_benchmark hands the board to create_run (not the column default)")
+# ---- EVERY hop must forward it, checked structurally rather than by string match -----------------
+# The first version of this test asserted `"board=board" in source`. That is true when the two END
+# layers forward it and the MIDDLE one drops it, which is exactly what shipped: _bench_and_results
+# grew a `board` parameter and never passed it on, so the attested path — the only path that yields
+# a rankable GOD MODE run — still wrote sentinels as board='text'. A substring cannot see a hole in
+# the middle of a chain; an AST can.
+def forwards(fn, callee, kwarg="board"):
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            if name == callee and any(k.arg == kwarg for k in node.keywords):
+                return True
+    return False
 
-pod_src = inspect.getsource(aeon_pod)
-ok("_bench_and_results(alias, target, board=board" in pod_src,
-   "the dimension runner passes its real board down")
+
+ok(forwards(runner.run_benchmark, "create_run"),
+   "run_benchmark forwards the board to create_run (not the column default)")
+ok(forwards(aeon_pod._bench_and_results, "run_benchmark"),
+   "_bench_and_results forwards the board onward — THE HOP THAT WAS SILENTLY DROPPED")
+
+# Stronger than checking named functions one at a time: EVERY call anywhere in the pod module that
+# opens a run must carry the board. A new call site added later cannot quietly omit it.
+def unguarded_calls(module, callees, kwarg="board"):
+    tree = ast.parse(inspect.getsource(module))
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            if name in callees and not any(k.arg == kwarg for k in node.keywords):
+                out.append("%s(...) line %d" % (name, node.lineno))
+    return out
+
+
+_gaps = unguarded_calls(aeon_pod, {"run_benchmark", "_bench_and_results"})
+ok(not _gaps, "every run-opening call in aeon_pod carries a board" + (" — MISSING: " + ", ".join(_gaps) if _gaps else ""))
+
+# ...and prove it at RUNTIME, because a kwarg can be present in the AST and still be the wrong value.
+db.init_db()            # _bench_and_results harvests its own rows at the end; idempotent
+_seen = {}
+_real = runner.run_benchmark
+runner.run_benchmark = lambda *a, **kw: _seen.update(kw)
+try:
+    aeon_pod._bench_and_results("alias", "http://127.0.0.1:1/v1", board="god")
+finally:
+    runner.run_benchmark = _real
+ok(_seen.get("board") == "god",
+   "a god bench really does reach the runner as board='god', not the 'text' default")
 
 # ---- and the row actually carries it ------------------------------------------------------------
 db.init_db()

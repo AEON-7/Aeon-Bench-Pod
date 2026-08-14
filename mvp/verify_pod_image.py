@@ -186,6 +186,38 @@ check("another suite is never matched against text tiers",
 _css = open(os.path.join(BASE, "web", "styles.css"), encoding="utf-8").read()
 check("wall is styled", ".sw-grid" in _css and ".sw-reason" in _css)
 
+# THE AGENTIC PHASE IS 40% OF GOD SCORE AND USED TO RENDER AS ONE COUNTER. The publisher lives in
+# the bench process and the panels in the dashboard, so a broken image looks identical to a working
+# one until a god run reaches its harnesses — hours in. Assert both ends of that seam here.
+from pod import harness_stream                                       # noqa: E402
+from pod.adapters import base as _adapters_base                      # noqa: E402
+livestreams.enable(False)          # an earlier check left it on; assert the OFF state deliberately
+_o = harness_stream.observer("hermes", "av2-01")                     # wall off -> inert, never None
+check("harness observers are safe when the wall is off", _o is harness_stream.NULL)
+livestreams.enable(True)
+_h1 = harness_stream.observer("hermes", "av2-01-compute-write")
+_h2 = harness_stream.observer("openclaw", "av2-01-compute-write")
+check("the same task under two harnesses does not collide into one tile", _h1.cid != _h2.cid)
+_h1("\U0001f504 Making API call #2/8...")
+_snap = {s["case"]: s for s in livestreams.snapshot(limit=16)}
+check("harness output reaches the wall",
+      "hermes:av2-01-compute-write" in _snap
+      and "API call #2/8" in _snap["hermes:av2-01-compute-write"]["answer"])
+_h1.close(); _h2.close()
+livestreams.enable(False)
+livestreams.clear()
+check("adapters can stream container output",
+      "on_line" in inspect.signature(_adapters_base.run_container_io).parameters
+      and "on_line" in inspect.signature(_adapters_base.run_argv).parameters)
+check("all three harnesses publish",
+      all("harness_stream.observer(" in open(os.path.join(BASE, "pod", "adapters", f + ".py"),
+                                             encoding="utf-8", errors="replace").read()
+          for f in ("hermes", "openclaw", "opencode")))
+check("three harness panels render", "function harnessWall(" in _js
+      and all(n in _js for n in ("hermes", "openclaw", "opencode")))
+check("harness panels are styled",
+      ".hw-grid" in _css and ".hw-active" in _css and ".hw-idle" in _css)
+
 print()
 print("PUBLISHED IMAGE: %d ok, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)

@@ -621,9 +621,39 @@ details.how .note { text-align: left; max-width: 78ch; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sw-more { margin-left: auto; font-size: 10px; }
+/* THE HARNESS WALL — three panels, one per agentic harness.
+   The harnesses run sequentially, so two panels are empty at any moment. They stay on screen at
+   equal width anyway: which harness is up, and which are spent or still to come, is the shape of
+   the agentic phase, and a panel that appears only while busy would hide exactly that. */
+.harness-wall { background: #04060a; }
+.hw-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line);
+}
+.hw-panel { background: #05070c; min-width: 0; display: flex; flex-direction: column; }
+/* The active panel is the one to look at; the other two recede without disappearing. */
+.hw-panel.hw-active { background: #060b12; }
+.hw-panel.hw-done { opacity: .68; }
+.hw-panel.hw-idle { opacity: .5; }
+.hw-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 9px; border-bottom: 1px solid var(--line); font-size: 11px;
+}
+.hw-head b { color: #cfe3f5; font-weight: 700; letter-spacing: .04em; }
+.hw-active .hw-head b { color: #2bff88; }
+.hw-empty {
+  padding: 22px 9px; text-align: center; color: #35506b; font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* Inside a panel the tiles are narrower than on the flat wall, so let them stack sooner. */
+.hw-panel .sw-grid { grid-template-columns: 1fr; }
+.hw-panel .sw-body { height: 150px; }
+
 @media (max-width: 640px) {
   .sw-grid { grid-template-columns: 1fr; }
   .sw-body { height: 150px; }
+  /* Three side-by-side terminals do not fit a phone; stack them and keep the order. */
+  .hw-grid { grid-template-columns: 1fr; }
+  .hw-panel.hw-idle { display: none; }
 }
 
 .mcard-vram { font-size: 11px; color: var(--faint); }

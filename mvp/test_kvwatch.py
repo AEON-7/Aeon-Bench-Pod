@@ -44,6 +44,21 @@ def pts(spec):
     return out
 
 
+def mixed(spec):
+    """spec: [(kv_pct, tok_rate, running, spec_accept_pct|None), ...] on a 15s clock.
+
+    Unlike pts(), this one lets CONCURRENCY vary across the series — which is what a real
+    c1/c4/c8 ladder does, and what every pre-existing test in this file holds constant."""
+    out = []
+    for i, (kv, tps, run, acc) in enumerate(spec):
+        p = {"t": 1000.0 + 15 * i, "kv_pct": kv, "gen_tok_rate": tps,
+             "running": run, "waiting": 0, "preempt_d": 0, "preempt_rate": 0.0}
+        if acc is not None:
+            p["spec_accept_pct"] = acc
+        out.append(p)
+    return out
+
+
 print("the metrics URL follows whatever is being benchmarked")
 check("…/v1 -> …/metrics", kvwatch._metrics_url("http://h:8000/v1") == "http://h:8000/metrics")
 check("trailing slash", kvwatch._metrics_url("http://h:8000/v1/") == "http://h:8000/metrics")
@@ -107,6 +122,75 @@ check("scored None — telemetry is not a grade", all(r["score"] is None for r i
 check("category matches the perf board", all(r["category"] == "Performance" for r in rows))
 check("timeline carries the points",
       any(r["case_id"].endswith("timeline") and r["evidence"].get("points") for r in rows))
+
+print("THE LADDER CONFOUND: KV and concurrency climb together and must be separated")
+# A c1 then c8 ladder. WITHIN each regime throughput falls as KV deepens — real degradation.
+# Globally the c8 samples sit at both high KV and high aggregate throughput, so an unstratified
+# comparison concludes the serve got FASTER under pressure. This reproduces the shape measured on
+# a real Gemma-4-26B god run: 191.2 -> 445.8 tok/s, reported as -133.1% "degradation".
+ladder = mixed(
+    [(0.05, 200, 1, 62), (0.06, 196, 1, 60), (0.07, 204, 1, 61),
+     (0.13, 150, 1, 12), (0.14, 146, 1, 11), (0.15, 154, 1, 13)]
+    + [(0.40, 460, 8, 58), (0.41, 456, 8, 57), (0.42, 464, 8, 59),
+       (0.50, 410, 8, 30), (0.51, 406, 8, 31), (0.52, 414, 8, 29),
+       (0.63, 360, 8, 9), (0.64, 356, 8, 8), (0.65, 364, 8, 10)])
+sl = watcher(ladder).summary()
+_all = sorted(ladder, key=lambda p: p["kv_pct"])
+_t3 = len(_all) // 3
+_nlo = sum(p["gen_tok_rate"] for p in _all[:_t3]) / _t3
+_nhi = sum(p["gen_tok_rate"] for p in _all[-_t3:]) / _t3
+check("the UNSTRATIFIED comparison inverts the sign on this data (the bug)",
+      (_nlo - _nhi) / _nlo < 0, "naive %.1f%%" % (100 * (_nlo - _nhi) / _nlo))
+check("stratified degradation is POSITIVE — the serve does slow as its own KV deepens",
+      sl and sl["degradation_pct"] > 0, str(sl and sl["degradation_pct"]))
+check("every qualifying concurrency regime is disclosed, not averaged away",
+      sl and sorted(r["running"] for r in sl["by_concurrency"]) == [1, 8],
+      str(sl and [r["running"] for r in sl["by_concurrency"]]))
+check("the headline names the concurrency it was measured at", sl and sl["concurrency"] == 8,
+      str(sl and sl.get("concurrency")))
+check("headline throughputs come from that same regime, so they reconcile",
+      sl and sl["tps_at_low_kv"] == 460.0 and sl["tps_at_high_kv"] == 360.0,
+      str(sl and (sl["tps_at_low_kv"], sl["tps_at_high_kv"])))
+check("each regime carries its own KV cut points",
+      sl and all(r["kv_lo_cut"] < r["kv_hi_cut"] for r in sl["by_concurrency"]))
+
+print("acceptance rides along, because it is usually the MECHANISM behind the decay")
+check("acceptance is reported at both ends of the KV range",
+      sl and sl["accept_at_low_kv"] is not None and sl["accept_at_high_kv"] is not None)
+check("and shows the drafter falling away as the sequence deepens",
+      sl and sl["accept_at_low_kv"] > sl["accept_at_high_kv"],
+      str(sl and (sl["accept_at_low_kv"], sl["accept_at_high_kv"])))
+check("a serve with no drafter reports no acceptance rather than 0%",
+      watcher(pts([(0.1 + i * 0.09, 400, 8, 0) for i in range(9)]))
+      .summary()["accept_at_low_kv"] is None)
+
+print("SILENCE again when no concurrency regime holds still long enough to attribute a change")
+churn = watcher(mixed([(0.10 + i * 0.05, 300 + 10 * i, i + 1, None) for i in range(8)])).summary()
+check("the run is still described", churn is not None)
+check("but degradation is None, not a number that cannot be defended",
+      churn and churn["degradation_pct"] is None, str(churn and churn["degradation_pct"]))
+check("and it says why", churn and "no concurrency regime" in (churn.get("degradation_note") or ""))
+check("no by_concurrency entries qualified", churn and churn["by_concurrency"] == [])
+
+print("the spec-decode counters are read from the engine, and not shadowed by their siblings")
+check("both counters are scraped",
+      "spec_accept" in kvwatch._COUNTERS and "spec_draft" in kvwatch._COUNTERS)
+_m = kvwatch._parse_metrics(
+    'vllm:spec_decode_num_accepted_tokens_per_pos_total{engine="0"} 999.0\n'
+    'vllm:spec_decode_num_accepted_tokens_total{engine="0"} 42.0\n'
+    'vllm:spec_decode_num_draft_tokens_total{engine="0"} 500.0\n'
+    'vllm:kv_cache_usage_perc{engine="0"} 0.147\n')
+check("accepted-tokens total is read", _m.get("spec_accept") == 42.0, str(_m.get("spec_accept")))
+check("the per-position sibling does NOT shadow it", _m.get("spec_accept") != 999.0)
+check("drafted-tokens total is read", _m.get("spec_draft") == 500.0, str(_m.get("spec_draft")))
+check("labelled gauges still parse", _m.get("kv_pct") == 0.147, str(_m.get("kv_pct")))
+
+print("the new fields reach the submission row without a schema change")
+_rows = perf_grid.sustained_rows(sl, [])
+check("by_concurrency survives into the row evidence",
+      _rows and _rows[0]["evidence"].get("by_concurrency"))
+check("so does the concurrency the headline was measured at",
+      _rows and _rows[0]["evidence"].get("concurrency") == 8)
 
 print()
 if fails:

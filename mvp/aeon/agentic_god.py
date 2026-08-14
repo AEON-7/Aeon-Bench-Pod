@@ -6,6 +6,25 @@ and agents must earn. Scoring stays declarative (contains/answer needles, agenti
 so the perfect-run oracle holds for every case."""
 from __future__ import annotations
 
+# WALL-CLOCK BUDGET PER GOD TASK.
+#
+# Was 420s on god-01..05 and 540s on god-06..15, and both were too tight to measure what they
+# claim to. A timed-out task raises AdapterError, lands as status='harness_error' with score None,
+# and scoring.harness_board() drops null-scored rows from the mean (scoring.py:78) — so the budget
+# does not merely penalise a slow serve, it DELETES the hardest tasks from the result and leaves a
+# harness score computed over the easy ones, biased UPWARD, with only n_cases to hint at it.
+#
+# Measured 2026-08-13: Qwen3.6-27B on a DGX Spark timed out on all five 420s tasks consecutively
+# (god-01..05); Gemma-4-26B timed out on god-12/13 at 540s under OpenCode. These tasks ask for
+# multi-file builds — a path tracer with BVH, XPBD cloth, a 90s generative score — over several
+# agent turns, and long-form decode on this class of hardware runs 10-40 tok/s. Generation alone
+# can exhaust 7 minutes before the agent has finished reasoning.
+#
+# 1800s is deliberately generous: the point of a frontier tier is to measure capability, not to
+# race a stopwatch. Raising this changes agentic comparability against god runs submitted before
+# 2026-08-13, which is why it was done while very few exist.
+GOD_TASK_TIMEOUT_S = 1800
+
 GOD_CASES = [
     {"id": "av2-god-01-starship-bridge", "category": "Agentic", "tier": 0,
      "difficulty": "god_mode",
@@ -29,7 +48,7 @@ GOD_CASES = [
                    "MANIFEST.json": {"contains": ['"subsystems"', '"helm"', '"power"',
                                                   '"comms"', '"shields"', '"online"']}},
          "answer_contains": ["bridge online 4/4"]},
-     "timeout_s": 420,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "bridge.html": '<html><canvas id="helm"></canvas><div id="power"></div>'
                         '<div id="comms"></div><div id="shields"></div>'
@@ -66,7 +85,7 @@ GOD_CASES = [
                                                      'data-station="beta"',
                                                      'data-station="gamma"', "27"]}},
          "answer_contains": ["observatory", "6.0", "14.0", "24.0"]},
-     "timeout_s": 420,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "STATS.md": "ALPHA min=4 mean=6.0 max=9\nBETA min=11 mean=14.0 max=18\n"
                      "GAMMA min=21 mean=24.0 max=27",
@@ -93,7 +112,7 @@ GOD_CASES = [
          "files": {"vault.html": {"contains": ["mulberry32", "1337", "<canvas", "keydown"]},
                    "DESIGN.txt": {"contains": ["rooms=12", "seed=1337"]}},
          "answer_contains": ["vault sealed 12 1337"]},
-     "timeout_s": 420,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "vault.html": "<html><canvas></canvas><script>function mulberry32(s){}\n"
                        "mulberry32(1337);addEventListener('keydown',()=>{})</script></html>",
@@ -122,7 +141,7 @@ GOD_CASES = [
                    "score.json": {"contains": ['"tempo": 96', '"scale": "a_minor"',
                                                '"sections": 4', '"duration_s": 90']}},
          "answer_contains": ["symphony 90s 4 sections"]},
-     "timeout_s": 420,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "symphony.html": "<html><script>new AudioContext();var a='AnalyserNode';"
                           "requestAnimationFrame(()=>{})</script></html>",
@@ -154,7 +173,7 @@ GOD_CASES = [
                    "CONTROLS.md": {"contains": ["pause", "speed", "seed", "inspect",
                                                 "export", "reset"]}},
          "answer_contains": ["atlas alive 6 controls"]},
-     "timeout_s": 420,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "atlas.html": '<html><canvas></canvas><button data-action="pause"></button>'
                        '<button data-action="speed"></button><button data-action="seed"></button>'
@@ -190,7 +209,7 @@ GOD_CASES = [
                    "WORLD_BIBLE.md": {"contains": ["# HEROINE", "# CITY", "# RELIC",
                                                    "# CONFLICT", "# ENDING", "Amara"]}},
          "answer_contains": ["god mode desert relic online"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "desert_relic.html": '<html><canvas id="map"></canvas><div id="compass"></div>'
                               '<script>const heroine="Amara"; addEventListener("keydown",()=>{});'
@@ -225,7 +244,7 @@ GOD_CASES = [
                                                    "Obsidian Senate",
                                                    "signal arriving backward"]}},
          "answer_contains": ["god mode worldforge ready 3 factions"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "worldforge.html": '<html><canvas id="graph"></canvas><button id="export">export</button>'
                             '<button id="import">import</button><script>localStorage.setItem("x","y");'
@@ -256,7 +275,7 @@ GOD_CASES = [
                                                 '"mind"', '"object"', '"claim"',
                                                 '"metaphor"']}},
          "answer_contains": ["god mode observatory four phases"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "endtime.html": '<html><canvas></canvas><input id="time-slider" type="range">'
                          '<script>const phases=["seed","city","mind","object"];'
@@ -291,7 +310,7 @@ GOD_CASES = [
                                                        "what-if", "<canvas",
                                                        "mitigation", "score"]}},
          "answer_contains": ["god mode crisis oracle ready"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "PRIORITIES.md": "edge-waf-false-positive score=60\n"
                           "upload-bandwidth-saturation score=60\n"
@@ -322,14 +341,14 @@ GOD_CASES = [
                                                '"drones": 5',
                                                '"objective": "recover the signal prism"']}},
          "answer_contains": ["god mode neon ruins complete"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "neon_ruins.html": '<html><canvas></canvas><script>const controls="WASD";'
                             'const raycaster=true, scan=true, minimap=true, drone=5, '
                             'objective="recover the signal prism";</script></html>',
          "LEVEL.json": '{"rooms": 4, "doors": 3, "drones": 5, '
                        '"objective": "recover the signal prism"}'},
-         "answer": "GOD MODE NEON RUINS COMPLETE"}},
+         "answer": "GOD MODE NEON RUINS COMPLETE"}},
     # ---- category balance: 5 apps / 5 games / 5 animations ------------------------------------
     # Everything below is deliberately beyond frontier: a correct implementation requires a real
     # algorithm, and the manifest must stay numerically consistent with it.
@@ -363,7 +382,7 @@ GOD_CASES = [
                                                         '"adjustment_set"', '"age"', '"severity"',
                                                         '"ipw"', '"aipw"', '"bootstrap": 500']}},
          "answer_contains": ["god mode causal forge identified"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "causal_forge.html": '<html><canvas id="dag"></canvas><script>const backdoor=1, '
                               'frontdoor=1, propensity=1, aipw=1, bootstrap=500, '
@@ -399,7 +418,7 @@ GOD_CASES = [
                                             '"material"', '"territory"', '"mobility"',
                                             '"seed": 20260808']}},
          "answer_contains": ["god mode hex dominion victory"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "hex_dominion.html": '<html><canvas></canvas><script>const axial=1, minimax=1, '
                               'fog=1, terrain=1; /* alpha-beta pruning */ '
@@ -434,7 +453,7 @@ GOD_CASES = [
                                                 '"scheme": "semi-lagrangian"',
                                                 '"vorticity_confinement": true']}},
          "answer_contains": ["god mode stable fluids converged"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "stable_fluids.html": '<html><canvas></canvas><script>function advect(){}'
                                "const vorticity=1, divergence=0, pressure=1, jacobi=40;"
@@ -470,7 +489,7 @@ GOD_CASES = [
                                                 '"russian_roulette": true',
                                                 '"max_bounces": 8']}},
          "answer_contains": ["god mode photon cathedral converged"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "photon_cathedral.html": '<html><canvas></canvas><script>const bvh=1, fresnel=1, '
                                   "russian=1, importance=1, bounce=8; function accumulate(){}"
@@ -506,7 +525,7 @@ GOD_CASES = [
                                                '"grid": 64', '"self_collision": true',
                                                '"tear_threshold": 1.8']}},
          "answer_contains": ["god mode cloth requiem settled"]},
-     "timeout_s": 540,
+     "timeout_s": GOD_TASK_TIMEOUT_S,
      "_expected": {"files": {
          "cloth_requiem.html": '<html><canvas></canvas><script>const xpbd=1, substep=8, '
                                "constraint=1, tear=1.8, wind=1;"

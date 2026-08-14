@@ -578,10 +578,16 @@ def _bench_and_results(model, target, *, api_key=None, max_tokens=DEFAULT_MAX_TO
     params = {"temperature": temperature, "max_tokens": max_tokens,
               "retry_max_tokens": retry_max_tokens, "retries": 1, "concurrency": concurrency,
               "think_budget": think_budget}
+    # `board=board` is load-bearing and was missed once already: without it the sentinel run is
+    # stored under the column default 'text' even on a GOD MODE bench, the pod's god board cannot
+    # find its own sentinels, and GOD SCORE renders from agentic alone — 78.7 locally against 35.5
+    # on the mothership, with the POD as the flattering one. This is the attested path, i.e. the
+    # only path that produces a rankable god run, so a drop here is invisible until a submission
+    # disagrees with the operator's own dashboard.
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
                          judge_model=judge, judge_url=judge_url, judge_key=judge_key,
                          hf_repo=hf_repo, trust_tier=trust_tier, model_verified=model_verified,
-                         job_sig=job_sig, done_case_ids=done_case_ids, resume=resume)
+                         job_sig=job_sig, done_case_ids=done_case_ids, resume=resume, board=board)
     results = _collect_results(rid)
     scored = [x["score"] for x in results if isinstance(x["score"], float)]
     mean = sum(scored) / len(scored) if scored else 0.0

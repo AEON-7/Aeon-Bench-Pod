@@ -4176,9 +4176,62 @@ const LIVE_STREAMS = { rows: [], live: false, age: null, n: 0 };
 // grid they read as sixteen separate things, which is what they are. Tiles are ordered live-first
 // (the buffer already sorts them that way), so finished cases sink and never push a running one
 // off the visible rows.
+// THE HARNESS WALL — three panels, one per agentic harness.
+//
+// The harnesses run SEQUENTIALLY, so two of the three are empty at any moment. That is the point:
+// which one is working, and what it is doing, is exactly what an operator cannot otherwise see.
+// The agentic dimension is 40% of GOD SCORE and the longest phase of a god run, and until the pod
+// started publishing container output it rendered as a single `harness:hermes 4/25` counter.
+//
+// Streams arrive keyed `<harness>:<task id>` — namespaced at the source because the same task id
+// runs under all three harnesses and would otherwise collide into one tile.
+const HARNESS_PANELS = [
+  { id: "hermes", name: "Hermes" },
+  { id: "openclaw", name: "OpenClaw" },
+  { id: "opencode", name: "OpenCode" },
+];
+const HARNESS_IDS = new Set(HARNESS_PANELS.map((h) => h.id));
+const swHarness = (r) => String(r.case || "").split(":")[0];
+
+function harnessWall(hRows) {
+  const byH = {};
+  hRows.forEach((r) => { (byH[swHarness(r)] = byH[swHarness(r)] || []).push(r); });
+  const liveTotal = hRows.filter((r) => !r.done).length;
+  const panels = HARNESS_PANELS.map((h) => {
+    const mine = byH[h.id] || [];
+    const live = mine.filter((r) => !r.done);
+    // Three states, because "empty" means two different things: not started yet, versus finished.
+    const cls = live.length ? "hw-active" : mine.length ? "hw-done" : "hw-idle";
+    const badge = live.length
+      ? `<span class="lt-live">● ${live.length} running</span>`
+      : mine.length
+        ? `<span class="sw-done">${mine.length} task${mine.length === 1 ? "" : "s"}</span>`
+        : `<span class="lt-idle">waiting</span>`;
+    const body = mine.length
+      ? `<div class="sw-grid${mine.length === 1 ? " sw-solo" : ""}">${mine.map(swTile).join("")}</div>`
+      : `<div class="hw-empty">not started</div>`;
+    return `<div class="hw-panel ${cls}">
+      <div class="hw-head"><b>${escH(h.name)}</b> ${badge}</div>
+      ${body}
+    </div>`;
+  }).join("");
+  return `<div class="live-term harness-wall">
+    <div class="lt-head">▮ agentic harnesses ${
+      liveTotal ? `<span class="lt-live">● ${liveTotal} running</span>`
+                : `<span class="lt-idle">idle</span>`}</div>
+    <div class="hw-grid">${panels}</div>
+  </div>`;
+}
+
 function streamWall() {
-  const rows = LIVE_STREAMS.rows || [];
-  if (!rows.length) return "";
+  const all = LIVE_STREAMS.rows || [];
+  if (!all.length) return "";
+  // Harness streams get the three-panel treatment; model streams keep the flat grid. A god run
+  // produces both, at different phases, and occasionally overlapping.
+  const hRows = all.filter((r) => HARNESS_IDS.has(swHarness(r)));
+  const rows = all.filter((r) => !HARNESS_IDS.has(swHarness(r)));
+  const hWall = hRows.length ? harnessWall(hRows) : "";
+  if (!rows.length) return hWall;
   const runningN = rows.filter((r) => !r.done).length;
   const state = LIVE_STREAMS.live
     ? `<span class="lt-live">● ${runningN} STREAMING</span>`

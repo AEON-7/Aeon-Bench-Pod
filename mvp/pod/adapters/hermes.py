@@ -165,13 +165,20 @@ class HermesAdapter(Adapter):
         ]
         if self._disabled:
             args.append(f"--disabled_toolsets={self._disabled}")
-        out, err, rc, dur = run_container_io(
-            self.IMAGE, args,
-            seed=[(workdir, "/work")],
-            seed_optional=[(self._ensure_cfg(), "/root/.hermes/config.yaml")],
-            collect=[("/work/.", workdir)],
-            timeout=timeout, name_hint=f"hermes_{served_alias}",
-            env={"TERMINAL_CWD": "/work"}, workdir="/work")
+        from .. import harness_stream          # local: keeps pod.adapters free of a package cycle
+        _obs = harness_stream.observer("hermes", task.get("id"))
+        try:
+            out, err, rc, dur = run_container_io(
+                self.IMAGE, args,
+                seed=[(workdir, "/work")],
+                seed_optional=[(self._ensure_cfg(), "/root/.hermes/config.yaml")],
+                collect=[("/work/.", workdir)],
+                timeout=timeout, name_hint=f"hermes_{served_alias}",
+                env={"TERMINAL_CWD": "/work"}, workdir="/work", on_line=_obs)
+        finally:
+            # Also closes on the timeout path, so a task that dies at the budget ends its tile
+            # instead of leaving it live forever.
+            _obs.close()
 
         samples = [p for p in glob.glob(os.path.join(workdir, "sample_*.json"))
                    if p not in before]

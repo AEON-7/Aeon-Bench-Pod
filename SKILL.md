@@ -113,6 +113,14 @@ of throughput. Everything else — quantization flags, spec-decode, parsers — 
 Hugging Face card; read it before writing a recipe. Details in [`AGENTS.md`](AGENTS.md) §4(c-quant)
 and §4(f).
 
+**If the model is slow with big outputs** — the card says thinking-on-by-default, or it is a
+≥20B dense model without spec-decode, or a probe shows under ~25 tok/s single-stream — the
+default time budgets will quietly **delete the hardest tasks instead of scoring them**. Set the
+slow-model ceilings: env `AEON_HTTP_TIMEOUT=36000 GOD_TASK_TIMEOUT_S=21600 AEON_HARNESS_CONC=2`,
+flags `--concurrency 2 --max-tokens <the card's recommended total, e.g. 393216 for Qwen3.8>
+--retry-max-tokens 0`. Then tell the human the run will take **1–2.5 days** — that is the honest
+cost, not a hang. Decision rule + full table: [`AGENTS.md`](AGENTS.md) §4(e-slow).
+
 ---
 
 ## Step 4 — Watch it

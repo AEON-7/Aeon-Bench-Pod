@@ -214,6 +214,29 @@ label** (a DGX Spark pod sees what won on a DGX Spark), and the Run tab offers e
 exact winning recipe, editable before launch. Mothership unreachable → `{available: false}` and
 the Run tab keeps working; the champion pull never blocks a bench.
 
+## Slow models in the harness pass
+
+A big thinking model without spec-decode (≲20 tok/s single-stream) breaks the harness pass in a
+way that *looks like success*: a task that outlives its wall-clock budget raises `AdapterError`,
+lands as `harness_error` with a null score, and is **dropped from the harness mean** — the
+hardest tasks vanish and the agentic number comes out inflated. Three env knobs fix it, all
+default-off so fast models are unaffected:
+
+- `GOD_TASK_TIMEOUT_S` (default 1800) — per-task wall-clock for god-tier cases; `21600` for a
+  ~17 tok/s 27B (an 80k-token task legitimately needs 70–110 minutes). Recorded per-case as
+  `timeout_s`.
+- `AEON_TASK_TIMEOUT_SCALE` (default 1.0) — multiplies **every** tier's budget (the base tiers'
+  120–300s literals were priced for fast serves); `4` for comprehensive runs. Do not stack with
+  `GOD_TASK_TIMEOUT_S` on god runs — the scale multiplies it.
+- `AEON_HARNESS_CONC` (default 4) — tasks in flight per harness; `2` keeps each stream near
+  single-stream decode speed, which is often the difference between fitting the budget and
+  being deleted from it. Pair with `AEON_HERMES_MAX_TOKENS` / `AEON_OPENCLAW_MAX_TOKENS` at the
+  model card's output budget so a long turn is the model's choice, not the adapter's cap.
+
+When to reach for these, plus the text-case and serve-side halves of the story:
+[`AGENTS.md`](../../AGENTS.md) §4(e-slow) and `docs/run-a-benchmark.md` § *Benching slow /
+large-output models*.
+
 ## Resume + deferred idempotent submission
 
 **Job identity:** at job start `aeon_pod` fixes a context (launch UTC timestamp + canonical model

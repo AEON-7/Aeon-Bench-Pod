@@ -788,6 +788,55 @@ grading rather than the thing being graded.
 > ranked run; reach for it when you are deliberately measuring reasoning efficiency, or as a safety
 > valve on a suite where models otherwise return nothing.
 
+### 4(e-slow) Slow / large-output models — raise the ceilings BEFORE the first run
+
+*(Why: a big thinking model without spec-decode can be a perfectly healthy model that needs an
+hour where the defaults budget minutes — and undersized budgets do not score it low, they
+**delete the evidence**. Text cases land `no_answer` after burning silent retry passes, and an
+agentic task that outlives its wall-clock is REMOVED from the harness mean, quietly inflating
+the score. A bench whose ceilings bind is measuring the ceilings, not the model.)*
+
+**Use the slow-model configuration when ANY of these holds:**
+
+- the model card declares **thinking on by default** (high `reasoning_effort`) and/or recommends
+  large output budgets — e.g. Qwen3.8's 262,144 reasoning + 131,072 response = 393,216/request;
+- **≥ ~20B dense params served WITHOUT spec-decode** on Spark-class hardware — expect ≲20 tok/s
+  single-stream before you measure anything;
+- a probe request (or the perf tab) measures **single-stream decode under ~25 tok/s**;
+- a previous run of this model shows clusters of `no_answer` text cases or `harness_error`
+  agentic tasks — that run measured the old ceilings, not the model; re-run it.
+
+**What to set** (all defaults untouched for fast models; full knob table + worked example in
+[`docs/run-a-benchmark.md`](docs/run-a-benchmark.md) § *Benching slow / large-output models*):
+
+```bash
+AEON_HTTP_TIMEOUT=36000 GOD_TASK_TIMEOUT_S=21600 AEON_HARNESS_CONC=2 \
+AEON_HERMES_MAX_TOKENS=<card total> AEON_OPENCLAW_MAX_TOKENS=<card total> \
+python -m pod.aeon_pod ... --concurrency 2 \
+  --max-tokens <card total> --retry-max-tokens 0 --perf-max-conc <serve --max-num-seqs>
+```
+
+- `--max-tokens` aligns to the model card's recommended totals **at least** (reasoning +
+  response). Once the card budget IS the ceiling, disable the truncation re-run
+  (`--retry-max-tokens 0`) — there is nothing sensible above the card.
+- `--concurrency 2` + `AEON_HARNESS_CONC=2` hold each stream near single-stream decode speed —
+  concurrency 4 costs ~30% per stream, which is the difference between a long task fitting its
+  budget and being deleted from it.
+- **Serve side**: the context window must hold prompt + reasoning + response (Qwen3.8's card
+  budget does not fit its own 262k native window — that is what the card's YaRN recipe is for),
+  and cap the serve's `--max-num-seqs` to the stream count so a stray request can never preempt
+  a half-million-token generation mid-task.
+- §4(e-thinking)'s `--think-budget` composes with this: the card's reasoning figure (e.g.
+  262144) caps thinking while `--max-tokens` carries the total, guaranteeing the response its
+  share. Preflight one tiny-budget request first — honored / silently-ignored / rejected-400
+  are three very different outcomes, and the third fails every request in the run.
+- For **comprehensive** (non-god) runs prefer the single knob `AEON_TASK_TIMEOUT_SCALE=4` over
+  `GOD_TASK_TIMEOUT_S`; never stack the two on a god run (the scale multiplies the other).
+- **Comparability**: the run records `max_tokens` and per-case `timeout_s`, so enlarged budgets
+  are auditable — but scores are only comparable same-budget vs same-budget.
+- Expect a god run at these budgets to take **1–2.5 days**. That is the honest cost of
+  unbudgeted reasoning at that decode speed — never kill a slow run (§7).
+
 ### 4(e-probe) The pod checks tool calling BEFORE the suite — read what it prints
 
 *(Why: this is the one check that tells you, in seconds rather than hours, whether the agentic

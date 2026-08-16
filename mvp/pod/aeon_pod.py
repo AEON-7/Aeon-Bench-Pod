@@ -356,7 +356,9 @@ def _resume_anchor(model, board="text", hf_repo=None):
 def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=None,
             board="text", suite_id=None, key_path=None, hf_repo=None, limit=None, difficulty=None,
             category=None, max_tokens=DEFAULT_MAX_TOKENS, temperature=0.0, judge=None, judge_url=None, judge_key=None,
-            concurrency=1, frontier_id=None, resume=False, force_submit=False):
+            concurrency=1, frontier_id=None, resume=False, force_submit=False,
+            harness_ids=None, perf=False, perf_max_conc=None,
+            retry_max_tokens=None, think_budget=None):
     # Pod state is LOCAL SQLite (its own job dashboard) — never the mothership DB.
     os.environ.pop("AEON_DB_URL", None)
     os.environ.setdefault("AEON_DB", os.path.expanduser("~/.aeon/pod.db"))
@@ -443,7 +445,11 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
                 print(f"[pod] checkpoint submit failed (non-fatal): {e}")
 
     params = {"temperature": temperature, "max_tokens": max_tokens,   # headroom for reasoning models
-              "concurrency": concurrency}
+              "concurrency": concurrency,
+              # Local-path parity (was silently dropped here): the truncation-retry ceiling and
+              # the split reasoning budget (--think-budget -> vLLM thinking_token_budget, the
+              # card-recommended 262144/131072 split for Qwen3.8-class thinking models).
+              "retry_max_tokens": retry_max_tokens, "think_budget": think_budget}
     # Judge policy: a frontier model OR deterministic-only (never self-judge). With no --judge,
     # subjective Tier-1 cases are left unscored; deterministic cases always score.
     runner.run_benchmark(rid, model, target, api_key=api_key, params=params, progress_cb=cb,
@@ -465,9 +471,26 @@ def run_pod(target, model, mothership, *, api_key=None, engine=None, hardware=No
     if missing and not force_submit:
         print(f"[pod][submit] incomplete job_sig={jsig} missing={len(missing)} — NOT submitting "
               f"(resume the job to finish, or --force-submit)")
-        return 0, {"error": "incomplete", "missing": len(missing)}
-    st, r = pending.finalize(pod, ses, results)   # frontier judge or None — NEVER the model itself
-    print(f"[pod] submit -> {mothership}: HTTP {st}  {json.dumps(r)[:400]}")
+        st, r = 0, {"error": "incomplete", "missing": len(missing)}
+    else:
+        st, r = pending.finalize(pod, ses, results)   # frontier judge or None — NEVER the model itself
+        print(f"[pod] submit -> {mothership}: HTTP {st}  {json.dumps(r)[:400]}")
+    # Local-path parity: agentic + perf run here exactly like the attested paths — before this,
+    # a --target+--model GOD MODE run silently produced text-only and the god board compared
+    # sentinels against nothing. Incomplete text does NOT gate these (matches _run_boards).
+    if harness_ids and not frontier_meta:
+        _agentic_pass(pod, repo=hf_repo or model, target=target, alias=model, env=env,
+                      provenance=(dict(hf_repo=hf_repo) if hf_repo else {}), board=board,
+                      harness_ids=harness_ids, judge=judge, difficulty=difficulty,
+                      bench_seed=None, job_ctx=job_ctx, harness_only=False,
+                      target_class="local_weights")
+    if perf and not frontier_meta:
+        try:
+            _perf_and_submit(pod, hf_repo or model, target, model, env=env,
+                             provenance=(dict(hf_repo=hf_repo) if hf_repo else {}),
+                             job_ctx=job_ctx, harness_ids=harness_ids, max_conc=perf_max_conc)
+        except Exception as e:
+            print(f"[pod] perf grid failed (non-fatal): {e}")
     return st, r
 
 
@@ -1112,6 +1135,41 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             print(f"[pod] submit (complete verified run + {len(artifacts)} artifacts) -> "
                   f"HTTP {st}  {json.dumps(r)[:300]}")
 
+    ast, _hst = _agentic_pass(pod, repo=repo, target=target, alias=alias, env=env,
+        provenance=provenance, board=board, harness_ids=harness_ids, judge=judge,
+        difficulty=difficulty, bench_seed=bench_seed, job_ctx=job_ctx,
+        harness_only=harness_only, target_class="hf_pull_controlled")
+    if harness_only:
+        st = ast
+
+    if vision and not harness_only:
+        _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                           job_ctx=job_ctx, max_tokens=max_tokens, temperature=temperature)
+    if audio and not harness_only:
+        _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                          job_ctx=job_ctx, temperature=temperature,
+                          declared_audio="audio" in ((recipe or {}).get("modalities") or []))
+    if video and not harness_only:
+        _video_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                          job_ctx=job_ctx, max_tokens=max_tokens, temperature=temperature)
+    if perf and not harness_only:
+        _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
+                         job_ctx=job_ctx, harness_ids=harness_ids, max_conc=perf_max_conc)
+    return st, r
+
+
+def _agentic_pass(pod, *, repo, target, alias, env, provenance, board, harness_ids, judge,
+                  difficulty, bench_seed, job_ctx, harness_only=False,
+                  target_class="hf_pull_controlled"):
+    """Tool-calling preflight + the agentic-v2 pass through each real harness. Shared by
+    _run_boards (attested comprehensive/god runs) and run_pod (local --target+--model runs) so a
+    local GOD MODE bench measures the same agentic dimension as an attested one — before this
+    existed, the local path silently ran text-only and a god-mode 'comparison' compared nothing
+    but sentinels. Returns (harness_only_status, per-harness submit statuses)."""
+    from aeon import agentic_v2
+    from aeon import suite as suite_mod
+    from pod import run_harness2
+
     # TOOL-CALLING PREFLIGHT. Every agentic task in the suite depends on the SERVER converting the
     # model's tool calls into OpenAI `tool_calls`, which is what --tool-call-parser does. Get that
     # wrong and nothing errors: the harnesses simply watch an agent that never uses a tool, and
@@ -1155,8 +1213,14 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
                 print(f"    [{_h}] {c:26s} {stt:13s} {s}")
                 _stage(f"harness:{_h}", _d["i"], _n)
 
-            hres = run_harness2.run_agentic_v2(h, target, alias, concurrency=4,
-                                               progress_cb=_hcb)
+            # 4 is the comprehensive-run standard; AEON_HARNESS_CONC overrides for slow
+            # no-drafter serves where per-stream decode must stay near single-stream speed
+            # (c=2 on a Spark 27B keeps ~17-19 tok/s/stream vs ~12-15 at c=4 — the
+            # difference between a god task fitting its budget and being deleted from it).
+            hres = run_harness2.run_agentic_v2(
+                h, target, alias,
+                concurrency=int(os.environ.get("AEON_HARNESS_CONC", "") or 4),
+                progress_cb=_hcb)
         except Exception as e:
             # Skipping beats scoring 0: a harness that never ran is UNTESTED, and a fabricated
             # zero would rank as if the model had genuinely failed every agentic task. But the
@@ -1187,7 +1251,7 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             hst, hr = _session_submit(pod, job_ctx=job_ctx, model=repo,
                 suite_id=agentic_v2.SUITE_ID, board=board, results=hresults, local_rid=mrid,
                 sig_scope=f"{agentic_v2.SUITE_ID}@{h}",
-                suite_hash=suite_mod.suite_hash(), environment=env, target_class="hf_pull_controlled",
+                suite_hash=suite_mod.suite_hash(), environment=env, target_class=target_class,
                 judge_model=judge, harness=disc.get("harness", h),
                 harness_version=disc.get("harness_version"), artifacts=h_arts, **provenance)
             if h_arts:
@@ -1206,23 +1270,10 @@ def _run_boards(pod, *, repo, rev, ver, recipe, target, alias, env, provenance, 
             hst = 0
             print(f"[pod] submit (harness {h}) FAILED: {e}")
         hstatuses.append(hst)
+    ast = 0
     if harness_only:
-        st = 200 if (hstatuses and all(s == 200 for s in hstatuses)) else (hstatuses[-1] if hstatuses else 0)
-
-    if vision and not harness_only:
-        _vision_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                           job_ctx=job_ctx, max_tokens=max_tokens, temperature=temperature)
-    if audio and not harness_only:
-        _audio_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                          job_ctx=job_ctx, temperature=temperature,
-                          declared_audio="audio" in ((recipe or {}).get("modalities") or []))
-    if video and not harness_only:
-        _video_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                          job_ctx=job_ctx, max_tokens=max_tokens, temperature=temperature)
-    if perf and not harness_only:
-        _perf_and_submit(pod, repo, target, alias, env=env, provenance=provenance,
-                         job_ctx=job_ctx, harness_ids=harness_ids, max_conc=perf_max_conc)
-    return st, r
+        ast = 200 if (hstatuses and all(s == 200 for s in hstatuses)) else (hstatuses[-1] if hstatuses else 0)
+    return ast, hstatuses
 
 
 def run_controlled(hf_link, mothership, *, engine=None, hardware=None, board="text",
@@ -2127,7 +2178,9 @@ def main():
                         hf_repo=a.hf_repo, limit=a.limit, difficulty=a.difficulty, category=a.category,
                         max_tokens=a.max_tokens,
                         temperature=a.temperature, judge=a.judge, judge_url=a.judge_url, judge_key=a.judge_key,
-                        concurrency=a.concurrency, resume=a.resume, force_submit=a.force_submit)
+                        concurrency=a.concurrency, resume=a.resume, force_submit=a.force_submit,
+                        harness_ids=hids, perf=a.perf, perf_max_conc=a.perf_max_conc,
+                        retry_max_tokens=a.retry_max_tokens, think_budget=a.think_budget)
     else:
         ap.error("provide --modelref + --target (split pod), --hf-link (single-process controlled), "
                  "--frontier-id, OR --target + --model (local run)")

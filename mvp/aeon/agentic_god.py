@@ -23,7 +23,16 @@ from __future__ import annotations
 # 1800s is deliberately generous: the point of a frontier tier is to measure capability, not to
 # race a stopwatch. Raising this changes agentic comparability against god runs submitted before
 # 2026-08-13, which is why it was done while very few exist.
-GOD_TASK_TIMEOUT_S = 1800
+#
+# ENV-OVERRIDABLE (2026-08-16): 1800s is still too tight for large no-drafter models. Measured
+# expectation for Qwen3.8-27B on a Spark: ~19 tok/s single-stream, ~12-15 tok/s at harness
+# concurrency 4 — a god task that legitimately eats 80k tokens of generation needs 70-110
+# MINUTES, and at 1800s it lands as harness_error and is DELETED from the mean (the exact bias
+# documented above). The default stays 1800 for board comparability; slow-serve runs opt in via
+# e.g. GOD_TASK_TIMEOUT_S=7200. The value used is recorded per-case ("timeout_s") so every
+# result carries its own budget provenance.
+import os as _os
+GOD_TASK_TIMEOUT_S = int(_os.environ.get("GOD_TASK_TIMEOUT_S", "") or 1800)
 
 GOD_CASES = [
     {"id": "av2-god-01-starship-bridge", "category": "Agentic", "tier": 0,

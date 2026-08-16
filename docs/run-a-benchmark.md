@@ -229,6 +229,39 @@ hardware-TEE sub-level.
 
 ---
 
+## Benching slow / large-output models
+
+A large thinking model without a drafter — e.g. a 27B decoding ~15-20 tok/s — legitimately
+spends an hour on answers the default budgets price in minutes. And an undersized agentic
+budget does not score the task 0: the task errors out and is **deleted from the harness
+mean**, silently inflating the agentic score. Every ceiling is a knob; defaults are unchanged
+so existing runs stay comparable, and every run records the budgets it used (`max_tokens`,
+per-case `timeout_s`).
+
+| Knob | Default | Slow-model value | What it does |
+|---|---|---|---|
+| `AEON_HTTP_TIMEOUT` (env) | 180s x ceil(concurrency/4), cap 1800 | `36000` | Per-request HTTP timeout for text cases. At `--concurrency 2` the auto value is only 180s — always set it explicitly. |
+| `GOD_TASK_TIMEOUT_S` (env) | `1800` | `21600` | Wall-clock budget per god-mode agentic task (the delete-from-mean trap above). |
+| `AEON_TASK_TIMEOUT_SCALE` (env) | `1.0` | `4` | Multiplies every agentic task budget (base tiers and god). For comprehensive runs; do not stack with `GOD_TASK_TIMEOUT_S` on god runs. |
+| `AEON_HARNESS_CONC` (env) | `4` | `2` | Agentic tasks in flight per harness — lower keeps per-stream decode near single-stream speed. |
+| `AEON_HERMES_MAX_TOKENS` / `AEON_OPENCLAW_MAX_TOKENS` (env) | `16384` | card budget | Per-turn output cap inside those harnesses. |
+| `--max-tokens` | `65536` | card total (e.g. `393216` = 262144 reasoning + 131072 response) | Generation budget per text case; a thinking model's reasoning tokens count inside it. |
+| `--retry-max-tokens` | 2x `--max-tokens` | `0` | Truncation re-run ceiling; disable once `--max-tokens` already is the card budget. |
+| `--think-budget` | unset | card reasoning budget | Maps to vLLM `SamplingParams.thinking_token_budget`. Preflight one tiny-budget request first: honored → reasoning capped and the response floor is guaranteed; silently ignored → drop the flag; rejected (400) → drop it or every request fails. |
+| `--perf-max-conc` | auto | serve `--max-num-seqs` | If the serve caps sequences at N, higher perf-ladder rungs queue behind it and mislabel throughput. |
+
+Example — 27B thinking model at ~17-19 tok/s against a 1M-context serve running
+`--max-num-seqs 2`:
+
+```bash
+AEON_HTTP_TIMEOUT=36000 GOD_TASK_TIMEOUT_S=21600 AEON_HARNESS_CONC=2 AEON_HERMES_MAX_TOKENS=393216 AEON_OPENCLAW_MAX_TOKENS=393216 python3 -m pod.aeon_pod --preset god-mode --target http://127.0.0.1:8000/v1   --model <served-name> --concurrency 2 --max-tokens 393216 --retry-max-tokens 0 --perf-max-conc 2
+```
+
+Expect a god run at these budgets to take 1-2.5 days: with the ceilings out of the way, the
+wall-clock is simply the honest cost of unbudgeted reasoning at that decode speed. Scores
+produced under enlarged budgets are not directly comparable to runs benched under the
+defaults — the recorded `max_tokens`/`timeout_s` make the difference auditable.
+
 ## See also
 
 - [`docs/remote-endpoint-bench.md`](remote-endpoint-bench.md) — bench a model **already running on

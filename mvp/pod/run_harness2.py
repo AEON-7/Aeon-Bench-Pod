@@ -174,7 +174,13 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
            "suite_id": agentic_v2.SUITE_ID}
     try:
         agentic_v2.populate_workdir(case, workdir)
-        timeout = int(case.get("timeout_s") or default_timeout)
+        # AEON_TASK_TIMEOUT_SCALE multiplies EVERY task budget — base tiers' 120-300s
+        # literals and god cases alike. A large slow-decoding model (~17-19 tok/s at c=2)
+        # needs minutes for answers the budgets priced in seconds, and a blown budget does
+        # not score 0, it DELETES the task from the harness mean (upward bias). Scale >1
+        # only ever extends caps: fast serves finish early and never feel it.
+        timeout = int((case.get("timeout_s") or default_timeout)
+                      * float(os.environ.get("AEON_TASK_TIMEOUT_SCALE", "") or 1.0))
         result = adapter.run_task(case, model_base_url, served_alias, workdir,
                                   timeout=timeout)
         score, evidence = agentic_v2.score_agentic_v2(case, workdir,

@@ -1981,17 +1981,23 @@ def main():
         "model the IDENTICAL questions (a true A/B). Omit with --fast to draw + print a fresh seed")
     ap.add_argument("--per-cell", type=int, default=1, help="fast bench: cases drawn per (category x "
         "difficulty) cell (1=20 cases; 5=~100; a thorough-but-feasible balanced sample)")
-    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
-        help="generation cap (reasoning models need headroom; default 32768)")
+    ap.add_argument("--max-tokens", type=int, default=_env_int("AEON_MAX_TOKENS", DEFAULT_MAX_TOKENS),
+        help="generation cap (reasoning models need headroom). Env default AEON_MAX_TOKENS — set it "
+             "on the pod container and GUI/MCP-launched jobs inherit it (jobs copy the pod's env), "
+             "which is how the slow-model card-budget rides a Run-tab launch")
     ap.add_argument("--think-budget", type=int, default=_env_int("AEON_THINK_BUDGET", 0),
         help="cap THINKING tokens per answer (vLLM thinking_token_budget). NOT a smaller "
         "--max-tokens: the engine CLOSES the reasoning block at this budget so the rest of the "
         "allowance goes to an ACTUAL ANSWER. A reasoning model on a hard case otherwise spends "
         "its whole budget thinking and returns EMPTY content, which scores as a no-answer. "
         "0 = unbounded (default). Applies to the model under test, never to the judge.")
-    ap.add_argument("--retry-max-tokens", type=int, default=None, help="if a case is CUT OFF mid-reasoning "
+    _retry_env = os.environ.get("AEON_RETRY_MAX_TOKENS")   # NOT _env_int: an explicit 0 must
+    ap.add_argument("--retry-max-tokens", type=int,        # survive (0 = disable the re-run)
+        default=(int(_retry_env) if _retry_env not in (None, "") else None),
+        help="if a case is CUT OFF mid-reasoning "
         "(finish_reason=length) and has no/incorrect answer, RE-RUN it once at this higher ceiling (e.g. "
-        "50000) so the model can finish — a no-answer is usually truncation, not a real miss")
+        "50000) so the model can finish — a no-answer is usually truncation, not a real miss. "
+        "Env default AEON_RETRY_MAX_TOKENS (0 disables — right when --max-tokens already IS the card budget)")
     ap.add_argument("--concurrency", type=int, default=_env_int("AEON_CONCURRENCY", 0),
         help="cases to run CONCURRENTLY through the served "
         "model (vLLM batches them). 0 = AUTO (default): capacity-aware — high (up to 24) when a capable "

@@ -11,6 +11,7 @@ import re
 from . import capabilities
 from . import db
 from . import hwnorm
+from . import modelmeta
 from . import suite as suite_mod
 from . import vram
 
@@ -310,17 +311,23 @@ AEON_WEIGHTS = {"intelligence": 0.5, "agentic": 0.3, "performance": 0.2}
 
 
 def _perf_percentile_index():
-    """canonical -> {'score', 'peak_agg_tps', 'hw'}: the model's best PERCENTILE standing on
-    the perf board. Percentile ranks the model's peak_agg_tps among the perf rows of the
-    SAME hw bucket (apples to apples — a Spark never races a 5090): 100 = fastest in
-    bucket, 0 = slowest, single-row bucket = 100. A model with rows on several rigs keeps
-    its best showing (ties broken by higher absolute peak)."""
-    buckets = {}
+    """canonical -> {'score', 'peak_agg_tps', 'hw', 'family'}: the model's best PERCENTILE
+    standing on the perf board.
+
+    Cohort key = (hw_bucket, model_family) — never a cross-model race inside one hw
+    bucket. A Spark Qwen3.8-27B only races other Spark Qwen3.8-27B family peers
+    (AEON/quant/chat suffixes stripped via modelmeta.model_family); Ornith on the
+    same Spark does not move its dial. 100 = fastest in cohort (or the only row —
+    solo stays 100 until another same-hw same-family run challenges it); 0 =
+    slowest. A model with rows on several rigs keeps its best showing (ties broken
+    by higher absolute peak)."""
+    cohorts = {}
     for m in perf_board()["models"]:
         if isinstance(m.get("peak_agg_tps"), (int, float)):
-            buckets.setdefault(m["hw_bucket"], []).append(m)
+            fam = modelmeta.model_family(m.get("canonical") or m.get("model") or "")
+            cohorts.setdefault((m["hw_bucket"], fam), []).append(m)
     out = {}
-    for bucket, ms in buckets.items():
+    for (bucket, fam), ms in cohorts.items():
         n = len(ms)      # one row per (canonical, bucket) by construction — a real cohort
         for m in ms:
             if n == 1:
@@ -333,6 +340,7 @@ def _perf_percentile_index():
                 cell = m.get("peak_agg_cell") or {}
                 out[m["canonical"]] = {"score": pct, "peak_agg_tps": m["peak_agg_tps"],
                                        "hw": m["hw_bucket"],
+                                       "family": fam,
                                        # the demonstrated peak's cohort size — the racing readout
                                        "conc": cell.get("conc"),
                                        # WHICH run demonstrated it. Without this the board's

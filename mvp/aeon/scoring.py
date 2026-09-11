@@ -866,10 +866,10 @@ def _champion_drafter(recipe):
 
 
 def _peak_agg_cell(results):
-    """Best REAL cohort: max concurrent-total tok/s over category×conc cells.
+    """Best REAL cohort: max peak-overall tok/s over category×conc cells.
 
-    AEON lock: prefer stored concurrent-window agg; for legacy tokens/wall cells
-    reconstruct simultaneous total as decode_tps × conc.
+    AEON lock: prefer stored wave-peak / concurrent-window agg; for legacy
+    tokens/wall cells reconstruct simultaneous total as decode_tps × conc.
     """
     peak, cell = None, None
     for x in results:
@@ -887,7 +887,12 @@ def _peak_agg_cell(results):
         dec = ev.get("decode_tps_mean")
         if dec is None:
             dec = ev.get("decode_tps")  # board cells use short name
-        if src not in ("concurrent_window",) and isinstance(dec, (int, float)) and conc:
+        # Trust measured wave-peak / concurrent-window cells; only rewrite legacy
+        # tokens/wall (or missing source) via decode × conc estimate.
+        _ok = ("concurrent_window", "wave_peak_concurrent_window",
+               "c1_decode_peak", "peak_category_cell",
+               "saturated_est_decode_x_conc")
+        if src not in _ok and isinstance(dec, (int, float)) and conc:
             a = round(float(dec) * float(conc), 2)
         if isinstance(a, (int, float)) and (peak is None or a > peak):
             peak, cell = a, {"category": parts[2], "conc": conc}

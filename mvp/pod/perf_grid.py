@@ -3,7 +3,7 @@
 DIRECT-to-model latency/throughput at a concurrency ladder (1,4,8,16,32) over
 fixed per-category prompt sets, capturing per-stream decode tok/s, TTFT ms and
 prefill throughput (prompt_tokens / ttft_sec), plus an AGGREGATE decode tok/s
-per level (sum output_tokens / level wall clock). Also a lighter through-harness
+per level (total tokens / concurrent decode window — true simultaneous throughput). Also a lighter through-harness
 timing mode driven by a caller-supplied runner callable (no adapter imports).
 
 Public API:
@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
@@ -148,7 +149,65 @@ def _r(x, nd=2):
     return round(x, nd) if isinstance(x, (int, float)) else None
 
 
-def _agg(reqs, wall_clock_s, n_errors=0):
+_ENGINE_METRICS_OK: dict = {}     # target_url -> False once we learn it exposes no /metrics
+
+
+def _engine_tokens(target_url):
+    """Total tokens the ENGINE reports having generated so far, or None if it does not say.
+
+    Derived from the serve URL (…/v1 -> …/metrics) so it follows whatever the run is actually
+    benchmarking, local or remote, rather than assuming a fixed port. vLLM and SGLang both expose
+    a Prometheus `generation_tokens_total`; anything else returns None and the caller falls back
+    to client-side counting."""
+    import urllib.request
+    # One probe decides it. Without this the grid pays the full timeout on EVERY cell of every
+    # concurrency level against an engine that will never answer — minutes of dead wall clock
+    # added to the very measurement we are trying to keep honest.
+    if _ENGINE_METRICS_OK.get(target_url) is False:
+        return None
+    base = (target_url or "").rstrip("/")
+    for suffix in ("/v1", "/v1/"):
+        if base.endswith(suffix.rstrip("/")):
+            base = base[: -len(suffix.rstrip("/"))]
+            break
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + "/metrics", timeout=2) as r:
+            text = r.read().decode("utf-8", "replace")
+    except Exception:
+        _ENGINE_METRICS_OK[target_url] = False
+        return None
+    for metric in ("vllm:generation_tokens_total", "sglang:generation_tokens_total",
+                   "generation_tokens_total"):
+        total, found = 0.0, False
+        for ln in text.splitlines():
+            if ln.startswith(metric) and not ln.startswith("#"):
+                try:
+                    total += float(ln.rsplit(None, 1)[1]); found = True
+                except (ValueError, IndexError):
+                    pass
+        if found:
+            _ENGINE_METRICS_OK[target_url] = True
+            return total
+    _ENGINE_METRICS_OK[target_url] = False    # reachable, but no token counter we recognise
+    return None
+
+
+
+def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None, conc=None):
+    """Aggregate per-request timings into a cell.
+
+    AEON lock — two different rates, do not confuse them:
+
+    * ``decode_tps_mean`` — per-stream decode tok/s (decode-phase only; excludes TTFT).
+    * ``agg_decode_tps`` — **true simultaneous aggregate throughput**: total tokens
+      produced by all concurrent sessions divided by the **concurrent decode window**
+      (first token of any stream → last token of any stream). That is total tok/s
+      across sessions while they are running together — NOT tokens/full-wall (TTFT
+      diluted) and NOT a post-hoc ``mean_decode × N`` product (though that product
+      is kept as ``agg_saturated_est`` when rates are uniform and the wave is full).
+
+    ``tokens_per_wall_s`` preserves the legacy wall-diluted rate for debug.
+    """
     ttfts = [r["ttft_ms"] for r in reqs if r.get("ttft_ms") is not None]
     dtps = [r["decode_tps"] for r in reqs if r.get("decode_tps") is not None]
     ptps = [r["prefill_tps"] for r in reqs if r.get("prefill_tps") is not None]
@@ -156,26 +215,64 @@ def _agg(reqs, wall_clock_s, n_errors=0):
     tpots = [r["tpot_ms"] for r in reqs if r.get("tpot_ms") is not None]
     out_sum = sum(r.get("output_tokens") or 0 for r in reqs)
     in_sum = sum(r.get("input_tokens") or 0 for r in reqs)
+    decode_mean = _r(_mean(dtps))
+    tokens = engine_tokens if engine_tokens is not None else out_sum
+    tok_wall = _r(tokens / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None
+
+    # Concurrent decode window from absolute timestamps (perf_counter) when present.
+    starts = [r["decode_t0"] for r in reqs
+              if isinstance(r.get("decode_t0"), (int, float))]
+    ends = [r["decode_t1"] for r in reqs
+            if isinstance(r.get("decode_t1"), (int, float))]
+    conc_n = int(conc) if conc is not None else None
+    saturated_est = (
+        _r(float(decode_mean) * float(conc_n))
+        if (decode_mean is not None and conc_n and conc_n > 0) else None
+    )
+
+    agg, agg_source, window_s = None, None, None
+    if starts and ends:
+        span = max(ends) - min(starts)
+        if span > 0 and tokens is not None:
+            agg = _r(tokens / span)
+            agg_source = "concurrent_window"
+            window_s = round(span, 3)
+    if agg is None and saturated_est is not None:
+        # No timestamps (historical / non-stream): best estimate of simultaneous
+        # total while a full cohort is decoding together.
+        agg = saturated_est
+        agg_source = "saturated_est_decode_x_conc"
+    if agg is None:
+        agg = tok_wall
+        agg_source = "tokens_per_wall" if tok_wall is not None else None
+
     return {
         "n": len(reqs),
         "n_errors": n_errors,
         "ttft_ms_mean": _r(_mean(ttfts)),
         "ttft_ms_p50": _r(_pct(ttfts, 50)),
         "ttft_ms_p95": _r(_pct(ttfts, 95)),
-        "decode_tps_mean": _r(_mean(dtps)),          # mean per-stream decode tok/s
-        "prefill_tps_mean": _r(_mean(ptps)),         # mean prompt_tokens/ttft_sec
+        "decode_tps_mean": decode_mean,          # per-stream decode tok/s
+        "prefill_tps_mean": _r(_mean(ptps)),
         "e2e_ms_mean": _r(_mean(e2es)),
-        # TPOT: mean inter-token latency during decode (ms/token) — the steady-state
-        # "feel" of a stream once it starts; complements TTFT (how long until it starts)
         "tpot_ms_mean": _r(_mean(tpots), 3),
         "tpot_ms_p50": _r(_pct(tpots, 50), 3),
         "tpot_ms_p95": _r(_pct(tpots, 95), 3),
         "output_tokens_total": out_sum,
         "input_tokens_total": in_sum,
-        # AGGREGATE decode tok/s: total generated tokens over the level's wall clock
-        "agg_decode_tps": _r(out_sum / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None,
+        # Headline AGG = concurrent-window total tok/s (AEON).
+        "agg_decode_tps": agg,
+        "agg_source": agg_source,
+        "concurrent_window_s": window_s,
+        "agg_saturated_est": saturated_est,     # decode_mean x conc (steady-state estimate)
+        "conc": conc_n,
+        "tokens_per_wall_s": tok_wall,           # legacy TTFT-diluted wall rate
+        "tokens_source": "engine" if engine_tokens is not None else "client",
+        "engine_tokens_total": _r(engine_tokens) if engine_tokens is not None else None,
         "input_tokens_estimated": any(r.get("input_tokens_estimated") for r in reqs),
     }
+
+
 
 
 # ---------------------------------------------------------------- direct grid
@@ -193,12 +290,26 @@ def _one_request(target, category, prompt, temperature, max_tokens):
     # measurement (e2e minus ttft over the decode tokens); fall back to 1000/decode_tps.
     out_tok = resp.get("output_tokens") or 0
     e2e = resp.get("e2e_ms")
-    if e2e is not None and ttft is not None and out_tok > 1 and e2e > ttft:
-        tpot = _r((e2e - ttft) / (out_tok - 1), 3)
-    elif resp.get("decode_tps"):
-        tpot = _r(1000.0 / resp["decode_tps"], 3)
-    else:
-        tpot = None
+    # TPOT is the reciprocal of the OBSERVED decode rate, so it inherits that measurement rather
+    # than being recomputed from e2e-minus-ttft. The old fallback had the same defect decode_tps
+    # did: on a response that was not really streamed, e2e-minus-ttft is a few milliseconds spread
+    # over hundreds of tokens, which reads as a 0.005 ms per-token latency. If no decode phase was
+    # observed there is no per-token latency to report, and None says exactly that.
+    tpot = _r(1000.0 / resp["decode_tps"], 3) if resp.get("decode_tps") else None
+    # Absolute decode window (perf_counter): prefer server-stream stamps from the
+    # target; otherwise reconstruct from request-local wall + ttft + decode rate.
+    d0 = resp.get("decode_t0")
+    d1 = resp.get("decode_t1")
+    if d0 is None and ttft is not None:
+        # chat() just returned — backdate decode window from e2e/ttft/decode_tps
+        t_end = time.perf_counter()
+        e2e_s = (resp.get("e2e_ms") or 0) / 1000.0
+        t_req0 = t_end - e2e_s if e2e_s > 0 else t_end
+        d0 = t_req0 + (ttft / 1000.0)
+        if resp.get("decode_tps") and out_tok > 1:
+            d1 = d0 + ((out_tok - 1) / float(resp["decode_tps"]))
+        else:
+            d1 = t_end
     return {
         "category": category,
         "ttft_ms": ttft,
@@ -209,14 +320,30 @@ def _one_request(target, category, prompt, temperature, max_tokens):
         "output_tokens": resp.get("output_tokens") or 0,
         "input_tokens": in_tok,
         "input_tokens_estimated": in_est,
+        "decode_t0": d0,
+        "decode_t1": d1,
     }
 
 
-def _bust(prompt, i):
-    """Unique per-replica tag: when a category's prompts are tiled to fill a concurrency
-    level, duplicates would otherwise hit vLLM's prefix cache and measure a fantasy
-    prefill. The tag changes the first tokens, so every stream pays real prefill."""
-    return f"[measurement {i:04d}] {prompt}"
+# Per-PROCESS nonce. Two benchmark runs against the same serve would otherwise replay identical
+# prompts and the second would inherit the first's prefix cache — unmeasurable, and there is no
+# reset endpoint on this engine build to clear it.
+_RUN_NONCE = uuid.uuid4().hex[:6]
+
+
+def _bust(prompt, i, salt=""):
+    """Unique per-replica tag so every stream pays REAL prefill.
+
+    `i` alone is not enough. It restarts at 0 for each concurrency level and each run, so
+    "[measurement 0000] X" at c1 is byte-identical to the same string at c4 — c1 primes vLLM's
+    prefix cache and every higher level then measures free prefill on its overlapping indices.
+    Since levels tile 0..n-1, the overlap is systematic and grows with the ladder: the curve
+    reports prefill getting CHEAPER as concurrency rises, which is an artifact, not a result.
+
+    `salt` carries the level and a per-process nonce, so no two measured requests in this run —
+    or in any other run against the same serve — share a prefix. That matters because this engine
+    build exposes no cache-reset endpoint, so there is nothing to clear between runs."""
+    return f"[measurement {salt}{i:04d}] {prompt}"
 
 
 def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16, 32),
@@ -245,38 +372,63 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
         base_counts = {c: max(1, int(repeats)) * len(PROMPTS[c]) for c in CATEGORIES}
         total = sum(max(base_counts[c], int(conc)) for c in CATEGORIES)
         done, wall_sum = 0, 0.0
+        cell_engine_tokens = []
         for cat in CATEGORIES:
             base = [p for _ in range(max(1, int(repeats))) for p in PROMPTS[cat]]
             n = max(len(base), int(conc))        # saturate the level with THIS category only
-            tasks = [_bust(base[i % len(base)], i) for i in range(n)]
+            # salt = per-run nonce + level + category, so a prompt is never repeated verbatim
+            # anywhere: not across replicas, not across levels, not across runs on this serve.
+            _salt = f"{_RUN_NONCE}-c{int(conc)}-{cat[:3]}-"
+            tasks = [_bust(base[i % len(base)], i, _salt) for i in range(n)]
             reqs, errors = [], []
+            # A live tile for this cell — the sweep used to publish nothing for hours. Opened
+            # BEFORE the clock starts and closed after the aggregate, so the tile's lifetime is
+            # the cell's; see pod/perf_stream.py.
+            from pod import perf_stream
+            _tile = perf_stream.cell("direct", cat, int(conc), len(tasks))
+            eng0 = _engine_tokens(target_url)    # engine tally BEFORE this cell
             t0 = time.perf_counter()
             with ThreadPoolExecutor(max_workers=int(conc)) as ex:
                 futs = [(p, ex.submit(_one_request, target, cat, p, temperature, max_tokens))
                         for p in tasks]
                 for p, fut in futs:
                     try:
-                        reqs.append(fut.result())
+                        _r_ = fut.result()
+                        reqs.append(_r_)
+                        _tile.tick(_r_)
                     except TargetError as e:
                         errors.append({"category": cat, "error": str(e)[:300], "prompt_head": p[:80]})
+                        _tile.error(e)
                     except Exception as e:
                         errors.append({"category": cat,
                                        "error": f"{type(e).__name__}: {e}"[:300],
                                        "prompt_head": p[:80]})
+                        _tile.error(e)
                     done += 1
                     if progress_cb:
                         progress_cb(conc, done, total)
             cw = time.perf_counter() - t0
+            eng1 = _engine_tokens(target_url)    # …and AFTER: the delta is what this cell generated
             wall_sum += cw
-            cell = _agg(reqs, cw, n_errors=len(errors))   # aggregates over the CELL's wall
+            eng_delta = (eng1 - eng0) if (eng0 is not None and eng1 is not None
+                                          and eng1 >= eng0) else None
+            cell = _agg(reqs, cw, n_errors=len(errors),   # aggregates over the CELL's wall
+                        engine_tokens=eng_delta, conc=int(conc))
             cell["cell_wall_s"] = round(cw, 3)
+            _tile.close(cell)                    # publish the figure that reaches the perf board
+            cell_engine_tokens.append(eng_delta)
             cats[cat] = cell
             all_reqs.extend(reqs)
             all_errs.extend(errors)
         grid["levels"][int(conc)] = {
             "conc": int(conc),
             "wall_clock_s": round(wall_sum, 3),
-            "overall": _agg(all_reqs, wall_sum, n_errors=len(all_errs)),
+            "overall": _agg(all_reqs, wall_sum, n_errors=len(all_errs),
+                            engine_tokens=(sum(cell_engine_tokens)
+                                           if cell_engine_tokens
+                                           and all(t is not None for t in cell_engine_tokens)
+                                           else None),
+                            conc=int(conc)),
             "categories": cats,
             "requests": all_reqs,
             "errors": all_errs,
@@ -357,6 +509,20 @@ def _cell_speed(cell):
             "tpot_ms": cell.get("tpot_ms_mean"),
             "e2e_ms": cell.get("e2e_ms_mean"), "output_tokens": cell.get("output_tokens_total"),
             "streamed": True}
+
+
+def sustained_rows(summary, series):
+    """The sustained-load section as submission rows.
+
+    Rides the existing perf bundle as `perf.sustained.*` — no schema change, no new board. Absent
+    entirely when there was nothing honest to measure (no /metrics, too few samples to compare two
+    pressure regimes): a section that cannot be computed must not render as zeros."""
+    if not summary:
+        return []
+    rows = [_row("perf.sustained.summary", dict(summary), speed={})]
+    if series:
+        rows.append(_row("perf.sustained.timeline", {"points": series, "n": len(series)}, speed={}))
+    return rows
 
 
 def to_results(grid):

@@ -6,9 +6,12 @@ Speed is reported separately, never folded into the quality rank (DESIGN §14).
 from __future__ import annotations
 
 import json
+import re
 
 from . import capabilities
 from . import db
+from . import hwnorm
+from . import modelmeta
 from . import suite as suite_mod
 from . import vram
 
@@ -16,9 +19,39 @@ from . import vram
 # 'attested' ONLY through the controlled HF-pull flow (verified weights + recipe + signature).
 ELIGIBLE_TIERS = {"attested"}
 
+# A run RANKS on the leaderboard only if it actually covered its suite. Full passes land a
+# few short of the corpus (capability-gated cases, judge errors) — 90% absorbs that without
+# letting a genuinely partial pass (crashed mid-suite yet committed as succeeded) stand in
+# for a comprehensive score.
+MIN_SUITE_COVERAGE = 0.9
+
+# A harness score at or below this is a HARNESS/CONFIG failure, not a measurement of the model.
+# Every agentic task going to ~0 through a real harness does not happen because a model is weak —
+# a weak model still names files, still writes something, still lands partial credit. It happens
+# when the plumbing is wrong: the serve had no (or the wrong) --tool-call-parser so the harness
+# never saw a tool call, the container could not start, or the context window was refused. Scoring
+# that as the model's agentic ability publishes an infrastructure fault as model incapacity, and it
+# has already happened once on the live board (an entire god run pinned at 2.4 on all three
+# harnesses).
+#
+# So such a cell is dropped from the agentic mean rather than averaged in. The run still executes
+# the whole suite and still ranks on everything it did measure; if EVERY harness lands here, agentic
+# has no valid measurement and goes absent (null, never zero — see _attach_dials).
+AGENTIC_FAILURE_FLOOR = 5.0
+
+
+def _live_harness_cells(cells: dict) -> dict:
+    """{harness: score} keeping only cells that actually measured something.
+
+    Drops nulls (never ran) and total failures (ran, but at/below AGENTIC_FAILURE_FLOOR — the
+    plumbing, not the model)."""
+    return {h: c["score"] for h, c in (cells or {}).items()
+            if c.get("score") is not None and c["score"] > AGENTIC_FAILURE_FLOOR}
+
 
 def _avg(xs):
-    xs = [x for x in xs if x is not None]
+    # numeric-only: a malformed speed blob (string tps etc.) must skip, never 500 a board
+    xs = [x for x in xs if isinstance(x, (int, float))]
     return round(sum(xs) / len(xs), 1) if xs else None
 
 
@@ -61,8 +94,14 @@ def harness_board(board="text"):
 def _run_summary(info):
     """Per-run composite + category + speed roll-up (one run = one benchmark pass). Speed is
     reported BOTH overall and per category (prompt types have very different speed profiles —
-    a reasoning model is slow on reasoning prompts, fast on lookups)."""
+    a reasoning model is slow on reasoning prompts, fast on lookups).
+
+    NO_ANSWER weighting (pod contract): a results row may carry status='no_answer' (score
+    NULL) — the model was asked and declined/failed to commit to an answer. Category mean =
+    sum(scores) / (n_answered + 0.25 * n_no_answer): a no-answer costs a quarter of a wrong
+    answer. Runs without such rows compute EXACTLY as before (denominator = n_answered)."""
     cats, ttfts, tpss, e2es, crv = {}, [], [], [], {}
+    noans = {}    # category -> count of status='no_answer' rows (score NULL by contract)
     cat_sp = {}   # category -> {ttft:[], tps:[], e2e:[]}
     out_toks, busy_ms = 0, 0.0
     for r in info["results"]:
@@ -75,9 +114,18 @@ def _run_summary(info):
         b["ttft"].append(sp.get("ttft_ms")); b["tps"].append(sp.get("decode_tps")); b["e2e"].append(sp.get("e2e_ms"))
         if r["score"] is not None:
             cats.setdefault(c, []).append(r["score"])
+        elif (r.get("status") or "") == "no_answer":
+            noans[c] = noans.get(c, 0) + 1
         if r.get("creativity") is not None:
             crv.setdefault(c, []).append(r["creativity"])
-    cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
+    # Category order: scored categories first (in row order, exactly as before), then any
+    # category attempted ONLY via no_answer rows — so runs without no_answer rows serialize
+    # bit-identically to the pre-no_answer payload.
+    cat_scores = {}
+    for c in list(cats) + [c for c in noans if c not in cats]:
+        sc = cats.get(c, [])
+        denom = len(sc) + 0.25 * noans.get(c, 0)
+        cat_scores[c] = round(100 * sum(sc) / denom, 1) if denom else 0.0
     composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
     tier = info.get("trust_tier") or "self_reported"
     # AGGREGATE throughput under the run's actual test load: with N cases in flight the
@@ -100,13 +148,19 @@ def _run_summary(info):
         "category_speed": {c: {"ttft_ms": _avg(b["ttft"]), "decode_tps": _avg(b["tps"]),
                                "e2e_ms": _avg(b["e2e"])} for c, b in cat_sp.items()},
         "n_cases": len(info["results"]),
+        # healthy passes score every submitted row (verified in prod 2026-07-11); nulls mean
+        # error/killed cases, so coverage gates count SCORED cases, not rows — except
+        # no_answer rows, which are ATTEMPTED (asked + declined) and count toward coverage
+        "n_scored": sum(1 for r in info["results"] if r["score"] is not None),
+        "n_no_answer": sum(noans.values()),
+        "frontier": info.get("frontier"),
     }
 
 
 # When a NEW suite version ships, the default board scopes to it — which is empty until
 # models re-run. Rather than a blank public leaderboard, fall back to the newest legacy
 # suite that HAS runs, honestly labeled via suite_shown/legacy so the UI can badge it.
-_LEGACY_SUITES = ["aeon-suite-v2", "aeon-suite-v1"]
+_LEGACY_SUITES = ["aeon-suite-v3", "aeon-suite-v2", "aeon-suite-v1"]
 
 
 def leaderboard(suite=None):
@@ -123,9 +177,9 @@ def leaderboard(suite=None):
             lb = _leaderboard_scoped(legacy)
             if lb["models"]:
                 lb["suite_shown"], lb["legacy"] = legacy, True
-                return lb
+                return _attach_ctx(_attach_dials(lb))
     out["suite_shown"] = suite or suite_mod.SUITE_ID
-    return out
+    return _attach_ctx(_attach_dials(out))
 
 
 def _leaderboard_scoped(suite=None):
@@ -142,6 +196,8 @@ def _leaderboard_scoped(suite=None):
     for r in rows:
         if r.get("harness"):                 # harness-tagged runs belong to the AI-Harness board
             continue
+        if r.get("bench_seed"):              # fast-bench draw: a ~25-case subsample, not the
+            continue                         # comprehensive suite — compare-by-seed only
         if not _in_scope(r.get("suite_id")):
             continue
         if r["run"] not in by_run:
@@ -149,16 +205,34 @@ def _leaderboard_scoped(suite=None):
                 renv = json.loads(r.get("env_json") or "{}")
             except Exception:
                 renv = {}
+            fmeta = renv.get("frontier") if isinstance(renv, dict) else None
             by_run[r["run"]] = {
                 "run": r["run"], "model": r["model"],
                 "canonical": r.get("canonical_id") or r["model"],
                 "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
                 "trust_tier": r.get("trust_tier") or "self_reported",
                 "bench_seed": r.get("bench_seed"), "suite_hash": r.get("suite_hash"),
-                "started_at": r["started_at"], "environment": renv, "results": []}
+                "started_at": r["started_at"], "environment": renv, "frontier": fmeta,
+                "results": []}
         by_run[r["run"]]["results"].append(r)
 
     runs = [_run_summary(info) for info in by_run.values()]
+
+    # Coverage floor: the corpus size is authoritative for the current suite; for legacy/tier
+    # scopes (whose corpora are no longer shipped) the largest committed pass calibrates it.
+    # ATTEMPTED = covered: a no_answer row is a case the model was asked (it costs score via
+    # the ¼-weight rule), so it counts toward coverage like a scored row.
+    scope = suite or COMPREHENSIVE
+    if scope == COMPREHENSIVE:
+        expected = len(suite_mod.CASES)
+    else:
+        # legacy suite scopes: the FROZEN corpus is authoritative when still shipped; only
+        # unshipped scopes (tier boards, pre-v3 suites) calibrate off the largest committed pass
+        frozen = suite_mod.legacy_cases(scope) if scope != suite_mod.SUITE_ID else suite_mod.CASES
+        expected = (len(frozen) if frozen
+                    else max((r["n_scored"] + r["n_no_answer"] for r in runs), default=0))
+    runs = [r for r in runs
+            if (r["n_scored"] + r["n_no_answer"]) >= MIN_SUITE_COVERAGE * expected]
 
     by_model = {}
     for rs in runs:
@@ -210,6 +284,7 @@ def _leaderboard_scoped(suite=None):
             "avg_ttft_ms": _avg([r["avg_ttft_ms"] for r in agg]),
             "avg_decode_tps": _avg([r["avg_decode_tps"] for r in agg]),
             "avg_e2e_ms": _avg([r["avg_e2e_ms"] for r in agg]),
+            "frontier": latest.get("frontier"),
             # concurrent throughput under test load (runs that recorded their concurrency)
             "agg_tps": _avg([r.get("agg_tps") for r in agg]),
             "bench_concurrency": max((r.get("bench_concurrency") or 0 for r in agg), default=0) or None,
@@ -224,6 +299,222 @@ def _leaderboard_scoped(suite=None):
     # global-eligible first, then by score — the verified ranking floats to the top
     board.sort(key=lambda x: (not x["record_eligible"], -x["composite"]))
     return {"categories": suite_mod.CATEGORIES, "models": board}
+
+
+# ---- AEON score: the six-dial per-model summary + blended headline number --------------
+#
+# Weights over the three RANKED components; the modality dials (vision/audio/video) are
+# informational and never blend in. When a component is missing the remaining weights are
+# renormalized and the row is flagged provisional — an honest partial score, never a
+# hidden zero.
+AEON_WEIGHTS = {"intelligence": 0.5, "agentic": 0.3, "performance": 0.2}
+
+
+def _perf_percentile_index():
+    """canonical -> {'score', 'peak_agg_tps', 'hw', 'family'}: the model's best PERCENTILE
+    standing on the perf board.
+
+    Cohort key = (hw_bucket, model_family) — never a cross-model race inside one hw
+    bucket. A Spark Qwen3.8-27B only races other Spark Qwen3.8-27B family peers
+    (AEON/chat recipe tokens stripped; quant/precision KEPT via modelmeta.model_family
+    so bf16 vs nvfp4-mixed are different cohorts); Ornith on the same Spark does
+    not move its dial. 100 = fastest in cohort (or the only row —
+    solo stays 100 until another same-hw same-family run challenges it); 0 =
+    slowest. A model with rows on several rigs keeps its best showing (ties broken
+    by higher absolute peak)."""
+    cohorts = {}
+    for m in perf_board()["models"]:
+        if isinstance(m.get("peak_agg_tps"), (int, float)):
+            fam = modelmeta.model_family(m.get("canonical") or m.get("model") or "")
+            cohorts.setdefault((m["hw_bucket"], fam), []).append(m)
+    out = {}
+    for (bucket, fam), ms in cohorts.items():
+        n = len(ms)      # one row per (canonical, bucket) by construction — a real cohort
+        for m in ms:
+            if n == 1:
+                pct = 100.0
+            else:
+                below = sum(1 for x in ms if x["peak_agg_tps"] < m["peak_agg_tps"])
+                pct = round(100.0 * below / (n - 1), 1)
+            cur = out.get(m["canonical"])
+            if cur is None or (pct, m["peak_agg_tps"]) > (cur["score"], cur["peak_agg_tps"]):
+                cell = m.get("peak_agg_cell") or {}
+                out[m["canonical"]] = {"score": pct, "peak_agg_tps": m["peak_agg_tps"],
+                                       "hw": m["hw_bucket"],
+                                       "family": fam,
+                                       # the demonstrated peak's cohort size — the racing readout
+                                       "conc": cell.get("conc"),
+                                       # WHICH run demonstrated it. Without this the board's
+                                       # PERFORMANCE instrument has nothing to open: the row click
+                                       # falls through to the model's best INTELLIGENCE submission,
+                                       # so clicking a dial labelled PERFORMANCE showed the text
+                                       # run. The perf board row already knows; only this index
+                                       # dropped it.
+                                       "run": m.get("run")}
+    return out
+
+
+def _agentic_index():
+    """canonical -> {'score': mean of its available harness scores, 'harnesses': {hid: score}}
+    from the AI-Harness matrix (same canonical join key as the text board)."""
+    out = {}
+    for canon, cells in harness_board()["matrix"].items():
+        # every cell that produced a number — the matrix should show what actually happened
+        shown = {h: c["score"] for h, c in cells.items() if c.get("score") is not None}
+        if not shown:
+            continue                       # nothing ran at all -> genuinely untested, stay absent
+        hs = _live_harness_cells(cells)    # ...and of those, the ones that measured the MODEL
+        out[canon] = {
+            "score": round(sum(hs.values()) / len(hs), 1) if hs else None,
+            "harnesses": shown,
+            "counted": sorted(hs),
+            "excluded": sorted(set(shown) - set(hs)),
+            # ran everywhere, measured nowhere: the plumbing failed, not the model
+            "all_failed": not hs,
+        }
+    return out
+
+
+def _modality_index(lb):
+    """canonical -> {'score', 'run'} for a modality board payload (rows carry 'canonical' —
+    the join fix: these boards now group by the same canonical id as the text board)."""
+    return {m.get("canonical") or m["model"]: {"score": m["composite"], "run": m["run"]}
+            for m in lb["models"]}
+
+
+def _attach_dials(lb):
+    """Extend each text-board model row with the six-dial object + the blended aeon_score.
+    Purely additive: every pre-existing field is untouched. A dial is null when the model
+    was never tested on that axis (null = not tested, NEVER a zero)."""
+    if not lb.get("models"):
+        return lb
+    perf = _perf_percentile_index()
+    agentic = _agentic_index()
+    vis = _modality_index(vision_leaderboard())
+    aud = _modality_index(audio_leaderboard())
+    vid = _modality_index(video_leaderboard())
+    for m in lb["models"]:
+        canon = m["canonical"]
+        p, a = perf.get(canon), agentic.get(canon)
+        m["dials"] = {
+            "intelligence": {"score": m["composite"], "run": m["best_run"]},  # always present
+            "performance": p,
+            "agentic": a,
+            "vision": vis.get(canon),
+            "audio": aud.get(canon),
+            "video": vid.get(canon),
+        }
+        comps = {"intelligence": m["composite"],
+                 "agentic": a["score"] if a else None,
+                 "performance": p["score"] if p else None}
+        present = {k: v for k, v in comps.items() if v is not None}
+        wsum = sum(AEON_WEIGHTS[k] for k in present)
+        parts = {k: (round(AEON_WEIGHTS[k] / wsum, 4) if k in present else 0.0)
+                 for k in AEON_WEIGHTS}
+        m["aeon_score"] = round(sum(parts[k] * present[k] for k in present), 1) if present else None
+        m["aeon_score_parts"] = parts                  # the weights ACTUALLY used (0 = absent)
+        m["aeon_provisional"] = len(present) < len(AEON_WEIGHTS)
+        # COMPLETENESS GATE (owner policy 2026-07-22): only a FULL benchmark run RANKS — one
+        # missing agentic or performance is provisional (a smoke / partial / text-only run) and
+        # must never be counted, even if its weights are attested. It stays STORED + shown (when
+        # 'verified only' is toggled off), badged verified-but-not-counted, but drops off the
+        # ranked board. "only if it actually ran through the entire benchmark would it be counted."
+        # AGENTIC IS ALLOWED TO BE MISSING (owner policy 2026-08-08). It is the hardest component
+        # for an outside operator to get working - it needs a usable docker socket, three harness
+        # images built locally, and a served context of at least 64K - and un-ranking an otherwise
+        # complete, attested run over it costs more real submissions than it protects. So a run
+        # whose agentic produced no usable score still ranks on what WAS measured, carrying a
+        # badge the reader can click for the fix. Every OTHER missing component still fails the
+        # gate: intelligence and performance are cheap and nearly automatic.
+        #
+        # Two distinct reasons, because the remedy differs and the reader deserves to know which:
+        #   failed  - the harnesses ran and every one came back at/below AGENTIC_FAILURE_FLOOR,
+        #             which is a serve/parser problem, not the model
+        #   missing - no agentic rows at all: the harnesses never ran (no docker, build failed,
+        #             short context, or the run simply did not include them)
+        if a and a.get("all_failed"):
+            m["agentic_status"] = "failed"
+        elif not a:
+            m["agentic_status"] = "missing"
+        else:
+            m["agentic_status"] = "ok"
+        m["agentic_not_counted"] = m["agentic_status"] != "ok"
+        if m.get("record_eligible") and m["aeon_provisional"]:
+            missing = [k for k in AEON_WEIGHTS if k not in present]
+            if not (missing == ["agentic"] and m["agentic_not_counted"]):
+                m["record_eligible"] = False
+                m["ranked_excluded"] = "incomplete"    # attested weights, but not a full run
+        # the HIGHEST-composite run among the runs this row aggregates (eligible runs when
+        # the model has any) — the run the dashboard auto-opens for the intelligence dial
+        m["best_intelligence_run"] = m["best_run"]
+    # record_eligible may have flipped above — re-float the ranked (full, verified) rows to the top
+    lb["models"].sort(key=lambda x: (not x.get("record_eligible"),
+                                     -((x.get("aeon_score") if x.get("aeon_score") is not None
+                                        else x.get("composite")) or 0)))
+    return lb
+
+
+# ---- served CONTEXT LENGTH: the window the benchmark actually ran at ---------------------------
+#
+# Parsed from a run's stored serve recipe. Engine grammars: vLLM --max-model-len ·
+# SGLang --context-length · llama.cpp -c / --ctx-size — each in both the two-token
+# ["--flag", "65536"] form and the inline "--flag=65536" form. Anything else -> None
+# (null = not recorded, never a guess).
+_CTX_FLAGS = ("--max-model-len", "--context-length", "--ctx-size", "-c")
+
+
+def ctx_len_from_recipe(recipe):
+    """Served context length (tokens) from a stored recipe's flags, or None."""
+    if not isinstance(recipe, dict):
+        return None
+    for seq in (recipe.get("flags"), recipe.get("command")):
+        if not isinstance(seq, list):
+            continue
+        toks = [str(f) for f in seq]
+        for i, f in enumerate(toks):
+            name, eq, inline = f.partition("=")
+            if name not in _CTX_FLAGS:
+                continue
+            val = inline if eq else (toks[i + 1] if i + 1 < len(toks) else None)
+            if val is None or val.startswith("-"):
+                continue
+            try:
+                n = int(str(val).strip())
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                return n
+    return None
+
+
+def _attach_ctx(lb):
+    """Extend each board row with ctx_len — the served context of its best_intelligence_run,
+    falling back to the model's NEWEST run that stored a recipe. Purely additive; a model
+    with no recipe anywhere carries ctx_len null (endpoint runs record no serve flags)."""
+    models = lb.get("models") or []
+    if not models:
+        return lb
+    try:
+        recs = db.run_recipes()
+    except Exception:
+        recs = []
+    by_run, newest = {}, {}
+    for r in recs:
+        try:
+            ctx = ctx_len_from_recipe(json.loads(r.get("recipe") or "null"))
+        except Exception:
+            ctx = None
+        by_run[r["id"]] = ctx
+        canon = r.get("canonical_id")
+        cur = newest.get(canon)
+        if cur is None or (r.get("started_at") or 0) > cur[0]:
+            newest[canon] = ((r.get("started_at") or 0), ctx)
+    for m in models:
+        ctx = by_run.get(m.get("best_intelligence_run") or m.get("best_run"))
+        if ctx is None:
+            ctx = (newest.get(m.get("canonical")) or (0, None))[1]
+        m["ctx_len"] = ctx
+    return lb
 
 
 def _hw_label(env):
@@ -242,13 +533,22 @@ def _quality_index():
     for r in rows:
         if r.get("harness") or (r.get("suite_id") or suite_mod.SUITE_ID) != suite_mod.SUITE_ID:
             continue
+        if r.get("bench_seed"):    # fast-bench subsample — never a model's quality-of-record
+            continue
         by_run.setdefault(r["run"], {
             "run": r["run"], "model": r["model"], "canonical": r.get("canonical_id") or r["model"],
             "hf_repo": r.get("hf_repo"), "verified": r.get("model_verified"),
             "trust_tier": r.get("trust_tier") or "self_reported", "started_at": r["started_at"],
+            "suite_id": r.get("suite_id"),
             "env_json": r.get("env_json"), "results": []})["results"].append(r)
     idx = {}
     for info in by_run.values():
+        # attempted = covered: no_answer rows count toward the floor (same rule as the board);
+        # the floor is the run's OWN corpus size — a full legacy pass stays covered forever
+        floor = MIN_SUITE_COVERAGE * suite_mod.corpus_size_for(info.get("suite_id"))
+        if sum(1 for r in info["results"]
+               if r["score"] is not None or (r.get("status") or "") == "no_answer") < floor:
+            continue
         comp = _run_summary(info)["composite"]
         try:
             label = _hw_label(json.loads(info.get("env_json") or "{}"))
@@ -272,13 +572,48 @@ def _lowest_conc_metric(c_lo, metric, agg):
     return agg(vals) if vals else None
 
 
+def perf_direct_grid(results):
+    """Per-run DIRECT-grid extraction — perf.direct.<scope>.c<N> result rows (case_id +
+    parsed evidence) -> (direct[conc][scope] metric cells, sorted conc levels). Shared by
+    perf_board and the unified benchmark cards so the two can never disagree about what a
+    perf run demonstrated. Malformed case ids / evidence are skipped, never raised."""
+    direct, concs = {}, set()
+    for x in results:
+        cid, ev = x.get("case_id") or "", x.get("evidence") or {}
+        parts = str(cid).split(".")
+        if len(parts) != 4 or parts[0] != "perf" or parts[1] != "direct" \
+                or not parts[3].startswith("c"):
+            continue
+        try:
+            conc = int(parts[3][1:])
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            ev = {}
+        concs.add(conc)
+        direct.setdefault(conc, {})[parts[2]] = {
+            "ttft_ms": ev.get("ttft_ms_mean"), "ttft_p95": ev.get("ttft_ms_p95"),
+            "tpot_ms": ev.get("tpot_ms_mean"),
+            "decode_tps": ev.get("decode_tps_mean"),
+            "agg_decode_tps": ev.get("agg_decode_tps"),
+            "prefill_tps": ev.get("prefill_tps_mean"),
+            "n_errors": ev.get("n_errors"),
+        }
+    return direct, sorted(concs)
+
+
 def perf_board():
-    """PERFORMANCE board: one row per canonical model = its LATEST perf run (suite
-    aeon-perf-v1), unpacked into two grids the dashboard can chart directly:
+    """PERFORMANCE board: one row per (canonical model × hardware BUCKET) = that pairing's
+    LATEST perf run (suite aeon-perf-v1) — a model benched on a Spark AND a 5090 holds a row
+    on each rig, so per-hardware clustering never hides a result. Rows unpack into two grids
+    the dashboard can chart directly:
       direct[conc][scope]   = {ttft_ms, ttft_p95, tpot_ms, decode_tps, agg_decode_tps, prefill_tps}
       harness[hid][conc][scope] = {mean_task_s, p95_task_s, tasks_per_min, failures}
     scope = a prompt category (Math/Coding/...) or 'overall'. Older runs that predate a
-    metric (e.g. TPOT) simply carry null there — the frontend renders gaps honestly."""
+    metric (e.g. TPOT) simply carry null there — the frontend renders gaps honestly.
+    Buckets come from hwnorm (Spark counts / RTX by model / Apple chip / Unlabeled); the
+    payload adds hw_bucket/hw_family/spark_count per row plus an ordered hardware_groups
+    summary — every pre-existing field (flat 'hardwares' list included) is unchanged."""
     rows = db.perf_results()
     by_run = {}
     for r in rows:
@@ -291,53 +626,67 @@ def perf_board():
             "env": r.get("env") or {},
             "started_at": r["started_at"], "results": []})["results"].append(r)
     latest = {}
-    for info in by_run.values():                     # newest perf run per canonical model
-        c = info["canonical"]
-        if c not in latest or (info["started_at"] or 0) > (latest[c]["started_at"] or 0):
-            latest[c] = info
+    for info in by_run.values():           # newest perf run per (canonical model, hw bucket)
+        info["_hw_label"] = _hw_label(info.get("env") or {})
+        info["_hw"] = hwnorm.normalize_label(info["_hw_label"])
+        k = (info["canonical"], info["_hw"]["bucket"])
+        if k not in latest or (info["started_at"] or 0) > (latest[k]["started_at"] or 0):
+            latest[k] = info
     qidx = _quality_index()                          # (canonical, hw) -> best v3 quality composite
     models = []
-    for c, info in latest.items():
-        direct, harness, concs = {}, {}, set()
+    for (c, _bucket), info in latest.items():
+        direct, dconcs = perf_direct_grid(info["results"])
+        harness, concs = {}, set(dconcs)
+        # SUSTAINED LOAD: throughput at low vs high KV pressure over the WHOLE run, with the
+        # preemption count that explains it. The concurrency ladder measures a fresh engine
+        # sprinting; this is what the serve does after hours under load. Absent on runs that
+        # predate it, and absent when the pod had nothing honest to report — never zeros.
+        sustained, sustained_series = None, None
+        for x in info["results"]:
+            cid = x.get("case_id") or ""
+            if cid == "perf.sustained.summary":
+                sustained = x.get("evidence") or None
+            elif cid == "perf.sustained.timeline":
+                sustained_series = (x.get("evidence") or {}).get("points")
         for x in info["results"]:
             cid, ev = x.get("case_id") or "", x.get("evidence") or {}
             parts = cid.split(".")
-            # perf.direct.<scope>.c<N>  |  perf.harness.<hid>[.<scope>].c<N>
-            if len(parts) < 4 or parts[0] != "perf" or not parts[-1].startswith("c"):
+            # perf.harness.<hid>[.<scope>].c<N> (the direct cells are parsed above)
+            if len(parts) < 4 or parts[0] != "perf" or parts[1] != "harness" \
+                    or not parts[-1].startswith("c"):
                 continue
             try:
                 conc = int(parts[-1][1:])
             except ValueError:
                 continue
             concs.add(conc)
-            if parts[1] == "direct" and len(parts) == 4:
-                direct.setdefault(conc, {})[parts[2]] = {
-                    "ttft_ms": ev.get("ttft_ms_mean"), "ttft_p95": ev.get("ttft_ms_p95"),
-                    "tpot_ms": ev.get("tpot_ms_mean"),
-                    "decode_tps": ev.get("decode_tps_mean"),
-                    "agg_decode_tps": ev.get("agg_decode_tps"),
-                    "prefill_tps": ev.get("prefill_tps_mean"),
-                    "n_errors": ev.get("n_errors"),
-                }
-            elif parts[1] == "harness":
-                hid = parts[2]
-                scope = parts[3] if len(parts) == 5 else "overall"
-                harness.setdefault(hid, {}).setdefault(conc, {})[scope] = {
-                    "mean_task_s": ev.get("mean_task_s"), "p95_task_s": ev.get("p95_task_s"),
-                    "tasks_per_min": ev.get("tasks_per_min"), "failures": ev.get("failures"),
-                }
+            hid = parts[2]
+            scope = parts[3] if len(parts) == 5 else "overall"
+            harness.setdefault(hid, {}).setdefault(conc, {})[scope] = {
+                "mean_task_s": ev.get("mean_task_s"), "p95_task_s": ev.get("p95_task_s"),
+                "tasks_per_min": ev.get("tasks_per_min"), "failures": ev.get("failures"),
+            }
         if not direct and not harness:
             continue
         # The level SUMMARY is recomputed here as the ARITHMETIC MEAN across the per-category
         # cells — each category is a REAL concurrent cohort at that rung; the categories never
         # ran together in one pool, so the stored 'overall' (old mixed-pool runs: a cross-
         # category tally; new isolated runs: a time-weighted figure) is never displayed as-is.
-        for scopes in direct.values():
+        # Normalize each category cell to AEON concurrent-total agg, then mean for overall.
+        for _conc_lvl, scopes in direct.items():
+            for _cat, _cell in list(scopes.items()):
+                if _cat == "overall" or not isinstance(_cell, dict):
+                    continue
+                if _cell.get("agg_source") not in ("concurrent_window",):
+                    _dec = _cell.get("decode_tps")
+                    if isinstance(_dec, (int, float)) and _conc_lvl:
+                        _cell["agg_decode_tps"] = round(float(_dec) * float(_conc_lvl), 2)
+                        _cell["agg_source"] = "saturated_est_decode_x_conc"
             cat_cells = [v for k, v in scopes.items() if k != "overall" and isinstance(v, dict)]
             if not cat_cells:
                 continue
-            def _catmean(key):
-                vals = [c.get(key) for c in cat_cells if isinstance(c.get(key), (int, float))]
+            def _catmean(key, _cells=cat_cells):
+                vals = [c.get(key) for c in _cells if isinstance(c.get(key), (int, float))]
                 return round(sum(vals) / len(vals), 2) if vals else None
             scopes["overall"] = {
                 "ttft_ms": _catmean("ttft_ms"), "ttft_p95": _catmean("ttft_p95"),
@@ -351,16 +700,26 @@ def perf_board():
         # category × concurrency cell (e.g. Coding @ c32). Never the cross-category MEAN
         # row: that understates the demonstrated peak by roughly the category count
         # (each rung's mean averages fast cells with slow ones).
+        # AEON lock: peak_agg = best cell concurrent-total tok/s.
+        # New runs store concurrent-window agg (agg_source=concurrent_window).
+        # Historical runs stored TTFT-diluted tokens/wall — reconstruct the
+        # simultaneous total as decode_tps x conc (saturated-cohort estimate).
         peak_agg, peak_cell = None, None
         for conc_lvl, scopes in direct.items():
             for cat, cell in scopes.items():
                 if cat == "overall" or not isinstance(cell, dict):
                     continue
+                src = cell.get("agg_source")
                 a = cell.get("agg_decode_tps")
+                dec = cell.get("decode_tps")
+                if src not in ("concurrent_window",) and isinstance(dec, (int, float)) and conc_lvl:
+                    # Prefer saturated simultaneous estimate over legacy wall-diluted agg
+                    a = round(float(dec) * float(conc_lvl), 2)
+                    cell["agg_decode_tps"] = a
+                    cell["agg_source"] = "saturated_est_decode_x_conc"
                 if isinstance(a, (int, float)) and (peak_agg is None or a > peak_agg):
                     peak_agg, peak_cell = a, {"category": cat, "conc": conc_lvl}
-        hw = (info.get("env") or {}).get("hardware") or {}
-        hwlabel = hw.get("detected_label") or hw.get("label")
+        hwlabel, hwn = info["_hw_label"], info["_hw"]
         c_lo = (direct.get(min(concs)) if concs else {}) or {}    # single-stream = lowest concurrency
         q = qidx.get((c, hwlabel)) or qidx.get((c, None))         # v3 quality composite for this model+hw
         try:
@@ -375,9 +734,12 @@ def perf_board():
             "started_at": info["started_at"],
             # hardware AS DETECTED on the bench machine; the operator's claim is the fallback
             "hardware": hwlabel,
+            # canonical cluster identity (hwnorm): the section this row competes in
+            "hw_bucket": hwn["bucket"], "hw_family": hwn["family"],
+            "spark_count": hwn["spark_count"],
             "conc_levels": sorted(concs),
             # the four axes the recipe-discovery tool ranks on (per model, filterable by hardware):
-            "peak_agg_tps": peak_agg,                     # best real cohort (category × conc cell)
+            "peak_agg_tps": peak_agg,                     # best concurrent-total tok/s cohort (AEON agg)
             "peak_agg_cell": peak_cell,                   # provenance: which cell demonstrated it
             "peak_single_tps": _lowest_conc_metric(c_lo, "decode_tps", max),  # single-stream speed
             "latency": {"ttft_ms": _lowest_conc_metric(c_lo, "ttft_ms", min),
@@ -387,10 +749,239 @@ def perf_board():
             "quality_run": (q or {}).get("run"),
             "recipe": recipe,               # raw serve recipe; the endpoint assembles docker_run + drafter
             "direct": direct, "harness": harness,
+            # null on runs that predate the section, and on runs where the pod could not
+            # compare two KV regimes honestly — the frontend renders nothing rather than 0%.
+            "sustained": sustained, "sustained_series": sustained_series,
         })
     models.sort(key=lambda m: -(m["peak_agg_tps"] or 0))
     hardwares = sorted({m["hardware"] for m in models if m["hardware"]})
-    return {"categories": suite_mod.CATEGORIES, "models": models, "hardwares": hardwares}
+    # Ordered per-bucket summary for the clustered board: Spark buckets first (ascending node
+    # count), then every other rig by its best demonstrated peak, Unlabeled always last.
+    groups = {}
+    for m in models:                       # models are peak-sorted, so first hit = bucket best
+        g = groups.setdefault(m["hw_bucket"], {
+            "bucket": m["hw_bucket"], "family": m["hw_family"], "label": m["hw_bucket"],
+            "spark_count": m["spark_count"], "n_models": 0,
+            "best": {"model": m["model"], "peak_agg_tps": m["peak_agg_tps"]}})
+        g["n_models"] += 1
+    def _gorder(g):
+        if g["family"] == hwnorm.FAMILY_SPARK:
+            return (0, g["spark_count"] or 0, 0.0, g["bucket"])
+        if g["family"] == hwnorm.FAMILY_UNLABELED:
+            return (2, 0, 0.0, g["bucket"])
+        return (1, 0, -(g["best"]["peak_agg_tps"] or 0), g["bucket"])
+    hardware_groups = sorted(groups.values(), key=_gorder)
+    return {"categories": suite_mod.CATEGORIES, "models": models,
+            "hardwares": hardwares, "hardware_groups": hardware_groups}
+
+
+# ---- CHAMPION recipes: the winning serve recipe per (hardware × model) ------------------------
+
+# Bench wiring the pod's launcher always re-adds itself (mirrors pod.engines.PROTECTED_FLAGS —
+# scoring must not import pod modules on the mothership), stripped from champion payloads so a
+# template never carries another lab's alias/host/port.
+_WIRING_FLAGS = {"--served-model-name", "--host", "--port", "--alias", "--model-path", "-m"}
+# Defense in depth: recipes must never contain credentials, but a champion payload is PUBLIC —
+# drop any flag pair that is credential-named or whose value looks like a token.
+_SECRET_FLAGS = {"--api-key", "--hf-token", "--huggingface-token", "--token"}
+_TOKENISH = re.compile(r"\b(hf_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,})")
+
+
+def _champion_flags(recipe):
+    """The applyable serve-flag list from a stored recipe: bench wiring stripped, any
+    --speculative-config drafter path normalised to the portable /drafter mount, anything
+    credential-shaped dropped. None when the recipe carries no usable flags (not a template)."""
+    flags = recipe.get("flags")
+    if not isinstance(flags, list) or not flags:
+        return None
+    toks = [str(f) for f in flags]
+    out, i = [], 0
+    while i < len(toks):
+        f = toks[i]
+        val = toks[i + 1] if i + 1 < len(toks) and not toks[i + 1].startswith("-") else None
+        step = 2 if val is not None else 1
+        if not f.startswith("-"):                       # stray positional token — never applyable
+            i += 1
+            continue
+        if f in _WIRING_FLAGS or f.lower() in _SECRET_FLAGS or (val and _TOKENISH.search(val)):
+            i += step
+            continue
+        if f == "--speculative-config" and val:
+            try:
+                cfg = json.loads(val)
+                if isinstance(cfg, dict) and cfg.get("model"):
+                    cfg["model"] = "/drafter"           # never leak a bench-host-local path
+                    # compact separators: byte-identical to the Run tab's spec-preset option
+                    # values, so applying a champion re-selects the matching dropdown preset
+                    val = json.dumps(cfg, separators=(",", ":"))
+            except Exception:
+                pass
+        out.append(f)
+        if val is not None:
+            out.append(val)
+        i += step
+    return out or None
+
+
+def _champion_drafter(recipe):
+    """Speculative-decode disclosure for a champion, or None (plain decode). Method-aware like
+    app._drafter_info: DFlash names its z-lab drafter repo (+ revision + n), and DSpark's
+    drafter form (block-N drafters targeting /drafter) does the same; native MTP and
+    in-checkpoint DSpark have NO drafter, so those champions never advertise one
+    (uses_drafter=False). Method/n come from the recorded top-level fields, else from
+    --speculative-config (both flag forms)."""
+    n = recipe.get("spec_decode_n") or recipe.get("drafter_n") or recipe.get("drafter_nst")
+    method = recipe.get("spec_decode_method") or recipe.get("spec_decode")
+    spec_model = None
+    flags = recipe.get("flags") if isinstance(recipe.get("flags"), list) else []
+    for i, f in enumerate(flags):
+        cfg = None
+        if f == "--speculative-config" and i + 1 < len(flags):
+            try:
+                cfg = json.loads(flags[i + 1])
+            except Exception:
+                pass
+        elif isinstance(f, str) and f.startswith("--speculative-config="):
+            try:
+                cfg = json.loads(f.split("=", 1)[1])
+            except Exception:
+                pass
+        else:
+            continue
+        if isinstance(cfg, dict):
+            method = method or cfg.get("method")
+            n = n or cfg.get("num_speculative_tokens")
+            spec_model = cfg.get("model")
+        break
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or method):
+        return None
+    method = method or "dflash"
+    uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
+                        (str(method).lower() in ("dflash", "dspark")
+                         and str(spec_model or "").startswith("/drafter")))
+    return {"method": method,
+            "repo": recipe.get("drafter_repo"),
+            "revision": recipe.get("drafter_revision"), "n": n,
+            "uses_drafter": uses_drafter}
+
+
+def _peak_agg_cell(results):
+    """Best REAL cohort: max concurrent-total tok/s over category×conc cells.
+
+    AEON lock: prefer stored concurrent-window agg; for legacy tokens/wall cells
+    reconstruct simultaneous total as decode_tps × conc.
+    """
+    peak, cell = None, None
+    for x in results:
+        parts = str(x.get("case_id") or "").split(".")
+        if (len(parts) != 4 or parts[0] != "perf" or parts[1] != "direct"
+                or parts[2] == "overall" or not parts[3].startswith("c")):
+            continue
+        try:
+            conc = int(parts[3][1:])
+        except ValueError:
+            continue
+        ev = x.get("evidence") or {}
+        a = ev.get("agg_decode_tps")
+        src = ev.get("agg_source")
+        dec = ev.get("decode_tps_mean")
+        if dec is None:
+            dec = ev.get("decode_tps")  # board cells use short name
+        if src not in ("concurrent_window",) and isinstance(dec, (int, float)) and conc:
+            a = round(float(dec) * float(conc), 2)
+        if isinstance(a, (int, float)) and (peak is None or a > peak):
+            peak, cell = a, {"category": parts[2], "conc": conc}
+    return peak, cell
+
+
+def champion_recipes(hardware=None, model=None):
+    """CHAMPION recipes — per (detected hardware label × canonical model), the perf run with the
+    best demonstrated peak aggregate throughput whose model ALSO has a quality composite for that
+    pairing (fast AND answers well; the same quality join the perf board uses). Pods pull this
+    filtered to their own detected hardware and offer each champion as an applyable template.
+
+    `hardware` matches the canonical hwnorm BUCKET first ('Single DGX Spark', 'NVIDIA RTX 5090'
+    — and a free query like 'dgx spark' or '2x dgx spark' normalizes to its bucket), with the
+    original exact-label / loose case-insensitive containment kept as the fallback ('dgx spark'
+    still matches 'single DGX Spark (GB10)' by containment). `model` matches canonical/hf_repo
+    (case-insensitive). Each champion carries its `hw_bucket`. Champions per hardware come back
+    sorted best-tok/s-first, so the list IS the per-hardware top list. Defensive by contract: a
+    malformed stored recipe/env skips that run — this endpoint never 500s over bad data."""
+    rows = db.perf_results()
+    by_run = {}
+    for r in rows:
+        by_run.setdefault(r["run"], {
+            "run": r["run"], "model": r["model"],
+            "canonical": r.get("canonical_id") or r["model"],
+            "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
+            "recipe": r.get("recipe"), "trust_tier": r.get("trust_tier") or "self_reported",
+            "env": r.get("env") or {},
+            "started_at": r["started_at"], "results": []})["results"].append(r)
+    qidx = _quality_index()                      # (canonical, hw) -> best v3 quality composite
+    best = {}
+    for info in by_run.values():
+        try:
+            hw = _hw_label(info.get("env") or {})
+            if not hw:
+                continue                          # no hardware identity — can't be a champion
+            peak, cell = _peak_agg_cell(info["results"])
+            if peak is None:
+                continue
+            try:
+                recipe = json.loads(info.get("recipe") or "null")
+            except Exception:
+                recipe = None
+            if not isinstance(recipe, dict):
+                continue
+            serve_flags = _champion_flags(recipe)
+            if not serve_flags:
+                continue                          # nothing applyable — not a template
+            c = info["canonical"]
+            q = qidx.get((c, hw)) or qidx.get((c, None))
+            if not q:
+                continue                          # champions must answer WELL, not just fast
+            cur = best.get((hw, c))
+            if cur is not None and (cur["peak_agg_tps"] or 0) >= peak:
+                continue
+            best[(hw, c)] = {
+                "hardware": hw,
+                "hw_bucket": hwnorm.normalize_label(hw)["bucket"],
+                "model": info["hf_repo"] or info["model"], "canonical": c,
+                "hf_repo": info["hf_repo"], "hf_revision": info.get("hf_revision"),
+                "engine": recipe.get("engine"), "image": recipe.get("image"),
+                "serve_flags": serve_flags,
+                "spec_decode": recipe.get("spec_decode"),
+                "drafter": _champion_drafter(recipe),
+                "peak_agg_tps": peak, "peak_agg_cell": cell,
+                "quality": q.get("composite"), "quality_run": q.get("run"),
+                "trust_tier": info.get("trust_tier"),
+                "run": info["run"], "started_at": info.get("started_at"),
+            }
+        except Exception:
+            continue                              # weird stored data: skip the run, never 500
+    champions = sorted(best.values(),
+                       key=lambda ch: (ch["hardware"].lower(), -(ch["peak_agg_tps"] or 0)))
+    hardwares = sorted({ch["hardware"] for ch in champions})
+    if hardware:
+        hl = str(hardware).strip().lower()
+        qn = hwnorm.normalize_label(hardware)     # 'dgx spark'/'2x dgx spark' -> its bucket
+
+        def _hw_hit(ch):
+            raw, bkt = ch["hardware"].lower(), (ch.get("hw_bucket") or "").lower()
+            if hl == raw or hl in raw or raw in hl:            # legacy loose containment
+                return True
+            if bkt and (hl == bkt or hl in bkt or bkt in hl):  # bucket name, exact or loose
+                return True
+            # normalized-query equality — never through the Unlabeled catch-all (a junk
+            # query like 'TPU v7' must not sweep up every unlabeled champion)
+            return qn["family"] != hwnorm.FAMILY_UNLABELED and qn["bucket"].lower() == bkt
+        champions = [ch for ch in champions if _hw_hit(ch)]
+    if model:
+        ml = str(model).strip().lower()
+        champions = [ch for ch in champions
+                     if ml == (ch["canonical"] or "").lower()
+                     or ml == (ch["hf_repo"] or "").lower()]
+    return {"hardwares": hardwares, "champions": champions}
 
 
 def seed_index(board="text"):
@@ -436,8 +1027,9 @@ def compare_by_seed(seed, board="text"):
         k = run["canonical"]
         if k not in latest or (run["started_at"] or 0) > (latest[k]["started_at"] or 0):
             latest[k] = run
-    diff = {c["id"]: c.get("difficulty") for c in suite_mod.CASES}
-    cat_of = {c["id"]: c["category"] for c in suite_mod.CASES}
+    known = suite_mod.all_known_cases()      # seed compares can span suite eras
+    diff = {c["id"]: c.get("difficulty") for c in known}
+    cat_of = {c["id"]: c["category"] for c in known}
     models, case_scores = [], {}
     for run in latest.values():
         summ = _run_summary(run)
@@ -461,44 +1053,379 @@ def compare_by_seed(seed, board="text"):
             "suite_consistent": len(shashes) <= 1, "suite_hash": shashes[0] if shashes else None}
 
 
-def vision_leaderboard():
-    """Separate VISION board (DESIGN §6c). Only models whose latest vision run was
-    capability-probed OK appear here (capability_absent runs are excluded by the
-    succeeded-status filter). Never merged into the text leaderboard."""
-    from . import vision_suite as vs
+def _god_cases_for(suite_id):
+    """The god_mode case-id set of a run's OWN suite (suite-era aware, like every join)."""
+    return {c["id"] for c in suite_mod.legacy_cases(suite_id) if c.get("difficulty") == "god_mode"}
 
-    rows = db.all_results_with_runs(board="vision")
+
+def _avg_harness(passes):
+    """One record per harness, averaged over its passes (attested-first, same rule as
+    _avg_sentinels). n/started_at/trust_tier describe the LATEST pass so the row still points at
+    something real."""
+    elig = [p for p in passes if p.get("trust_tier") in ELIGIBLE_TIERS]
+    use = elig or passes
+    # AGENTIC_FAILURE_FLOOR applies PER PASS, before the mean. A pass pinned at/below the floor
+    # measured the plumbing (a wrong tool-call parser, a harness that never connected), not the
+    # model — averaging it in would let our own breakage halve a model's score, which is the exact
+    # thing the floor exists to prevent. Applying it after the mean is too late: mean(100, 0) = 50
+    # sails over the floor carrying the failure inside it. If EVERY pass failed that way, keep
+    # them so the caller still sees a failed harness and marks the run provisional.
+    live = [p for p in use if p["score"] > AGENTIC_FAILURE_FLOOR]
+    use = live or use
+    latest = max(use, key=lambda p: p.get("started_at") or 0)
+    return {"score": round(sum(p["score"] for p in use) / len(use), 1),
+            "n": latest["n"], "started_at": latest["started_at"],
+            "trust_tier": latest["trust_tier"], "n_runs": len(use),
+            "scores": [p["score"] for p in sorted(use, key=lambda p: p.get("started_at") or 0)]}
+
+
+def _avg_sentinels(entries):
+    """One sentinel record per model, averaged over its passes.
+
+    Prefers the attested passes when the model has any: mixing a self-reported pass into an
+    attested model's average would let an unrankable run move a ranked number. Categories are
+    averaged across the passes that HAVE that category, so a pass that never reached a category
+    neither invents a zero nor dilutes it."""
+    elig = [e for e in entries if e["eligible"]]
+    use = elig or entries
+    comps = [e["composite"] for e in use]
+    cats = {}
+    for e in use:
+        for k, v in (e["categories"] or {}).items():
+            cats.setdefault(k, []).append(v)
+    latest = max(use, key=lambda e: e.get("started_at") or 0)
+    best = max(use, key=lambda e: e["composite"])
+    return {
+        "run": best["run"],                       # the pass a reader lands on from the board
+        "model": latest["model"],
+        "composite": round(sum(comps) / len(comps), 1),
+        "best": round(max(comps), 1), "worst": round(min(comps), 1),
+        "categories": {k: round(sum(v) / len(v), 1) for k, v in cats.items()},
+        "n_attempted": latest["n_attempted"], "n_total": latest["n_total"],
+        "trust_tier": latest["trust_tier"], "eligible": bool(elig),
+        "started_at": latest["started_at"], "suite_id": latest["suite_id"],
+        "n_runs": len(use),
+        "runs": [{"run": e["run"], "composite": e["composite"],
+                  "started_at": e.get("started_at"),
+                  "n_attempted": e.get("n_attempted"), "n_total": e.get("n_total")}
+                 for e in sorted(use, key=lambda e: e.get("started_at") or 0)],
+    }
+
+
+def god_leaderboard():
+    """GOD MODE BENCH — a first-class scoreboard of its OWN (board='god'), exclusively the
+    hardest tier: the god sentinels, god agentic tasks through the harnesses, and god-tier
+    code-gen arena challenges (artifacts ride to the gallery/human votes; this board ranks
+    the deterministic components).
+
+    Per canonical model:
+      sentinels — the BEST attested god text run: per-category means over god cells with the
+        same no_answer ¼-rule as the global board; coverage-gated at ≥90% of the run's OWN
+        suite's god-cell count (a full sweep of a smaller legacy god tier stays covered).
+      agentic — god agentic tasks through each harness: mean per harness, then mean across.
+      GOD SCORE = 0.6·sentinels + 0.4·agentic, renormalized over present components;
+      provisional (not fully tested) when agentic is absent. Attested-only ranks; seeded
+      draws never rank. Same honesty grammar as everything else: absent = null, never 0."""
+    rows = db.all_results_with_runs(board="god")
+    by_run = {}
+    for r in rows:
+        if r.get("bench_seed"):
+            continue
+        by_run.setdefault(r["run"], {
+            "run": r["run"], "model": r["model"],
+            "canonical": r.get("canonical_id") or r["model"],
+            "harness": r.get("harness"), "suite_id": r.get("suite_id"),
+            "trust_tier": r.get("trust_tier") or "self_reported",
+            "started_at": r["started_at"], "results": []})["results"].append(r)
+
+    sentinels, agentic = {}, {}
+    for info in by_run.values():
+        canon = info["canonical"]
+        if info["harness"]:
+            sc = [r["score"] for r in info["results"] if r["score"] is not None]
+            if sc:
+                # Every pass of this harness counts: the board averages a model over the runs it
+                # actually did, so a harness benched three times contributes all three rather
+                # than only whichever ran last.
+                h = agentic.setdefault(canon, {})
+                h.setdefault(info["harness"], []).append(
+                    {"score": round(100 * sum(sc) / len(sc), 1),
+                     "n": len(sc), "started_at": info["started_at"],
+                     "trust_tier": info["trust_tier"]})
+            continue
+        god_ids = _god_cases_for(info["suite_id"])
+        if not god_ids:
+            continue
+        cats, noans = {}, {}
+        attempted = 0
+        for r in info["results"]:
+            if r["case_id"] not in god_ids:
+                continue
+            if r["score"] is not None:
+                cats.setdefault(r["category"], []).append(r["score"])
+                attempted += 1
+            elif (r.get("status") or "") == "no_answer":
+                noans[r["category"]] = noans.get(r["category"], 0) + 1
+                attempted += 1
+        if attempted < MIN_SUITE_COVERAGE * len(god_ids):
+            continue                       # partial god pass — never a quality-of-record
+        cat_scores = {}
+        for c in list(cats) + [c for c in noans if c not in cats]:
+            sc = cats.get(c, [])
+            denom = len(sc) + 0.25 * noans.get(c, 0)
+            cat_scores[c] = round(100 * sum(sc) / denom, 1) if denom else 0.0
+        comp = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
+        entry = {"run": info["run"], "model": info["model"], "composite": comp,
+                 "categories": cat_scores, "n_attempted": attempted, "n_total": len(god_ids),
+                 "trust_tier": info["trust_tier"], "eligible": info["trust_tier"] in ELIGIBLE_TIERS,
+                 "started_at": info["started_at"], "suite_id": info["suite_id"]}
+        sentinels.setdefault(canon, []).append(entry)
+
+    # AVERAGE PER MODEL, not best-of. Attested passes only when any exist — a self-reported
+    # pass cannot rank on its own and must not drag down (or prop up) a model that has attested
+    # ones. Ties in eligibility keep every pass, so a model benched three times is judged on all
+    # three, and `runs` discloses each so the submissions page can show how they individually
+    # scored.
+    sentinels = {c: _avg_sentinels(v) for c, v in sentinels.items()}
+
+    agentic = {c: {hid: _avg_harness(v) for hid, v in hs.items()}
+               for c, hs in agentic.items()}
+
+    models = []
+    for canon in set(sentinels) | set(agentic):
+        s = sentinels.get(canon)
+        h = agentic.get(canon)
+        # Same floor as the global board: a harness pinned at/below AGENTIC_FAILURE_FLOOR measured
+        # the plumbing, not the model, so it is dropped from the mean instead of dragging the GOD
+        # SCORE down. If every harness failed that way, god agentic is absent and the run is
+        # provisional — which is the honest reading of "we never actually measured this".
+        h_live = {k: v for k, v in (h or {}).items() if v["score"] > AGENTIC_FAILURE_FLOOR}
+        ag_score = (round(sum(v["score"] for v in h_live.values()) / len(h_live), 1)
+                    if h_live else None)
+        parts, weights = [], []
+        if s:
+            parts.append(s["composite"]); weights.append(0.6)
+        if ag_score is not None:
+            parts.append(ag_score); weights.append(0.4)
+        if not parts:
+            continue
+        wsum = sum(weights)
+        god_score = round(sum(p * w for p, w in zip(parts, weights)) / wsum, 1)
+        models.append({
+            "canonical": canon,
+            "model": (s or {}).get("model") or canon,
+            "run": (s or {}).get("run"),
+            "god_score": god_score,
+            # Flat best/worst/n_runs mirror the global board's row shape, so ONE renderer draws
+            # the spread on either board. An average alone cannot tell a consistent model from an
+            # erratic one, and that is exactly what you want to know before copying its recipe.
+            "best": (s or {}).get("best"), "worst": (s or {}).get("worst"),
+            "n_runs": (s or {}).get("n_runs"),
+            "god_provisional": not (s and ag_score is not None),
+            # n_runs/runs disclose WHAT the average is over, so a reader can reconcile the
+            # board with the individual passes on the submissions page.
+            "sentinels": s and {k: s[k] for k in ("run", "composite", "categories",
+                                                  "n_attempted", "n_total", "suite_id",
+                                                  "n_runs", "runs", "best", "worst")},
+            # harnesses shows every cell (including the failed ones — the board should say what
+            # happened); `excluded` names the ones the mean dropped.
+            "agentic": ({"score": ag_score,
+                         "harnesses": {k: v["score"] for k, v in h.items()},
+                         "n_runs": {k: v.get("n_runs") for k, v in h.items()},
+                         "pass_scores": {k: v.get("scores") for k, v in h.items()},
+                         "excluded": sorted(set(h) - set(h_live))} if h else None),
+            "trust_tier": (s or {}).get("trust_tier")
+                          or next(iter(h.values()))["trust_tier"],
+            # COMPLETENESS GATE: a god run RANKS only when it ran the FULL god benchmark —
+            # sentinels AND agentic. A sentinels-only (provisional) god run stays local, never
+            # counted; verified weights are necessary but not sufficient.
+            # Same policy as the global board: god agentic may be absent or failed and the run
+            # still ranks on its sentinels, badged. A god run is expensive to produce; refusing to
+            # show it because the harness plumbing broke helps nobody.
+            "record_eligible": bool(s and s["eligible"]),
+            "agentic_status": ("ok" if ag_score is not None else ("failed" if h else "missing")),
+            "agentic_not_counted": ag_score is None,
+            "ranked_excluded": None,
+            "started_at": (s or {}).get("started_at")
+                          or max(v["started_at"] or 0 for v in h.values()),
+        })
+    models.sort(key=lambda m: -m["god_score"])
+    # Parity with the global board: the GOD card renders the same identity furniture (VRAM
+    # estimate, served context, share link), so the rows must carry the same fields. best_run is
+    # the alias _attach_ctx resolves the served context against.
+    # PERFORMANCE on the god card. A GOD MODE job runs the same perf grid as any comprehensive
+    # bench, but the god board never surfaced it, so the rig's throughput standing was invisible
+    # here. Attached as its own field (NOT folded into god_score — that stays the documented
+    # 0.6 x sentinels + 0.4 x agentic, so existing god rankings do not silently move).
+    try:
+        _perf = _perf_percentile_index()
+    except Exception:
+        _perf = {}
+    for m in models:
+        m["best_run"] = m.get("run")
+        m["performance"] = _perf.get(m.get("canonical"))
+        try:
+            m["vram_est_gb"] = vram.estimate_gb(m["model"])
+        except Exception:
+            m["vram_est_gb"] = None
+    return _attach_ctx({"models": models, "weights": {"sentinels": 0.6, "agentic": 0.4},
+                        "god_corpus": len(_god_cases_for(suite_mod.SUITE_ID))})
+
+
+def explorer_matrix():
+    """EXPLORE THE DATA — the category × difficulty matrix behind each board model's
+    headline number. One entry per leaderboard model, computed from its BEST
+    intelligence run (the exact run the board's intelligence dial opens — eligible
+    runs win over self-reported ones, seeded fast-bench draws never qualify):
+
+        cells[category][difficulty] = {score: mean 0-100, n: cases, tps: mean decode_tps}
+
+    Difficulty comes from the corpus of the suite the board is SHOWING (case_id
+    join): current suite normally, the legacy corpus during a fallback window — so
+    legacy runs are labeled by their own suite's table, never the new one's. Malformed rows (unknown
+    case ids, unscored rows, junk speed blobs) are skipped, never raised. Cheap
+    computed-on-read like every other board payload.
+
+    Each entry also carries the explorer's model-level filter facets: trust_tier +
+    ctx_len ride along from the board row (same values the board displays), and
+    hw_bucket/hw_family are the SOURCE RUN's benched rig (detected label wins over
+    the operator claim) normalized through hwnorm — the same clustering the perf
+    board groups on, so 'Unlabeled' is an honest bucket, never a guess."""
+    lb = leaderboard()
+    # Join against the corpus of the suite the BOARD IS SHOWING: during a legacy-fallback
+    # window (fresh suite bump, no new runs yet) the board displays legacy runs, and the
+    # explorer must label them with THEIR OWN corpus — not the new suite's table (mislabeled
+    # grid) and not nothing (rows the board shows would silently vanish here).
+    shown = lb.get("suite_shown") or suite_mod.SUITE_ID
+    corpus = suite_mod.legacy_cases(shown)
+    diff_of = {c["id"]: c.get("difficulty") for c in corpus}
+    cat_of = {c["id"]: c["category"] for c in corpus}
+    # one flat read, indexed by run — only unseeded, harness-free CURRENT-suite rows
+    rows_by_run = {}
+    for r in db.all_results_with_runs():
+        if r.get("harness") or r.get("bench_seed"):
+            continue
+        if (r.get("suite_id") or shown) != shown:
+            continue
+        rows_by_run.setdefault(r["run"], []).append(r)
+    models = []
+    for m in lb.get("models") or []:
+        run_id = m.get("best_intelligence_run") or m.get("best_run")
+        src_rows = rows_by_run.get(run_id, ())
+        agg = {}
+        for r in src_rows:
+            cid = r.get("case_id")
+            cat, d = cat_of.get(cid), diff_of.get(cid)
+            if cat is None or d not in suite_mod.DIFFICULTIES:
+                continue                     # not a graded corpus case — never guessed
+            sc = r.get("score")
+            if not isinstance(sc, (int, float)):
+                continue                     # error / no_answer row — an honest gap
+            sp = r.get("speed")
+            tps = sp.get("decode_tps") if isinstance(sp, dict) else None
+            cell = agg.setdefault(cat, {}).setdefault(d, {"s": [], "t": []})
+            cell["s"].append(sc)
+            if isinstance(tps, (int, float)):
+                cell["t"].append(tps)
+        cells = {}
+        for cat, byd in agg.items():
+            for d, cell in byd.items():
+                cells.setdefault(cat, {})[d] = {
+                    "score": round(100 * sum(cell["s"]) / len(cell["s"]), 1),
+                    "n": len(cell["s"]),
+                    "tps": round(sum(cell["t"]) / len(cell["t"]), 1) if cell["t"] else None,
+                }
+        if not cells:
+            continue                         # nothing joinable (e.g. legacy run) — skip
+        # model-level facets for the explorer's filters: the source run's benched rig
+        # (env hardware, detected label first) bucketed exactly like the perf board
+        env = {}
+        try:
+            env = json.loads(src_rows[0].get("env_json") or "{}") if src_rows else {}
+        except Exception:
+            env = {}
+        hwn = hwnorm.normalize_label(_hw_label(env if isinstance(env, dict) else {}))
+        models.append({
+            "model": m["model"], "canonical": m["canonical"], "run": run_id,
+            "record_eligible": bool(m.get("record_eligible")),
+            "trust_tier": m.get("trust_tier") or "self_reported",
+            "hw_bucket": hwn["bucket"], "hw_family": hwn["family"],
+            "ctx_len": m.get("ctx_len"),     # served context of the board row (null = not recorded)
+            "composite": m["composite"], "aeon_score": m.get("aeon_score"),
+            "cells": cells,
+        })
+    return {"suite_id": shown, "categories": suite_mod.CATEGORIES,
+            "difficulties": suite_mod.DIFFICULTIES, "models": models}
+
+
+def _modality_board(board, categories, ttft_key, tag_board, **tag_kw):
+    """Shared modality-board builder (vision/audio/video): one row per CANONICAL model
+    (lowercased hf_repo when known — the SAME join key the text/harness/perf boards group
+    by, so a run benched under a local alias lines up with its text standing), showing that
+    model's LATEST run on this board. Rows carry `canonical` + `hf_repo` alongside the
+    original fields; `model` stays the run's declared name."""
+    rows = db.all_results_with_runs(board=board)
     by_run = {}
     for r in rows:
         by_run.setdefault(
-            r["run"], {"model": r["model"], "started_at": r["started_at"], "results": []}
+            r["run"], {"model": r["model"],
+                       "canonical": r.get("canonical_id") or r["model"],
+                       "hf_repo": r.get("hf_repo"),
+                       "started_at": r["started_at"], "results": []}
         )["results"].append(r)
 
     latest = {}
     for run_id, info in by_run.items():
-        m = info["model"]
-        if m not in latest or info["started_at"] > latest[m]["started_at"]:
-            latest[m] = {"run": run_id, **info}
+        k = info["canonical"]
+        if k not in latest or info["started_at"] > latest[k]["started_at"]:
+            latest[k] = {"run": run_id, **info}
 
-    total_cats = len(vs.CATEGORIES_VISION)
-    board = []
-    for model, info in latest.items():
+    total_cats = len(categories)
+    board_rows = []
+    for canonical, info in latest.items():
+        model = info["model"]
         cats, ttfts, tpss = {}, [], []
         for r in info["results"]:
             sp = r.get("speed") or {}
-            ttfts.append(sp.get("ttft_after_image_ms"))
+            ttfts.append(sp.get(ttft_key))
             tpss.append(sp.get("decode_tps"))
             if r["score"] is not None:
                 cats.setdefault(r["category"], []).append(r["score"])
         cat_scores = {c: round(100 * sum(v) / len(v), 1) for c, v in cats.items()}
         composite = round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0
-        board.append({
-            "model": model, "run": info["run"], "composite": composite,
+        board_rows.append({
+            "model": model, "canonical": canonical, "hf_repo": info["hf_repo"],
+            "run": info["run"], "composite": composite,
             "categories": cat_scores, "coverage": f"{len(cat_scores)}/{total_cats}",
-            "avg_ttft_after_image_ms": _avg(ttfts), "avg_decode_tps": _avg(tpss),
+            "avg_" + ttft_key: _avg(ttfts), "avg_decode_tps": _avg(tpss),
             "n_cases": len(info["results"]),
             "vram_est_gb": vram.estimate_gb(model),
-            "tags": capabilities.model_tags(model, cat_scores, "vision"),
+            "tags": capabilities.model_tags(model, cat_scores, tag_board, **tag_kw),
         })
-    board.sort(key=lambda x: -x["composite"])
-    return {"categories": vs.CATEGORIES_VISION, "models": board}
+    board_rows.sort(key=lambda x: -x["composite"])
+    return {"categories": categories, "models": board_rows}
+
+
+def vision_leaderboard():
+    """Separate VISION board (DESIGN §6c). Only models whose latest vision run was
+    capability-probed OK appear here (capability_absent runs are excluded by the
+    succeeded-status filter). Never merged into the text leaderboard."""
+    from . import vision_suite as vs
+    return _modality_board("vision", vs.CATEGORIES_VISION, "ttft_after_image_ms", "vision")
+
+
+def audio_leaderboard():
+    """Separate AUDIO board — mirrors vision_leaderboard (board='audio'). Only models
+    whose latest audio run was capability-probed OK appear here (capability_absent runs
+    are excluded by the succeeded-status filter). Never merged into other boards."""
+    from . import audio_suite as auds
+    return _modality_board("audio", auds.CATEGORIES_AUDIO, "ttft_after_audio_ms", "audio",
+                           audio_ok=True)
+
+
+def video_leaderboard():
+    """Separate VIDEO board — mirrors vision_leaderboard (board='video'). Only models
+    whose latest video run was capability-probed OK appear here (capability_absent runs
+    are excluded by the succeeded-status filter). Never merged into other boards."""
+    from . import video_suite as vids
+    return _modality_board("video", vids.CATEGORIES_VIDEO, "ttft_after_video_ms", "video")

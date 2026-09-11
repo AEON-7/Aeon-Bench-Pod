@@ -3,7 +3,7 @@
 DIRECT-to-model latency/throughput at a concurrency ladder (1,4,8,16,32) over
 fixed per-category prompt sets, capturing per-stream decode tok/s, TTFT ms and
 prefill throughput (prompt_tokens / ttft_sec), plus an AGGREGATE decode tok/s
-per level (total tokens / concurrent decode window — true simultaneous throughput). Also a lighter through-harness
+per level (peak wave concurrent-window tok/s — peak overall / simultaneous throughput). Also a lighter through-harness
 timing mode driven by a caller-supplied runner callable (no adapter imports).
 
 Public API:
@@ -193,20 +193,46 @@ def _engine_tokens(target_url):
 
 
 
+def _wave_throughput(wave):
+    """Concurrent-window tok/s for one wave (size == concurrency for a full wave).
+
+    At wave size 1, return the request's decode_tps when present so
+    c=1 cell peak === max per-request decode (AEON lock).
+    """
+    if not wave:
+        return None, None
+    if len(wave) == 1:
+        d = wave[0].get("decode_tps")
+        if isinstance(d, (int, float)):
+            return float(d), None
+    starts = [r["decode_t0"] for r in wave
+              if isinstance(r.get("decode_t0"), (int, float))]
+    ends = [r["decode_t1"] for r in wave
+            if isinstance(r.get("decode_t1"), (int, float))]
+    if not starts or not ends:
+        return None, None
+    span = max(ends) - min(starts)
+    if span <= 0:
+        return None, None
+    toks = sum(r.get("output_tokens") or 0 for r in wave)
+    return toks / span, span
+
+
 def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None, conc=None):
     """Aggregate per-request timings into a cell.
 
-    AEON lock — two different rates, do not confuse them:
+    AEON lock (2026-09-11) — two different rates, do not confuse them:
 
     * ``decode_tps_mean`` — per-stream decode tok/s (decode-phase only; excludes TTFT).
-    * ``agg_decode_tps`` — **true simultaneous aggregate throughput**: total tokens
-      produced by all concurrent sessions divided by the **concurrent decode window**
-      (first token of any stream → last token of any stream). That is total tok/s
-      across sessions while they are running together — NOT tokens/full-wall (TTFT
-      diluted) and NOT a post-hoc ``mean_decode × N`` product (though that product
-      is kept as ``agg_saturated_est`` when rates are uniform and the wave is full).
+      User-facing label: **decode (per stream)**.
+    * ``agg_decode_tps`` — **peak overall tok/s**: max concurrent-window throughput
+      across waves of size ``conc``. Each wave's rate is total tokens in that wave
+      divided by (max decode_t1 − min decode_t0) within the wave. Cell headline =
+      **peak (max)** wave. At c=1 every wave is one request, so agg peak === max
+      per-request decode (not gap-diluted across the sequential cell).
 
-    ``tokens_per_wall_s`` preserves the legacy wall-diluted rate for debug.
+    ``agg_saturated_est = decode_mean × conc`` remains the no-timestamp fallback /
+    steady-state estimate. ``tokens_per_wall_s`` is debug-only (TTFT/gap diluted).
     """
     ttfts = [r["ttft_ms"] for r in reqs if r.get("ttft_ms") is not None]
     dtps = [r["decode_tps"] for r in reqs if r.get("decode_tps") is not None]
@@ -219,11 +245,6 @@ def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None, conc=None):
     tokens = engine_tokens if engine_tokens is not None else out_sum
     tok_wall = _r(tokens / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None
 
-    # Concurrent decode window from absolute timestamps (perf_counter) when present.
-    starts = [r["decode_t0"] for r in reqs
-              if isinstance(r.get("decode_t0"), (int, float))]
-    ends = [r["decode_t1"] for r in reqs
-            if isinstance(r.get("decode_t1"), (int, float))]
     conc_n = int(conc) if conc is not None else None
     saturated_est = (
         _r(float(decode_mean) * float(conc_n))
@@ -231,15 +252,31 @@ def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None, conc=None):
     )
 
     agg, agg_source, window_s = None, None, None
-    if starts and ends:
-        span = max(ends) - min(starts)
-        if span > 0 and tokens is not None:
-            agg = _r(tokens / span)
-            agg_source = "concurrent_window"
-            window_s = round(span, 3)
+    wave_rates = []  # (rate, wave_slice_start)
+    # Prefer explicit wave size = conc; if conc missing, treat whole cell as one wave.
+    wave_n = conc_n if (conc_n and conc_n > 0) else (len(reqs) or 1)
+    if reqs and wave_n:
+        for i in range(0, len(reqs), wave_n):
+            rate, _span = _wave_throughput(reqs[i:i + wave_n])
+            if rate is not None:
+                wave_rates.append((rate, i))
+        if wave_rates:
+            peak_rate, peak_off = max(wave_rates, key=lambda x: x[0])
+            agg = _r(peak_rate)
+            agg_source = "wave_peak_concurrent_window"
+            peak_wave = reqs[peak_off:peak_off + wave_n]
+            starts = [r["decode_t0"] for r in peak_wave
+                      if isinstance(r.get("decode_t0"), (int, float))]
+            ends = [r["decode_t1"] for r in peak_wave
+                    if isinstance(r.get("decode_t1"), (int, float))]
+            if starts and ends and (max(ends) - min(starts)) > 0:
+                window_s = round(max(ends) - min(starts), 3)
+
+    if agg is None and conc_n == 1 and dtps:
+        # No timestamps: c1 peak === max per-request decode
+        agg = _r(max(dtps))
+        agg_source = "c1_decode_peak"
     if agg is None and saturated_est is not None:
-        # No timestamps (historical / non-stream): best estimate of simultaneous
-        # total while a full cohort is decoding together.
         agg = saturated_est
         agg_source = "saturated_est_decode_x_conc"
     if agg is None:
@@ -260,19 +297,18 @@ def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None, conc=None):
         "tpot_ms_p95": _r(_pct(tpots, 95), 3),
         "output_tokens_total": out_sum,
         "input_tokens_total": in_sum,
-        # Headline AGG = concurrent-window total tok/s (AEON).
+        # Headline AGG = peak wave concurrent-window tok/s (AEON).
         "agg_decode_tps": agg,
         "agg_source": agg_source,
         "concurrent_window_s": window_s,
         "agg_saturated_est": saturated_est,     # decode_mean x conc (steady-state estimate)
         "conc": conc_n,
-        "tokens_per_wall_s": tok_wall,           # legacy TTFT-diluted wall rate
+        "wave_count": (len(wave_rates) or None),
+        "tokens_per_wall_s": tok_wall,           # legacy TTFT-diluted wall rate (debug)
         "tokens_source": "engine" if engine_tokens is not None else "client",
         "engine_tokens_total": _r(engine_tokens) if engine_tokens is not None else None,
         "input_tokens_estimated": any(r.get("input_tokens_estimated") for r in reqs),
     }
-
-
 
 
 # ---------------------------------------------------------------- direct grid
@@ -388,25 +424,32 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
             _tile = perf_stream.cell("direct", cat, int(conc), len(tasks))
             eng0 = _engine_tokens(target_url)    # engine tally BEFORE this cell
             t0 = time.perf_counter()
+            # Explicit waves of size `conc` so agg peak is well-defined: each wave
+            # is a concurrent cohort; the next wave starts only after the prior drains.
+            # (A single all-at-once pool with n>conc interleaves partial waves.)
             with ThreadPoolExecutor(max_workers=int(conc)) as ex:
-                futs = [(p, ex.submit(_one_request, target, cat, p, temperature, max_tokens))
-                        for p in tasks]
-                for p, fut in futs:
-                    try:
-                        _r_ = fut.result()
-                        reqs.append(_r_)
-                        _tile.tick(_r_)
-                    except TargetError as e:
-                        errors.append({"category": cat, "error": str(e)[:300], "prompt_head": p[:80]})
-                        _tile.error(e)
-                    except Exception as e:
-                        errors.append({"category": cat,
-                                       "error": f"{type(e).__name__}: {e}"[:300],
-                                       "prompt_head": p[:80]})
-                        _tile.error(e)
-                    done += 1
-                    if progress_cb:
-                        progress_cb(conc, done, total)
+                for _wi in range(0, len(tasks), int(conc)):
+                    batch = tasks[_wi:_wi + int(conc)]
+                    futs = [(p, ex.submit(_one_request, target, cat, p,
+                                          temperature, max_tokens))
+                            for p in batch]
+                    for p, fut in futs:
+                        try:
+                            _r_ = fut.result()
+                            reqs.append(_r_)
+                            _tile.tick(_r_)
+                        except TargetError as e:
+                            errors.append({"category": cat, "error": str(e)[:300],
+                                           "prompt_head": p[:80]})
+                            _tile.error(e)
+                        except Exception as e:
+                            errors.append({"category": cat,
+                                           "error": f"{type(e).__name__}: {e}"[:300],
+                                           "prompt_head": p[:80]})
+                            _tile.error(e)
+                        done += 1
+                        if progress_cb:
+                            progress_cb(conc, done, total)
             cw = time.perf_counter() - t0
             eng1 = _engine_tokens(target_url)    # …and AFTER: the delta is what this cell generated
             wall_sum += cw
@@ -420,15 +463,23 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
             cats[cat] = cell
             all_reqs.extend(reqs)
             all_errs.extend(errors)
+        overall = _agg(all_reqs, wall_sum, n_errors=len(all_errs),
+                       engine_tokens=(sum(cell_engine_tokens)
+                                      if cell_engine_tokens
+                                      and all(t is not None for t in cell_engine_tokens)
+                                      else None),
+                       conc=int(conc))
+        # Categories run one-after-another; overall peak = max category cell agg
+        # (never a cross-category pseudo-wave).
+        cat_aggs = [c["agg_decode_tps"] for c in cats.values()
+                    if isinstance(c.get("agg_decode_tps"), (int, float))]
+        if cat_aggs:
+            overall["agg_decode_tps"] = max(cat_aggs)
+            overall["agg_source"] = "peak_category_cell"
         grid["levels"][int(conc)] = {
             "conc": int(conc),
             "wall_clock_s": round(wall_sum, 3),
-            "overall": _agg(all_reqs, wall_sum, n_errors=len(all_errs),
-                            engine_tokens=(sum(cell_engine_tokens)
-                                           if cell_engine_tokens
-                                           and all(t is not None for t in cell_engine_tokens)
-                                           else None),
-                            conc=int(conc)),
+            "overall": overall,
             "categories": cats,
             "requests": all_reqs,
             "errors": all_errs,

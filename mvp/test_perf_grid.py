@@ -140,12 +140,10 @@ def test_direct_grid_shape_and_math():
     assert perf_grid._bust("x", 0) == perf_grid._bust("x", 0)
     assert perf_grid._bust("x", 0, "a-") != perf_grid._bust("x", 0, "b-")
     assert cell["input_tokens_total"] == sum(len(p) // 4 for p in busted)
-    # aggregate decode tok/s uses the level wall clock (grid stores wall rounded
-    # to 3 decimals; the fake finishes in ~ms, so compare with tolerance)
-    wall = grid["levels"][1]["wall_clock_s"]      # = sum of the 5 sequential cell walls
-    agg = grid["levels"][1]["overall"]["agg_decode_tps"]
-    expect = 20 * 64 / wall
-    assert agg > 0 and abs(agg - expect) / expect < 0.5, (agg, expect)
+    # AEON lock: at c=1, overall/cell agg peak === per-stream decode (FakeTarget=40)
+    assert grid["levels"][1]["categories"]["Math"]["agg_decode_tps"] == 40.0
+    assert grid["levels"][1]["overall"]["agg_decode_tps"] == 40.0
+    assert grid["levels"][1]["overall"]["agg_source"] == "peak_category_cell"
     return grid
 
 
@@ -341,9 +339,9 @@ if __name__ == "__main__":
 
 
 def test_agg_concurrent_window():
-    """AEON lock: agg = total tokens / concurrent decode window (not wall, not mean*N alone)."""
-    # Two streams overlapping: both decode [0,10], 100 tokens each, decode_tps 10.
-    # Window span=10, tokens=200 -> agg=20. Saturated est with conc=2: mean 10 * 2 = 20.
+    """AEON lock: overlapped wave agg = total tokens / concurrent decode window."""
+    # Two streams overlapping in ONE wave (conc=2): both decode [100,110], 100 tok each.
+    # Window span=10, tokens=200 -> agg=20. Saturated est: mean 10 * 2 = 20.
     reqs = [
         {"category": "Math", "ttft_ms": 100.0, "decode_tps": 10.0, "prefill_tps": 1000.0,
          "e2e_ms": 1100.0, "tpot_ms": 100.0, "output_tokens": 100, "input_tokens": 50,
@@ -354,11 +352,60 @@ def test_agg_concurrent_window():
     ]
     # wall_clock deliberately longer (TTFT diluted) — must NOT win
     a = perf_grid._agg(reqs, wall_clock_s=50.0, conc=2)
-    assert a["agg_source"] == "concurrent_window"
+    assert a["agg_source"] == "wave_peak_concurrent_window"
     assert a["agg_decode_tps"] == 20.0          # 200 tokens / 10s window
-    assert a["tokens_per_wall_s"] == 4.0        # 200 / 50 wall
+    assert a["tokens_per_wall_s"] == 4.0        # 200 / 50 wall (debug only)
     assert a["agg_saturated_est"] == 20.0       # 10 * 2
     assert a["decode_tps_mean"] == 10.0
+
+
+def test_agg_c1_sequential_not_gap_diluted():
+    """At c=1, sequential requests with gaps must NOT dilute agg via cell-wide window.
+
+    Bug: max(decode_t1)-min(decode_t0) across the whole sequential cell counted idle
+    gaps (~43 wall-ish vs ~36 decode). Lock: c1 agg peak === max per-request decode.
+    """
+    reqs = [
+        {"category": "Math", "ttft_ms": 100.0, "decode_tps": 36.0, "prefill_tps": 1000.0,
+         "e2e_ms": 2000.0, "tpot_ms": 28.0, "output_tokens": 360, "input_tokens": 50,
+         "decode_t0": 0.0, "decode_t1": 10.0},
+        {"category": "Math", "ttft_ms": 100.0, "decode_tps": 43.0, "prefill_tps": 1000.0,
+         "e2e_ms": 2000.0, "tpot_ms": 23.0, "output_tokens": 430, "input_tokens": 50,
+         "decode_t0": 20.0, "decode_t1": 30.0},  # 10s gap between waves
+    ]
+    # Cell-wide window would be 30s -> 790/30 ≈ 26.3 (diluted) or similar; must not win.
+    a = perf_grid._agg(reqs, wall_clock_s=35.0, conc=1)
+    assert a["agg_source"] == "wave_peak_concurrent_window"
+    assert a["agg_decode_tps"] == 43.0          # max per-request decode
+    assert a["decode_tps_mean"] == 39.5
+    # gap-diluted cell-wide would be far below decode peak
+    assert a["agg_decode_tps"] == max(r["decode_tps"] for r in reqs)
+
+
+def test_agg_multi_wave_takes_peak():
+    """High-conc: two waves of size conc; cell agg = peak (max) wave throughput."""
+    # Wave 0: 2 streams, 100 tok each over 10s -> 20 tok/s
+    # Wave 1: 2 streams, 150 tok each over 10s -> 30 tok/s  (peak)
+    reqs = [
+        {"category": "Math", "ttft_ms": 50.0, "decode_tps": 10.0, "prefill_tps": 100.0,
+         "e2e_ms": 1000.0, "tpot_ms": 100.0, "output_tokens": 100, "input_tokens": 40,
+         "decode_t0": 0.0, "decode_t1": 10.0},
+        {"category": "Math", "ttft_ms": 50.0, "decode_tps": 10.0, "prefill_tps": 100.0,
+         "e2e_ms": 1000.0, "tpot_ms": 100.0, "output_tokens": 100, "input_tokens": 40,
+         "decode_t0": 0.0, "decode_t1": 10.0},
+        {"category": "Math", "ttft_ms": 50.0, "decode_tps": 15.0, "prefill_tps": 100.0,
+         "e2e_ms": 1000.0, "tpot_ms": 67.0, "output_tokens": 150, "input_tokens": 40,
+         "decode_t0": 20.0, "decode_t1": 30.0},
+        {"category": "Math", "ttft_ms": 50.0, "decode_tps": 15.0, "prefill_tps": 100.0,
+         "e2e_ms": 1000.0, "tpot_ms": 67.0, "output_tokens": 150, "input_tokens": 40,
+         "decode_t0": 20.0, "decode_t1": 30.0},
+    ]
+    a = perf_grid._agg(reqs, wall_clock_s=40.0, conc=2)
+    assert a["agg_source"] == "wave_peak_concurrent_window"
+    assert a["agg_decode_tps"] == 30.0          # peak wave, not mean of waves, not cell-wide
+    assert a["wave_count"] == 2
+    # cell-wide would be 500 / 30 ≈ 16.67 — must not win
+    assert a["agg_decode_tps"] > 20.0
 
 
 def test_agg_saturated_est_without_timestamps():

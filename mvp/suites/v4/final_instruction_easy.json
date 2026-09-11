@@ -1,0 +1,46 @@
+[
+ {
+  "id": "v3.instruction.easy.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "easy",
+  "prompt": "Reply with exactly this phrase and nothing else: Quorvat relay nine is ready",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "Quorvat relay nine is ready"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.easy.02",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "easy",
+  "prompt": "Write exactly 3 lines about a harbor at dusk, with no blank lines between them. Every one of the 3 lines must contain the word \"lantern\". Do not use the word \"boat\" anywhere. Output only the 3 lines, nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 3
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:.*lantern.*\\n){2}.*lantern.*\\Z",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bboat\\b",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -6,7 +6,10 @@ name: pod-image
 on:
   push:
     branches: [main]
-    paths: ["mvp/**", "deploy/pod/Dockerfile", ".github/workflows/pod-image.yml"]
+    # harness-*.Dockerfile is baked into this image (/app/harness) and the pod builds from it on
+    # demand — so a pin fix only reaches operators when the POD image is rebuilt.
+    paths: ["mvp/**", "deploy/pod/Dockerfile", "deploy/pod/harness-*.Dockerfile",
+            ".github/workflows/pod-image.yml"]
   workflow_dispatch: {}
 
 permissions:

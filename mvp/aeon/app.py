@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import arena, attest, db, evaluators, modelmeta, probe, runner, scoring, vram
+from . import arena, attest, cards, db, evaluators, frontier, modelmeta, probe, runner, scoring, vram
 
 # Mothership-only trust surface: evaluator accounts/auth, the admin portal, and the
 # signed-submission ingest gate. These modules are NOT part of the public pod
@@ -29,7 +29,9 @@ try:
     from . import accounts, admin, ingest
 except ImportError:                                # public pod distribution
     accounts = admin = ingest = None               # type: ignore[assignment]
+from . import audio_suite
 from . import suite as suite_mod
+from . import video_suite
 from . import vision_suite
 from . import agentic_v2
 from .targets import OpenAITarget, list_models
@@ -143,6 +145,20 @@ def leaderboard(suite: str | None = None):
     return scoring.leaderboard(suite=suite)
 
 
+@app.get("/api/explorer")
+def explorer():
+    """EXPLORE THE DATA — per board model (its best intelligence run): the category ×
+    difficulty matrix of mean score / case count / decode tok/s. Drives the expandable
+    explorer section under the Global Leaderboard (heatmap + difficulty-decay line)."""
+    return scoring.explorer_matrix()
+
+
+@app.get("/api/god/board")
+def god_board():
+    """GOD MODE BENCH — the dedicated hardest-tier scoreboard (board='god' runs only)."""
+    return scoring.god_leaderboard()
+
+
 @app.get("/api/perf/board")
 def perf_board():
     """PERFORMANCE board / recipe-discovery: per model, the latest perf run's direct grid
@@ -164,6 +180,16 @@ def perf_board():
             "run": m.get("run"),
         }
     return d
+
+
+@app.get("/api/recipes/champions")
+def recipes_champions(hardware: str | None = None, model: str | None = None):
+    """CHAMPION recipes: per (hardware label × canonical model), the WINNING serve recipe —
+    best demonstrated peak aggregate tok/s that also carries a quality composite. Public,
+    read-only, cache-friendly; pods pull this filtered to their own detected hardware
+    (?hardware= loose-matches: 'dgx spark' finds 'single DGX Spark (GB10)') and offer each
+    champion as an applyable Run-tab template."""
+    return scoring.champion_recipes(hardware=hardware, model=model)
 
 
 @app.get("/api/compare/seeds")
@@ -189,6 +215,73 @@ def _suite_cat_counts():
         from collections import Counter
         _CAT_COUNTS = dict(Counter(c["category"] for c in suite_mod.CASES))
     return _CAT_COUNTS
+
+
+_DIFF_CATS = None
+
+
+def _difficulty_cat_counts():
+    """{difficulty: {category: n}} over the current text suite."""
+    global _DIFF_CATS
+    if _DIFF_CATS is None:
+        from collections import Counter
+        per = {}
+        for c in suite_mod.CASES:
+            per.setdefault(c.get("difficulty"), Counter())[c["category"]] += 1
+        _DIFF_CATS = {d: dict(v) for d, v in per.items()}
+    return _DIFF_CATS
+
+
+def _plan_cat_counts(n_cases, seen_difficulties=(), suite_id=None):
+    """Per-category denominators for THE PLAN THIS RUN IS ACTUALLY EXECUTING.
+
+    A GOD MODE run is 24 cases — the god_mode tier alone — but the live view divided its progress
+    by the whole 174-case suite, so a finished category read "4 / 34" and every bar sat near 12%
+    for the entire run. A progress bar that cannot reach the end is worse than no bar: it says
+    "barely started" to an operator watching a run that is nearly done.
+
+    `--difficulty` filters by whole tiers (aeon_pod: `c["difficulty"] in want`), so the plan is
+    always a UNION OF COMPLETE TIERS and is recoverable from n_cases alone — 24 is uniquely
+    god_mode. When a size is ambiguous (25 is both {hard} and {easy,medium}) the difficulties
+    already observed in the run's own results break the tie. If nothing resolves it, fall back to
+    the full-suite counts: a slightly pessimistic bar beats an invented one.
+    """
+    full = _suite_cat_counts()
+    total = len(suite_mod.CASES)
+    if not n_cases or n_cases >= total:
+        return full
+    # Only the text suite is described by these counts. A vision run (31 cases) must never be
+    # matched against a text-suite tier that happens to share its size.
+    if suite_id and suite_id != suite_mod.SUITE_ID:
+        return full
+    import itertools
+    per = _difficulty_cat_counts()
+    diffs = sorted(d for d in per if d)
+    cands = []
+    for r in range(1, len(diffs) + 1):
+        for combo in itertools.combinations(diffs, r):
+            if sum(sum(per[d].values()) for d in combo) == n_cases:
+                cands.append(combo)
+    want = {d for d in seen_difficulties if d}
+    if want:
+        cands = [c for c in cands if want <= set(c)]
+    if len(cands) != 1:
+        return full
+    out = {}
+    for d in cands[0]:
+        for cat, n in per[d].items():
+            out[cat] = out.get(cat, 0) + n
+    return out
+
+
+_CASE_DIFF = None
+
+
+def _case_difficulty():
+    global _CASE_DIFF
+    if _CASE_DIFF is None:
+        _CASE_DIFF = {c["id"]: c.get("difficulty") for c in suite_mod.CASES}
+    return _CASE_DIFF
 
 
 # A run killed without finalizing (crash, pod restart mid-run) leaves a 'running' row that
@@ -244,7 +337,6 @@ def live(board: str = "text"):
             seen.add(m); dedup.append(r)
     running = dedup
     pm = _prompt_map(board)
-    expected = _suite_cat_counts()
     out = []
     for run in running[:4]:
         full = db.get_run(run["id"])
@@ -256,6 +348,14 @@ def live(board: str = "text"):
             s = x.get("score")
             if isinstance(s, (int, float)):
                 b["sum"] += s; b["scored"] += 1
+        # Denominators for THIS run's plan, not the whole suite — per run, because two live runs
+        # can be executing different tiers. See _plan_cat_counts: a god run's bars used to top out
+        # near 12% because 24 god cases were divided by 174.
+        _cd = _case_difficulty()
+        expected = _plan_cat_counts(
+            full.get("n_cases") or run.get("n_cases"),
+            seen_difficulties={_cd.get(x["case_id"]) for x in results},
+            suite_id=full.get("suite_id") or run.get("suite_id"))
         cats = []
         for c in suite_mod.CATEGORIES:
             b = by_cat.get(c, {"done": 0, "sum": 0.0, "scored": 0})
@@ -278,20 +378,85 @@ def live(board: str = "text"):
 _SHARE_KEY_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
-def _share_info(key: str):
-    """Card payload for a share key (canonical id with '/'->'__'). None when unknown."""
-    if len(key) > 140 or any(ch not in _SHARE_KEY_OK for ch in key):
+def _god_share_info(key: str):
+    """GOD MODE card payload, shaped exactly like the global one so the renderer stays shared.
+
+    The headline is the GOD SCORE (0.6 sentinels + 0.4 agentic) and the component chips are the
+    god components, not the global ones - a god run is a different exam and its card should say
+    so rather than borrowing numbers from a board it is not on."""
+    try:
+        gb = scoring.god_leaderboard()
+    except Exception:
         return None
-    lb = scoring.leaderboard()
+    models = gb.get("models") or []          # already sorted by god score desc
+    kl = key.lower()
     row = rank = None
-    kl = key.lower()                       # canonical ids are lowercased; display names aren't —
-    for i, m in enumerate(lb.get("models") or []):     # accept either casing in a shared link
+    for i, m in enumerate(models):
         if any((v or "").replace("/", "__").lower() == kl
                for v in (m.get("canonical"), m.get("model"))):
             row, rank = m, i + 1
             break
     if not row:
         return None
+    model = row.get("model") or row.get("canonical") or ""
+    org, _, name = model.rpartition("/")
+    avatar = None
+    try:
+        avatar = (modelmeta.resolve(model) or {}).get("avatar_url")
+    except Exception:
+        pass
+    sent = row.get("sentinels") or {}
+    ag = row.get("agentic") or {}
+    # throughput, when the god run also produced a perf grid (god-mode presets do)
+    peak = hw = None
+    try:
+        for pm in scoring.perf_board().get("models", []):
+            if pm.get("canonical") == row.get("canonical"):
+                peak, hw = pm.get("peak_agg_tps"), pm.get("hardware")
+                break
+    except Exception:
+        pass
+    return {
+        "god": True,
+        "model": model, "org": org, "name": name or model, "rank": rank,
+        "aeon": row.get("god_score"),
+        "composite": sent.get("composite"),
+        "provisional": bool(row.get("god_provisional")),
+        "components": {"sentinels": sent.get("composite"), "agentic": ag.get("score")},
+        "agentic_not_counted": bool(row.get("agentic_not_counted")),
+        "ctx_len": row.get("ctx_len"),
+        "peak_tps": peak, "hardware": hw,
+        "trust": "attested" if row.get("record_eligible") else "local",
+        "suite": f"GOD MODE BENCH \u00b7 rank {rank}",
+        "avatar_url": avatar,
+    }
+
+
+def _share_info(key: str, board: str = ""):
+    """Card payload for a share key (canonical id with '/'->'__'). None when unknown.
+
+    `board="god"` (or a key that appears ONLY on the god board) yields the GOD MODE variant. A
+    god-only run is not on the global board at all, so without this the lookup failed and the
+    share fell back to the generic AEON card."""
+    if len(key) > 140 or any(ch not in _SHARE_KEY_OK for ch in key):
+        return None
+    if (board or "").lower() == "god":
+        return _god_share_info(key) or _share_info(key)     # explicit ask, then graceful fallback
+    lb = scoring.leaderboard()
+    # Rank EXACTLY as the public board displays: AEON SCORE (composite fallback) descending —
+    # the server list is composite-sorted, so indexing it directly can call the AEON #1 "#2".
+    models = sorted(lb.get("models") or [],
+                    key=lambda m: -(m.get("aeon_score") if m.get("aeon_score") is not None
+                                    else (m.get("composite") or 0)))
+    row = rank = None
+    kl = key.lower()                       # canonical ids are lowercased; display names aren't —
+    for i, m in enumerate(models):         # accept either casing in a shared link
+        if any((v or "").replace("/", "__").lower() == kl
+               for v in (m.get("canonical"), m.get("model"))):
+            row, rank = m, i + 1
+            break
+    if not row:
+        return _god_share_info(key)          # god-only runs live on their own board
     peak = hw = None
     try:
         for pm in scoring.perf_board().get("models", []):
@@ -313,20 +478,32 @@ def _share_info(key: str):
         avatar = (modelmeta.resolve(model) or {}).get("avatar_url")
     except Exception:
         pass
+    dials = row.get("dials") or {}
     return {"model": model, "org": org, "name": name or model, "rank": rank,
             "composite": row.get("composite"), "peak_tps": peak,
+            # the OVERALL headline + its component scores (None = not yet tested)
+            "aeon": row.get("aeon_score"),
+            "provisional": bool(row.get("aeon_provisional")),
+            "components": {"intelligence": row.get("composite"),
+                           "agentic": (dials.get("agentic") or {}).get("score"),
+                           "performance": (dials.get("performance") or {}).get("score")},
+            "ctx_len": row.get("ctx_len"),      # max context the benchmark was served at
             "trust": "attested" if row.get("record_eligible") else "local",
             "hardware": hw, "suite": f"{lb.get('suite_shown') or ''} · rank {rank}",
             "avatar_url": avatar}
 
 
 @app.get("/api/share/card/{key}.png")
-def share_card(key: str):
-    """The 1200×630 social card PNG for one benchmark (cached; never 500s)."""
+def share_card(key: str, b: str = ""):
+    """The 1200×630 social card PNG for one benchmark (cached; never 500s).
+
+    `?b=god` renders the GOD MODE variant; it is also part of the cache key, so the two boards
+    never serve each other's card for a model that appears on both."""
     from . import sharecard
     try:
-        info = _share_info(key)
-        png = sharecard.cached("m:" + key, (lambda: sharecard.render_model_card(info)) if info
+        info = _share_info(key, b)
+        png = sharecard.cached("m:" + (b or "-") + ":" + key,
+                               (lambda: sharecard.render_model_card(info)) if info
                                else (lambda: sharecard.render_fallback_card()))
     except Exception:
         from . import sharecard as sc
@@ -336,33 +513,54 @@ def share_card(key: str):
 
 
 @app.get("/share/{key}", response_class=HTMLResponse)
-def share_page(key: str):
+def share_page(key: str, request: Request, b: str = ""):
     """Scraper-facing share page: OG/Twitter meta + instant hop into the app. The IMAGE carries
-    the design; these tags carry the words."""
-    info = _share_info(key)
+    the design; these tags carry the words.
+
+    CACHE-BUST: X/Slack/etc. key their card cache on og:url, NOT on the link you posted — so a
+    stale card can't be refreshed by adding ?v=2 to the shared link if og:url stays canonical.
+    Here og:url AND the image URL REFLECT the request's query string, so posting
+    /share/<key>?v=2 is a genuinely new canonical + image to the unfurler and forces a re-crawl.
+    Clean shares (no query string) stay clean — no behavior change for the normal case."""
+    info = _share_info(key, b)
     base = (os.environ.get("AEON_PUBLIC_URL") or "https://aeon-bench.com").rstrip("/")
+    qs = request.url.query                       # e.g. "v=2" when the poster cache-busted
+    suffix = f"?{qs}" if qs else ""
     if info:
         bits = []
-        if info.get("composite") is not None:
+        if info.get("aeon") is not None:
+            bits.append((f"GOD SCORE {info['aeon']:.1f}" if info.get("god")
+                         else f"AEON score {info['aeon']:.1f} overall"))
+        elif info.get("composite") is not None:
             bits.append(f"composite {info['composite']:.1f}")
+        if info.get("ctx_len"):
+            c = info["ctx_len"]
+            bits.append(f"max ctx {round(c / 1024)}K" if c >= 1024 else f"max ctx {c}")
         if info.get("peak_tps"):
             bits.append(f"peak {info['peak_tps']:.0f} tok/s concurrent")
         if info.get("trust") == "attested":
             bits.append("attested")
-        title = f"{info['name']} — rank {info['rank']:02d} on AEON Bench"
+        title = (f"{info['name']} — rank {info['rank']:02d} on the AEON GOD MODE BENCH"
+                 if info.get("god")
+                 else f"{info['name']} — rank {info['rank']:02d} on AEON Bench")
         desc = " · ".join(bits) or "open, attested local-LLM benchmarks"
     else:
         title, desc = "AEON Bench", "Open, attested benchmarks for local LLMs — run a pod on your own hardware."
-    img = f"{base}/api/share/card/{key}.png"
+    _bq = ("b=god" if (b or "").lower() == "god" or (info or {}).get("god") else "")
+    _isep = "&" if (qs and _bq) else ("?" if _bq else "")
+    img = f"{base}/api/share/card/{key}.png{suffix}{_isep}{_bq}"
+    page_url = f"{base}/share/{key}{suffix}"
     e = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>{e(title)}</title>
 <meta property="og:type" content="website"><meta property="og:site_name" content="AEON Bench">
 <meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(desc)}">
-<meta property="og:url" content="{base}/share/{e(key)}"><meta property="og:image" content="{img}">
+<meta property="og:url" content="{e(page_url)}"><meta property="og:image" content="{e(img)}">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{e(title)}">
-<meta name="twitter:description" content="{e(desc)}"><meta name="twitter:image" content="{img}">
+<meta name="twitter:description" content="{e(desc)}"><meta name="twitter:image" content="{e(img)}">
+<meta name="twitter:image:alt" content="{e(title)}">
 <meta name="theme-color" content="#00f0ff">
 <meta http-equiv="refresh" content="0;url=/"></head>
 <body style="background:#07070d;color:#e3e3ee;font-family:monospace">
@@ -419,6 +617,36 @@ def vision_suite_summary():
 @app.get("/api/vision/leaderboard")
 def vision_leaderboard():
     return scoring.vision_leaderboard()
+
+
+# ---- Video board ----
+
+@app.get("/api/video/suite")
+def video_suite_summary():
+    try:
+        return video_suite.summary()
+    except RuntimeError as e:            # encoder stack (imageio[ffmpeg]) missing on this host
+        return JSONResponse({"error": str(e)}, status_code=503)
+
+
+@app.get("/api/video/leaderboard")
+def video_leaderboard():
+    return scoring.video_leaderboard()
+
+
+# ---- Audio board ----
+
+@app.get("/api/audio/suite")
+def audio_suite_summary():
+    try:
+        return audio_suite.summary()
+    except (RuntimeError, OSError) as e:   # pinned speech assets missing/corrupt on this host
+        return JSONResponse({"error": str(e)}, status_code=503)
+
+
+@app.get("/api/audio/leaderboard")
+def audio_leaderboard():
+    return scoring.audio_leaderboard()
 
 
 # (vision + audio run launchers removed — runs originate only from pods; see note above.)
@@ -662,6 +890,64 @@ def _require_admin(request: Request):
     return u if accounts.is_admin(u) else None
 
 
+@app.get("/api/admin/live_runs")
+def admin_live_runs(request: Request):
+    """Benches in flight right now — including runs from OTHER PEOPLE'S pods in the wild, which
+    are otherwise invisible until they finish and land (or silently never do). Surfaces who is
+    running what, on which rig, how far along, and whether it has gone quiet."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    now = time.time()
+    out = []
+    for r in db.list_live_runs():
+        env = r.get("env_json")
+        if isinstance(env, str):
+            try:
+                env = json.loads(env)
+            except Exception:
+                env = {}
+        hw = (env or {}).get("hardware") or {}
+        if isinstance(hw, str):
+            hw = {"label": hw}
+        started = r.get("started_at") or 0
+        # LIVENESS. A full bench legitimately runs for DAYS, so time-since-START says nothing
+        # about health — judging on it marks every healthy long run as dead. The only honest
+        # signal is how long since the last scored case actually landed.
+        last = r.get("last_progress_at") or started
+        age = now - started if started else None
+        quiet = now - last if last else None
+        STALE_AFTER = 12 * 3600      # generous: slow rigs go hours between checkpoint batches
+        out.append({
+            "id": r["id"], "model": r.get("model"), "board": r.get("board"),
+            "status": r.get("status"), "progress": r.get("progress") or 0,
+            "n_cases": r.get("n_cases"), "started_at": started,
+            "finished_at": r.get("finished_at"),
+            "elapsed_s": round(age) if age is not None else None,
+            "trust_tier": r.get("trust_tier"), "model_verified": r.get("model_verified"),
+            "harness": r.get("harness"), "flagged": bool(r.get("flagged")),
+            "bench_host": hw.get("bench_host"),
+            "hardware": hw.get("detected_label") or hw.get("label") or hw.get("platform"),
+            "attestation_method": (env or {}).get("attestation_method"),
+            "quiet_s": round(quiet) if quiet is not None else None,
+            "stalled": bool(r.get("status") == "running" and quiet is not None
+                            and quiet > STALE_AFTER),
+        })
+    return {"runs": out, "now": now}
+
+
+@app.get("/api/admin/ingest_log")
+def admin_ingest_log(request: Request, limit: int = 200, rejected: int = 0, hours: int = 168):
+    """Every /api/v1 submission attempt — the only record of REFUSED bundles, which create no run
+    row and (with access-logging off) leave no other trace. Answers "did their pod even try?"."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    limit = max(1, min(500, int(limit or 200)))
+    since = max(1, min(720, int(hours or 168))) * 3600
+    rows = db.list_ingest_log(limit=limit, only_rejected=bool(int(rejected or 0)), since_secs=since)
+    return {"log": rows, "summary": db.ingest_log_summary(since), "now": time.time(),
+            "window_h": since // 3600}
+
+
 @app.get("/api/admin/evaluators")
 def admin_evaluators(request: Request):
     if not _require_admin(request):
@@ -732,7 +1018,9 @@ class AdminRunBody(BaseModel):
 
 
 def _prompt_map(board):
-    cases = vision_suite.CASES if board == "vision" else suite_mod.CASES
+    # all_known_cases: current + legacy corpora — a v3 run's replaced expert/frontier cases
+    # must still show WHAT WAS ASKED (the answer renders from the stored row either way)
+    cases = vision_suite.CASES if board == "vision" else suite_mod.all_known_cases()
     pm = {c["id"]: c.get("prompt", "") for c in cases}
     # Harness (agentic-v2) runs are stored under the text board but their case ids come from
     # agentic_v2.CASES — fold them in so harness-case prompts resolve in the transparency drill-down.
@@ -745,7 +1033,7 @@ def _difficulty_map():
     """case_id -> difficulty class (easy/medium/hard/expert/frontier) from every suite that
     declares one — shown on each prompt in the submission detail explorer."""
     dm = {}
-    for c in suite_mod.CASES:
+    for c in suite_mod.all_known_cases():   # current + legacy corpora: old runs keep labels
         if c.get("difficulty"):
             dm[c["id"]] = c["difficulty"]
     for c in agentic_v2.CASES:
@@ -796,6 +1084,26 @@ def submissions(board: str | None = None, model: str | None = None, limit: int =
         r["mean_score"] = round(100 * m, 1) if m is not None else None
         r["categories"] = cats.get(r["id"]) or {}
     return {"submissions": rows}
+
+
+# NOTE: registered BEFORE /api/submissions/{run_id} (declaration order wins in Starlette),
+# or the parametric route would swallow "cards" as a run id.
+@app.get("/api/submissions/cards")
+def submissions_cards(limit: int = 100):
+    """UNIFIED BENCHMARK CARDS: one card per pod JOB (all its per-board runs grouped by the
+    pod-minted job_group, or by time-cluster for legacy runs). Contract in aeon/cards.py."""
+    return cards.submission_cards(limit=limit)
+
+
+@app.get("/api/compare_cards")
+def compare_cards(a: str, b: str):
+    """FULL-PARITY side-by-side of two benchmark cards (jg:/lg: ids from
+    /api/submissions/cards): every section key always present, a side without that
+    section is null so the frontend renders the parity filler."""
+    out = cards.compare_cards(a, b)
+    if out.get("error"):
+        return JSONResponse(out, status_code=404)
+    return out
 
 
 @app.get("/api/compare_runs")
@@ -990,25 +1298,55 @@ def _recipe_serve(recipe):
 
 
 def _drafter_info(recipe):
-    """DFlash speculative-decode drafter disclosure for a stored recipe, or None for plain decode.
-    The recipe pins a LOCAL drafter dir; the public z-lab HF drafter repo (`drafter_repo`) is what
-    lets others replicate. `n` (num_speculative_tokens) comes from the top-level field if recorded,
-    else parsed out of the --speculative-config JSON in the serve flags."""
+    """Speculative-decode disclosure for a stored recipe, or None for plain decode.
+
+    DFlash pins a LOCAL drafter dir; the public HF drafter repo (`drafter_repo`) lets others
+    replicate. DSpark is drafter-based too (block-N drafters, e.g.
+    deepseek-ai/dspark_qwen3_8b_block7) but ALSO ships a self-contained form with the DSpark
+    weights inside the target checkpoint — no external drafter (uses_drafter=False). Native MTP
+    has no drafter either, so the method/n are parsed from --speculative-config (both the
+    "--speculative-config JSON" and "--speculative-config=JSON" forms).
+    """
     if not recipe:
         return None
-    if not (recipe.get("drafter") or recipe.get("drafter_repo") or recipe.get("spec_decode")):
+    n = recipe.get("spec_decode_n") or recipe.get("drafter_n") or recipe.get("drafter_nst")
+    method = recipe.get("spec_decode_method") or recipe.get("spec_decode")
+    spec_model = None
+    for seq in (recipe.get("flags") or [], recipe.get("command") or []):
+        for i, f in enumerate(seq):
+            if f == "--speculative-config" and i + 1 < len(seq):
+                try:
+                    cfg = json.loads(seq[i + 1])
+                    method = method or cfg.get("method")
+                    n = n or cfg.get("num_speculative_tokens")
+                    spec_model = cfg.get("model")
+                except Exception:
+                    pass
+                break
+            if isinstance(f, str) and f.startswith("--speculative-config="):
+                try:
+                    cfg = json.loads(f.split("=", 1)[1])
+                    method = method or cfg.get("method")
+                    n = n or cfg.get("num_speculative_tokens")
+                    spec_model = cfg.get("model")
+                except Exception:
+                    pass
+                break
+    if not (recipe.get("drafter") or recipe.get("drafter_repo") or method):
         return None
-    n = recipe.get("drafter_n") or recipe.get("drafter_nst")
-    for i, f in enumerate(recipe.get("flags") or []):
-        if f == "--speculative-config" and i + 1 < len(recipe["flags"]):
-            try:
-                n = n or json.loads(recipe["flags"][i + 1]).get("num_speculative_tokens")
-            except Exception:
-                pass
-            break
-    return {"method": recipe.get("spec_decode") or "dflash",
+    method = method or "dflash"
+    uses_drafter = bool(recipe.get("drafter") or recipe.get("drafter_repo") or
+                        (str(method).lower() in ("dflash", "dspark")
+                         and str(spec_model or "").startswith("/drafter")))
+    return {"method": method,
             "repo": recipe.get("drafter_repo"),          # e.g. z-lab/gemma-4-26B-A4B-it-DFlash
-            "revision": recipe.get("drafter_revision"), "n": n}
+            "revision": recipe.get("drafter_revision"), "n": n,
+            "uses_drafter": uses_drafter}
+
+
+def _drafter_kind(d):
+    """Drafter-family label for replication comments: z-lab DFlash vs DSpark block drafters."""
+    return "DSpark" if str((d or {}).get("method") or "dflash").lower() == "dspark" else "z-lab DFlash"
 
 
 def _portable_speculative(flags):
@@ -1027,6 +1365,19 @@ def _portable_speculative(flags):
     return out
 
 
+# A digest ref safe to substitute VERBATIM into downloadable shell/compose files:
+# repo path + @sha256:<64 hex>. Recipes arrive from pods (and self-reported bundles) without
+# field-level sanitization, so a hostile image_digest could otherwise smuggle shell
+# metacharacters into a file explicitly marketed as safe-to-replicate.
+_DIGEST_REF_RE = re.compile(r"^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$")
+
+
+def _pinned_image(recipe, image):
+    """The recipe's image_digest when it is a well-formed digest ref, else the tag."""
+    dig = (recipe or {}).get("image_digest")
+    return dig if isinstance(dig, str) and _DIGEST_REF_RE.match(dig) else image
+
+
 def _docker_cmd(recipe, hf_repo, hf_revision):
     """Assemble the copy-pasteable replication command for a run's stored serve recipe.
     Flags are VERBATIM — identical serve settings, minus the bench itself. Host-specific paths
@@ -1038,8 +1389,11 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     if not serve:
         return None
     image, port, flags, _ = serve
+    # replicate against the content-pinned image when the run recorded one: a digest
+    # ref is immutable (client-verified on pull), a tag is a mutable pointer
+    image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
-    if d:
+    if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     lines = []
     if hf_repo:
@@ -1049,10 +1403,20 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     if d and d.get("repo"):
         drev = f" --revision {d['revision']}" if d.get("revision") else ""
         ncmt = f", num_speculative_tokens={d['n']}" if d.get("n") else ""
-        lines += [f"# 1b) pull the z-lab DFlash drafter — lossless speculative decode (speed only{ncmt})",
+        lines += [f"# 1b) pull the {_drafter_kind(d)} drafter — lossless speculative decode (speed only{ncmt})",
                   f"hf download {d['repo']}{drev} --local-dir ./drafter", ""]
     if d:
-        disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
+        method = str(d.get("method") or "dflash")
+        if method.lower() == "dflash":
+            disc = f"DFlash spec-decode: {d['repo'] or 'z-lab drafter (repo not recorded in this run)'}"
+        elif method.lower() == "dspark" and d.get("uses_drafter"):
+            disc = f"DSpark spec-decode: {d['repo'] or 'DSpark drafter (repo not recorded in this run)'}"
+        elif method.lower() == "dspark":
+            disc = "Native DSpark spec-decode (in-checkpoint)"
+        elif "mtp" in method.lower():
+            disc = f"Native MTP spec-decode: {method}"
+        else:
+            disc = f"Spec-decode: {method}"
         if d.get("revision"):
             disc += f"@{str(d['revision'])[:12]}"
         if d.get("n"):
@@ -1061,9 +1425,9 @@ def _docker_cmd(recipe, hf_repo, hf_revision):
     lines.append("# 2) serve with the exact flags from this run")
     lines.append("docker run --rm --gpus all --name replica \\")
     lines.append("  -v ./weights:/model \\")
-    if d:
+    if d and d.get("uses_drafter"):
         lines.append("  -v ./drafter:/drafter \\"
-                     + (f"  # {d['repo']}" if d.get("repo") else "  # z-lab DFlash drafter weights"))
+                     + (f"  # {d['repo']}" if d.get("repo") else f"  # {_drafter_kind(d)} drafter weights"))
     lines.append(f"  -p {port}:{port} \\")
     lines.append(f"  --entrypoint vllm {image} \\")
     lines.append("  serve /model \\")
@@ -1086,6 +1450,10 @@ def _reproduction(r):
     hw = (env.get("hardware") or {}) if isinstance(env, dict) else {}
     return {
         "image": (recipe or {}).get("image") if recipe else None,
+        # immutable pins, surfaced where viewers look for provenance (not only inside
+        # the assembled docker_run string)
+        "image_digest": (recipe or {}).get("image_digest") if recipe else None,
+        "image_id": (recipe or {}).get("image_id") if recipe else None,
         "engine": (recipe or {}).get("engine") if recipe else None,
         "engine_version": (recipe or {}).get("engine_version") if recipe else None,
         "docker_run": (recipe or {}).get("docker_run") if recipe else None,
@@ -1094,6 +1462,9 @@ def _reproduction(r):
         "bare_cmd": (recipe or {}).get("bare_cmd") if recipe else None,
         "serve_mode": (recipe or {}).get("serve_mode") if recipe else None,
         "flags": (recipe or {}).get("flags") if recipe else None,
+        # max context this run was actually SERVED at (vLLM --max-model-len / SGLang
+        # --context-length / llama.cpp -c), parsed from the recipe; null = not recorded
+        "ctx_len": scoring.ctx_len_from_recipe(recipe),
         "spec_decode": (recipe or {}).get("spec_decode") if recipe else None,
         # DFlash drafter disclosure (repo + revision + n) so viewers can truly replicate spec-decode
         "drafter": _drafter_info(recipe),
@@ -1112,6 +1483,36 @@ def _reproduction(r):
 
 # ---- downloadable replication files (serve.sh / docker-compose.yml) --------------------------
 
+def _engine_provenance_lines(r):
+    """Engine lines for the replication header — digest-first (immutable pin) with the tag
+    as fallback; local-only builds surface their image_id (config digest) instead."""
+    try:
+        recipe = json.loads(r.get("recipe") or "null") or {}
+    except Exception:
+        recipe = {}
+    if not recipe.get("image"):
+        return []
+    # same format gate as the substitution points: these lines land verbatim in downloadable
+    # files, and a hostile digest with an embedded newline could escape the comment block
+    digest = _pinned_image(recipe, None)
+    image_id = recipe.get("image_id")
+    if not (isinstance(image_id, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)):
+        image_id = None
+    lines = [f"engine:     {digest or recipe.get('image')}"]
+    if image_id and not digest:
+        lines.append(f"engine id:  {image_id} (local build — not registry-resolvable)")
+    return lines
+
+
+def _engine_provenance(recipe):
+    """Small, public, signed subset of the engine recipe. Avoid dumping arbitrary custom
+    command text into the manifest; keep the immutable image evidence."""
+    recipe = recipe or {}
+    keys = ("engine", "serve_mode", "image", "image_digest", "image_id", "image_repo_digests",
+            "spec_decode", "drafter_repo", "drafter_revision")
+    return {k: recipe[k] for k in keys if recipe.get(k)}
+
+
 def _replicate_header(r):
     """Shared provenance comment block for the downloadable replication files."""
     env = json.loads(r.get("env_json") or "{}")
@@ -1123,6 +1524,7 @@ def _replicate_header(r):
              f"weights:    sha256 {r.get('weights_hash') or 'n/a'}",
              f"benched on: {hw.get('detected_label') or hw.get('label') or 'unknown'}",
              f"run:        {r.get('id')}",
+             *_engine_provenance_lines(r),
              f"provenance: https://aeon-bench.com/api/runs/{r.get('id')}/manifest (signed)"]
     return "\n".join("# " + l for l in lines)
 
@@ -1155,14 +1557,15 @@ def _compose_yaml(r, recipe):
     if not serve:
         return None
     image, port, flags, _ = serve
+    image = _pinned_image(recipe, image)
     d = _drafter_info(recipe)
-    if d:
+    if d and d.get("uses_drafter"):
         flags = _portable_speculative(flags)       # point --speculative-config at the /drafter mount
     cmd = "\n".join("      - " + _yaml_quote(t) for t in ["serve", "/model"] + flags)
     vols = "      - ./weights:/model"
-    if d:
+    if d and d.get("uses_drafter"):
         vols += ("\n      - ./drafter:/drafter"
-                 + (f"   # {d['repo']}" if d.get("repo") else "   # z-lab DFlash drafter weights"))
+                 + (f"   # {d['repo']}" if d.get("repo") else f"   # {_drafter_kind(d)} drafter weights"))
     usage = ""
     if r.get("hf_repo"):
         rev = f" --revision {r['hf_revision']}" if r.get("hf_revision") else ""
@@ -1170,14 +1573,14 @@ def _compose_yaml(r, recipe):
         if d and d.get("repo"):
             drev = f" --revision {d['revision']}" if d.get("revision") else ""
             ncmt = f" (num_speculative_tokens={d['n']})" if d.get("n") else ""
-            dpull = ("# 1b) pull the z-lab DFlash drafter — lossless spec-decode; speed only"
+            dpull = (f"# 1b) pull the {_drafter_kind(d)} drafter — lossless spec-decode; speed only"
                      f"{ncmt}:\n#      hf download {d['repo']}{drev} --local-dir ./drafter\n")
         usage = ("#\n# 1) pull the exact weights this run benchmarked (sha256-verified upstream):\n"
                  f"#      hf download {r['hf_repo']}{rev} --local-dir ./weights\n"
                  f"{dpull}# 2) docker compose up\n")
     return _replicate_header(r) + "\n" + usage + f"""services:
   model:
-    image: {image}
+    image: {_yaml_quote(image)}
     entrypoint: vllm
     command:
 {cmd}
@@ -1310,6 +1713,14 @@ def run_manifest(run_id: str):
     r = db.get_run(run_id)
     if not r:
         return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        recipe = json.loads(r.get("recipe") or "null") or {}
+    except Exception:
+        recipe = {}
+    try:
+        dm = json.loads(r.get("deployment_manifest") or "null") or {}
+    except Exception:
+        dm = {}
     cats = {}
     for x in r.get("results", []):
         if x.get("score") is not None:
@@ -1324,6 +1735,11 @@ def run_manifest(run_id: str):
         "composite": round(sum(cat_scores.values()) / len(cat_scores), 1) if cat_scores else 0.0,
         "started_at": r.get("started_at"), "finished_at": r.get("finished_at"),
         "env": json.loads(r.get("env_json") or "{}"),
+        "hf_repo": r.get("hf_repo"), "hf_revision": r.get("hf_revision"),
+        "weights_hash": r.get("weights_hash"),
+        "engine": _engine_provenance(recipe),
+        "deployment": {k: dm.get(k) for k in ("build_hash", "verification", "served_model_check")
+                       if dm.get(k) is not None},
     }
     return attest.sign_manifest(manifest)
 
@@ -1374,7 +1790,33 @@ def v1_enroll(body: EnrollBody, request: Request):
     if not _v1_rate_ok(request, "enroll"):
         return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.enroll(body.public_key, body.challenge, body.signature)
+    _log_v1(request, route="enroll", code=code, payload=r,
+            fingerprint=(r.get("fingerprint") if isinstance(r, dict) else None))
     return r if code == 200 else JSONResponse(r, status_code=code)
+
+
+def _client_ip(request: Request):
+    """Best-effort client address. Behind the WAF/tunnel the socket peer is the proxy, so prefer
+    the forwarded chain's first hop."""
+    xff = request.headers.get("x-forwarded-for") or ""
+    if xff:
+        return xff.split(",")[0].strip()[:64]
+    return (getattr(request.client, "host", None) or "")[:64] or None
+
+
+def _log_v1(request, *, route, code, payload, run_id=None, model=None, board=None,
+            fingerprint=None, n_bytes=None, bench_host=None):
+    """One line per /api/v1 attempt, accepted or refused. This is the ONLY record of a rejected
+    submission: refusals create no run row, and app access-logging is off — without it an operator
+    genuinely cannot tell 'never sent' from 'sent and refused'."""
+    p = payload if isinstance(payload, dict) else {}
+    ok = code == 200 and not p.get("error")
+    db.log_ingest(route=route, status=code, outcome=("accepted" if ok else "rejected"),
+                  run_id=run_id or p.get("run_id"),
+                  reason=(None if ok else (p.get("reason") or p.get("error"))),
+                  model=model, board=board, fingerprint=fingerprint, bench_host=bench_host,
+                  remote_ip=_client_ip(request), n_bytes=n_bytes,
+                  note=(None if ok else (p.get("note") or p.get("error"))))
 
 
 @app.post("/api/v1/runs")
@@ -1382,9 +1824,13 @@ def v1_open_run(body: OpenRunBody, request: Request):
     if (g := _no_trust_stack()):
         return g
     if not _v1_rate_ok(request, "runs"):
+        db.log_ingest(route="open_run", status=429, outcome="rejected", reason="RATE_LIMITED",
+                      model=body.model, board=body.board, remote_ip=_client_ip(request))
         return JSONResponse({"error": "rate limited"}, status_code=429)
     r, code = ingest.open_run(body.public_key, body.signature, model=body.model,
                               suite_id=body.suite_id, board=body.board)
+    _log_v1(request, route="open_run", code=code, payload=r, model=body.model, board=body.board,
+            fingerprint=ingest._fingerprint(body.public_key) if body.public_key else None)
     return r if code == 200 else JSONResponse(r, status_code=code)
 
 
@@ -1397,7 +1843,32 @@ async def v1_submit_results(run_id: str, request: Request):
     token = request.headers.get("x-aeon-run-token") or ""
     raw = await request.body()
     r, code = ingest.submit_results(run_id, token, raw)
+    # pull identity out of the bundle for the log WITHOUT trusting it — inert data, best effort
+    _model = _board = _host = None
+    try:
+        _b = json.loads(raw.decode("utf-8", "replace")).get("bundle") or {}
+        _model, _board = _b.get("model"), _b.get("board")
+        _hw = ((_b.get("environment") or {}).get("hardware")) or {}
+        _host = _hw.get("bench_host") if isinstance(_hw, dict) else None
+    except Exception:
+        pass
+    _log_v1(request, route="results", code=code, payload=r, run_id=run_id,
+            model=_model, board=_board, bench_host=_host, n_bytes=len(raw or b""))
     return r if code == 200 else JSONResponse(r, status_code=code)
+
+
+@app.get("/api/v1/jobs/{job_sig}")
+def v1_job_status(job_sig: str, request: Request):
+    """Job-level dedup pre-check: has a run with this pod-minted job_sig already committed?
+    Lets a pod skip re-uploading a multi-MB bundle the mothership already has. Public data
+    (exists/run_id/status only), rate-limited like the other /api/v1 ingest routes."""
+    if (g := _no_trust_stack()):   # signed-submission RECEIVER is mothership-only
+        return g
+    if not _v1_rate_ok(request, "jobs"):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
+    r = db.find_run_by_job_sig((job_sig or "").strip()[:64])
+    return {"exists": bool(r), "run_id": r["id"] if r else None,
+            "status": r["status"] if r else None}
 
 
 @app.get("/api/harness_board")
@@ -1421,6 +1892,16 @@ def _require_pod():
     """Hard pod-only gate: 404 on the mothership."""
     return None if IS_POD else JSONResponse(
         {"error": "not available on the mothership", "role": ROLE}, status_code=404)
+
+
+# DELIBERATELY NO STARTUP SWEEP. There used to be one here that finalized 'running' runs older
+# than 48h as 'succeeded'. Nothing may interfere with someone else's in-flight bench: a single
+# stream against a model that is also serving real traffic legitimately takes DAYS, and the sweep
+# force-closed exactly those — observed in prod finalizing a run at 88/174 while its pod was still
+# checkpointing, which also truncates it below the ranking floor. A run now ends only when its own
+# pod says so (the final checkpoint) or when a human explicitly acts. An abandoned run simply sits
+# as 'running'; the admin Live-benches panel badges it QUIET after 12h of no new cases and leaves
+# it completely alone. Report-only diagnostics live in ingest.stale_running_report().
 
 
 @app.on_event("startup")
@@ -1450,25 +1931,43 @@ class PodEndpointRunBody(BaseModel):
     model: str
     difficulty: str | None = None       # None = full suite; "hard" / "hard,expert" = named tiers
     category: str | None = None         # None = all categories; comma-list scopes the text suite
-    preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
+    preset: str | None = None           # None | "comprehensive" | "hard-bench" | "god-mode" (one-shot bundle)
     api_key_name: str | None = None     # name of a saved pod secret to send as the endpoint's api key
     engine: str | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
 
 
+class PodFrontierRunBody(BaseModel):
+    frontier_id: str
+    api_key_name: str
+    difficulty: str | None = None
+    category: str | None = None
+    preset: str | None = None
+    perf_max_conc: int | None = None
+    concurrency: int | None = None
+    max_tokens: int | None = None
+
+
+class PodFrontierValidateBody(BaseModel):
+    frontier_id: str
+    api_key_name: str
+
+
 class PodVerifiedRunBody(BaseModel):
     hf_link: str
     difficulty: str | None = None
     category: str | None = None         # None = all categories; comma-list scopes the text suite
-    preset: str | None = None           # None | "comprehensive" | "hard-bench" (one-shot bundle)
+    preset: str | None = None           # None | "comprehensive" | "hard-bench" | "god-mode" (one-shot bundle)
     hf_token_name: str | None = None    # saved secret name for a gated/private repo token
     engine: str | None = None           # catalog engine id (pod.engines) — the Run-tab dropdown
     engine_image: str | None = None     # custom container image override (recorded with the run)
     local_dir: str | None = None        # model already on disk: hash-validate, don't re-download
     serve_url: str | None = None        # operator-started serve (macOS/MLX bare-metal path)
+    endpoint_model: str | None = None   # for serve_url: the served-model id to send in requests
+    remote_host: str | None = None      # ssh user@host of the machine SERVING serve_url (remote bench)
     serve_flags: list[str] | None = None  # recipe tuning: flag overrides merged into the serve cmd
-    drafter_hf: str | None = None       # DFlash drafter HF card: validated like the model, -> /drafter
+    drafter_hf: str | None = None       # DFlash/DSpark drafter HF card: validated like the model, -> /drafter
     port: int | None = None
     perf_max_conc: int | None = None    # cap for the perf-grid concurrency ladder (clamped 1..64)
     concurrency: int | None = None      # cases in flight at once; None = auto (clamped 1..64)
@@ -1479,6 +1978,13 @@ class PodVerifiedRunBody(BaseModel):
     arena_per_kind: int | None = None   # arena sweep breadth (prompts per kind, 0 disables; None = default 6)
     serve_cmd: str | None = None        # FULL serve-command override (advanced): verbatim startup cmd
     temperature: float | None = None    # sampling temperature (0 = greedy/deterministic; None = pod default 0)
+    modalities: list[str] | None = None  # MODALITIES chips: None = auto-detect (probe-gated);
+                                         # a list = explicit vision/audio/video toggles ([] = all off)
+    spark_nodes: int | None = None      # multi-Spark CLUSTER size (declared) -> 2×/3×/4× DGX Spark bucket
+    verify_endpoint: bool | None = None  # logprob-fingerprint a --serve-url endpoint vs the verified weights
+    deep_verify: bool | None = None     # sha256 the RUNNING container's weight files vs HF (no second
+                                        # model load) -> earns attested via 'endpoint_verified'. Auto
+                                        # when verify_endpoint finds no local GPU for a fingerprint.
 
 
 def _clamp_conc(v):
@@ -1490,6 +1996,15 @@ def _clamp_conc(v):
         return None
 
 
+def _clean_modalities(mods):
+    """Browser-supplied modality toggles: None stays None (auto-detect); a list is reduced
+    to the known modalities in canonical order (an empty result disables all three)."""
+    if mods is None:
+        return None
+    got = {str(m).strip().lower() for m in mods}
+    return [m for m in ("vision", "audio", "video") if m in got]
+
+
 def _clean_serve_flags(flags):
     """Recipe-tuning overrides from the browser: a bounded list of printable tokens. They only
     ever land in the SERVE process argv (list-form exec, never a shell) and pod.engines.merge_flags
@@ -1497,17 +2012,8 @@ def _clean_serve_flags(flags):
     if not isinstance(flags, list):
         return None
     out = []
-    skip_next = False
     for t in flags[:64]:
-        if skip_next:
-            skip_next = False
-            continue
         t = str(t).strip()
-        if t == "--reasoning-budget":
-            skip_next = True
-            continue
-        if t.startswith("--reasoning-budget="):
-            continue
         if t and len(t) <= 300 and t.isprintable():
             out.append(t)
     return out or None
@@ -1531,14 +2037,57 @@ def pod_run_endpoint(body: PodEndpointRunBody, request: Request):
         return g
     if not (body.model or "").strip() or not (body.base_url or "").strip():
         return JSONResponse({"error": "model and base_url are required"}, status_code=400)
-    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
-        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench", "god-mode"):
+        return JSONResponse({"error": "preset must be 'comprehensive', 'hard-bench' or 'god-mode'"}, status_code=400)
     from pod import jobs
     jid = jobs.submit_endpoint(body.base_url.strip(), body.model.strip(),
         difficulty=(body.difficulty or None), category=(body.category or None),
         preset=(body.preset or None), api_key_name=(body.api_key_name or None),
         engine=(body.engine or None), perf_max_conc=_clamp_conc(body.perf_max_conc),
         concurrency=_clamp_conc(body.concurrency))
+    return {"job_id": jid}
+
+
+@app.get("/api/pod/frontier")
+def pod_frontier_models(request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    return {"models": frontier.public_definitions()}
+
+
+@app.post("/api/pod/frontier/validate")
+def pod_frontier_validate(body: PodFrontierValidateBody, request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    key = db.get_secret((body.api_key_name or "").strip())
+    try:
+        return frontier.validate_api((body.frontier_id or "").strip(), key)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:400]}, status_code=400)
+
+
+@app.post("/api/pod/run/frontier")
+def pod_run_frontier(body: PodFrontierRunBody, request: Request):
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    if body.preset and body.preset not in ("comprehensive", "hard-bench", "god-mode"):
+        return JSONResponse({"error": "preset must be 'comprehensive', 'hard-bench' or 'god-mode'"}, status_code=400)
+    from pod import jobs
+    try:
+        jid = jobs.submit_frontier((body.frontier_id or "").strip(),
+            api_key_name=(body.api_key_name or "").strip(),
+            difficulty=(body.difficulty or None), category=(body.category or None),
+            preset=(body.preset or None), perf_max_conc=_clamp_conc(body.perf_max_conc),
+            concurrency=_clamp_conc(body.concurrency),
+            max_tokens=(min(131072, max(256, int(body.max_tokens))) if body.max_tokens else None))
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:400]}, status_code=400)
     return {"job_id": jid}
 
 
@@ -1550,8 +2099,8 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
         return g
     if not (body.hf_link or "").strip():
         return JSONResponse({"error": "hf_link is required"}, status_code=400)
-    if body.preset and body.preset not in ("comprehensive", "hard-bench"):
-        return JSONResponse({"error": "preset must be 'comprehensive' or 'hard-bench'"}, status_code=400)
+    if body.preset and body.preset not in ("comprehensive", "hard-bench", "god-mode"):
+        return JSONResponse({"error": "preset must be 'comprehensive', 'hard-bench' or 'god-mode'"}, status_code=400)
     from pod import jobs
     jid = jobs.submit_verified(body.hf_link.strip(), difficulty=(body.difficulty or None),
         category=(body.category or None), preset=(body.preset or None),
@@ -1566,7 +2115,12 @@ def pod_run_verified(body: PodVerifiedRunBody, request: Request):
                         if body.arena_per_kind is not None else None),
         serve_cmd=((body.serve_cmd or "").strip() or None),
         temperature=(min(2.0, max(0.0, float(body.temperature)))
-                     if body.temperature is not None else None))
+                     if body.temperature is not None else None),
+        modalities=_clean_modalities(body.modalities),
+        spark_nodes=(min(16, max(2, int(body.spark_nodes))) if body.spark_nodes else None),
+        verify_endpoint=bool(body.verify_endpoint), deep_verify=bool(body.deep_verify),
+        endpoint_model=((body.endpoint_model or "").strip() or None),
+        remote_host=((body.remote_host or "").strip() or None))
     return {"job_id": jid}
 
 
@@ -1630,6 +2184,39 @@ def pod_scan_models(request: Request):
     return diskscan.scan()
 
 
+@app.get("/api/pod/scan_endpoints")
+def pod_scan_endpoints(request: Request):
+    """POD-ONLY: discover running OpenAI-compatible inference servers on this host (and, via
+    ?hosts=a,b,c, on declared LAN/cluster nodes) — GET /v1/models on common serve ports. Feeds
+    the 'scan for a live instance → verify it' flow: pick one, provide its HF link, the pod
+    fingerprint-verifies the endpoint against those weights. Names + ports only; no weights read."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import endpoints
+    hosts = request.query_params.get("hosts")
+    host_list = [h.strip() for h in hosts.split(",") if h.strip()] if hosts else None
+    # ?remote=user@host — the operator authorized ssh to the machine running the serve, so the
+    # scan can inspect ITS docker daemon and autodetect the HF repo of a remote serve too.
+    remote = (request.query_params.get("remote") or "").strip()
+    return endpoints.scan(hosts=host_list, docker_host=(f"ssh://{remote}" if remote else None))
+
+
+@app.get("/api/pod/ssh_key")
+def pod_ssh_key(request: Request):
+    """POD-ONLY: this pod's ssh PUBLIC key, created on first call. Used to bench a model running on
+    ANOTHER machine — the operator authorizes this key there once, and the pod can then probe that
+    host's hardware and read its docker daemon for the real serve recipe. Public key only; the
+    private key never leaves the pod and is never served."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import aeon_pod
+    return aeon_pod.ensure_ssh_key()
+
+
 @app.get("/api/pod/browse")
 def pod_browse(request: Request, path: str | None = None):
     """POD-ONLY: one directory level of the POD host's filesystem (dirs + weight files) for the
@@ -1650,7 +2237,45 @@ def pod_jobs(request: Request):
     if (g := _require_pod_token(request)):
         return g
     from pod import jobs
-    return {"jobs": jobs.list_jobs()}
+    # `pending` = persisted-but-unsubmitted sessions with no in-memory job (they survive a
+    # pod restart) — the Run tab renders a SUBMIT TO MOTHERSHIP card for each.
+    return {"jobs": jobs.list_jobs(), "pending": jobs.list_pending_submits()}
+
+
+@app.get("/api/pod/live_tail")
+def pod_live_tail(request: Request, since: float = 0.0, limit: int = 200):
+    """The running bench's own stdout — the ONLY live source that exists in every phase.
+
+    /api/live lists DB runs, and arena/harness/perf create none; /api/pod/jobs carries a stage
+    strip, and a hand-launched bench has no job. This has neither dependency: the bench tees its
+    output here, so the Live view can always show what is happening."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import livelog
+    lines, latest, age = livelog.tail(since=since, limit=max(1, min(int(limit), 500)))
+    return {"lines": lines, "latest": latest, "age_s": age,
+            # the client shows a feed as LIVE only while it is still being written to; a stale
+            # tail must never be rendered as though the bench were still talking.
+            "live": bool(age is not None and age < 120)}
+
+
+@app.get("/api/pod/streams")
+def pod_streams(request: Request, limit: int = 24):
+    """What each CONCURRENT case is saying right now — reasoning and answer, as they stream.
+
+    live_tail is the bench's narration: stages, scores, banners. This is the model's own voice, one
+    terminal per in-flight case. On a god-tier suite a case can think for twenty minutes before its
+    first line of answer, and that silence is precisely when a healthy run looks hung."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import livestreams
+    out = livestreams.read()
+    rows = out.get("streams") or []
+    return {**out, "streams": rows[: max(1, min(int(limit), 64))], "n_total": len(rows)}
 
 
 @app.get("/api/pod/stats")
@@ -1690,6 +2315,52 @@ def pod_best_launch(request: Request, model: str):
     return {"best": db.best_launch((model or "").strip())}
 
 
+def _fetch_champions(base_url: str, hardware: str | None):
+    """GET the mothership's /api/recipes/champions (5s budget). Split out so tests stub it —
+    the champion pull must never make the Run tab depend on the network."""
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+    url = (base_url or "").rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("mothership URL must be http(s)")
+    url += "/api/recipes/champions"
+    if hardware:
+        url += "?" + urlencode({"hardware": hardware})
+    # a real UA is load-bearing: the mothership WAF's CRS treats Python-urllib/* as a scanner
+    req = Request(url, headers={"User-Agent": "aeon-pod/1.0 (+https://aeon-bench.com)"})
+    with urlopen(req, timeout=5) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+@app.get("/api/pod/recipes/champions")
+def pod_champion_recipes(request: Request):
+    """POD-ONLY: the mothership's champion recipes for THIS pod's detected hardware — the
+    best-in-class winning recipe per model on hardware like ours, offered in the Run tab as an
+    applyable template (a DGX Spark pod sees the recipes that won on a DGX Spark). Mothership
+    offline/unreachable degrades to {available:false, reason} — the Run tab keeps working."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    try:
+        from pod import jobs
+        mothership = jobs.MOTHERSHIP
+    except Exception:
+        mothership = os.environ.get("AEON_MOTHERSHIP", "https://aeon-bench.com")
+    try:
+        from pod.aeon_pod import detected_hardware_label
+        hw = detected_hardware_label()
+    except Exception:
+        hw = None
+    try:
+        d = _fetch_champions(mothership, hw)
+    except Exception as e:
+        return {"available": False, "hardware": hw, "mothership": mothership,
+                "reason": (str(e)[:200] or "mothership unreachable")}
+    return {"available": True, "hardware": hw, "mothership": mothership,
+            "champions": d.get("champions") or [], "hardwares": d.get("hardwares") or []}
+
+
 @app.get("/api/pod/jobs/{job_id}")
 def pod_job(job_id: str, request: Request):
     if (g := _require_pod()):
@@ -1711,6 +2382,51 @@ def pod_job_stop(job_id: str, request: Request):
         return g
     from pod import jobs
     return {"ok": jobs.stop_job(job_id)}
+
+
+@app.post("/api/pod/jobs/{job_id}/resume")
+def pod_job_resume(job_id: str, request: Request):
+    """POD-ONLY: ⟲ RESUME an interrupted job — relaunches the identical argv/env with the
+    resume flag; the bench continues its local run from the last scored case."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import jobs
+    jid = jobs.resume_job(job_id)
+    if not jid:
+        return JSONResponse({"error": "job not found or not resumable"}, status_code=404)
+    return {"ok": True, "job_id": jid}
+
+
+@app.post("/api/pod/jobs/{job_id}/submit")
+def pod_job_submit(job_id: str, request: Request):
+    """POD-ONLY: ⬆ SUBMIT TO MOTHERSHIP for a finished-but-unsubmitted job. Re-reads the
+    local results + the persisted pending_submits session(s) and commits them (final=True);
+    idempotent via the job_sig dedup — an already-stored job answers duplicate."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import jobs
+    r = jobs.submit_job(job_id)
+    if r is None:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    return r
+
+
+@app.post("/api/pod/submit/{job_sig}")
+def pod_submit_pending(job_sig: str, request: Request):
+    """POD-ONLY: deferred submit for a persisted pending session by job_sig — covers results
+    benched BEFORE a pod restart (no in-memory job row survives one; the session file does)."""
+    if (g := _require_pod()):
+        return g
+    if (g := _require_pod_token(request)):
+        return g
+    from pod import pending
+    st, r = pending.submit_pending((job_sig or "").strip()[:64])
+    body = r if isinstance(r, dict) else {"raw": r}
+    return {"ok": st == 200, "http": st, **body}
 
 
 @app.get("/api/pod/keys")

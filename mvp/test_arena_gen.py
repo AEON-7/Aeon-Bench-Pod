@@ -1,8 +1,15 @@
-"""Self-test: pod/arena_gen.py generation + aeon/ingest.py artifact ingest.
+"""Self-test: pod/arena_gen.py generation, artifact storage, + aeon/ingest.py bundle ingest.
 
 Runs fully offline (mock target, temp SQLite). From the mvp dir:
     python test_arena_gen.py
+
+aeon/ingest.py is MOTHERSHIP-ONLY and is not shipped in the public pod repo. Only the section
+that actually calls it is guarded, and the skip is announced by name at the end of the run --
+every check that exercises pod/arena_gen.py and aeon/db.py runs in both repos. The guard
+tolerates ingest being ABSENT, never being BROKEN: where the file exists, an ImportError out
+of it still fails this test.
 """
+import importlib.util
 import os
 import sys
 import tempfile
@@ -17,13 +24,23 @@ _TMP = tempfile.mkdtemp(prefix="aeon-arena-selftest-")
 os.environ["AEON_DB"] = os.path.join(_TMP, "test.db")
 os.environ.pop("AEON_DB_URL", None)
 
-from aeon import arena, db, ingest                      # noqa: E402
+from aeon import arena, db                              # noqa: E402
 from pod import arena_gen                               # noqa: E402
 from pod.arena_gen import generate_for_model            # noqa: E402
+
+# aeon/ingest.py is the mothership's bundle-ingest edge and is deliberately never synced to the
+# public pod repo. find_spec answers "is the module there?" WITHOUT executing it, so absence is
+# tolerated while a genuine ImportError from a present-but-broken ingest.py still propagates --
+# a bare try/except ImportError here would silently turn that regression into a green run.
+if importlib.util.find_spec("aeon.ingest") is not None:
+    from aeon import ingest                             # noqa: E402
+else:
+    ingest = None
 
 db.init_db()                                            # fresh schema in the temp sqlite
 
 PASS = 0
+SKIPPED = []                                            # named coverage this repo cannot run
 
 
 def ok(cond, label):
@@ -57,6 +74,75 @@ ok(ids_m1 == ids_m2, "seed: same seed -> identical prompt_ids across models")
 ok(ids_m1 != ids_s2, "seed: different seed -> different prompt_ids")
 ok(all(arena.find_prompt(a["kind"], a["prompt_id"]) for a in arts), "seed: picks are real prompts")
 
+# ---------- (b2) guaranteed god slot ----------
+# When a kind carries god_mode prompts, every draw reserves ONE slot for a god challenge —
+# god-tier generation is a reliable part of every bench, not a lottery ticket.
+_saved_prompts = arena.PROMPTS
+arena.PROMPTS = {
+    "app": ([{"id": "god.x%d" % i, "title": "G%d" % i, "brief": "b", "prompt": "p",
+              "difficulty": "god_mode"} for i in range(2)]
+            + [{"id": "app.n%d" % i, "title": "N%d" % i, "brief": "b", "prompt": "p",
+                "difficulty": "medium"} for i in range(6)]),
+    "game": [{"id": "game.n%d" % i, "title": "N%d" % i, "brief": "b", "prompt": "p"}
+             for i in range(4)],                     # no god prompts -> classic draw
+    "animation": [{"id": "anim.g0", "title": "G", "brief": "b", "prompt": "p",
+                   "difficulty": "god_mode", "agent_only": True}],  # agent_only never draws
+}
+try:
+    for s in (1, 2, 3, 99):
+        sel = arena_gen.pick_prompts(per_kind=3, seed=s)
+        app_picks = [p for k, p in sel if k == "app"]
+        ok(sum(1 for p in app_picks if p["id"].startswith("god.")) == 1 and len(app_picks) == 3,
+           "god slot: seed %d draw has exactly one god pick among 3 (cost unchanged)" % s)
+    g1 = [p["id"] for k, p in arena_gen.pick_prompts(per_kind=3, seed=5)]
+    g2 = [p["id"] for k, p in arena_gen.pick_prompts(per_kind=3, seed=5)]
+    ok(g1 == g2, "god slot: draw stays deterministic per seed")
+    game_picks = [p for k, p in arena_gen.pick_prompts(per_kind=3, seed=5) if k == "game"]
+    ok(len(game_picks) == 3 and all(not p["id"].startswith("god.") for p in game_picks),
+       "god slot: a kind without god prompts draws exactly as before")
+    anim_picks = [p for k, p in arena_gen.pick_prompts(per_kind=1, seed=5) if k == "animation"]
+    ok(anim_picks == [], "god slot: agent_only god prompts stay out of the direct pool")
+finally:
+    arena.PROMPTS = _saved_prompts
+
+# ---------- (c2) concurrency: parallel gen preserves seeded order + monotonic progress ----------
+import threading as _th          # noqa: E402
+import time as _time            # noqa: E402
+
+
+class _ReorderTarget:
+    """Completes LATER-submitted items FIRST (sleep shrinks with a submit counter), so completion
+    order reverses submission order — proving results land by selection INDEX, not append order."""
+
+    def __init__(self, alias):
+        self.model = alias
+        self._n = 0
+        self._lock = _th.Lock()
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        with self._lock:
+            k = self._n
+            self._n += 1
+        _time.sleep(0.03 * max(0, 8 - k))            # earliest-submitted sleeps longest -> finishes last
+        return {"text": "<!DOCTYPE html><html><body><h1>a%d</h1></body></html>" % k, "e2e_ms": 1.0}
+
+
+_serial_ids = [a["prompt_id"] for a in generate_for_model("mock", "m", per_kind=2, seed=11)]
+_prog = []
+_orig_mt = arena_gen._make_target
+arena_gen._make_target = lambda url, alias, key, conc=1: _ReorderTarget(alias)
+try:
+    _conc = generate_for_model("http://x/v1", "m", per_kind=2, seed=11, concurrency=4,
+                               progress_cb=lambda d, t, it: _prog.append((d, t)))
+finally:
+    arena_gen._make_target = _orig_mt
+ok([a["prompt_id"] for a in _conc] == _serial_ids,
+   "concurrency: parallel generation preserves seeded selection order (written by index)")
+ok(all(a["ok"] for a in _conc) and len(_conc) == 2 * len(arena.KINDS),
+   "concurrency: every artifact generated under the thread pool (out-of-order completion)")
+ok(_prog == [(i + 1, len(_conc)) for i in range(len(_conc))],
+   "concurrency: progress_cb stays monotonic (1..N) on the main thread")
+
 # ---------- failure path: broken target never raises ----------
 class _Boom:
     def chat(self, *a, **k):
@@ -71,9 +157,31 @@ finally:
 ok(len(failed) == len(arena.KINDS) and all(not a["ok"] and a["html"] == "" for a in failed),
    "failure: target errors -> ok=False, html='', no raise")
 
-# ---------- (c) ingest path (temp sqlite) ----------
+# ---------- (c) truncation detection (pod/arena_gen.py) ----------
 GOOD_HTML = "<!DOCTYPE html><html><body><h1>hi</h1></body></html>"
+# 250 KB: oversized under the OLD 200 KB cap, ordinary under the current one. Artifacts now
+# legitimately embed their own assets (base64 textures, audio), so a quarter-megabyte file is
+# normal content and must survive whole. Truncation itself is exercised against an explicit
+# limit below rather than by allocating a 50 MB string here.
 BIG_HTML = "<!DOCTYPE html><html><body>" + "x" * (250 * 1024) + "</body></html>"
+
+# The pod owns the FIRST truncation gate: it caps its own html and decides `ok` from the bytes it
+# is about to ship. (The mothership re-derives the same verdict independently in aeon/ingest.py --
+# the pod's `ok` is a claim, not evidence -- and that half is checked in section (e) where the
+# module exists.) These are pod/arena_gen.py functions, so they run in every repo.
+ok(arena_gen._cap_html(BIG_HTML) == BIG_HTML,
+   "cap: a 250KB asset-bearing artifact passes the cap WHOLE, not truncated")
+_small = arena_gen._cap_html(BIG_HTML, limit=1024)
+ok(len(_small.encode("utf-8")) == 1024,
+   "cap: past the cap an artifact is TRUNCATED, not dropped")
+ok(arena_gen.is_complete(BIG_HTML) is True,
+   "complete: a finished document reads as complete")
+ok(arena_gen.is_complete(_small) is False,
+   "complete: a truncated artifact is detected as incomplete (so it never reaches the gallery)")
+ok(arena_gen.is_complete("<!DOCTYPE html><html><body><script>x=1</html>") is False,
+   "complete: a document cut INSIDE <script> (unbalanced tag) reads as incomplete")
+ok(arena_gen.is_complete("   ") is False, "complete: empty/blank html is never complete")
+
 
 def art(i, **over):
     d = {"kind": "app", "prompt_id": "app.tip", "title": "t%d" % i, "html": GOOD_HTML,
@@ -81,53 +189,120 @@ def art(i, **over):
     d.update(over)
     return d
 
-artifacts = [
-    art(1),                                        # saved
-    art(2, kind="game", prompt_id="game.snake"),   # saved
-    art(3, ok=False),                              # skipped: failed generation
-    art(4, html="   "),                            # skipped: empty html
-    art(5, html=BIG_HTML),                         # saved TRUNCATED to 200KB
-    art(6, kind="weird"),                          # skipped: unknown kind
-    art(7, prompt_id="<img src=x>"),               # saved with sanitized prompt_id
-] + [art(10 + i, kind="animation", prompt_id="anim.balls") for i in range(5)]  # 5 more good -> 12 items
-artifacts.append(art(99))                          # 13th item -> dropped by MAX_ARTIFACTS
-# considered: first 12 -> saved = items 1,2,5,7 + 5 animations = 9
-
-pod = {"run_id": "run" + uuid.uuid4().hex[:8], "model": 'evil<script>"m"`x`' + "Y" * 100,
-       "suite_id": "aeon-suite-v1", "board": "text"}
 results = [{"case_id": "c1", "category": "math", "score": 1.0},
            {"case_id": "c2", "category": "code", "score": 0.5}]
-bundle = {"results": results, "artifacts": artifacts}
 
-ingest._commit(pod, bundle, final=False)           # checkpoint 1
-ok(db.list_artifacts() == [], "ingest: final=False saves NO artifacts")
-ingest._commit(pod, bundle, final=False)           # checkpoint resend
-ok(db.list_artifacts() == [], "ingest: checkpoint resend still saves NO artifacts")
-ingest._commit(pod, bundle, final=True)            # final commit
-rows = db.list_artifacts(with_html=True)
-ok(len(rows) == 9, "ingest: final commit saved exactly 9 (caps + skips enforced, got %d)" % len(rows))
-ok(all(not set('<>"\'`') & set(r["model"]) and len(r["model"]) <= 80 for r in rows),
-   "ingest: model sanitized (no markup, <=80 chars)")
-ok(all(not set('<>"\'`') & set(r["prompt_id"]) for r in rows), "ingest: prompt_id sanitized")
-ok(all(len(r["html"].encode("utf-8")) <= ingest.MAX_ARTIFACT_HTML for r in rows),
-   "ingest: html truncated to 200KB")
-ok(any(len(r["html"].encode("utf-8")) == ingest.MAX_ARTIFACT_HTML for r in rows),
-   "ingest: oversized artifact was truncated, not dropped")
-ok(db.get_run(pod["run_id"])["status"] == "succeeded" and len(db.result_case_ids(pod["run_id"])) == 2,
-   "ingest: results committed alongside artifacts")
-
-# the real-world duplicate-FINAL guard: claim_pod_run consumes the run exactly once
+# ---------- (d) duplicate-FINAL guard (aeon/db.py) ----------
+# The real-world guard against a re-sent final submit: claim_pod_run consumes the run exactly
+# once. It is aeon/db.py, not ingest, so it runs everywhere — and the pod IS the thing that
+# re-sends (resume/deferred submit), which makes this a pod-facing contract.
 rid2 = "run" + uuid.uuid4().hex[:8]
 db.create_pod_run(rid2, public_key="pk", run_nonce="n", run_token="t",
                   model="m", suite_id="s", board="text")
 ok(db.claim_pod_run(rid2, "committed") is True and db.claim_pod_run(rid2, "committed") is False,
-   "ingest: duplicate FINAL submit loses the claim race (no re-commit)")
+   "db: duplicate FINAL submit loses the claim race (no re-commit)")
 
-# backwards compat: bundle without "artifacts"
-pod2 = {"run_id": "run" + uuid.uuid4().hex[:8], "model": "plain-model",
-        "suite_id": "aeon-suite-v1", "board": "text"}
-ingest._commit(pod2, {"results": results}, final=True)
-ok(len(db.list_artifacts()) == 9 and db.get_run(pod2["run_id"])["status"] == "succeeded",
-   "ingest: bundle without 'artifacts' fully backwards compatible")
+# ---------- (e) ingest path (temp sqlite) — MOTHERSHIP ONLY ----------
+# aeon/ingest.py is not synced to the public pod repo, so this block cannot run there. It is the
+# ONLY guarded section in this file, and the skip is printed by name at the end of the run.
+if ingest is not None:
+    artifacts = [
+        art(1),                                        # saved
+        art(2, kind="game", prompt_id="game.snake"),   # saved
+        art(3, ok=False),                              # skipped: failed generation
+        art(4, html="   "),                            # skipped: empty html
+        art(5, html=BIG_HTML),                         # saved WHOLE (250 KB is under the cap now)
+        art(6, kind="weird"),                          # skipped: unknown kind
+        art(7, prompt_id="<img src=x>"),               # saved with sanitized prompt_id
+    ] + [art(10 + i, kind="animation", prompt_id="anim.balls",       # 5 DISTINCT generations of one
+             html=GOOD_HTML.replace("hi", "hi v%d" % i)) for i in range(5)]  # prompt — all must save
+    artifacts.append(art(20))                       # byte-identical resend of item 1 -> content-deduped
+    base_saved = 9                                  # items 1,2,5,7 + 5 animations (dupe of 1 skipped)
+    base_len = len(artifacts)
+    # Add enough valid extras to prove the configurable MAX_ARTIFACTS cap still applies.
+    for i in range(max(0, ingest.MAX_ARTIFACTS - base_len + 1)):
+        artifacts.append(art(100 + i, prompt_id="app.extra%d" % i))
+    expected_saved = base_saved + max(0, ingest.MAX_ARTIFACTS - base_len)
 
+    pod = {"run_id": "run" + uuid.uuid4().hex[:8], "model": 'evil<script>"m"`x`' + "Y" * 100,
+           "suite_id": "aeon-suite-v1", "board": "text"}
+    bundle = {"results": results, "artifacts": artifacts}
+
+    # Artifacts persist on EVERY checkpoint (content-deduped) — riding only the final commit
+    # lost a real submission's gallery items when its last POST never arrived (PrismaAURA).
+    ingest._commit(pod, bundle, final=False)       # checkpoint 1
+    rows = db.list_artifacts(with_html=True)
+    ok(len(rows) == expected_saved, "ingest: FIRST checkpoint already saves artifacts (%d, got %d)" % (expected_saved, len(rows)))
+    ingest._commit(pod, bundle, final=False)       # checkpoint resend
+    ok(len(db.list_artifacts()) == expected_saved, "ingest: checkpoint resend dedups by content (no duplicates)")
+    ingest._commit(pod, bundle, final=True)        # final commit
+    rows = db.list_artifacts(with_html=True)
+    ok(len(rows) == expected_saved, "ingest: final commit adds nothing new (still exactly %d, got %d)" % (expected_saved, len(rows)))
+    ok(all(not set('<>"\'`') & set(r["model"]) and len(r["model"]) <= 80 for r in rows),
+       "ingest: model sanitized (no markup, <=80 chars)")
+    ok(all(not set('<>"\'`') & set(r["prompt_id"]) for r in rows), "ingest: prompt_id sanitized")
+    ok(all(len(r["html"].encode("utf-8")) <= ingest.MAX_ARTIFACT_HTML for r in rows),
+       "ingest: every stored artifact is within the per-artifact cap")
+    ok(any(r["html"] == BIG_HTML for r in rows),
+       "ingest: a 250KB asset-bearing artifact is stored WHOLE, not truncated")
+    # Truncation still applies past the cap — checked against an explicit limit so the test does
+    # not have to allocate a 50 MB string to prove it. The mothership re-derives this verdict
+    # independently of the pod's copy exercised in section (c): the pod's `ok` is a claim.
+    _capped = ingest._cap_html(BIG_HTML, limit=1024)
+    ok(len(_capped.encode("utf-8")) == 1024,
+       "ingest: past the cap an artifact is TRUNCATED, not dropped")
+    ok(ingest._html_complete(_capped) is False,
+       "ingest: and a truncated artifact is detected as incomplete (so it never reaches the gallery)")
+    ok(db.get_run(pod["run_id"])["status"] == "succeeded" and len(db.result_case_ids(pod["run_id"])) == 2,
+       "ingest: results committed alongside artifacts")
+
+    # backwards compat: bundle without "artifacts"
+    pod2 = {"run_id": "run" + uuid.uuid4().hex[:8], "model": "plain-model",
+            "suite_id": "aeon-suite-v1", "board": "text"}
+    ingest._commit(pod2, {"results": results}, final=True)
+    ok(len(db.list_artifacts()) == expected_saved and db.get_run(pod2["run_id"])["status"] == "succeeded",
+       "ingest: bundle without 'artifacts' fully backwards compatible")
+else:
+    SKIPPED = [
+        "ingest: FIRST checkpoint already saves artifacts (loss-resistant gallery)",
+        "ingest: checkpoint resend dedups by content (no duplicates)",
+        "ingest: final commit adds nothing new",
+        "ingest: model + prompt_id sanitized on the way into the DB",
+        "ingest: MAX_ARTIFACTS per-bundle cap and MAX_ARTIFACT_HTML per-artifact cap",
+        "ingest: a 250KB asset-bearing artifact is stored WHOLE",
+        "ingest: server-side re-derivation of truncation (_cap_html/_html_complete)",
+        "ingest: results committed alongside artifacts",
+        "ingest: bundle without 'artifacts' stays backwards compatible",
+    ]
+
+# ---------- (f) artifact storage contract (aeon/db.py) ----------
+# The storage layer ingest writes THROUGH, tested directly because aeon/db.py ships in both
+# repos: identity across cumulative checkpoint bundles is CONTENT, not id — that is what makes
+# a resent bundle idempotent and what lets 5 distinct generations of one prompt all survive.
+# Runs LAST on purpose: it inserts rows, and section (e) asserts on unfiltered row COUNTS.
+_M, _PID = "storage-probe", "app.storprobe"
+db.save_artifact("storprobe1", kind="app", prompt_id=_PID, model=_M, html=BIG_HTML,
+                 ok=True, gen_ms=12.0)
+_srows = db.list_artifacts(kind="app", prompt_id=_PID, with_html=True)
+ok(len(_srows) == 1 and _srows[0]["html"] == BIG_HTML,
+   "db: a 250KB asset-bearing artifact round-trips through storage byte-identical")
+ok(_srows[0]["bytes"] == len(BIG_HTML) and _srows[0]["gen_ms"] == 12.0,
+   "db: the stored row carries its size + generation time")
+ok(db.artifact_stored(kind="app", prompt_id=_PID, model=_M, html=BIG_HTML) is True,
+   "db: artifact_stored sees a byte-identical resend (the checkpoint dedup key)")
+ok(db.artifact_stored(kind="app", prompt_id=_PID, model=_M, html=GOOD_HTML) is False,
+   "db: a DIFFERENT generation of the same prompt is not a dupe (all versions must save)")
+db.save_artifact("storprobe2", kind="app", prompt_id=_PID, model=_M, html=GOOD_HTML, ok=False)
+_srows = db.list_artifacts(kind="app", prompt_id=_PID, with_html=True)
+ok(len(_srows) == 2, "db: the second distinct generation stores alongside the first")
+ok(any(r["id"] == "storprobe2" and not r["ok"] for r in _srows),
+   "db: an incomplete artifact is stored HIDDEN (ok=0) — evidence kept, not published")
+ok(db.get_artifact("storprobe1")["html"] == BIG_HTML,
+   "db: get_artifact returns the whole html, uncapped")
+
+if SKIPPED:
+    print("\nSKIPPED %d checks — aeon/ingest.py is mothership-only and is not in this repo."
+          % len(SKIPPED))
+    for _s in SKIPPED:
+        print("  SKIP:", _s)
 print("\nALL %d CHECKS PASS" % PASS)

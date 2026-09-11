@@ -1,0 +1,140 @@
+[
+ {
+  "id": "v3.prose.medium.01",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "medium",
+  "prompt": "Write an acrostic poem of exactly 6 lines about an old lighthouse keeper. The first letter of line 1 must be G, of line 2 A, of line 3 R, of line 4 N, of line 5 E, and of line 6 T (spelling GARNET downward). Each line must start immediately with its letter (no leading punctuation or quotation marks) and contain at least three words. Do not include a title, blank lines, or any text before or after the poem. Output ONLY the 6-line poem.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "six_lines",
+     "question": "Does the output contain exactly 6 non-empty lines?",
+     "required": true,
+     "tier0_check": {"type": "structural_count", "unit": "line", "n": 6, "op": "=="}
+    },
+    {
+     "id": "acrostic_garnet",
+     "question": "Do the six line-initial letters spell GARNET in order?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "\\A[ \\t]*G[^\\n]*\\n[ \\t]*A[^\\n]*\\n[ \\t]*R[^\\n]*\\n[ \\t]*N[^\\n]*\\n[ \\t]*E[^\\n]*\\n[ \\t]*T[^\\n]*\\Z", "mode": "must_match"}
+    },
+    {
+     "id": "no_preamble",
+     "question": "Is the output free of any preamble such as 'Here is' or 'Sure'?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "\\A(here is|here.s|sure|certainly|okay|of course)\\b", "mode": "must_not_match"}
+    },
+    {
+     "id": "lit_imagery",
+     "question": "Does the poem contain at least one concrete maritime image (e.g., lamp, fog, waves, gulls, salt) rather than only abstract statements?",
+     "decision_rule": "True if any line names a concrete object or phenomenon associated with the sea or a lighthouse.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.medium.02",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "medium",
+  "prompt": "Write a single descriptive paragraph of exactly 8 sentences depicting a desert mining town at dusk. Every sentence must begin with the exact phrase 'Under the copper sky' (anaphora). Every sentence must end with a period. Use no other sentence-ending punctuation (no '!' or '?'), no abbreviations containing periods (write 'Mister', not 'Mr.'), no ellipses, no quotation marks, and no numerals. Output ONLY the paragraph, with no title and no text before or after it.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "eight_sentences",
+     "question": "Does the paragraph contain exactly 8 sentences?",
+     "required": true,
+     "tier0_check": {"type": "structural_count", "unit": "sentence", "n": 8, "op": "=="}
+    },
+    {
+     "id": "starts_with_phrase",
+     "question": "Does the text begin with the exact phrase 'Under the copper sky'?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "\\AUnder the copper sky", "mode": "must_match"}
+    },
+    {
+     "id": "anaphora_every_sentence",
+     "question": "Does every sentence after the first also begin with 'Under the copper sky'?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "\\.\\s+(?!Under the copper sky)", "mode": "must_not_match"}
+    },
+    {
+     "id": "single_paragraph",
+     "question": "Is the output a single paragraph with no blank lines?",
+     "required": true,
+     "tier0_check": {"type": "structural_count", "unit": "stanza", "n": 1, "op": "=="}
+    },
+    {
+     "id": "no_forbidden_punct",
+     "question": "Is the text free of '!', '?', ellipses, and quotation marks?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "[!?\"“”…]", "mode": "must_not_match"}
+    },
+    {
+     "id": "lit_atmosphere",
+     "question": "Does the paragraph evoke a coherent dusk atmosphere with at least two distinct sensory details (sight, sound, smell, or heat)?",
+     "decision_rule": "True if two or more different senses are concretely invoked.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ },
+ {
+  "id": "v3.prose.medium.03",
+  "category": "Prose",
+  "tier": 1,
+  "difficulty": "medium",
+  "prompt": "Write a formal letter of complaint from a resident named Tobin Ash to a town councillor named Councillor Marbeth about broken streetlamps on Fenwick Lane. The letter must consist of EXACTLY 5 blocks separated by single blank lines, in this order: (1) a subject line reading exactly 'Subject: Broken Streetlamps on Fenwick Lane'; (2) the salutation 'Dear Councillor Marbeth,' on its own line; (3) a first body paragraph that opens with the words 'I am writing to'; (4) a second body paragraph that opens with the words 'I would be grateful if'; (5) a closing block of exactly two lines: 'Yours sincerely,' on the first line and 'Tobin Ash' on the second. Do not add a date, address, title, or any other text. Output ONLY the letter.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "five_blocks",
+     "question": "Does the letter consist of exactly 5 blank-line-separated blocks?",
+     "required": true,
+     "tier0_check": {"type": "structural_count", "unit": "stanza", "n": 5, "op": "=="}
+    },
+    {
+     "id": "subject_line",
+     "question": "Does the letter begin with the exact subject line?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "\\ASubject: Broken Streetlamps on Fenwick Lane", "mode": "must_match"}
+    },
+    {
+     "id": "salutation",
+     "question": "Does the letter contain the salutation 'Dear Councillor Marbeth,' on its own line?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "(?m)^Dear Councillor Marbeth,$", "mode": "must_match"}
+    },
+    {
+     "id": "para1_opener",
+     "question": "Does a paragraph open with 'I am writing to'?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "(?m)^I am writing to", "mode": "must_match"}
+    },
+    {
+     "id": "para2_opener",
+     "question": "Does a paragraph open with 'I would be grateful if'?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "(?m)^I would be grateful if", "mode": "must_match"}
+    },
+    {
+     "id": "closing_block",
+     "question": "Does the letter end with 'Yours sincerely,' followed by 'Tobin Ash'?",
+     "required": true,
+     "tier0_check": {"type": "regex_constraint", "pattern": "Yours sincerely,\\s*\\n[ \\t]*Tobin Ash[ \\t]*\\Z", "mode": "must_match"}
+    },
+    {
+     "id": "lit_register",
+     "question": "Is the letter written in a consistently formal, courteous register throughout, with no slang or contractions?",
+     "decision_rule": "True if the tone is formal end-to-end and no contractions (e.g., don't, can't) appear.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ }
+]

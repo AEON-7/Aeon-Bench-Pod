@@ -1,0 +1,50 @@
+[
+ {
+  "id": "v3.coding.medium.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Write a Python function covered_length(intervals) that takes a list of half-open integer intervals [s, e) given as (s, e) tuples and returns the total integer length of the union of all intervals. Rules: intervals may overlap, touch, be duplicated, or be given in any order; coordinates may be negative; any tuple with e <= s is empty and contributes nothing; an empty input list returns 0. Touching intervals like (0,5) and (5,9) merge into a span of length 9. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert covered_length([]) == 0\nassert covered_length([(2, 7)]) == 5\nassert covered_length([(1, 4), (2, 6), (8, 10)]) == 7\nassert covered_length([(0, 5), (5, 9)]) == 9\nassert covered_length([(3, 3), (4, 2), (1, 6)]) == 5\nassert covered_length([(-8, -3), (-5, 0), (1, 2)]) == 9\nassert covered_length([(1, 9), (2, 3), (4, 5), (6, 7)]) == 8\nassert covered_length([(10, 20), (10, 20), (15, 25)]) == 15"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.medium.02",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Write a Python function rank_tokens(tokens, k) that takes a list of strings and an integer k, and returns a list of the k most frequent tokens ordered by frequency descending; tokens with equal frequency are ordered lexicographically ascending (plain string comparison, case-sensitive, so 'Ab' sorts before 'ab'). If there are fewer than k distinct tokens, return them all in that same order. An empty input list returns []. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert rank_tokens([\"zil\", \"arb\", \"zil\", \"arb\", \"zil\"], 2) == [\"zil\", \"arb\"]\nassert rank_tokens([\"mox\", \"kel\", \"mox\", \"kel\"], 1) == [\"kel\"]\nassert rank_tokens([\"b\", \"a\", \"c\"], 3) == [\"a\", \"b\", \"c\"]\nassert rank_tokens([\"q\"], 5) == [\"q\"]\nassert rank_tokens([], 3) == []\nassert rank_tokens([\"d\", \"d\", \"c\", \"c\", \"b\", \"b\", \"a\"], 3) == [\"b\", \"c\", \"d\"]\nassert rank_tokens([\"Ab\", \"ab\", \"Ab\"], 2) == [\"Ab\", \"ab\"]"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.medium.03",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Write a Python function count_networks(n, links) that returns the number of connected components in an undirected graph with n nodes labelled 0..n-1 and an edge list links of (a, b) tuples. Rules: links may contain duplicate edges, edges given in both directions, and self-loops (a, a) — none of these change connectivity; isolated nodes (appearing in no link) each count as their own component; with an empty link list the answer is n. All labels are valid (0 <= a, b < n). Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_networks(5, []) == 5\nassert count_networks(1, []) == 1\nassert count_networks(4, [(0, 1), (1, 2), (2, 3)]) == 1\nassert count_networks(6, [(0, 1), (2, 3), (3, 2), (4, 4)]) == 4\nassert count_networks(7, [(0, 1), (1, 2), (0, 2), (5, 6)]) == 4\nassert count_networks(8, [(0, 7), (7, 3), (3, 0), (1, 2), (4, 5)]) == 4"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

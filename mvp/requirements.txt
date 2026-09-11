@@ -4,6 +4,7 @@ uvicorn[standard]>=0.27
 cryptography>=42            # ed25519 signing / attestation (attest.py)
 argon2-cffi>=23            # Argon2id password hashing (accounts.py)
 Pillow>=10                 # vision-probe image generation (imagegen.py)
+imageio[ffmpeg]>=2.31      # video-suite clip encoding (videogen.py) — pulls imageio-ffmpeg + numpy
 # Mothership/prod data layer (pod stays on stdlib sqlite3):
 psycopg[binary]>=3.1       # PostgreSQL system of record (cutover; see deploy/postgres/)
 boto3>=1.34                # S3/MinIO blob backend (blobstore.py; fs backend needs no deps)

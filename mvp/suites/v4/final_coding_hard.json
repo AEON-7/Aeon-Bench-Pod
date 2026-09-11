@@ -1,0 +1,87 @@
+[
+ {
+  "id": "v3.coding.hard.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a Python function with the exact signature:\n\ndef count_bounded_combinations(coins, target):\n\ncoins is a list of (value, count) tuples: each coin denomination `value` (a positive int) may be used at most `count` times (count is an int >= 0). target is an int >= 0. Return the number of distinct multisets of coins whose values sum exactly to target (order never matters; two multisets differ only if some denomination is used a different number of times). An empty coins list can only form target 0. Note that summing to 0 is always possible in exactly one way (choose nothing), and a denomination with count 0 contributes nothing. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_bounded_combinations([(3, 2), (5, 1), (7, 4)], 24) == 1\nassert count_bounded_combinations([(1, 5), (2, 3), (4, 2)], 13) == 5\nassert count_bounded_combinations([(6, 10)], 25) == 0\nassert count_bounded_combinations([(2, 50), (3, 50)], 97) == 16\nassert count_bounded_combinations([(4, 0), (5, 3)], 10) == 1\nassert count_bounded_combinations([], 0) == 1\nassert count_bounded_combinations([(9, 3)], 0) == 1\nassert count_bounded_combinations([(4, 0)], 4) == 0"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.hard.02",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a Python function with the exact signature:\n\ndef max_weight_schedule(jobs):\n\njobs is a list of (start, end, weight) tuples of ints with start < end and weight > 0. Choose a subset of the jobs, no two of which overlap in time, maximizing the total weight; return that maximum total weight as an int (0 for an empty list). A job ending at time t is COMPATIBLE with a job starting at time t (touching endpoints do not count as overlap). Duplicate and fully-contained jobs may appear. jobs can contain up to 2*10^5 entries, so an O(n^2) approach may time out — aim for O(n log n) (e.g. sort plus binary search DP). Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert max_weight_schedule([]) == 0\nassert max_weight_schedule([(4, 9, 7)]) == 7\nassert max_weight_schedule([(1, 3, 5), (2, 5, 6), (4, 6, 5), (6, 7, 4), (5, 8, 11), (7, 9, 2)]) == 17\nassert max_weight_schedule([(1, 3, 4), (3, 5, 4), (5, 7, 4)]) == 12\nassert max_weight_schedule([(0, 10, 9), (1, 2, 3), (2, 4, 3), (4, 6, 3), (6, 9, 3)]) == 12\nassert max_weight_schedule([(0, 5, 10), (0, 5, 7), (1, 4, 12), (2, 3, 1)]) == 12\nassert max_weight_schedule([(3, 7, 6), (1, 4, 2), (6, 10, 5), (0, 2, 4), (9, 12, 3), (4, 6, 4), (7, 9, 7)]) == 20\nimport random\nrandom.seed(7)\n_J = [(i, i + 1, 2) for i in range(100000)]\nfor _ in range(50000):\n    _s = random.randrange(0, 99990)\n    _J.append((_s, _s + 10, 1))\nrandom.shuffle(_J)\nassert max_weight_schedule(_J) == 200000"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.hard.03",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a Python function with the exact signature:\n\ndef eval_expr(s):\n\ns is a string containing a valid arithmetic expression made of: non-negative integer literals, the binary operators + - * /, unary minus (which may be repeated, e.g. \"--6\" is 6, and may apply to a parenthesized group), parentheses, and arbitrary spaces. Precedence is standard: unary minus binds tightest, then * and / (left-associative), then + and - (left-associative). Division / is INTEGER division that truncates toward ZERO (so eval_expr(\"-7/2\") == -3 and eval_expr(\"8/-3\") == -2 — note this differs from Python's // floor division for negative results). Division by zero will not occur. Return the resulting int. Use only the Python standard library and do NOT call eval or exec. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert eval_expr(\"3+4*2\") == 11\nassert eval_expr(\"(1-9)/2\") == -4\nassert eval_expr(\"-(2+3)*-4\") == 20\nassert eval_expr(\" 10 / 3 \") == 3\nassert eval_expr(\"-7/2\") == -3\nassert eval_expr(\"2*((3-5)*(4+1)-7)/-3\") == 11\nassert eval_expr(\"--6\") == 6\nassert eval_expr(\"100 - 2*3*4 + (8/-3)\") == 74"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\beval\\s*\\(|\\bexec\\s*\\(",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.hard.04",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a Python function with the exact signature:\n\ndef cheapest_route(n, edges, src, dst):\n\nThere are n nodes numbered 0..n-1. edges is a list of DIRECTED edges (u, v, w) meaning you can travel from u to v at cost w, where w is an int >= 0 (zero-cost edges are allowed, and parallel edges between the same pair may appear). src and dst are node ids. Return the minimum total cost of any path from src to dst as an int, or -1 if dst is unreachable from src. If src == dst the answer is 0. The graph can have up to 10^5 edges, so your solution must be efficiently implemented (e.g. Dijkstra with a heap — an O(n * edges) approach may time out). Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert cheapest_route(5, [(0,1,7),(0,2,3),(2,1,1),(1,3,2),(2,3,9),(3,4,4),(1,4,10)], 0, 4) == 10\nassert cheapest_route(5, [(0,1,7),(0,2,3),(2,1,1),(1,3,2),(2,3,9),(3,4,4),(1,4,10)], 4, 0) == -1\nassert cheapest_route(3, [(0,1,5),(0,1,2),(1,2,2)], 0, 2) == 4\nassert cheapest_route(4, [(0,1,1),(1,2,1)], 0, 3) == -1\nassert cheapest_route(2, [(0,1,0),(1,0,0)], 0, 1) == 0\nassert cheapest_route(1, [], 0, 0) == 0\nassert cheapest_route(4, [(0,1,4),(0,2,1),(2,1,1),(1,3,1),(2,3,6),(0,3,7)], 0, 3) == 3\nimport random\nrandom.seed(20260704)\n_N = 4000\n_E = [(i, i + 1, 3) for i in range(_N - 1)]\n_E += [(random.randrange(_N), random.randrange(_N), random.randrange(50000, 99999)) for _ in range(90000)]\nrandom.shuffle(_E)\nassert cheapest_route(_N, _E, 0, _N - 1) == 3 * (_N - 1)"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.coding.hard.05",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "hard",
+  "prompt": "Write a Python function with the exact signature:\n\ndef lru_trace(capacity, ops):\n\nSimulate a Least-Recently-Used (LRU) cache with the given positive int capacity. ops is a list of operations, each either (\"put\", key, value) or (\"get\", key), with int keys and values. Semantics: \"put\" inserts or updates key -> value and makes that key the MOST recently used; if the insert pushes the cache above capacity, evict the LEAST recently used key first. \"get\" returns the value if the key is present (and makes that key the MOST recently used) or -1 if absent — a failed get must NOT change any recency state. Return the list of results of the \"get\" operations, in order. Every operation must run in O(1) average time — capacity can be tens of thousands and ops can number in the hundreds of thousands, so an implementation that scans or does O(n) list surgery per operation will time out. Use only the Python standard library. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert lru_trace(2, [(\"put\",1,10),(\"put\",2,20),(\"get\",1),(\"put\",3,30),(\"get\",2),(\"put\",4,40),(\"get\",1),(\"get\",3),(\"get\",4)]) == [10, -1, -1, 30, 40]\nassert lru_trace(1, [(\"put\",7,70),(\"get\",7),(\"put\",8,80),(\"get\",7),(\"get\",8)]) == [70, -1, 80]\nassert lru_trace(3, [(\"put\",5,50),(\"put\",6,60),(\"put\",5,55),(\"put\",7,70),(\"put\",8,80),(\"get\",5),(\"get\",6),(\"get\",8)]) == [55, -1, 80]\nassert lru_trace(2, [(\"get\",9),(\"put\",9,90),(\"get\",9),(\"get\",9),(\"put\",10,100),(\"put\",11,110),(\"get\",9),(\"get\",11)]) == [-1, 90, 90, -1, 110]\nassert lru_trace(2, [(\"put\",1,1),(\"get\",2),(\"put\",3,3),(\"put\",4,4),(\"get\",1),(\"get\",3),(\"get\",4)]) == [-1, -1, 3, 4]\nassert lru_trace(3, [(\"put\",1,1),(\"put\",2,2),(\"put\",3,3),(\"put\",2,22),(\"put\",4,4),(\"get\",1),(\"get\",2),(\"get\",3),(\"get\",4)]) == [-1, 22, 3, 4]\nimport random\nrandom.seed(424242)\n_OPS = []\nfor _i in range(500000):\n    if random.random() < 0.5:\n        _OPS.append((\"put\", random.randrange(200000), _i))\n    else:\n        _OPS.append((\"get\", random.randrange(200000)))\n_R = lru_trace(120000, _OPS)\nassert len(_R) == 249737\nassert sum(_R) == 19302621758"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

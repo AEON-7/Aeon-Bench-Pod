@@ -80,11 +80,18 @@ def _run(v: dict, token: str | None):
         if isinstance(cfg.get("audio_config"), dict) or "audio_token_id" in cfg \
                 or isinstance(cfg.get("speech_config"), dict):
             modalities.append("audio")
+        # VIDEO has no config marker of its own: qwen-vl-style models take video_url through
+        # the vision stack, so vision-capable (or explicit video_token_id) defaults the GUI's
+        # VIDEO chip on. The bench probe (probe_video) still decides at run time.
+        if "vision" in modalities or "video_token_id" in cfg:
+            modalities.append("video")
         preset = presets.detect(cfg, name=repo)
         _set(v, sha=ref.get("sha"), n_files=len(files),
              lfs_advertised=sum(1 for s in files.values() if s),
              formats=fmts, native_ctx=native_ctx, recommended_engine=rec,
-             modalities=modalities, family_preset=presets.summary(preset, modalities))
+             modalities=modalities,
+             family_preset=presets.summary(preset, modalities,
+                                           hardware=presets.hardware_preset(plat)))
 
         lp = v.get("local_path")
         if not lp:

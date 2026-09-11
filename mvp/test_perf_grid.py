@@ -106,8 +106,12 @@ def test_direct_grid_shape_and_math():
             assert lv["categories"][cat]["n"] == n_cell
             assert lv["categories"][cat]["cell_wall_s"] >= 0   # fake target can round to 0.000
     assert len(calls) == sum(5 * max(4, c) for c in (1, 4, 8, 16, 32))
-    # hand-verifiable cell: Math @ c=1 against the deterministic fake (prompts are BUSTED)
-    busted = [perf_grid._bust(p, i) for i, p in enumerate(PROMPTS["Math"])]
+    # hand-verifiable cell: Math @ c=1 against the deterministic fake (prompts are BUSTED).
+    # The salt must match what run_direct_grid built, or the fake's length-derived timings will
+    # not line up — which is itself the point: a prompt that is not salted identically is a
+    # DIFFERENT prompt to the engine, and that is what stops the prefix cache serving it.
+    _salt = f"{perf_grid._RUN_NONCE}-c1-Mat-"
+    busted = [perf_grid._bust(p, i, _salt) for i, p in enumerate(PROMPTS["Math"])]
     cell = grid["levels"][1]["categories"]["Math"]
     exp_ttfts = [50.0 + (len(p) % 100) for p in busted]
     assert cell["ttft_ms_mean"] == round(sum(exp_ttfts) / 4, 2)
@@ -116,6 +120,25 @@ def test_direct_grid_shape_and_math():
     exp_prefill = [round((len(p) // 4) / ((50.0 + (len(p) % 100)) / 1000.0), 2)
                    for p in busted]
     assert cell["prefill_tps_mean"] == round(sum(exp_prefill) / 4, 2)
+
+    # THE CACHE-BUST PROPERTY: no two measured prompts may be byte-identical, or vLLM's prefix
+    # cache serves the second one for free and the ladder reports prefill getting CHEAPER as
+    # concurrency rises. The replica index alone did NOT give this — it restarts at 0 every level,
+    # so c1's replica 0 and c4's replica 0 collided and every higher level inherited the cache.
+    seen = {}
+    for conc in (1, 4, 8, 16, 32):
+        for cat in CATEGORIES:
+            salt = f"{perf_grid._RUN_NONCE}-c{conc}-{cat[:3]}-"
+            for i in range(max(4, conc)):
+                p = perf_grid._bust(PROMPTS[cat][i % len(PROMPTS[cat])], i, salt)
+                assert p not in seen, (
+                    "prefix-cache collision: %r reused at (c%s,%s,i=%d), first seen at %s"
+                    % (p[:60], conc, cat, i, seen.get(p)))
+                seen[p] = (conc, cat, i)
+    assert len(seen) == sum(5 * max(4, c) for c in (1, 4, 8, 16, 32))
+    # and the OLD scheme really did collide, so this test is not vacuous
+    assert perf_grid._bust("x", 0) == perf_grid._bust("x", 0)
+    assert perf_grid._bust("x", 0, "a-") != perf_grid._bust("x", 0, "b-")
     assert cell["input_tokens_total"] == sum(len(p) // 4 for p in busted)
     # aggregate decode tok/s uses the level wall clock (grid stores wall rounded
     # to 3 decimals; the fake finishes in ~ms, so compare with tolerance)

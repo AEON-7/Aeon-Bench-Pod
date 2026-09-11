@@ -1,0 +1,18 @@
+[
+ {
+  "id": "v3.math.god_mode.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "god_mode",
+  "prompt": "A gravitational-wave observatory is tracking a compact binary whose leading-order chirp-mass estimate is M_c = 1.188 solar masses. Use the Newtonian quadrupole chirp-time formula for gravitational-wave frequency f: t(f_1 -> f_2) = (5/256) * (G*M_c/c^3)^(-5/3) * pi^(-8/3) * (f_1^(-8/3) - f_2^(-8/3)). Use G = 6.67430 x 10^-11 m^3 kg^-1 s^-2, c = 299792458 m/s, one solar mass = 1.98847 x 10^30 kg, f_1 = 23.0 Hz, and f_2 = 512.0 Hz. Compute the elapsed time in seconds from f_1 to f_2. Carry full precision through the calculation and round the final answer to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no units, no explanation.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "113.452"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

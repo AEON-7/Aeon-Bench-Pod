@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import platform as _platform
+import re
 import shutil
 import subprocess
 
@@ -34,8 +35,9 @@ ENGINES = {
         "image": "ghcr.io/aeon-7/aeon-vllm-ultimate:latest",
         "url": "https://github.com/aeon-7/aeon-vllm-ultimate",
         "platforms": ["cuda"], "formats": ["safetensors"],
-        "note": "AEON's tuned vLLM build (NVFP4/modelopt + DFlash speculative decode) — the "
-                "engine behind AEON's own attested boards; optimal on DGX Spark GB10.",
+        "note": "AEON's tuned vLLM build (NVFP4/modelopt + DFlash/DSpark speculative decode; "
+                "V2 GPU runner) — the engine behind AEON's own attested boards; optimal on "
+                "DGX Spark GB10.",
     },
     "vllm": {
         "name": "vLLM", "style": "vllm",
@@ -94,37 +96,102 @@ ENGINES = {
 # what we've learned (DGX GB10: gpu-util 0.70 is OOM-safe on unified memory; FlashInfer is
 # broken on GB10 — use triton_attn/flash_attn; 64K ctx is the Hermes harness floor; DFlash
 # spec-decode is lossless and n trades single-stream vs concurrent speed).
+#
+# Per-flag schema (all optional beyond flag/kind/label; "note" kept for backward compat):
+#   desc      one-line human description of what the feature enables (card body)
+#   pros      "+ …" one-line upside          cons  "− …" one-line downside/risk
+#   conflicts list of {targeting key, why[, value_re]} the GUI surfaces LIVE as an amber
+#             warning strip on the flag's card (never a hard-disable — operator freedom):
+#               model_re   regex tested against the VALIDATED model name (HF repo)
+#               engine_re  regex tested against the selected engine id
+#               platform   key in the host_platform() dict that must be truthy (e.g.
+#                          "dgx_spark"), or an accel/os value ("cuda" / "rocm" / "macos")
+#               value_re   optional gate: the warning only fires when the control's CURRENT
+#                          value also matches (omit = fires whenever the target matches)
+#               why        one sentence: what breaks and what to do instead
 FLAG_CATALOG = {
     "vllm": [   # shared grammar: aeon-vllm-ultimate / vLLM / vLLM-ROCm
         {"flag": "--max-model-len", "kind": "number", "default": 65536, "min": 65536,
-         "label": "max model len", "note": "served context; 64K is the BENCH FLOOR (Hermes refuses less) — only HIGHER values allowed"},
-        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.8, "step": 0.05,
-         "label": "gpu memory util", "note": "VRAM fraction; pod default 0.8 (vLLM's own is 0.9). Unified-memory boxes (DGX Spark GB10) are OOM-safe as low as 0.70"},
+         "label": "max model len", "note": "served context; 64K is the BENCH FLOOR (Hermes refuses less) — only HIGHER values allowed",
+         "desc": "The context window the serve actually offers — prompt plus generation per request.",
+         "pros": "+ headroom for long agentic trajectories and long-prefill perf cases",
+         "cons": "− KV cache grows with it; past the model's native window the serve fails at startup (rope_scaling)"},
+        {"flag": "--gpu-memory-utilization", "kind": "number", "default": 0.7, "step": 0.05,
+         "label": "gpu memory util",
+         "note": "Fraction of GPU memory for weights + KV cache. Recommended 0.6-0.7. On UNIFIED-memory "
+                 "boxes (DGX Spark GB10) CPU + GPU share one pool, so >~0.8 thrashes (even 0.85 stalls); "
+                 "stay 0.6-0.7 and go lower with co-located services, high concurrency, or fp16 KV. "
+                 "DISCRETE GPUs (dedicated VRAM: RTX / B100) have no shared pool and can run 0.9+.",
+         "desc": "Fraction of GPU memory the engine claims for weights plus KV cache.",
+         "pros": "+ higher = bigger KV pool, more concurrent sequences (safe headroom on DISCRETE VRAM)",
+         "cons": "− on UNIFIED memory (GB10) >~0.8 page-thrashes the shared pool and stalls the box; "
+                 "keep 0.6-0.7, lower still for co-located services / high concurrency / fp16 KV cache",
+         "conflicts": [
+            {"platform": "dgx_spark",
+             "why": "unified memory on the GB10: CPU + GPU share one LPDDR5X pool, so >~0.8 thrashes "
+                    "(even 0.85 stalls). Keep 0.6-0.7 (0.7 default here); lower it further when ASR/TTS/"
+                    "embedding sidecars share the box, concurrency is high, or KV cache is fp16 — and note "
+                    "DFlash/spec-decode buffers aren't counted by this fraction, so leave extra headroom"}]},
         {"flag": "--max-num-seqs", "kind": "number", "default": 32,
-         "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)"},
+         "label": "max num seqs", "note": "concurrent sequence cap; 32 is a sane ceiling at 64K ctx (16-24 is the GB10 sweet spot)",
+         "desc": "Hard cap on how many sequences the scheduler runs concurrently.",
+         "pros": "+ more streams = higher aggregate tok/s on the concurrency ladder",
+         "cons": "− each stream reserves KV at 64K ctx; too high starves the cache (GB10 sweet spot 16-24)"},
         {"flag": "--quantization", "kind": "enum", "options": ["modelopt", "compressed-tensors", "awq", "gptq", "fp8", "bitsandbytes"],
-         "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)"},
+         "label": "quantization", "note": "usually auto-derived from config.json (NVFP4 repos -> modelopt)",
+         "desc": "Weight-quantization scheme override; normally auto-derived from config.json.",
+         "pros": "+ fixes a mis-detected checkpoint (NVFP4 repos -> modelopt)",
+         "cons": "− a method that doesn't match the weights refuses to load — clear it to use the derived one"},
         {"flag": "--kv-cache-dtype", "kind": "enum", "options": ["auto", "fp8_e4m3", "fp8_e5m2"],
          "label": "kv cache dtype",
          "note": "fp8 KV halves cache memory -> more concurrency at long ctx. CAUTION: crashes "
                  "Gemma4 (interleaved sliding-window layers) on triton_attn — EngineCore dies at "
                  "first request with 'Window left is not the same for all layers'. Use auto for "
-                 "gemma4, or pair fp8 KV with --disable-sliding-window (costs KV memory)"},
+                 "gemma4, or pair fp8 KV with --disable-sliding-window (costs KV memory)",
+         "desc": "Precision of the KV cache; fp8 halves cache memory.",
+         "pros": "+ roughly 2x KV capacity — more concurrency at long context",
+         "cons": "− crashes Gemma-4 sliding-window on triton_attn; finicky with MLA models (DeepSeek)",
+         "conflicts": [
+            {"model_re": r"gemma[-_ .]?4", "value_re": r"^fp8",
+             "why": "fp8 KV cache crashes Gemma-4's interleaved sliding-window layers at the first "
+                    "request ('Window left is not the same for all layers') — use auto, or add "
+                    "--disable-sliding-window if you must keep fp8"},
+            {"model_re": r"deepseek", "value_re": r"^fp8",
+             "why": "fp8 KV with DeepSeek's MLA attention is finicky — the family preset keeps KV auto"}]},
         {"flag": "--attention-backend", "kind": "enum", "options": ["triton_attn", "flash_attn", "flashinfer", "xformers"],
-         "label": "attention backend", "note": "GB10: triton_attn/flash_attn (FlashInfer is broken on GB10)"},
+         "label": "attention backend", "note": "GB10: triton_attn/flash_attn (FlashInfer is broken on GB10)",
+         "desc": "Which attention kernel implementation the engine runs.",
+         "pros": "+ the right backend for the GPU generation is a real throughput win",
+         "cons": "− FlashInfer is broken on GB10 (no working kernel — the serve dies)",
+         "conflicts": [
+            {"platform": "dgx_spark", "value_re": r"flashinfer",
+             "why": "FlashInfer is broken on the GB10 — use triton_attn or flash_attn (the family "
+                    "presets pin triton_attn)"}]},
         {"flag": "--dtype", "kind": "enum", "options": ["auto", "bfloat16", "float16"],
-         "label": "dtype", "note": "activation dtype; auto respects the checkpoint"},
-        {"flag": "--generation-config", "kind": "string",
-         "label": "generation config",
-         "note": "set to 'vllm' for benchmark-stable defaults instead of model-card sampling defaults"},
+         "label": "dtype", "note": "activation dtype; auto respects the checkpoint",
+         "desc": "Activation compute dtype; auto respects the checkpoint.",
+         "pros": "+ float16 can help on GPUs with weak bfloat16 support",
+         "cons": "− forcing float16 on a bfloat16 checkpoint risks overflow/NaNs"},
         {"flag": "--enable-prefix-caching", "kind": "bool", "label": "prefix caching",
-         "note": "reuses shared-prefix KV across requests (the perf grid cache-busts anyway)"},
+         "note": "reuses shared-prefix KV across requests (the perf grid cache-busts anyway)",
+         "desc": "Reuses KV cache across requests that share a prompt prefix.",
+         "pros": "+ big TTFT wins on repeated system prompts / shared few-shot prefixes",
+         "cons": "− no help for the perf grid (it cache-busts deliberately); slight cache-management overhead"},
         {"flag": "--enable-chunked-prefill", "kind": "bool", "label": "chunked prefill",
-         "note": "interleaves prefill with decode — smoother TTFT under load"},
+         "note": "interleaves prefill with decode — smoother TTFT under load",
+         "desc": "Splits long prefills into chunks interleaved with decode steps.",
+         "pros": "+ smoother TTFT under concurrent load; fixes 'max_num_batched_tokens < max_model_len' startup errors",
+         "cons": "− a single long prefill can finish slightly slower than one unchunked pass"},
         {"flag": "--trust-remote-code", "kind": "bool", "label": "trust remote code",
-         "note": "required by repos with custom modeling code"},
+         "note": "required by repos with custom modeling code",
+         "desc": "Lets the repo's custom modeling Python execute inside the engine.",
+         "pros": "+ required to load families that ship custom code (DeepSeek, GLM, Nemotron)",
+         "cons": "− runs arbitrary repo code — enable only for repos you trust"},
         {"flag": "--tensor-parallel-size", "kind": "number", "default": 1,
-         "label": "tensor parallel", "note": "multi-GPU: shards the model across N GPUs"},
+         "label": "tensor parallel", "note": "multi-GPU: shards the model across N GPUs",
+         "desc": "Shards the model across N GPUs (tensor parallelism).",
+         "pros": "+ fits models one GPU can't hold; pools memory bandwidth",
+         "cons": "− needs N matching GPUs and adds sync overhead — useless on a single-GPU host"},
         {"flag": "--reasoning-parser", "kind": "enum",
          "options": ["qwen3", "deepseek_r1", "gemma4", "glm45", "granite", "hunyuan_a13b",
                      "mistral", "step3", "ernie45", "seed_oss", "minimax_m1", "gpt_oss", "qwq"],
@@ -132,7 +199,10 @@ FLAG_CATALOG = {
          "note": "separates <think> from the answer — WITHOUT it a reasoning model leaks its trace "
                  "and tanks Instruction/Prose. Pick your family: Qwen 3.x -> qwen3, DeepSeek -> "
                  "deepseek_r1, Gemma-4 -> gemma4, GLM-4.5 -> glm45, StepFun -> step3. The family "
-                 "preset sets the right one automatically."},
+                 "preset sets the right one automatically.",
+         "desc": "Separates a reasoning model's <think> trace from its final answer.",
+         "pros": "+ clean answers — without it the trace leaks and tanks Instruction/Prose scores",
+         "cons": "− a parser name this engine build doesn't register CRASHES the serve at startup"},
         {"flag": "--tool-call-parser", "kind": "enum",
          "options": ["qwen3_coder", "qwen3_xml", "hermes", "deepseek_v3", "deepseek_v31",
                      "gemma4", "glm45", "kimi_k2", "step3", "llama3_json", "llama4_json",
@@ -144,40 +214,99 @@ FLAG_CATALOG = {
                  "Qwen 3.x -> qwen3_coder, DeepSeek -> deepseek_v3 (v3.1 -> deepseek_v31), "
                  "GLM-4.5 -> glm45, Kimi K2 -> kimi_k2, StepFun -> step3, Gemma-4 -> gemma4, "
                  "Llama -> llama3_json/llama4_pythonic; hermes is the generic fallback. The "
-                 "family preset picks it for you."},
+                 "family preset picks it for you.",
+         "desc": "Decodes the model family's native tool-call format for the agentic harnesses.",
+         "pros": "+ the correct family parser gives clean native tool calling through all three harnesses",
+         "cons": "− an unknown parser name fails the serve; a wrong family garbles tool calls"},
         {"flag": "--enable-auto-tool-choice", "kind": "bool", "label": "auto tool choice",
-         "note": "lets harnesses drive native tool calling"},
+         "note": "lets harnesses drive native tool calling",
+         "desc": "Enables server-side automatic tool choice so clients can drive native tool calls.",
+         "pros": "+ required for the harnesses to exercise native tool calling",
+         "cons": "− needs a matching --tool-call-parser set to be useful"},
         {"flag": "--swap-space", "kind": "number", "default": 4, "label": "swap space (GiB)",
-         "note": "CPU offload headroom per GPU"},
+         "note": "CPU offload headroom per GPU",
+         "desc": "CPU RAM (GiB per GPU) for swapping preempted sequences out of VRAM.",
+         "pros": "+ survives concurrency bursts instead of dropping/recomputing sequences",
+         "cons": "− swapped sequences crawl (PCIe round-trips); large values eat host RAM"},
         {"flag": "--limit-mm-per-prompt", "kind": "string", "label": "multimodal limits",
          "note": "per-prompt multimodal item caps, e.g. {\"audio\":2,\"image\":4} — some builds "
                  "need this for a declared-audio model to ACCEPT input_audio (the bench warns "
-                 "on a declared-vs-served mismatch)"},
-        # --speculative-config is handled by the dedicated SPEC DECODE block in the Run tab
-        # (drafter HF card + preset dropdown), not as a raw catalog knob.
+                 "on a declared-vs-served mismatch)",
+         "desc": "Caps how many multimodal items (images / audio clips) one prompt may carry.",
+         "pros": "+ declared-audio models NEED an allowance to accept input_audio at all",
+         "cons": "− left at the 0 default the audio suite probe-skips and a real capability goes untested"},
+        {"flag": "--reasoning-budget", "kind": "number", "label": "reasoning budget",
+         "note": "cap on <think> tokens per response — NOT supported by all engine builds (aeon-vllm-ultimate "
+                 "rejects it; if the serve dies on 'unrecognized arguments', remove this). Empty = "
+                 "engine default (uncapped)",
+         "desc": "Hard cap on <think> tokens a reasoning model may spend per response.",
+         "pros": "+ stops runaway reasoning from eating latency and the answer's token budget",
+         "cons": "− not supported by every build — aeon-vllm-ultimate rejects it ('unrecognized arguments')",
+         "conflicts": [
+            {"engine_re": r"^aeon-vllm-ultimate$",
+             "why": "this build rejects --reasoning-budget — the serve dies on 'unrecognized "
+                    "arguments'; remove it (the model still benches, reasoning uncapped)"}]},
+        # --speculative-config (methods: dflash / dspark / mtp / qwen3_next_mtp) is handled by
+        # the dedicated SPEC DECODE block in the Run tab (drafter HF card + preset dropdown),
+        # not as a raw catalog knob. dspark needs a V2-runner engine (aeon-vllm-ultimate /
+        # vLLM >=0.25) and runs drafter-based OR in-checkpoint (no /drafter mount).
     ],
     "sglang": [
         {"flag": "--context-length", "kind": "number", "default": 65536, "min": 65536,
-         "label": "context length", "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed"},
-        {"flag": "--mem-fraction-static", "kind": "number", "default": 0.88, "step": 0.05,
-         "label": "mem fraction", "note": "KV pool fraction — lower if you OOM"},
+         "label": "context length", "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed",
+         "desc": "The context window the serve offers — prompt plus generation per request.",
+         "pros": "+ headroom for long agentic trajectories",
+         "cons": "− KV memory grows with it; 64K is the bench floor, only higher allowed"},
+        {"flag": "--mem-fraction-static", "kind": "number", "default": 0.7, "step": 0.05,
+         "label": "mem fraction",
+         "note": "SGLang's KV-pool fraction (same knob as vLLM --gpu-memory-utilization). Recommended "
+                 "0.6-0.7. On UNIFIED memory (DGX Spark GB10) >~0.8 thrashes the shared pool; DISCRETE "
+                 "VRAM can run higher.",
+         "desc": "Fraction of GPU memory reserved for weights plus the static KV pool.",
+         "pros": "+ higher = more KV capacity and concurrency (safe on discrete VRAM)",
+         "cons": "− on unified memory (GB10) >~0.8 page-thrashes and stalls the box; keep 0.6-0.7"},
         {"flag": "--max-running-requests", "kind": "number", "default": 256,
-         "label": "max running requests", "note": "concurrency cap"},
+         "label": "max running requests", "note": "concurrency cap",
+         "desc": "Cap on requests running concurrently.",
+         "pros": "+ higher aggregate throughput on the concurrency ladder",
+         "cons": "− more simultaneous KV pressure at long context"},
         {"flag": "--quantization", "kind": "enum", "options": ["fp8", "awq", "gptq", "modelopt"],
-         "label": "quantization", "note": "match the checkpoint"},
-        {"flag": "--tp", "kind": "number", "default": 1, "label": "tensor parallel", "note": "multi-GPU sharding"},
+         "label": "quantization", "note": "match the checkpoint",
+         "desc": "Weight quantization method — must match the checkpoint.",
+         "pros": "+ fixes a mis-detected checkpoint",
+         "cons": "− a mismatched method fails the load"},
+        {"flag": "--tp", "kind": "number", "default": 1, "label": "tensor parallel", "note": "multi-GPU sharding",
+         "desc": "Tensor-parallel size — shards the model across N GPUs.",
+         "pros": "+ fits models one GPU can't hold",
+         "cons": "− needs matching GPUs; pure overhead on a single-GPU host"},
     ],
     "llama": [
         {"flag": "-c", "kind": "number", "default": 65536, "min": 65536, "label": "context (-c)",
-         "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed"},
+         "note": "64K is the BENCH FLOOR (Hermes) — only higher allowed",
+         "desc": "Context window in tokens for the llama.cpp server.",
+         "pros": "+ long trajectories fit",
+         "cons": "− KV memory grows linearly with it; 64K is the bench floor, only higher allowed"},
         {"flag": "-ngl", "kind": "number", "default": 999, "label": "gpu layers (-ngl)",
-         "note": "999 = everything on GPU; lower to fit VRAM"},
-        {"flag": "--threads", "kind": "number", "label": "cpu threads", "note": "CPU-side worker threads"},
+         "note": "999 = everything on GPU; lower to fit VRAM",
+         "desc": "How many model layers to offload to the GPU (999 = all of them).",
+         "pros": "+ full offload is the fastest path",
+         "cons": "− more layers than VRAM holds fails/OOMs — lower it to fit"},
+        {"flag": "--threads", "kind": "number", "label": "cpu threads", "note": "CPU-side worker threads",
+         "desc": "CPU worker threads for the CPU side of inference.",
+         "pros": "+ matching physical cores speeds CPU-bound serving",
+         "cons": "− oversubscribing cores slows generation"},
         {"flag": "--parallel", "kind": "number", "default": 4, "label": "parallel slots",
-         "note": "concurrent request slots (pair with --cont-batching)"},
+         "note": "concurrent request slots (pair with --cont-batching)",
+         "desc": "Concurrent request slots the server schedules.",
+         "pros": "+ real multi-stream benching (pair with --cont-batching)",
+         "cons": "− the context budget (-c) is split across slots"},
         {"flag": "--cont-batching", "kind": "bool", "label": "continuous batching",
-         "note": "required for real concurrency"},
-        {"flag": "--flash-attn", "kind": "bool", "label": "flash attention", "note": "faster attention where supported"},
+         "note": "required for real concurrency",
+         "desc": "Continuous batching — new requests join the running batch instead of queueing.",
+         "pros": "+ required for real concurrency; the perf ladder is serial without it"},
+        {"flag": "--flash-attn", "kind": "bool", "label": "flash attention", "note": "faster attention where supported",
+         "desc": "FlashAttention kernels where the build and hardware support them.",
+         "pros": "+ faster attention and lower memory at long context"},
     ],
 }
 
@@ -227,6 +356,97 @@ def merge_flags(base: list[str], extra: list[str] | None) -> tuple[list[str], li
     return merged, applied
 
 
+def quant_guard(extra: list[str] | None, derived: str | None) -> tuple[list[str], str | None]:
+    """Drop an operator --quantization override that CONTRADICTS the checkpoint's own declared
+    quant_method (config.json). vLLM hard-fails that mismatch at startup, so the flag is never
+    valid — the classic cause is a champion recipe reused from a differently-quantized donor
+    (ModelOpt NVFP4 vs llm-compressor/compressed-tensors NVFP4 of the same family). When the
+    checkpoint declares NOTHING the operator flag stands (old-style ModelOpt exports need it).
+    Returns (filtered_extra, note|None) — the note is logged + recorded in the recipe."""
+    if not extra or not derived:
+        return list(extra or []), None
+    toks, out, note, i = [str(t) for t in extra], [], None, 0
+    while i < len(toks):
+        t = toks[i].strip()
+        val = None
+        if t == "--quantization" and i + 1 < len(toks) and not toks[i + 1].startswith("-"):
+            val, i = toks[i + 1].strip(), i + 2
+        elif t.startswith("--quantization="):
+            val, i = t.split("=", 1)[1].strip(), i + 1
+        else:
+            out.append(toks[i])
+            i += 1
+            continue
+        if val and val != derived:
+            note = (f"recipe --quantization {val} conflicts with the checkpoint's declared "
+                    f"quant_method '{derived}' (config.json) — serving with '{derived}' "
+                    "(vLLM always refuses the mismatch at startup)")
+        elif val:                                        # matches the declared method: keep it
+            out += ["--quantization", val]
+    return out, note
+
+
+def _drafter_format(cfg: dict) -> str | None:
+    """Classify a drafter checkpoint's speculative-decode FORMAT from its config.json.
+    DFlash (z-lab: DFlashDraftModel, dflash_config, markov head) vs DSpark (DeepSeek-v4:
+    *DSpark* archs, hc_mult/hc-head + MTP layers). None = unrecognized (guard stays out)."""
+    arch = " ".join(cfg.get("architectures") or [])
+    if "dflash" in arch.lower() or "dflash_config" in cfg:
+        return "dflash"
+    if "dspark" in arch.lower() or "hc_mult" in cfg:
+        return "dspark"
+    return None
+
+
+def spec_method_guard(extra: list[str] | None, drafter_dir: str | None) -> tuple[list[str], str | None]:
+    """Fix an operator --speculative-config whose METHOD contradicts the drafter card's actual
+    architecture — each method routes to a different loader, and the wrong one always crashes
+    at engine init (a DFlash card under method 'dspark' dies on config.hc_mult; field failure
+    2026-07-17, Qwen3.6-27B-Ultimate). Rewrites the method to the card's format (and clamps
+    num_speculative_tokens to the card's trained block_size-1 when declared). The card's own
+    config is ground truth; everything else in the config is preserved. Returns
+    (flags, note|None)."""
+    if not extra:
+        return list(extra or []), None
+    toks = [str(t) for t in extra]
+    try:
+        i = toks.index("--speculative-config")
+        spec = json.loads(toks[i + 1])
+    except (ValueError, IndexError, json.JSONDecodeError):
+        return toks, None
+    if not isinstance(spec, dict):
+        return toks, None
+    method = str(spec.get("method") or "").lower()
+    mpath = str(spec.get("model") or "")
+    cfg_dir = drafter_dir if (mpath == "/drafter" and drafter_dir) else (mpath if os.path.isdir(mpath) else None)
+    if method not in ("dflash", "dspark") or not cfg_dir:
+        return toks, None
+    try:
+        with open(os.path.join(cfg_dir, "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return toks, None
+    fmt = _drafter_format(cfg)
+    notes = []
+    if fmt and fmt != method:
+        spec["method"] = fmt
+        notes.append(f"speculative method '{method}' contradicts the drafter card's architecture "
+                     f"({(cfg.get('architectures') or ['?'])[0]}) — corrected to '{fmt}' "
+                     "(the wrong loader always crashes at engine init)")
+        method = fmt
+    if method == "dflash":
+        bs = cfg.get("block_size")
+        nst = spec.get("num_speculative_tokens")
+        if isinstance(bs, int) and isinstance(nst, int) and nst > bs - 1:
+            spec["num_speculative_tokens"] = bs - 1
+            notes.append(f"num_speculative_tokens {nst} exceeds the drafter's trained block_size "
+                         f"{bs} — clamped to {bs - 1}")
+    if not notes:
+        return toks, None
+    toks[i + 1] = json.dumps(spec)
+    return toks, "; ".join(notes)
+
+
 #: the served-context bench floor — Hermes refuses models reporting less, which would silently
 #: burn a whole run's harness pass. Overrides BELOW the floor are raised back to it.
 CTX_FLOOR = 65536
@@ -262,15 +482,40 @@ def _has_cuda() -> bool:
 
 
 def _daemon_has_nvidia() -> bool:
-    """Ask the DOCKER DAEMON whether the host has the NVIDIA runtime. The containerized
+    """Ask the DOCKER DAEMON whether the host can give a container GPUs. The containerized
     dashboard may lack GPU access itself (someone forgot --gpus all), but sibling engine
-    containers it launches CAN still get GPUs — the daemon, not this container, is the truth."""
+    containers it launches CAN still get GPUs — the daemon, not this container, is the truth.
+
+    TWO signals, because one stopped being enough. Docker <=28 registered a separate `nvidia`
+    RUNTIME, so its name appeared in `docker info`. Docker 29 wires GPUs through CDI instead and
+    the Runtimes map lists only runc — on a DGX Spark where `docker run --gpus all` works
+    perfectly. Trusting the old signal alone made the pod conclude accel=cpu, which cost it both
+    the `--gpus all` flag on the engine container (vLLM then died with "Failed to infer device
+    type") and the right engine choice. So also accept a visible NVIDIA CDI spec.
+    """
     try:
         out = subprocess.run(["docker", "info", "--format", "{{json .Runtimes}}"],
                              capture_output=True, text=True, timeout=8)
-        return out.returncode == 0 and "nvidia" in (out.stdout or "")
+        if out.returncode == 0 and "nvidia" in (out.stdout or ""):
+            return True
     except Exception:
-        return False
+        pass
+    # CDI path (Docker 29+). Ask the daemon where its spec dirs are rather than guessing, then look
+    # for an nvidia spec in them. Requires the dirs to be readable here — mount them into the pod
+    # (-v /var/run/cdi:/var/run/cdi:ro) or set AEON_ACCEL=cuda when they are not.
+    try:
+        out = subprocess.run(["docker", "info", "--format", "{{json .CDISpecDirs}}"],
+                             capture_output=True, text=True, timeout=8)
+        dirs = json.loads(out.stdout or "[]") if out.returncode == 0 else []
+        for d in list(dirs) + ["/etc/cdi", "/run/cdi", "/var/run/cdi"]:
+            try:
+                if any("nvidia" in f.lower() for f in os.listdir(d)):
+                    return True
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return False
 
 
 _PLAT_CACHE: dict | None = None
@@ -295,7 +540,16 @@ def host_platform() -> dict:
     except AttributeError:
         apple_vm = False
     accel_source = "probe"
-    if _has_cuda():
+    # OPERATOR OVERRIDE, checked first. Detection is a heuristic over someone else's machine, and
+    # on a borrowed box it can be wrong in the safe-looking direction: a missed GPU silently
+    # degrades to accel=cpu, which drops --gpus all from the engine container and picks llama.cpp
+    # as the engine — two confusing failures downstream of one wrong guess. AEON_ACCEL lets the
+    # operator assert what they can see with nvidia-smi. Same escape hatch as AEON_SYSTEM.
+    _forced = (os.environ.get("AEON_ACCEL") or "").strip().lower()
+    if _forced in ("cuda", "rocm", "metal", "cpu"):
+        accel = _forced
+        accel_source = "AEON_ACCEL"
+    elif _has_cuda():
         accel = "cuda"
     elif _has_rocm():
         accel = "rocm"
@@ -372,6 +626,27 @@ def _host_path(p: str) -> str:
     return os.path.abspath(p)
 
 
+def _model_mount(local_dir: str) -> tuple[str, str]:
+    """Host mount + in-container model path for sibling serve containers.
+
+    Hugging Face's global cache stores snapshot files as symlinks into a sibling `blobs/`
+    directory. Mounting only `.../snapshots/<revision>` at /model breaks those symlinks inside
+    Docker, so vLLM sees `/model` as missing config.json. For HF cache snapshots, mount the
+    whole repo cache root at /model and serve `/model/snapshots/<revision>` instead.
+
+    Caveat: only RELATIVE cache symlinks (modern huggingface_hub) resolve under the repo-root
+    mount; caches written with ABSOLUTE symlinks (ancient hub versions / cross-drive Windows
+    fallbacks) still dangle in-container — the diagnostics hint catches that case.
+    """
+    host = _host_path(local_dir).replace("\\", "/").rstrip("/")
+    marker = "/snapshots/"
+    if marker in host:
+        root, _, rev = host.rpartition(marker)
+        if root and rev and "/models--" in root:
+            return root, f"/model/snapshots/{rev}"
+    return host, "/model"
+
+
 def _gpu_flags(engine_id: str, plat: dict) -> list[str]:
     if engine_id == "vllm-rocm" or plat.get("accel") == "rocm":
         return ["--device=/dev/kfd", "--device=/dev/dri", "--ipc=host",
@@ -398,6 +673,71 @@ def _declares_audio(local_dir: str) -> bool:
         return any(k in cfg for k in ("audio_config", "audio_token_id", "audio_token_index"))
     except Exception:
         return False
+
+
+def _image_repo(ref: str | None) -> str:
+    """Repository portion of an image ref, without tag/digest, NORMALIZED so podman's
+    fully-qualified RepoDigests (docker.io/vllm/vllm-openai@...) match docker-familiar
+    catalog names (vllm/vllm-openai) and vice versa. Empty for local image IDs —
+    including bare all-hex short IDs (docker accepts `3f2a9bce41` without sha256:)."""
+    ref = str(ref or "").strip()
+    if not ref or ref.startswith("sha256:"):
+        return ""
+    ref = ref.split("@", 1)[0]
+    slash = ref.rfind("/")
+    colon = ref.rfind(":")
+    if colon > slash:
+        ref = ref[:colon]
+    if slash < 0 and re.fullmatch(r"[0-9a-f]{10,64}", ref.lower()):
+        return ""                                  # bare image ID, not a repository name
+    for reg in ("docker.io/", "registry-1.docker.io/", "index.docker.io/"):
+        if ref.startswith(reg):
+            ref = ref[len(reg):]
+            break
+    if ref.startswith("library/") and ref.count("/") == 1:
+        ref = ref[len("library/"):]                # official images: library/python == python
+    return ref
+
+
+# repo path + @sha256:<64 hex> — the only shape safe to substitute into replication files
+_DIGEST_REF_RE = re.compile(r"^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$")
+
+
+def image_digests(image: str) -> dict:
+    """Content-address an engine image for the signed recipe. `image_id` is Docker's local
+    image config digest and exists for local builds. `image_digest` is a registry-pullable
+    manifest digest (`repo@sha256:...`) and is recorded only when it matches the requested
+    repository or is otherwise unambiguous. Best-effort: failure never blocks a run."""
+    try:
+        out = subprocess.run(["docker", "image", "inspect", image,
+                              "--format", "{{json .}}"],
+                             capture_output=True, text=True, timeout=30)
+        if out.returncode != 0:
+            return {}
+        meta = json.loads(out.stdout.strip() or "{}")
+        if isinstance(meta, list):
+            meta = meta[0] if meta else {}
+        image_id = meta.get("Id")
+        digests = sorted({str(x) for x in (meta.get("RepoDigests") or []) if x})
+        d = {"image_id": image_id} if image_id else {}
+        if digests:
+            d["image_repo_digests"] = digests
+        requested_repo = _image_repo(image)
+        if "@sha256:" in str(image):
+            d["image_digest"] = str(image)
+        elif requested_repo:
+            matches = [x for x in digests if _image_repo(x) == requested_repo]
+            if len(matches) == 1:
+                d["image_digest"] = matches[0]
+        elif len(digests) == 1:
+            d["image_digest"] = digests[0]
+        # only ever record a WELL-FORMED digest ref — this value is substituted into
+        # downloadable replication files (the mothership re-validates, but stamp clean)
+        if d.get("image_digest") and not _DIGEST_REF_RE.match(str(d["image_digest"])):
+            d.pop("image_digest", None)
+        return d
+    except Exception:
+        return {}
 
 
 def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: int,
@@ -441,14 +781,16 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
                 "bare_cmd": bare, "no_harness": True, "alias_from_server": True,
                 "setup": "LM Studio + its `lms` CLI — https://lmstudio.ai"}
 
+    model_mount, model_path = _model_mount(local_dir)
     docker = ["docker", "run", "--rm", "--name", SERVE_CONTAINER, "--network", "host",
-              *_gpu_flags(engine_id, plat), "-v", f"{_host_path(local_dir)}:/model:ro"]
+              *_gpu_flags(engine_id, plat), "-v", f"{model_mount}:/model:ro"]
     if drafter_dir:                                      # validated spec-decode drafter -> /drafter
         docker += ["-v", f"{_host_path(drafter_dir)}:/drafter:ro"]
     applied: list[str] = []
     if e["style"] == "vllm":
         flags = ["--served-model-name", alias, "--host", "0.0.0.0", "--port", str(port),
-                 "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.8"]  # 0.8 default; op overrides
+                 "--max-model-len", str(ctx), "--gpu-memory-utilization", "0.7"]  # 0.7 default (0.6-0.7 safe on
+                 # unified memory; >~0.8 thrashes the GB10 shared pool); op overrides for discrete VRAM
         if quant:
             flags += ["--quantization", str(quant)]
         if _declares_audio(local_dir):
@@ -458,12 +800,18 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
             # untested. Grant it up-front; an operator --limit-mm-per-prompt in recipe
             # tuning still overrides via merge_flags.
             flags += ["--limit-mm-per-prompt", '{"image":4,"audio":4}']
+        extra_flags, _qnote = quant_guard(extra_flags, quant)
+        extra_flags, _snote = spec_method_guard(extra_flags, drafter_dir)
         flags, applied = merge_flags(flags, extra_flags)
         flags = _floor_ctx(flags, "vllm")
-        cmd = docker + ["--entrypoint", "vllm", img, "serve", "/model"] + flags
+        cmd = docker + ["--entrypoint", "vllm", img, "serve", model_path] + flags
         srv = {"flags": flags}                          # vllm-style flags: the repro card renders these
+        if _qnote:
+            srv["quant_guard"] = _qnote
+        if _snote:
+            srv["spec_method_guard"] = _snote
     elif e["style"] == "sglang":
-        args = ["--model-path", "/model", "--served-model-name", alias,
+        args = ["--model-path", model_path, "--served-model-name", alias,
                 "--host", "0.0.0.0", "--port", str(port), "--context-length", str(ctx)]
         args, applied = merge_flags(args, extra_flags)
         args = _floor_ctx(args, "sglang")
@@ -473,7 +821,7 @@ def build_serve(engine_id: str, *, local_dir: str, alias: str, port: int, ctx: i
         gguf = _find_gguf(local_dir)
         if not gguf:
             raise ValueError("llama.cpp needs GGUF weights; none found in the model dir")
-        args = ["-m", f"/model/{gguf}", "-c", str(ctx),
+        args = ["-m", f"{model_path}/{gguf}", "-c", str(ctx),
                 "--host", "0.0.0.0", "--port", str(port), "--alias", alias]
         if plat["accel"] == "cuda":
             args += ["-ngl", "999"]

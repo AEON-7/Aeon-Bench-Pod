@@ -32,9 +32,16 @@ import os
 import shutil
 import tempfile
 
-from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
+from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_io,
+                   safe_name, strip_reasoning)
 
-IMAGE = os.environ.get("AEON_OPENCODE_IMAGE", "aeon-harness-opencode")
+# Published multi-arch by the pod repo's harness-images workflow, so ANY pod can pull it.
+# It used to default to the bare local name, which only existed on a rig that had built it
+# by hand — every other pod failed `docker create` and scored 0 on every agentic task.
+# Now the pod BUILDS it locally on first use (see `ensure_image`): no third-party image is
+# redistributed, and the operator's copy comes straight from upstream.
+# Override with the env var to use a locally-built image instead.
+IMAGE = os.environ.get("AEON_OPENCODE_IMAGE", "aeon-harness-opencode:latest")
 _PROVIDER_ID = "dgx"
 _API_KEY = "sk-local"
 _TOOLISH_TYPES = ("tool", "tool_use", "tool_call", "tool-invocation", "tool.execute")
@@ -144,6 +151,9 @@ class OpenCodeAdapter(Adapter):
     def prepare_run(self, model_base_url: str, served_alias: str, run_root: str):
         """Fresh per-model-run config dir under `run_root` (never reused across models).
         Container state is inherently fresh: every task is a one-shot `docker run --rm`."""
+        # build the harness image here if this machine doesn't have it yet - one loud
+        # failure with install instructions beats 0 on every task.
+        ensure_image(self.IMAGE, "opencode")
         d = os.path.join(run_root, f"opencode-{safe_name(served_alias)}")
         if os.path.isdir(d):
             shutil.rmtree(d, ignore_errors=True)
@@ -171,14 +181,20 @@ class OpenCodeAdapter(Adapter):
         # docker-cp I/O (run_container_io): a bind mount of the pod-local workdir breaks when
         # the pod is containerized (daemon resolves the path on the HOST -> empty /work -> the
         # CLI never sees opencode.json -> "Unknown model: dgx/<alias>", no seed files).
-        out, err, rc, dur = run_container_io(
-            self.IMAGE,
-            ["run", "--format", "json", "--auto",
-             "-m", self._model or f"{_PROVIDER_ID}/{served_alias}",
-             task.get("prompt", "")],
-            seed=[(workdir, "/work")],
-            collect=[("/work/.", workdir)],
-            timeout=timeout, name_hint=f"opencode_{served_alias}", workdir="/work")
+        from .. import harness_stream          # local: keeps pod.adapters free of a package cycle
+        _obs = harness_stream.observer("opencode", task.get("id"))
+        try:
+            out, err, rc, dur = run_container_io(
+                self.IMAGE,
+                ["run", "--format", "json", "--auto",
+                 "-m", self._model or f"{_PROVIDER_ID}/{served_alias}",
+                 task.get("prompt", "")],
+                seed=[(workdir, "/work")],
+                collect=[("/work/.", workdir)],
+                timeout=timeout, name_hint=f"opencode_{served_alias}", workdir="/work",
+                on_line=_obs)
+        finally:
+            _obs.close()
         parsed = parse_output(out)
         if rc != 0 and not parsed["answer"] and not parsed["steps"]:
             raise AdapterError(f"opencode exited {rc} with no parseable output; "

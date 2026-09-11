@@ -54,19 +54,19 @@ SYS = (
 # Each prompt: a clear, fair task — challenging but easily within reach of a strong model.
 _BUILTIN_PROMPTS = {
     "app": [
-        {"id": "app.tip", "title": "Tip calculator",
+        {"difficulty": "easy", "id": "app.tip", "title": "Tip calculator",
          "brief": "Bill + tip% (with quick-pick buttons) + split, live per-person total.",
          "prompt": "Build a tip calculator as a single self-contained HTML file. Inputs: bill amount, "
                    "tip percentage with quick-pick buttons (10/15/18/20/25%), and number of people to split. "
                    "Show the tip total, grand total, and amount per person, all updating live as inputs change. "
                    "Make it clean and usable."},
-        {"id": "app.todo", "title": "To-do list",
+        {"difficulty": "easy", "id": "app.todo", "title": "To-do list",
          "brief": "Add / complete / delete tasks, filter all·active·done, count remaining, persists.",
          "prompt": "Build a to-do list app as a single self-contained HTML file. Users can add a task, mark it "
                    "complete (with a strikethrough), and delete it. Include filter buttons for All / Active / Done, "
                    "a counter of remaining tasks, and persist tasks in localStorage so they survive a reload. "
                    "Make it look polished."},
-        {"id": "app.markdown", "title": "Markdown previewer",
+        {"difficulty": "medium", "id": "app.markdown", "title": "Markdown previewer",
          "brief": "Type Markdown on the left, see live rendered HTML on the right.",
          "prompt": "Build a live Markdown previewer as a single self-contained HTML file: a textarea on the left "
                    "and a live-rendered preview on the right. Support headings (#..######), bold, italics, inline "
@@ -74,18 +74,18 @@ _BUILTIN_PROMPTS = {
                    "parser yourself — no external libraries. Start with some sample Markdown loaded."},
     ],
     "game": [
-        {"id": "game.snake", "title": "Snake",
+        {"difficulty": "medium", "id": "game.snake", "title": "Snake",
          "brief": "Arrow-key snake on a canvas: food, growth, score, game-over + restart.",
          "prompt": "Build the classic Snake game as a single self-contained HTML file on a <canvas>. Arrow keys "
                    "steer; the snake grows when it eats food; show the score; on collision show Game Over and allow "
                    "restart with a key press. Keep the controls responsive and the speed playable."},
-        {"id": "game.breakout", "title": "Breakout",
+        {"difficulty": "medium", "id": "game.breakout", "title": "Breakout",
          "brief": "Paddle + ball + brick rows, score, win and lose states.",
          "prompt": "Build a Breakout / brick-breaker game as a single self-contained HTML file on a <canvas>. A "
                    "paddle at the bottom (moved with the mouse or arrow keys) bounces a ball into rows of colored "
                    "bricks that disappear when hit. Track score, handle losing the ball (lives) and clearing all "
                    "bricks (win), and allow restart."},
-        {"id": "game.memory", "title": "Memory match",
+        {"difficulty": "medium", "id": "game.memory", "title": "Memory match",
          "brief": "Grid of cards, flip to find matching pairs, move counter, win state.",
          "prompt": "Build a memory matching game as a single self-contained HTML file: a 4x4 grid of face-down "
                    "cards hiding 8 pairs of symbols. Clicking flips a card; two matching cards stay face-up, a "
@@ -93,17 +93,17 @@ _BUILTIN_PROMPTS = {
                    "message), and offer a new game that reshuffles."},
     ],
     "animation": [
-        {"id": "anim.balls", "title": "Bouncing balls",
+        {"difficulty": "easy", "id": "anim.balls", "title": "Bouncing balls",
          "brief": "Several balls, gravity, wall bounce, fading motion trails.",
          "prompt": "Create a canvas animation as a single self-contained HTML file: a dozen colorful balls of "
                    "varying sizes bouncing inside the window with gravity and energy loss on wall collisions, each "
                    "leaving a soft fading trail. It should fill the window and look lively and smooth."},
-        {"id": "anim.starfield", "title": "Starfield warp",
+        {"difficulty": "easy", "id": "anim.starfield", "title": "Starfield warp",
          "brief": "Stars streaming toward the viewer with depth and parallax.",
          "prompt": "Create a 'warp speed' starfield as a single self-contained HTML file on a full-window <canvas>: "
                    "stars stream outward from the center toward the viewer with a sense of depth and acceleration, "
                    "nearer stars moving faster and appearing as short streaks. Smooth 60fps feel."},
-        {"id": "anim.boids", "title": "Boids flocking",
+        {"difficulty": "medium", "id": "anim.boids", "title": "Boids flocking",
          "brief": "~80 agents with separation, alignment, cohesion — emergent flocking.",
          "prompt": "Create a boids flocking simulation as a single self-contained HTML file on a full-window "
                    "<canvas>: around 80 triangular agents that move with the three classic rules — separation, "
@@ -134,6 +134,9 @@ def _load_prompts():
                     continue
                 seen.add(p["id"])
                 entry = {k: p[k] for k in ("id", "title", "brief", "prompt")}
+                if p.get("difficulty") in ("easy", "medium", "hard", "expert", "frontier", "god_mode"):
+                    entry["difficulty"] = p["difficulty"]   # closed set (full 6-tier platform scale) —
+                    # garbage never reaches the UI, and the god-slot draw keys off this field
                 if p.get("agent_only"):
                     entry["agent_only"] = True   # gallery/match group only — never the chat-generation pool
                 out[p["kind"]].append(entry)
@@ -149,7 +152,8 @@ def all_prompts():
     out = []
     for kind, items in PROMPTS.items():
         for p in items:
-            out.append({"kind": kind, "id": p["id"], "title": p["title"], "brief": p["brief"]})
+            out.append({"kind": kind, "id": p["id"], "title": p["title"], "brief": p["brief"],
+                        "difficulty": p.get("difficulty")})
     return out
 
 
@@ -293,8 +297,11 @@ def ranking(kind=None):
 # ---- public Code Gallery (top-rated artifacts per prompt, per kind) ----
 
 GALLERY_TOP_N = 10
-# A young prompt with almost no counted votes still deserves content: pad it with its
-# newest UNRATED artifacts (flagged "unrated") only while it has fewer rated than this.
+# Always surface a handful of fresh unrated submissions too. Otherwise a mature
+# prompt can hide a newly submitted model until humans vote on it.
+GALLERY_RECENT_UNRATED_N = 5
+# A young prompt with almost no counted votes still deserves a fuller strip: pad it
+# with newest UNRATED artifacts (flagged "unrated") while it has fewer rated than this.
 GALLERY_MIN_RATED = 3
 
 
@@ -345,9 +352,12 @@ def gallery(kind):
         arts = by_prompt.get(p["id"]) or []
         rated = sorted((a for a in arts if a["id"] in ratings),
                        key=lambda a: (-ratings[a["id"]]["elo"], -ratings[a["id"]]["votes"]))
+        unrated = [a for a in arts if a["id"] not in ratings]  # created_at DESC from db
         top = rated[:GALLERY_TOP_N]
         if len(rated) < GALLERY_MIN_RATED:     # arts is created_at DESC → newest first
-            top += [a for a in arts if a["id"] not in ratings][:GALLERY_TOP_N - len(top)]
+            top += unrated[:GALLERY_TOP_N - len(top)]
+        elif unrated:
+            top += unrated[:GALLERY_RECENT_UNRATED_N]
         if not top:
             continue
         items = []
@@ -370,7 +380,8 @@ def gallery(kind):
             if not r:
                 it["unrated"] = True
             items.append(it)
-        out.append({"id": p["id"], "title": p["title"], "brief": p["brief"], "artifacts": items})
+        out.append({"id": p["id"], "title": p["title"], "brief": p["brief"],
+                    "difficulty": p.get("difficulty"), "artifacts": items})
     return out
 
 
@@ -589,5 +600,13 @@ def submit_vote(user, match_id, winner):
 
 
 def _self_state(uid):
-    from . import accounts
+    # `accounts` is mothership-only and is never synced to the public pod repo, so on a pod this
+    # import raises and takes submit_vote() down on its own SUCCESS path. It stayed hidden because
+    # /api/arena/vote 404s earlier via _no_trust_stack — but anything calling submit_vote directly
+    # hits it. A pod has no evaluator accounts, so there is no per-user trust state to report and
+    # omitting it is the honest answer rather than a fallback value.
+    try:
+        from . import accounts
+    except ImportError:
+        return None
     return accounts.public_state(uid)

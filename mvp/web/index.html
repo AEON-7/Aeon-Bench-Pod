@@ -23,7 +23,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=1" />
   <link rel="icon" href="/static/favicon.ico?v=1" />
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=1" />
-  <link rel="stylesheet" href="/static/styles.css?v=79" />
+  <link rel="stylesheet" href="/static/styles.css?v=124" />
 </head>
 <body>
   <header>
@@ -37,10 +37,9 @@
   <main>
     <nav class="tabs" id="tabs">
       <span class="tabgroup" data-label="Boards">
-        <button class="tab active" data-board="text">Text</button>
-        <button class="tab" data-board="vision">Vision</button>
-        <button class="tab" data-board="audio">Audio</button>
+        <button class="tab active" data-board="text">Global Leaderboard</button>
         <button class="tab" data-perf="1">Performance</button>
+        <button class="tab god-tab" data-god="1" title="the hardest class only — god sentinels, god agentic tasks, god-tier code generation">GOD MODE</button>
       </span>
       <span class="tabgroup" data-label="Your lab">
         <button class="tab" data-live="1">Live</button>
@@ -62,7 +61,7 @@
 
     <section class="panel" id="boardPanel">
       <div class="lbhead">
-        <h2>Leaderboard</h2>
+        <h2 id="boardTitle">Global Leaderboard</h2>
         <details class="weights-wrap">
           <summary>Category weights</summary>
           <div class="weights" id="weights"></div>
@@ -77,8 +76,24 @@
         <div id="board" class="mcards"></div>
         <div class="chartwrap"><div id="radar"></div><div id="chartNote" class="note"></div></div>
       </div>
+      <!-- EXPLORE THE DATA: the story behind each headline number — category × difficulty
+           heatmap + difficulty-decay line, filterable live. Hidden until /api/explorer
+           answers with data (old servers without the endpoint never show it). -->
+      <details class="explorer-wrap" id="explorerWrap" hidden>
+        <summary><span class="exp-mark">◈</span> Explore the data <span class="exp-sub">category × difficulty · where each model holds up and where it cracks</span></summary>
+        <div id="explorerBody" class="exp-body"></div>
+      </details>
     </section>
 
+
+    <section class="panel" id="godPanel" hidden>
+      <div class="lbhead"><h2 class="god-title">GOD MODE BENCH</h2></div>
+      <p class="lede">The hardest class, exclusively — <b>god sentinels</b> (atomic all-or-nothing), <b>god agentic tasks</b> through every harness, and <b>god-tier code generation</b> in the arena. Beyond-frontier by construction; most models should fail most of it.</p>
+      <details class="how"><summary>How this works</summary>
+        <p class="note">A <b>GOD MODE</b> bench run (Run tab → Test plan → GOD MODE BENCH) serves the model through the same verified HF-pull flow, then runs ONLY the god tier: every god sentinel (scored by atomic checkers — a 90%-right answer scores 0), the god agentic tasks through Hermes / OpenClaw / OpenCode, and god-tier arena challenges (those artifacts land in the Code Gallery for human votes). <b>GOD SCORE = 0.6 × sentinels + 0.4 × agentic</b>, renormalized when a component is untested. Attested runs only; partial god passes never rank.</p>
+      </details>
+      <div id="godBody"></div>
+    </section>
 
     <section class="panel" id="perfPanel" hidden>
       <div class="lbhead"><h2>Performance</h2></div>
@@ -101,16 +116,44 @@
 
     <section class="panel" id="comparePanel" hidden>
       <div class="lbhead"><h2>Compare</h2></div>
-      <p class="lede">Two runs side by side — two models, or the same model under two recipes. Plus seed A/Bs.</p>
+      <p class="lede">Two whole benchmarks side by side — every board (text · harnesses · vision · audio · video · perf · arena · recipe), parity gaps called out. Single-run and seed A/Bs below.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note"><b>Compare runs</b>: pick any two submissions — the shared suite joins per question, so you see both answers, both scores and both recipes head-to-head (the recipe-tuning A/B view; also reachable from the Submissions list via the ⇆ checkboxes). <b>Compare by seed</b>: a <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>; every model that ran it answered the <b>identical questions</b>.</p>
+        <p class="note"><b>Compare benchmarks</b>: pick two benchmark jobs — every section renders side by side in a fixed order; a board only one side ran shows an explicit parity plate ("no … results for this run") so gaps are visible, never silently skipped. <b>Compare runs</b>: pick any two submissions — the shared suite joins per question, so you see both answers, both scores and both recipes head-to-head (the recipe-tuning A/B view; also reachable from the Submissions list via the ⇆ checkboxes). <b>Compare by seed</b>: a <b>fast bench</b> draws one question per (category × difficulty) from a <b>seed</b>; every model that ran it answered the <b>identical questions</b>.</p>
       </details>
-      <div class="cmp-pick cmp-runs-pick">
-        <label>run A&nbsp;<select id="cmpRunA"></select></label>
-        <label>vs B&nbsp;<select id="cmpRunB"></select></label>
-        <button id="cmpRunsGo" class="ghost">⇆ compare runs</button>
+      <!-- PRIMARY picker: whole-benchmark (job-level) A/B — one plate, full width -->
+      <div class="cmp-pickbar cmp-cards-bar">
+        <div class="cmp-pick cmp-cards-pick cmp-plate">
+          <span class="cmp-plate-t">benchmark A <span class="cmp-vs">vs</span> benchmark B</span>
+          <div class="cmp-plate-body">
+            <label class="cmp-side-l cmp-side-a"><span class="cmp-key a">A</span><select id="cmpCardA"></select></label>
+            <span class="cmp-vs-mark">⇆</span>
+            <label class="cmp-side-l cmp-side-b"><span class="cmp-key b">B</span><select id="cmpCardB"></select></label>
+            <button id="cmpCardsGo" class="ghost">⇆ compare benchmarks</button>
+          </div>
+        </div>
       </div>
-      <div class="cmp-pick"><label>or seed&nbsp;<select id="cmpSeed"></select></label> <span id="cmpBadge" class="cmp-badge"></span></div>
+      <!-- secondary tools: run-vs-run · seed A/B (collapsed by default — the job compare above is primary) -->
+      <details class="cmp-secondary" id="cmpSecondary">
+        <summary>single-run + seed tools</summary>
+        <div class="cmp-pickbar">
+          <div class="cmp-pick cmp-runs-pick cmp-plate">
+            <span class="cmp-plate-t">run A <span class="cmp-vs">vs</span> run B</span>
+            <div class="cmp-plate-body">
+              <label class="cmp-side-l cmp-side-a"><span class="cmp-key a">A</span><select id="cmpRunA"></select></label>
+              <span class="cmp-vs-mark">⇆</span>
+              <label class="cmp-side-l cmp-side-b"><span class="cmp-key b">B</span><select id="cmpRunB"></select></label>
+              <button id="cmpRunsGo" class="ghost">⇆ compare runs</button>
+            </div>
+          </div>
+          <div class="cmp-pick cmp-seed-pick cmp-plate">
+            <span class="cmp-plate-t">or seed</span>
+            <div class="cmp-plate-body">
+              <label class="cmp-side-l"><span class="cmp-key">◈</span><select id="cmpSeed"></select></label>
+              <span id="cmpBadge" class="cmp-badge"></span>
+            </div>
+          </div>
+        </div>
+      </details>
       <div id="cmpBody"></div>
     </section>
 
@@ -133,51 +176,107 @@
       <div class="run-cards">
         <div class="run-card vcard">
           <h3>◉ Validated bench</h3>
-          <p class="note">Pull (or reuse) → hash-validate → serve in your engine → benchmark → sign → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result.</p>
-          <div class="row" id="tplRow" hidden>
+          <p class="note">Hash-validate → benchmark → sign → submit. Earns an <span class="elig-badge verified">✓ attested</span> global result — whether the pod serves the weights or you point it at a model that's already running.</p>
+          <div class="run-intent" id="runIntent" role="tablist" aria-label="what to benchmark">
+            <button type="button" class="ri-btn active" data-intent="pull" title="pull the weights from Hugging Face, serve them in your engine, then benchmark — the pod does the serving">⤓ Pull from HuggingFace</button>
+            <button type="button" class="ri-btn" data-intent="endpoint" title="benchmark a model that's ALREADY running — your live serve, an MLX / LM Studio host, or a cluster. Scan for it or paste its URL, then give the HF link so the pod hash-verifies the weights and fingerprints the endpoint against them.">◉ Point at a running model</button>
+          </div>
+          <div class="run-mode" id="runMode" role="tablist" aria-label="form complexity">
+            <button type="button" class="rm-btn active" data-mode="simple" title="just the essentials: paste a link, pick a plan, RUN — the pod auto-derives everything else">SIMPLE</button>
+            <button type="button" class="rm-btn" data-mode="advanced" title="every knob: templates, champion recipes, engine, recipe tuning, spec decode, modalities, scope, budgets">ADVANCED</button>
+          </div>
+          <div class="row adv pull-only" id="tplRow" hidden>
             <label class="grow">↺ Template — start from a prior run <span class="note">(prefills every setting below; tweak one thing, relaunch)</span><select id="tplSel"></select></label>
           </div>
           <div class="row">
-            <label class="grow">HF link<input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
-            <label class="grow">Local weights <span class="note">(optional — no re-download)</span>
+            <label class="grow">HF link <span class="note endpoint-only">(the weights to verify the running model against)</span><input id="hfLink" type="text" placeholder="org/model  or  https://huggingface.co/org/model" /></label>
+            <label class="grow pull-only">Local weights <span class="note">(optional — no re-download)</span>
               <span class="lw-field">
                 <input id="hfLocal" type="text" readonly aria-readonly="true" placeholder="none selected — launch will PULL the repo fresh &amp; hash-verify. Pick a local copy with ⌕ scan or ▤ browse to hash-check bytes on disk instead." title="Read-only: set it by choosing a model with ⌕ scan / ▤ browse. This is the exact folder that gets sha256-checked against the HF manifest." />
                 <button id="hfLocalClear" class="lw-clear" type="button" title="clear the local copy — launch will pull the repo fresh from Hugging Face and hash-verify on download" hidden>✕</button>
               </span></label>
-            <span class="lw-acts">
+            <span class="lw-acts pull-only">
               <button id="lwScan" class="ghost" title="sweep this system's model homes (HF cache, LM Studio, AEON, ~/models) — found models auto-reconcile to their HF card for automatic hash checks">⌕ scan system</button>
               <button id="lwBrowse" class="ghost" title="browse the pod host's file structure for a model folder">▤ browse</button>
             </span>
           </div>
-          <div class="row" id="scanRow" hidden>
+          <p class="note" id="verifyHfPrompt" hidden></p>
+          <div class="row pull-only" id="scanRow" hidden>
             <label class="grow">Models on this system <span class="note" id="scanCount"></span>
               <input id="scanSearch" type="search" placeholder="🔍 filter by name / format / source…" autocomplete="off" spellcheck="false" />
               <select id="scanSel"></select></label>
           </div>
           <div id="valStrip" class="val-strip idle" aria-live="polite"><span class="val-dot"></span><span class="val-msg">MODEL VALIDATION — paste an HF link to begin</span></div>
-          <div class="row">
+          <div id="champRow" class="preset-row champ-row adv pull-only" hidden>
+            <div class="preset-head"><span class="preset-star">★</span> <b>CHAMPION RECIPES</b>
+              <span class="preset-conf" id="champHw">your hardware</span>
+              <select id="champSel" class="champ-sel" title="the winning recipe per model on hardware like yours, pulled from the mothership — apply it, then tweak anything before launch"></select>
+              <button id="champApply" class="ghost preset-apply" title="fill engine + Recipe Tuning + spec decode with this champion's exact winning recipe — editable before launch">apply template →</button></div>
+            <div id="champProv" class="preset-notes mono"></div>
+          </div>
+          <div class="row adv pull-only">
             <label>Engine<select id="veEngine" title="the inference container the model runs in"></select></label>
             <label class="grow">Custom image <span class="note">(optional)</span><input id="veImage" type="text" placeholder="override the engine's container image, e.g. my/vllm:nightly" /></label>
             <label>HF token <span class="note">(gated repos)</span><select id="hfKey"></select></label>
           </div>
-          <div id="engInfo" class="eng-info note"></div>
-          <details class="tune-wrap" id="tuneWrap" open>
+          <div id="engInfo" class="eng-info note adv pull-only"></div>
+          <details class="tune-wrap adv pull-only" id="tuneWrap" open>
             <summary><span class="tune-t">⚙ RECIPE TUNING</span> <span class="note">startup flags — dial in the optimal recipe for this system</span><span id="tuneCount" class="tune-count" hidden></span></summary>
+            <!-- last-failed-bench hint lives WHERE THE FIX HAPPENS (filled by renderTuneAlert) -->
+            <div id="tuneAlert" class="tune-alert" hidden></div>
             <div id="tuneBody" class="tune-body"></div>
             <div class="tune-spec" id="tuneSpec">
-              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH</span><span id="drafterState" class="drafter-state mono"></span></div>
+              <div class="tune-spec-h"><span class="tune-t">◈ SPEC DECODE — DFLASH / DSPARK / MTP</span><span id="drafterState" class="drafter-state mono"></span></div>
               <div class="row">
-                <label class="grow">Drafter HF card<input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
+                <label class="grow" id="drafterField">Drafter HF card <span class="note">(DFlash / DSpark drafter forms)</span><input id="drafterHf" type="text" placeholder="z-lab/&lt;Model&gt;-DFlash or deepseek-ai/dspark_&lt;model&gt;_blockN — hash-validated like the model, mounted at /drafter" spellcheck="false" /></label>
                 <label>Speculative config<select id="specSel">
                   <option value="">— off —</option>
-                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":6}'>DFlash n=6 — concurrent-optimal</option>
-                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":11}'>DFlash n=11 — single-stream (gemma4)</option>
-                  <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":12}'>DFlash n=12 — single-stream max</option>
+                  <optgroup label="DFlash drafter (/drafter), n=1-15">
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":1}'>DFlash n=1</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":2}'>DFlash n=2</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":3}'>DFlash n=3</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":4}'>DFlash n=4</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":5}'>DFlash n=5</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":6}'>DFlash n=6 — concurrent baseline</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":7}'>DFlash n=7</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}'>DFlash n=8</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":9}'>DFlash n=9</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":10}'>DFlash n=10</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":11}'>DFlash n=11</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":12}'>DFlash n=12</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":13}'>DFlash n=13</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":14}'>DFlash n=14</option>
+                    <option value='{"method":"dflash","model":"/drafter","num_speculative_tokens":15}'>DFlash n=15 — deepest</option>
+                  </optgroup>
+                  <optgroup label="DSpark drafter (/drafter)">
+                    <option value='{"method":"dspark","model":"/drafter","num_speculative_tokens":4}'>DSpark n=4</option>
+                    <option value='{"method":"dspark","model":"/drafter","num_speculative_tokens":7}'>DSpark n=7 — block7 drafters</option>
+                    <option value='{"method":"dspark","model":"/drafter","num_speculative_tokens":8}'>DSpark n=8</option>
+                  </optgroup>
+                  <optgroup label="Native MTP, no drafter card">
+                    <option value='{"method":"mtp","num_speculative_tokens":1}'>MTP n=1 — generic</option>
+                    <option value='{"method":"mtp","num_speculative_tokens":2}'>MTP n=2 — generic</option>
+                    <option value='{"method":"mtp","num_speculative_tokens":3}'>MTP n=3 — generic</option>
+                    <option value='{"method":"mtp","num_speculative_tokens":4}'>MTP n=4 — generic</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":1}'>Qwen MTP n=1</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":2}'>Qwen MTP n=2</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":3}'>Qwen MTP n=3</option>
+                    <option value='{"method":"qwen3_next_mtp","num_speculative_tokens":4}'>Qwen MTP n=4</option>
+                  </optgroup>
+                  <optgroup label="Native DSpark (in-checkpoint)">
+                    <option value='{"method":"dspark","num_speculative_tokens":4}'>Native DSpark n=4</option>
+                    <option value='{"method":"dspark","num_speculative_tokens":7}'>Native DSpark n=7</option>
+                  </optgroup>
                   <option value="custom">custom JSON…</option>
                 </select></label>
               </div>
               <div class="row" id="specCustomRow" hidden><label class="grow">Custom speculative config (JSON)<input id="specCustom" type="text" spellcheck="false" placeholder='{"method":"dflash","model":"/drafter","num_speculative_tokens":8}' /></label></div>
-              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. The drafter is pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>.</p>
+              <!-- method card: desc + pros/cons in the tune-card grammar, filled by syncSpecUI -->
+              <div id="specMethodCard" class="spec-method-card" hidden>
+                <p class="tune-desc" id="specMethodDesc"></p>
+                <div class="tune-pc"><span class="tune-pro" id="specMethodPro"></span><span class="tune-con" id="specMethodCon"></span></div>
+              </div>
+              <p class="note tune-note" style="padding:0">Spec decode is <b>lossless</b> — the target model verifies every draft token, so only SPEED changes: low n favors concurrency, high n favors single-stream. DFlash presets require a drafter card (pulled fresh, hash-validated against its HF card, pinned in the recipe, and mounted at <span class="mono">/drafter</span>) and support n=1-15. DSpark runs either from an external DSpark drafter card (block-N drafters, e.g. <span class="mono">deepseek-ai/dspark_qwen3_8b_block7</span> — same pull/validate/mount as DFlash) or fully in-checkpoint on DSpark-trained models (no drafter download; head internals come from the drafter's own config). Native MTP presets use the model's built-in MTP head and need no drafter; start small, then tune upward per model.</p>
             </div>
             <div class="row"><label class="grow">Extra flags <span class="note">(any flag not listed above — appended verbatim)</span><input id="tuneExtra" type="text" placeholder="e.g.  --seed 7  --num-scheduler-steps 8  --rope-scaling '{&quot;type&quot;:&quot;yarn&quot;}'" spellcheck="false" /></label></div>
             <p class="note tune-note"><b>How custom flags work:</b> type them exactly as you'd pass them to the engine, space-separated (<span class="mono">--flag value</span> or a bare <span class="mono">--flag</span> for booleans). Wrap a value containing spaces or JSON in single quotes. These MERGE into the engine's serve command — a flag also set above is replaced by your value; a new flag is appended. The bench wiring (served alias · host · port · 64K floor) is protected and can't be broken. The exact final recipe is recorded, shown on the result, and downloadable — every tuned run is a data point in the optimal-recipe search.</p>
@@ -185,26 +284,62 @@
             <p class="note tune-note">Paste a whole startup recipe here for total control (exotic engines, hand-tuned setups). When set, the engine dropdown + every flag above are ignored — the pod runs THIS command verbatim to serve, then still hash-validates the model and benches it. It MUST serve the alias <span class="mono">model-under-test</span> on <span class="mono">:8000</span> (or your chosen port) so the harnesses connect. Recorded with the run exactly like a generated recipe.</p>
           </details>
           <div id="mlxHelp" class="mlx-help" hidden>
-            <div class="mlx-h"><span class="repro-t" id="bareTitle">⌘ BARE-METAL SERVE</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
-            <p class="note" id="bareNote"></p>
-            <pre class="repro-cmd" id="mlxCmd"></pre>
-            <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" /></label></div>
+            <div class="ep-lead endpoint-only">
+              <span class="repro-t">◉ POINT AT A RUNNING MODEL</span>
+              <p class="note">Benchmark a serve that's already up — your live production endpoint, an MLX / LM Studio host, or a cluster head. Scan for it or paste its URL, then give the HF link above so the pod hash-verifies the weights and logprob-fingerprints the endpoint against them → <span class="elig-badge verified">✓ attested</span> on a match.</p>
+            </div>
+            <div class="pull-only">
+              <div class="mlx-h"><span class="repro-t" id="bareTitle">⌘ BARE-METAL SERVE</span><button id="mlxCopy" class="ghost repro-copy">copy command</button></div>
+              <p class="note" id="bareNote"></p>
+              <pre class="repro-cmd" id="mlxCmd"></pre>
+            </div>
+            <button id="scanEndpoints" class="ghost" title="sweep this host (and any ?hosts LAN/cluster nodes) for running OpenAI-compatible servers, then pick one to bench + fingerprint-verify — no need to paste its URL">⌕ Scan for running instances</button>
+            <div id="scanEndpointsResult" class="scan-ep-result"></div>
+            <div class="row"><label class="grow">Serve URL<input id="veServeUrl" type="text" placeholder="http://127.0.0.1:8000/v1" title="the OpenAI-compatible base URL of the model that's already running — filled for you by ⌕ Scan, or paste it" /></label></div>
+            <div class="row"><label class="grow">Serving machine <span class="note">(only if it's ANOTHER computer)</span>
+              <input id="veRemoteHost" type="text" placeholder="user@192.168.1.116 — leave blank if the model runs on THIS machine" title="ssh destination of the machine running the model. The pod probes THAT box for the hardware the result is filed under, and reads its docker daemon for the real serve recipe. Without it a remote run would be misfiled under this machine's hardware." /></label></div>
+            <div class="ep-ssh-help" id="veRemoteHelp" hidden>
+              <div class="ep-ssh-t">Copy this command into your terminal <span class="note">— authorizes this pod on the serving machine (one time). Pick your shell:</span></div>
+              <div class="ep-ssh-row"><span class="ep-ssh-os">Windows PowerShell</span>
+                <code class="ep-ssh-cmd" data-os="ps"></code>
+                <button type="button" class="ghost ep-ssh-copy" data-os="ps">copy</button></div>
+              <div class="ep-ssh-row"><span class="ep-ssh-os">macOS zsh</span>
+                <code class="ep-ssh-cmd" data-os="mac"></code>
+                <button type="button" class="ghost ep-ssh-copy" data-os="mac">copy</button></div>
+              <div class="ep-ssh-row"><span class="ep-ssh-os">Linux bash</span>
+                <code class="ep-ssh-cmd" data-os="linux"></code>
+                <button type="button" class="ghost ep-ssh-copy" data-os="linux">copy</button></div>
+              <div class="note ep-ssh-key" id="veSshKeyNote"></div>
+            </div>
+            <label class="verify-ep" title="Prove the running serve really serves the hash-verified weights — required to rank. With a GPU: logprob-fingerprints the endpoint against the weights (endpoint_fingerprint). With NO GPU: sha256s the running container's weight files against Hugging Face over ssh instead (endpoint_verified, no second model load) — so a GPU-less pod can still rank. Mismatch → self_reported."><input id="verifyEndpoint" type="checkbox" /> Verify endpoint (fingerprint, or container hash if no GPU) — required to rank the run</label>
+            <div class="row adv">
+              <label>Spark cluster nodes <span class="note">(multi-node serve)</span><input id="sparkNodes" type="number" min="2" max="16" step="1" placeholder="single" title="multi-node DGX Spark serve: the pod sees only its own node — declare the cluster size so the run lands in the 2×/3×/4× DGX Spark bucket (operator-declared)" /></label>
+            </div>
+          </div>
+          <div class="row mod-row adv pull-only" id="modRow" hidden>
+            <span class="mod-t" title="which multimodal suites this launch runs — auto-populated from the model's config at validation (lit = declared). Toggle a chip to force-enable a modality the config hides, or to skip a flaky one; each suite is still capability-probed at run time, so a forced-on modality that the serve rejects simply records capability_absent.">MODALITIES</span>
+            <button type="button" class="mod-chip" data-mod="vision">VISION</button>
+            <button type="button" class="mod-chip" data-mod="audio">AUDIO</button>
+            <button type="button" class="mod-chip" data-mod="video">VIDEO</button>
+            <span class="note" id="modNote"></span>
           </div>
           <div class="row">
             <label>Test plan<select id="hfPlan" title="what the launch runs — Comprehensive is the full AEON benchmark (every dimension, every board)">
-              <option value="comprehensive" selected>Comprehensive — text · 3 harnesses · vision · audio · arena · perf</option>
+              <option value="comprehensive" selected>Comprehensive — text · 3 harnesses · vision · audio · video · arena · perf</option>
               <option value="">Text suite only — quick quality score, no harness/perf boards</option>
               <option value="hard-bench">Hard Bench — hard+expert tiers through every harness</option>
+              <option value="god-mode">GOD MODE BENCH — god sentinels · god agentic · god code-gen (own board)</option>
             </select></label>
-            <label>Scope<select id="hfDiff">
+            <label class="adv">Scope<select id="hfDiff">
               <option value="">Full suite</option><option value="easy">Easy</option>
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
+              <option value="god_mode">GOD MODE</option>
             </select></label>
-            <label>Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
-            <label>Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
-            <label>Token budget<input id="hfMaxTok" type="number" placeholder="32768 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips); leave empty for the 32K reasoning-model default" /></label>
-            <label>Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
+            <label class="adv">Concurrency<input id="hfConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
+            <label class="adv">Max concurrency<input id="hfMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
+            <label class="adv">Token budget<input id="hfMaxTok" type="number" placeholder="32768 (default)" min="256" max="131072" step="256" title="per-answer generation cap (includes any thinking tokens the parser strips) — raise for reasoning models that need headroom; the serve-side reasoning budget lives in RECIPE TUNING" /></label>
+            <label class="adv">Arena breadth<input id="hfArenaN" type="number" placeholder="6 /kind" min="0" max="12" step="1" title="arena artifacts generated per kind (apps / games / animations) — each is a different prompt from the pool, so higher = broader gallery + arena coverage per bench; 0 skips arena generation" /></label>
             <label class="temp-label" title="sampling temperature for every scored answer — 0 is greedy/deterministic (reproducible, the bench default); higher = more random. Greedy is recommended for attested, replicable runs.">Temperature
               <span class="temp-ctl">
                 <input id="hfTemp" type="range" min="0" max="2" step="0.05" value="1" disabled />
@@ -212,9 +347,9 @@
               </span>
             </label>
             <label class="greedy-label" title="greedy / deterministic decoding (temperature 0, argmax) — the default; gives reproducible, attestation-friendly results. Uncheck to sample at the temperature on the left."><input id="hfGreedy" type="checkbox" checked /> greedy</label>
-            <button id="hfLaunch" class="primary">▶ Launch validated bench</button>
+            <button id="hfLaunch" class="primary run-bench-btn"><span class="rbb-mark">▶</span> RUN BENCH</button>
           </div>
-          <div class="row hostprep-row">
+          <div class="row hostprep-row pull-only">
             <label class="c2-only" title="stop EVERY other running container before serving (the pod, its serve and harness containers are never touched) — a clean GPU and port without visiting the host. Containers listed in AEON_PAUSE_CONTAINERS are always paused regardless."><input type="checkbox" id="hfPauseAll" checked> clear host: stop other containers during the bench</label>
             <label class="c2-only" title="restart the paused containers automatically when the bench finishes (recommended)"><input type="checkbox" id="hfRestore" checked> restart them after</label>
           </div>
@@ -222,8 +357,48 @@
         </div>
 
         <div class="run-card">
-          <h3>▸ Endpoint bench <span class="tag" title="no model validation — stored on this pod only, never globally ranked">local-only</span></h3>
-          <p class="note">An OpenAI-compatible endpoint you're already serving — quick, but unvalidated: scored <span class="tag">self-reported</span> and never globally ranked. Use the validated bench above to count.</p>
+          <h3>◆ Frontier API reference <span class="tag" title="server-approved hosted API result — comparison only, not local-weight attestation">verified API</span></h3>
+          <p class="note">Run approved hosted frontier models through the same benchmark so local systems can be compared against ChatGPT, Grok, Claude, and other curated APIs. The pod validates the selected API/model before queueing, then the mothership records provider, version, effort, and logo metadata.</p>
+          <div class="row">
+            <label class="grow">Approved model<select id="frModel"></select></label>
+            <label>API key<select id="frKey"></select></label>
+            <button id="frValidate" class="ghost">✓ Validate API</button>
+          </div>
+          <details class="inline-keybox">
+            <summary>＋ Save a provider API key here</summary>
+            <div class="row">
+              <label>Name<input id="frKeyName" type="text" placeholder="e.g. anthropic-fable or openai-prod" /></label>
+              <label class="grow">API key<input id="frKeyVal" type="password" placeholder="secret stored only on this pod" autocomplete="off" /></label>
+              <button id="frKeySave" class="ghost">Save &amp; select</button>
+            </div>
+          </details>
+          <div id="frInfo" class="eng-info note"></div>
+          <div class="row">
+            <label>Test plan<select id="frPlan" title="frontier reference runs can populate the same boards as local models">
+              <option value="comprehensive" selected>Comprehensive — full benchmark</option>
+              <option value="">Text suite only</option>
+              <option value="hard-bench">Hard Bench</option>
+            </select></label>
+            <label>Scope<select id="frDiff">
+              <option value="">Full suite</option><option value="easy">Easy</option>
+              <option value="medium">Medium</option><option value="hard">Hard</option>
+              <option value="expert">Expert</option><option value="frontier">Frontier</option>
+              <option value="god_mode">GOD MODE</option>
+            </select></label>
+            <label>Concurrency<input id="frConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto" /></label>
+            <label>Max concurrency<input id="frMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
+            <label>Token budget<input id="frMaxTok" type="number" placeholder="provider default" min="256" max="131072" step="256" /></label>
+            <button id="frLaunch" class="primary">▶ Launch frontier reference</button>
+          </div>
+        </div>
+
+        <!-- UNVERIFIED endpoint bench: superseded by "◉ Point at a running model" (same use case,
+             but weight-verified + fingerprinted, so it RANKS). Hidden in SIMPLE mode; kept in
+             ADVANCED for deliberate private testing. -->
+        <div class="run-card adv">
+          <h3>▸ Endpoint bench <span class="tag" title="no model validation — never globally ranked">unverified · never ranks</span></h3>
+          <div class="local-only-callout">UNVERIFIED · stored on this pod and shown as <b>local</b> · never globally ranked</div>
+          <p class="note"><b>Prefer <span class="mono">◉ Point at a running model</span> above.</b> It benches the same already-running endpoint but hash-verifies the weights and fingerprints the serve, so the result earns <span class="elig-badge verified">✓ attested</span> and appears on the global leaderboard. Use this unverified card only for a deliberate private smoke test where you don't want a global rank — it skips model validation entirely, so it can never rank.</p>
           <div class="row">
             <label>Base URL<input id="reBase" type="text" value="http://127.0.0.1:8000/v1" /></label>
             <label>Model name<input id="reModel" type="text" placeholder="as the server reports it" /></label>
@@ -234,11 +409,20 @@
               <option value="">Full suite</option><option value="easy">Easy</option>
               <option value="medium">Medium</option><option value="hard">Hard</option>
               <option value="expert">Expert</option><option value="frontier">Frontier</option>
+              <option value="god_mode">GOD MODE</option>
             </select></label>
             <label>Concurrency<input id="reConc" type="number" placeholder="auto" min="1" max="64" step="1" title="cases in flight at once; blank = auto (capacity-detected)" /></label>
             <label>Max concurrency<input id="reMaxConc" type="number" value="32" min="1" max="64" step="1" title="cap for the perf-grid concurrency ladder" /></label>
             <button id="reLaunch" class="primary">▶ Launch</button>
           </div>
+          <details class="inline-keybox">
+            <summary>＋ Save an endpoint API key here</summary>
+            <div class="row">
+              <label>Name<input id="reKeyName" type="text" placeholder="e.g. lmstudio, openrouter, lab-vllm" /></label>
+              <label class="grow">API key<input id="reKeyVal" type="password" placeholder="secret stored only on this pod" autocomplete="off" /></label>
+              <button id="reKeySave" class="ghost">Save &amp; select</button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -262,20 +446,6 @@
       </div>
     </section>
 
-    <section class="panel" id="audioPanel" hidden>
-      <h2>Audio — capability-gated</h2>
-      <p class="lede">Audio input is probed, never assumed — a model earns its place on this board.</p>
-      <details class="how"><summary>How this works</summary>
-        <p class="note">Every Comprehensive bench sends the served model a real <code>input_audio</code> probe.
-          If the transport is accepted, the audio suite runs automatically — spoken-digit recognition on
-          real recorded speech plus deterministic synthetic stimuli (tones, rhythms, sweeps) — and the
-          attested results land on this board. Models whose config declares no audio skip the suite
-          (correctly, silently). A model that <b>declares</b> audio but whose serve rejects it shows a red
-          <code>audio:BLOCKED</code> chip in the Run-tab stages — usually a recipe/engine issue; the pod
-          auto-grants <code>--limit-mm-per-prompt</code> for declared-audio models on vLLM-family engines.</p>
-      </details>
-    </section>
-
     <section class="panel" id="arenaPanel" hidden>
       <div class="lbhead">
         <h2 id="arenaTitle">Generated Apps</h2>
@@ -293,11 +463,11 @@
       <div class="arena-stage">
         <div class="arena-side">
           <div class="arena-head"><span class="arena-badge a">A</span><span class="arena-model" id="modelA">hidden</span><span class="arena-meta" id="metaA"></span></div>
-          <div class="arena-fit"><iframe class="arena-frame" id="frameA" sandbox="allow-scripts allow-pointer-lock" title="artifact A"></iframe></div>
+          <div class="arena-fit"><iframe class="arena-frame" id="frameA" sandbox="allow-scripts allow-pointer-lock" allow="fullscreen" allowfullscreen referrerpolicy="no-referrer" tabindex="0" title="artifact A"></iframe><button class="arena-full" data-full="frameA" type="button" title="fullscreen A (Esc exits)">⛶</button></div>
         </div>
         <div class="arena-side">
           <div class="arena-head"><span class="arena-badge b">B</span><span class="arena-model" id="modelB">hidden</span><span class="arena-meta" id="metaB"></span></div>
-          <div class="arena-fit"><iframe class="arena-frame" id="frameB" sandbox="allow-scripts allow-pointer-lock" title="artifact B"></iframe></div>
+          <div class="arena-fit"><iframe class="arena-frame" id="frameB" sandbox="allow-scripts allow-pointer-lock" allow="fullscreen" allowfullscreen referrerpolicy="no-referrer" tabindex="0" title="artifact B"></iframe><button class="arena-full" data-full="frameB" type="button" title="fullscreen B (Esc exits)">⛶</button></div>
         </div>
       </div>
 
@@ -323,16 +493,27 @@
       </div>
       <p class="lede">The top-rated artifact for every arena task — live previews + full source.</p>
       <details class="how"><summary>How this works</summary>
-        <p class="note">For each arena prompt, the <b>top 10</b> generations ranked by per-artifact Elo from verified human A/B votes (same trust filtering as the arena ranking). <b>▶ preview</b> runs one live in an isolated sandbox; <b>⬇ code</b> downloads the complete single-file HTML source as a ZIP. Artifacts with no counted votes yet are marked <i>unrated</i>.</p>
+        <p class="note">For each arena prompt, the <b>top 10</b> generations ranked by per-artifact Elo from verified human A/B votes, plus the newest unrated submissions so fresh benchmark artifacts appear immediately. <b>▶ preview</b> runs one live in an isolated sandbox; <b>⬇ code</b> downloads the complete single-file HTML source as a ZIP. Artifacts with no counted votes yet are marked <i>unrated</i>.</p>
       </details>
+      <div class="gal-tools">
+        <input id="galFilter" type="search" placeholder="Filter by model, prompt, or harness" autocomplete="off">
+        <span id="galCount" class="note"></span>
+      </div>
       <div id="galleryBody"></div>
     </section>
 
     <section class="panel" id="subsPanel" hidden>
       <div class="lbhead">
         <h2>Submissions — full transparency</h2>
-        <select id="subsBoard">
-          <option value="">all boards</option><option value="text">text</option><option value="vision">vision</option>
+        <select id="subsBoard" title="show only benchmarks that produced this board">
+          <option value="">all boards</option><option value="text">text</option><option value="god">god mode</option>
+          <option value="vision">vision</option><option value="audio">audio</option>
+          <option value="video">video</option><option value="perf">performance</option>
+        </select>
+        <select id="subsSort" title="order the benchmark cards">
+          <option value="new">newest first</option>
+          <option value="comp">best composite</option>
+          <option value="perf">best performance</option>
         </select>
       </div>
       <p class="lede">Every run, fully inspectable: prompt, answer, score, judge.</p>
@@ -390,7 +571,18 @@
         <button id="adminRefresh" class="ghost">↻ refresh</button>
       </div>
       <p class="note" id="adminSummary" style="text-align:left"></p>
-      <h3 class="arena-rankhead" style="border-top:0;margin-top:4px">Benches <span class="note">— disqualify a faulty bench (kept, marked, unranked) or re-judge its Tier-1 cases</span></h3>
+      <h3 class="arena-rankhead" style="border-top:0;margin-top:4px">◉ Live benches
+        <span class="note">— running right now, including pods in the wild · auto-refreshes · a run with no new cases for 12h is marked quiet — never auto-killed</span></h3>
+      <div id="adminLive" class="admin-live"></div>
+      <h3 class="arena-rankhead">⇵ Submission log
+        <select id="ingestFilter">
+          <option value="0">all attempts</option>
+          <option value="1">rejected only</option>
+        </select>
+        <span class="note">— every pod that tried to submit, accepted or REFUSED. A refused bundle creates no run, so this is its only record.</span></h3>
+      <div id="ingestSummary" class="note" style="text-align:left"></div>
+      <div id="ingestLog" class="admin-ingest"></div>
+      <h3 class="arena-rankhead">Benches <span class="note">— disqualify a faulty bench (kept, marked, unranked) or re-judge its Tier-1 cases</span></h3>
       <div id="adminBenches" class="admin-benches"></div>
       <h3 class="arena-rankhead">Evaluators <span class="note">— honeypot accuracy gates whether each account's votes count · history shows the evidence</span></h3>
       <table id="evalTable"><thead><tr>
@@ -451,13 +643,24 @@
       </div>
     </div>
 
-    <div id="galModal" class="modal" hidden>
+    <div id="galModal" class="modal" hidden role="dialog" aria-modal="true" aria-label="artifact preview">
       <div class="modal-card gal-view">
-        <button class="modal-x" id="galClose" title="close">×</button>
-        <div class="gal-view-h"><span id="galViewTitle"></span><a class="act-btn act-dl" id="galViewDl" href="#" title="download the full single-file source (zip)">Code · zip</a></div>
+        <button class="modal-x" id="galClose" title="close (Esc)">×</button>
+        <div class="gal-view-h"><span id="galViewTitle"></span>
+          <span class="gal-view-acts">
+            <span class="gal-input-hint" id="galInputHint" title="keyboard goes to the artifact while it's open — click the frame if it ever loses focus">⌨ input captured</span>
+            <button class="act-btn" id="galFull" type="button" title="fullscreen (best for FPS / mouse-look games) — Esc exits">⛶ Fullscreen</button>
+            <a class="act-btn act-dl" id="galViewDl" href="#" title="download the full single-file source (zip)">Code · zip</a>
+          </span></div>
+        <!-- allowfullscreen/allow delegate the parent's fullscreen grant into the opaque-origin
+             frame; pointer lock already rides the allow-pointer-lock SANDBOX token. The sandbox
+             token list is deliberately unchanged — NEVER add allow-same-origin (untrusted model
+             HTML would reach this origin's storage + auth token). -->
         <div class="gal-stage" id="galStage">
           <div class="gal-scaler" id="galScaler">
-            <iframe class="gal-frame" id="galFrame" sandbox="allow-scripts allow-pointer-lock" title="artifact preview"></iframe>
+            <iframe class="gal-frame" id="galFrame" sandbox="allow-scripts allow-pointer-lock"
+                    allow="fullscreen" allowfullscreen referrerpolicy="no-referrer"
+                    tabindex="0" title="artifact preview"></iframe>
           </div>
         </div>
       </div>
@@ -481,6 +684,15 @@
           <button id="browseUse" class="primary" disabled>✓ use this folder</button>
           <span class="note" id="browseInfo" style="text-align:left"></span>
         </div>
+      </div>
+    </div>
+
+    <!-- generic content modal: filled by openModal(html). The other modals each hard-code their
+         own markup; anything that just needs to SAY something reuses this one. -->
+    <div id="helpModal" class="modal" hidden>
+      <div class="modal-card help-card">
+        <button class="modal-x" id="helpClose" title="close">×</button>
+        <div id="helpBody"></div>
       </div>
     </div>
 
@@ -524,6 +736,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js?v=79"></script>
+  <script src="/static/app.js?v=127"></script>
 </body>
 </html>

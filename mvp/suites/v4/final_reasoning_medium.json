@@ -1,0 +1,60 @@
+[
+ {
+  "id": "v3.reasoning.medium.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "On an island, every inhabitant is either a knight (always tells the truth) or a knave (always lies). You meet three inhabitants: Marisol, Tobin, and Vek.\n\n- Marisol says: \"Tobin is a knave.\"\n- Tobin says: \"Marisol and Vek are the same type (both knights or both knaves).\"\n- Vek says: \"Marisol is a knight.\"\n\nExactly one consistent assignment of types exists, and in it exactly one of the three is a knight. Determine who the knight is. Answer with exactly one name inside \\boxed{}, e.g. \\boxed{Name}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*(?:\\\\text\\{\\s*Tobin\\s*\\}|Tobin)\\s*\\}"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(?:Marisol|Vek)",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.medium.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Five colleagues — Priya, Dario, Kenji, Alba, and Ruth — sit in a single row of five chairs numbered 1 to 5 from left to right (chair 1 is the leftmost). All of the following are true:\n\n1. Priya sits in a lower-numbered chair than Dario.\n2. Kenji and Alba sit in adjacent chairs.\n3. Ruth sits in chair 1 or chair 5.\n4. Dario sits in chair 3.\n5. Priya does not sit in chair 1.\n6. Kenji sits in a lower-numbered chair than Alba.\n\nExactly one seating satisfies all six conditions. Who sits in chair 5? Answer with exactly one name inside \\boxed{}, e.g. \\boxed{Name}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*(?:\\\\text\\{\\s*Alba\\s*\\}|Alba)\\s*\\}"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^{}]*(?:Priya|Dario|Kenji|Ruth)",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.medium.03",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "How many three-digit integers (from 100 to 999 inclusive) have a digit sum of exactly 10 and contain no digit equal to 0? Put the final answer (a single integer) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "36"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

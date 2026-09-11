@@ -33,11 +33,30 @@ import shutil
 import tempfile
 import uuid
 
-from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
+from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_io,
+                   safe_name, strip_reasoning)
 
-IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes")
+# Published multi-arch by the pod repo's harness-images workflow, so ANY pod can pull it.
+# It used to default to the bare local name, which only existed on a rig that had built it
+# by hand — every other pod failed `docker create` and scored 0 on every agentic task.
+# Now the pod BUILDS it locally on first use (see `ensure_image`): no third-party image is
+# redistributed, and the operator's copy comes straight from upstream.
+# Override with the env var to use a locally-built image instead.
+IMAGE = os.environ.get("AEON_HERMES_IMAGE", "aeon-harness-hermes:latest")
 _API_KEY = "sk-local"
 _MAX_TURNS = int(os.environ.get("AEON_HERMES_MAX_TURNS", "8"))
+# A ceiling on ONE TURN's output, not a budget to maximise.
+#
+# The custom provider defaults this to 65536, and on 2026-08-14 a god task truncated at exactly
+# that: the model emitted 65k tokens in a single reply. At the 20-40 tok/s these serves sustain
+# that is 27-55 MINUTES — longer than the whole 1800s task budget, spent on one turn, after which
+# the task dies with nothing written. Bounding it costs that one turn and leaves the agent its
+# other seven. 16384 tokens is roughly a 60KB file, ample for these artifacts.
+#
+# Hermes needs no help with the INPUT side: it reads the real window off the endpoint
+# (observed "Context limit: 262,144 tokens (compress at 75% = 196,608)") and auto-compacts. Only
+# the output ceiling is ours to set.
+_MAX_OUTPUT_TOKENS = int(os.environ.get("AEON_HERMES_MAX_TOKENS", "16384"))
 
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
@@ -107,18 +126,23 @@ class HermesAdapter(Adapter):
         self._disabled = os.environ.get("AEON_HERMES_DISABLED_TOOLSETS", "").strip()
 
     def _ensure_cfg(self) -> str:
-        """Hermes REFUSES models whose reported context window is <64K (its tool-calling
-        minimum). Our bench serves cap max-model-len at 32K purely for GB10 memory — the
-        models' true windows are >=256K — so per Hermes' own guidance ("if your server
-        reports a window smaller than the model's true window, set model.context_length")
-        we mount a config declaring 65536: the smallest value that passes the gate, so a
-        runaway transcript still fails honestly at the server's real 32K cap."""
+        """Floor the declared window so Hermes accepts the model, and cap one turn's output.
+
+        `context_length: 65536` is a FLOOR, not a description. Hermes refuses any model reporting
+        under 64K (its tool-calling minimum), and this guarantees the gate is cleared even by a
+        serve that under-reports. It is not how Hermes actually sizes the run: measured 2026-08-14
+        it reads the endpoint itself and logged "Context limit: 262,144 tokens (compress at 75% =
+        196,608)" against a 262144 serve — so the input side is auto-detected and auto-compacted,
+        and this line only matters when the endpoint says something smaller.
+
+        `max_tokens` is the half we do have to set — see _MAX_OUTPUT_TOKENS. Left at the custom
+        provider's 65536 default, one reply can outlast the entire task budget."""
         if self._cfg_path and os.path.isfile(self._cfg_path):
             return self._cfg_path
         d = self._run_dir or tempfile.mkdtemp(prefix="aeon_hermes_cfg_")
         p = os.path.join(d, "hermes-config.yaml")
         with open(p, "w", encoding="utf-8") as f:
-            f.write("model:\n  context_length: 65536\n")
+            f.write("model:\n  context_length: 65536\n  max_tokens: %d\n" % _MAX_OUTPUT_TOKENS)
         self._cfg_path = p
         return p
 
@@ -127,6 +151,9 @@ class HermesAdapter(Adapter):
     def prepare_run(self, model_base_url: str, served_alias: str, run_root: str):
         """Fresh per-model-run scratch dir (Hermes itself keeps no host-side config; every
         task container is `--rm` so agent state can never leak between models)."""
+        # build the harness image here if this machine doesn't have it yet - one loud
+        # failure with install instructions beats 0 on every task.
+        ensure_image(self.IMAGE, "hermes")
         d = os.path.join(run_root, f"hermes-{safe_name(served_alias)}")
         if os.path.isdir(d):
             shutil.rmtree(d, ignore_errors=True)
@@ -155,13 +182,20 @@ class HermesAdapter(Adapter):
         ]
         if self._disabled:
             args.append(f"--disabled_toolsets={self._disabled}")
-        out, err, rc, dur = run_container_io(
-            self.IMAGE, args,
-            seed=[(workdir, "/work")],
-            seed_optional=[(self._ensure_cfg(), "/root/.hermes/config.yaml")],
-            collect=[("/work/.", workdir)],
-            timeout=timeout, name_hint=f"hermes_{served_alias}",
-            env={"TERMINAL_CWD": "/work"}, workdir="/work")
+        from .. import harness_stream          # local: keeps pod.adapters free of a package cycle
+        _obs = harness_stream.observer("hermes", task.get("id"))
+        try:
+            out, err, rc, dur = run_container_io(
+                self.IMAGE, args,
+                seed=[(workdir, "/work")],
+                seed_optional=[(self._ensure_cfg(), "/root/.hermes/config.yaml")],
+                collect=[("/work/.", workdir)],
+                timeout=timeout, name_hint=f"hermes_{served_alias}",
+                env={"TERMINAL_CWD": "/work"}, workdir="/work", on_line=_obs)
+        finally:
+            # Also closes on the timeout path, so a task that dies at the budget ends its tile
+            # instead of leaving it live forever.
+            _obs.close()
 
         samples = [p for p in glob.glob(os.path.join(workdir, "sample_*.json"))
                    if p not in before]

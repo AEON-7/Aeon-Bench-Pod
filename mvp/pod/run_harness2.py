@@ -1,5 +1,14 @@
 """run_harness2 — run the aeon-agentic-v2 ENVIRONMENT-EXECUTION suite through a real harness.
 
+SETUP PHASE (scored, first row): for each REAL harness the MODEL UNDER TEST first configures
+the harness ITSELF — `pod.harness_skills.run_setup_case` hands it the per-harness helper
+skill + endpoint facts over a direct chat, grades the authored config deterministically
+(parse / protected endpoint+model fields / boot check), and the result rides as a normal row
+`agentic.setup.<harness>` so setup ability flows into the harness score. Whatever setup
+scores, the task loop below ALWAYS runs with the adapter's own known-good config — task
+scores stay comparable across models; setup is its own signal. (`AEON_SELFCONFIG=0` or
+`selfconfig=False` skips the phase; the mock harness has no config surface and never runs it.)
+
 For each task: make a fresh temp workdir, populate the task's setup files, let the harness
 adapter launch ONE one-shot docker container with the workdir mounted at /work, then score the
 OBSERVABLE OUTCOME (files written + final answer) with `aeon.agentic_v2.score_agentic_v2`.
@@ -8,7 +17,8 @@ parallelize fine). A per-task failure becomes status="harness_error" (score 0); 
 never aborts.
 
     run_agentic_v2(harness_id, model_base_url, served_alias,
-                   *, concurrency=4, timeout=240, progress_cb=None) -> [row, ...]
+                   *, concurrency=4, timeout=240, progress_cb=None, selfconfig=True)
+        -> [setup_row?, row, ...]
 
     row = {case_id, category, tier, status, score,
            raw_output,          # truncated transcript JSON {answer, steps, raw}
@@ -31,6 +41,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 _MVP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../mvp
@@ -40,8 +51,11 @@ if _MVP not in sys.path:
 from aeon import agentic                       # noqa: E402  (tool-call trajectory scorer)
 from aeon import agentic_v2                    # noqa: E402
 from pod import adapters                       # noqa: E402
+from pod import harness_skills                 # noqa: E402  (scored setup phase)
 
-_VER_RE = re.compile(r"\d{4}\.\d{1,2}\.\d{1,2}|\d+\.\d+\.\d+(?:-[\w.]+)?")
+# CalVer (openclaw: 2026.7.1-2) or semver, either with a pre-release suffix. The suffix is
+# part of the version - dropping it names a release that is not the one that ran.
+_VER_RE = re.compile(r"\d{4}\.\d{1,2}\.\d{1,2}(?:-[\w.]+)?|\d+\.\d+\.\d+(?:-[\w.]+)?")
 _RAW_LIMIT = 8000                              # per-row transcript budget (chars)
 _discover_cache: dict[str, dict] = {}
 
@@ -66,12 +80,25 @@ def discover(harness_id: str) -> dict:
             raise KeyError(f"unknown harness {harness_id!r}; known: {sorted(adapters.ADAPTERS)}")
         image = getattr(cls, "IMAGE", None)
         if image and shutil.which("docker"):
+            # Build it FIRST. This used to run before anything created the image, so the first
+            # agentic run on a new machine asked a nonexistent image its version, got nothing, and
+            # cached that None for the whole process - losing the one record of which harness
+            # release produced the scores, on exactly the runs where it is least recoverable.
+            try:
+                adapters.base.ensure_image(image, harness_id)
+            except Exception as e:
+                print(f"[pod] harness {harness_id}: image not available for version disclosure: "
+                      f"{str(e).splitlines()[0]}", flush=True)
             try:
                 out = subprocess.run(["docker", "run", "--rm", image, "--version"],
                                      capture_output=True, text=True, timeout=60)
-                m = _VER_RE.search((out.stdout or "") + " " + (out.stderr or ""))
-                if m:
-                    version = m.group(0)
+                # stdout first: a deprecation notice on stderr can carry a version-shaped token
+                # that is not the harness's own version.
+                for stream in ((out.stdout or ""), (out.stderr or "")):
+                    m = _VER_RE.search(stream)
+                    if m:
+                        version = m.group(0)
+                        break
             except Exception:
                 pass
             if not version:
@@ -139,6 +166,7 @@ def _score_trajectory(case: dict, result: dict):
 def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
              scratch_root: str, default_timeout: int) -> dict:
     cid = case.get("id")
+    _t0 = time.monotonic()                       # so a failed task reports the time it really cost
     workdir = tempfile.mkdtemp(prefix=f"task_{agentic_v2._norm(cid)[:24]}_", dir=scratch_root)
     row = {"case_id": cid,
            "category": case.get("category", "Agentic"),
@@ -146,7 +174,13 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
            "suite_id": agentic_v2.SUITE_ID}
     try:
         agentic_v2.populate_workdir(case, workdir)
-        timeout = int(case.get("timeout_s") or default_timeout)
+        # AEON_TASK_TIMEOUT_SCALE multiplies EVERY task budget — base tiers' 120-300s
+        # literals and god cases alike. A large slow-decoding model (~17-19 tok/s at c=2)
+        # needs minutes for answers the budgets priced in seconds, and a blown budget does
+        # not score 0, it DELETES the task from the harness mean (upward bias). Scale >1
+        # only ever extends caps: fast serves finish early and never feel it.
+        timeout = int((case.get("timeout_s") or default_timeout)
+                      * float(os.environ.get("AEON_TASK_TIMEOUT_SCALE", "") or 1.0))
         result = adapter.run_task(case, model_base_url, served_alias, workdir,
                                   timeout=timeout)
         score, evidence = agentic_v2.score_agentic_v2(case, workdir,
@@ -173,31 +207,59 @@ def _run_one(adapter, case: dict, model_base_url: str, served_alias: str,
                     with open(p, encoding="utf-8", errors="replace") as f:
                         html = f.read()
                     if html.strip():
+                        # Same completeness rule as the arena generator: an agent that ran out of
+                        # turns or tokens leaves a half-written file, and publishing it as a
+                        # working artifact makes our truncation look like the model's bad code.
+                        from pod import arena_gen
                         row["artifact"] = {"kind": art.get("kind"),
                                            "prompt_id": art.get("prompt_id"),
-                                           "html": html[:900_000], "ok": True}
+                                           "html": html[:900_000],
+                                           "ok": arena_gen.is_complete(html)}
                 except OSError:
                     pass
     except Exception as e:                       # NEVER aborts the batch
-        row.update(status="harness_error", score=0.0,
+        # score=None, NOT 0.0. The harness never ran this task, so there is nothing to score:
+        # a 0 is a claim that the model tried and failed, and it is indistinguishable from one.
+        # That is not hypothetical — a model whose harness images could not be pulled ranked on
+        # a fabricated agentic score built entirely out of `docker pull access denied` errors.
+        # NULL scores are already excluded everywhere a number is computed (db.py run/category
+        # means, scoring.harness_board, scoring._run_summary, the pod's own `hscored`), which is
+        # the same contract the vision/video/audio probes use for `na_capability`.
+        row.update(status="harness_error", score=None,
                    raw_output=json.dumps({"error": f"{type(e).__name__}: {e}"[:1000]}),
                    evidence=[{"criterion": "harness ran the task", "ok": False,
                               "detail": f"{type(e).__name__}: {e}"[:400]}],
-                   speed={"e2e_s": 0.0})
+                   # the real elapsed, not a hardcoded 0 — a task that burned its 180s timeout
+                   # was recorded as taking no time at all
+                   speed={"e2e_s": round(time.monotonic() - _t0, 3)})
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return row
 
 
 def run_agentic_v2(harness_id: str, model_base_url: str, served_alias: str, *,
-                   concurrency: int = 4, timeout: int = 240, progress_cb=None) -> list:
+                   concurrency: int = 4, timeout: int = 240, progress_cb=None,
+                   selfconfig: bool = True) -> list:
     """Run every aeon-agentic-v2 task through `harness_id`'s adapter and score the outcomes.
 
-    Returns the per-task rows in CASES order. `progress_cb(case_id, score, status)` fires as
-    each task completes. Per-task failures -> status="harness_error", score 0.
+    Returns the per-task rows in CASES order — prefixed with the scored
+    `agentic.setup.<harness>` SELF-CONFIG row when the harness has a helper skill (see
+    module docstring). `progress_cb(case_id, score, status)` fires as each task completes
+    (not for the setup row — the pod's stage counter is sized to the task count). Per-task
+    failures -> status="harness_error", score 0.
     """
     adapter = adapters.get(harness_id)
     info = discover(harness_id)
+
+    # SETUP PHASE — the model under test configures the harness itself (scored; never
+    # aborts the batch, and NEVER replaces the adapter's own config for the task loop).
+    setup_row = None
+    if (selfconfig and harness_id in harness_skills.SKILLS
+            and os.environ.get("AEON_SELFCONFIG") != "0"):
+        setup_row = harness_skills.run_setup_case(harness_id, model_base_url, served_alias)
+        setup_row["suite_id"] = agentic_v2.SUITE_ID
+        setup_row.update(info)                    # harness, harness_version
+        print(f"[pod] harness {harness_id} self-config: {setup_row['score']}")
 
     run_root = tempfile.mkdtemp(prefix=f"aeonv2_{harness_id}_")
     scratch_root = os.path.join(run_root, "tasks")
@@ -216,7 +278,7 @@ def run_agentic_v2(harness_id: str, model_base_url: str, served_alias: str, *,
                 rows[i] = row
                 if progress_cb:
                     progress_cb(row["case_id"], row["score"], row["status"])
-        return rows
+        return ([setup_row] if setup_row else []) + rows
     finally:
         try:
             adapter.cleanup_run()

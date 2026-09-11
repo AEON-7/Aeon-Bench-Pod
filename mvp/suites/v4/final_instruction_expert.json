@@ -1,0 +1,246 @@
+[
+ {
+  "id": "v4.instruction.expert.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Apply the following operations, in this exact order, to the word STRATOSPHERIC: (1) delete every letter that occurs more than once in STRATOSPHERIC — delete ALL occurrences of each such letter; (2) reverse the order of the remaining letters; (3) replace each letter with the letter 3 positions later in the English alphabet (X wraps to A, Y to B, Z to C); (4) convert everything to lowercase; (5) append, as a decimal number, the total count of letters you deleted in step 1. Reply with ONLY the resulting string — no quotes, no spaces, no explanation, no punctuation.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "flhksrd6",
+     "normalize": true,
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.03",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a single paragraph on ONE line (no line breaks) consisting of exactly 5 sentences about a stony winter landscape. ALL constraints must hold simultaneously: (1) every sentence contains exactly 9 words separated by single spaces and ends with a period, and consecutive sentences are separated by a single space; (2) sentence 1 begins with an uppercase 'D', sentence 2 with 'E', sentence 3 with 'F', sentence 4 with 'G', sentence 5 with 'H'; (3) the word 'flint' appears exactly twice in the paragraph; (4) the letter 'u' (uppercase or lowercase) does not appear anywhere; (5) your output contains only letters, spaces, and the 5 sentence-ending periods — no commas, digits, apostrophes, or other punctuation. Output ONLY the paragraph — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "sentence",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AD[A-Za-z]*(?: [A-Za-z]+){8}\\. E[A-Za-z]*(?: [A-Za-z]+){8}\\. F[A-Za-z]*(?: [A-Za-z]+){8}\\. G[A-Za-z]*(?: [A-Za-z]+){8}\\. H[A-Za-z]*(?: [A-Za-z]+){8}\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bflint\\b.*\\bflint\\b",
+     "mode": "must_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\bflint\\b.*\\bflint\\b.*\\bflint\\b",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "u",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z .]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.04",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Carry out this exact procedure on the integer 473: (1) write 473 in binary with no leading zeros; (2) reverse that bit string; (3) interpret the reversed bit string as a binary number and convert it to decimal; (4) multiply the step-3 result by the number of 1-bits in the ORIGINAL binary string from step 1; (5) subtract 473 from the step-4 result. Reply with ONLY the final integer — no working, no other numbers, no commentary.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1393"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.05",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a poem of exactly 2 stanzas separated by a single blank line. ALL constraints must hold simultaneously: (1) stanza 1 has exactly 4 lines and stanza 2 has exactly 3 lines; (2) every line of stanza 1 contains exactly 5 words separated by single spaces, begins with the word 'When' (capital W), and ends with a semicolon ';'; (3) every line of stanza 2 contains exactly 7 words separated by single spaces, begins with the word 'Then' (capital T), and ends with a period '.'; (4) the letter 'o' (uppercase or lowercase) must NOT appear anywhere in stanza 2 — it is allowed in stanza 1; (5) your output contains only letters, spaces, semicolons, periods, and line breaks — no commas, digits, hyphens, or apostrophes. Output ONLY the poem — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "stanza",
+     "op": "==",
+     "n": 2
+    },
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 7
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A(?:When(?: [A-Za-z]+){4};\\r?\\n){4}\\r?\\n(?:Then(?: [A-Za-z]+){6}\\.\\r?\\n){2}Then(?: [A-Za-z]+){6}\\.\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "(?s)\\r?\\n[ \\t]*\\r?\\n.*[oO]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z ;.\\n\\r]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.06",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Compose a single line about deep winter. ALL constraints must hold simultaneously: (1) exactly 8 words separated by single spaces, all on one line; (2) word 1 is exactly 3 letters long, word 2 is 4 letters, word 3 is 5 letters, word 4 is 6 letters, word 5 is 7 letters, word 6 is 8 letters, word 7 is 9 letters, and word 8 is 10 letters; (3) the line contains only lowercase letters and single spaces — no capitals, digits, or punctuation of any kind; (4) the letter 'e' does not appear anywhere; (5) the word 'frosty' appears somewhere in the line. Output ONLY the line — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 1
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\A[a-z]{3} [a-z]{4} [a-z]{5} [a-z]{6} [a-z]{7} [a-z]{8} [a-z]{9} [a-z]{10}\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "e",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\bfrosty\\b",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^a-z ]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.07",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Consider exactly this sentence: \"Three sleepy vessels drifted past the narrow green channel while gulls hovered above the still lagoon.\" Treat a word as a maximal run of letters (the final period is not part of any word); treat letters case-insensitively; if a word occurs more than once, count each occurrence. Compute: A = the number of words containing at least one doubled letter (the same letter twice in immediate succession, like 'oo' in 'moon'); B = the number of words that are exactly 5 letters long; C = the number of words whose first and last letters are the same letter; N = A times B, plus C. Reply with ONLY the four values joined by pipe characters in this exact format: A|B|C|N (for example 2|3|4|10). No spaces, no other text.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "9|6|1|55",
+     "normalize": true,
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.08",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Take the word PALINDROME, its letters numbered from position 1. Compute three results: R1 = PALINDROME with every letter replaced by the letter 13 positions later in the alphabet (wrapping past Z back to A), written entirely in lowercase; R2 = PALINDROME with the letters at even positions (2nd, 4th, 6th, 8th, 10th) deleted, written entirely in UPPERCASE; R3 = the number of distinct letters in PALINDROME, written in decimal. Reply with ONLY the string R1|R2|R3 — the three results joined by pipe characters, no spaces, nothing else. Letter case in your answer matters.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "exact_match",
+     "value": "cnyvaqebzr|PLNRM|10",
+     "normalize": true,
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.instruction.expert.09",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "expert",
+  "prompt": "Write a 5-line river poem. ALL of the following constraints must hold simultaneously: (1) exactly 5 lines, no blank lines, and no leading or trailing spaces on any line; (2) line 1 contains exactly 4 words, line 2 exactly 5, line 3 exactly 6, line 4 exactly 5, and line 5 exactly 4 — words separated by single spaces; (3) the FIRST letters of the 5 lines, read downward, spell RIVER — uppercase 'R', 'I', 'V', 'E', 'R'; (4) the LAST letters of the 5 lines, read downward, spell stone — the final character of line 1 is a lowercase 's', of line 2 a lowercase 't', of line 3 a lowercase 'o', of line 4 a lowercase 'n', and of line 5 a lowercase 'e'; (5) the letter 'u' (uppercase or lowercase) must not appear anywhere; (6) your output contains only letters, spaces, and line breaks — no digits and no punctuation of any kind; (7) the word 'reed' (all lowercase, as its own separate word) appears at least once. Apart from the pinned first and last letters of each line, any mix of uppercase and lowercase letters is allowed anywhere. Output ONLY the 5 lines — nothing else.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "structural_count",
+     "unit": "line",
+     "op": "==",
+     "n": 5
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\AR[A-Za-z]*(?: [A-Za-z]+){2} [A-Za-z]*s\\r?\\nI[A-Za-z]*(?: [A-Za-z]+){3} [A-Za-z]*t\\r?\\nV[A-Za-z]*(?: [A-Za-z]+){4} [A-Za-z]*o\\r?\\nE[A-Za-z]*(?: [A-Za-z]+){3} [A-Za-z]*n\\r?\\nR[A-Za-z]*(?: [A-Za-z]+){2} [A-Za-z]*e\\Z",
+     "mode": "must_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "u",
+     "mode": "must_not_match",
+     "ignore_case": true
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "[^A-Za-z \\n\\r]",
+     "mode": "must_not_match",
+     "ignore_case": false
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\breed\\b",
+     "mode": "must_match",
+     "ignore_case": false
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -22,15 +22,44 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The engine rejected a flag it doesn't recognize (see 'unrecognized arguments: --…' in the "
      "log). Remove that flag from RECIPE TUNING — it isn't supported by this engine build. If it "
      "came from a family preset, clear it there; the model still benches without it."),
-    (re.compile(r"Window left is not the same for all layers", re.I), None,
-     "Sliding-window attention metadata failed. For Qwen+DFlash, keep attention-backend = "
-     "triton_attn and include \"attention_backend\":\"TRITON_ATTN\" inside --speculative-config. "
-     "For Gemma-4, use kv-cache-dtype = auto on triton_attn, or add --disable-sliding-window if "
-     "you must keep fp8 KV."),
+    (re.compile(r"object has no attribute .hc_mult.|dspark\.py.{0,400}?AttributeError", re.I),
+     "--speculative-config",
+     "The drafter card is a DFLASH drafter (z-lab DFlashDraftModel format) but the recipe's "
+     "--speculative-config says method 'dspark' — the DSpark loader expects DeepSeek-v4-style "
+     "drafter fields (hc_mult/hc-head) and always crashes on a DFlash card. Set method to "
+     "'dflash' for this drafter (updated pods auto-correct: SPEC METHOD GUARD in the log)."),
+    (re.compile(r"object has no attribute .(?:block_size|dflash_config|markov_rank).", re.I),
+     "--speculative-config",
+     "The drafter card looks like a DSPARK drafter (DeepSeek-v4 format) but the recipe's "
+     "--speculative-config says method 'dflash' — the DFlash loader expects z-lab drafter "
+     "fields (block_size/dflash_config) and crashes on a DSpark card. Set method to 'dspark' "
+     "for this drafter (updated pods auto-correct: SPEC METHOD GUARD in the log)."),
+    (re.compile(r"Loading drafter model|self\.drafter\.load|qwen3_dflash|markov_head|"
+                r"drafter.*load_weights|EngineCore failed to start[\s\S]{0,400}?draft", re.I), None,
+     "The DFlash / speculative-decode DRAFTER failed to load — its weights don't match this "
+     "engine build's drafter loader (e.g. a missing key like 'markov_head.markov_w1.weight'). "
+     "Switch to a drafter built for this engine (z-lab/<Model>-DFlash worked here), or clear the "
+     "DFlash drafter to bench without speculative decoding (the model itself is fine)."),
+    (re.compile(r"Window left is not the same for all layers", re.I), "--kv-cache-dtype",
+     "Sliding-window attention metadata failed. Gemma-4: interleaved sliding-window layers crash "
+     "under fp8 KV cache on triton_attn — set kv-cache-dtype = auto (or --disable-sliding-window "
+     "to keep fp8 KV); the Gemma-4 preset does this. Qwen+DFlash: keep attention-backend = "
+     "triton_attn and include \"attention_backend\":\"TRITON_ATTN\" inside --speculative-config."),
     (re.compile(r"Please install vllm\[audio\]|vllm\[audio\] for audio", re.I), None,
      "The engine image is missing audio decode deps (av/soxr/librosa). Use the audio-capable "
      "aeon-vllm-ultimate:latest (audio deps baked in), or pick a non-audio engine — a "
      "text/vision bench is unaffected."),
+    (re.compile(r"markov_head\.markov_w\d+\.weight", re.I), "--speculative-config",
+     "The selected DFlash drafter is incompatible with this vLLM build. Older Markov-head "
+     "Qwen drafters expose markov_head.* weights that the current DFlash loader does not "
+     "instantiate. Use the matching current drafter card, e.g. z-lab/Qwen3.6-27B-DFlash for "
+     "Qwen3.6-27B, or disable DFlash / use native MTP for this run."),
+    (re.compile(r"Invalid repository ID or local directory specified: ['\"]?/model|"
+                r"ensure the presence of a ['\"]config\.json['\"]", re.I), None,
+     "The serve container could not read the mounted model directory. If the model came from the "
+     "Hugging Face cache, its snapshot files may be symlinks into ../../blobs; mount the whole "
+     "repo cache root, or use the updated pod which serves HF snapshots from "
+     "`/model/snapshots/<revision>` so those symlinks resolve."),
     (re.compile(r"No available memory for the cache|not enough (?:KV cache )?memory|"
                 r"KV cache.*(?:too small|insufficient)|Available KV cache memory.*is (?:0|negative)", re.I),
      "--gpu-memory-utilization",
@@ -55,6 +84,15 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "In RECIPE TUNING set max-num-batched-tokens = 32768 and cap max-num-seqs (try 64 for "
      "64K bench context, or 16 for long-context sidecar profiles), or reduce "
      "num_speculative_tokens."),
+    (re.compile(r"Quantization method specified in the model config[\s\S]{0,200}?does not match"
+                r"[\s\S]{0,120}?quantization.{0,3}\s*argument", re.I),
+     "--quantization",
+     "The recipe pins a --quantization method that CONTRADICTS the checkpoint's own "
+     "quantization_config in config.json (e.g. a champion recipe from a ModelOpt-NVFP4 donor "
+     "reused on an llm-compressor/compressed-tensors NVFP4 checkpoint). Clear the quantization "
+     "override in RECIPE TUNING — the pod derives the right method from config.json — or set it "
+     "to the method named first in the error. Updated pods drop the conflicting flag "
+     "automatically (QUANT GUARD in the log)."),
     (re.compile(r"Unknown quantization|Unsupported quantization|quantization method.*not "
                 r"(?:supported|recognized)|No supported quant|does not support.*quantization", re.I),
      "--quantization",
@@ -62,12 +100,18 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "config.json (NVFP4 -> modelopt, GGUF -> none). Clear the quantization override in RECIPE "
      "TUNING to use the derived one, or set the correct method (modelopt / compressed-tensors / "
      "awq / gptq / fp8)."),
-    (re.compile(r"FlashInfer|flashinfer.*(?:not|unsupported|failed to|no kernel)", re.I),
+    (re.compile(r"flashinfer.*(?:error|unsupported|not supported|not installed|failed|requires|"
+                r"no kernel|crash|exception)", re.I),
      "--attention-backend",
      "FlashInfer is broken on the GB10. In RECIPE TUNING set attention-backend = triton_attn "
      "(or flash_attn)."),
-    (re.compile(r"trust_remote_code|requires.*remote code|custom.*modeling.*code|"
-                r"Loading this model requires you to (?:execute|trust)", re.I), "--trust-remote-code",
+    # Anchored on phrases that appear in the REAL transformers/vLLM errors but never in a vLLM
+    # config dump line (which prints trust_remote_code=False for every run).
+    (re.compile(r"pass the argument .{0,3}trust_remote_code=True|"
+                r"consider setting .{0,3}trust_remote_code=True|"
+                r"contains custom code which must be executed|"
+                r"requires you to execute the (?:configuration|modeling) file", re.I),
+     "--trust-remote-code",
      "This repo ships custom modeling code. Enable trust-remote-code in RECIPE TUNING."),
     (re.compile(r"reasoning[_-]parser.*(?:not|unknown|invalid|no such)|"
                 r"unknown reasoning parser|--reasoning-parser.*invalid", re.I), "--reasoning-parser",
@@ -80,7 +124,12 @@ _SIGNATURES: list[tuple[re.Pattern, str | None, str]] = [
      "The requested context exceeds the model's native window. Lower max-model-len to the model's "
      "native context (shown on the validation strip), or configure rope scaling if the model "
      "supports it."),
-    (re.compile(r"tool[_-]call[_-]parser|tool call parser.*(?:not|unknown|invalid)", re.I),
+    # Anchored on ERROR phrasing only — the plain flag name appears in vLLM's non-default-args
+    # config dump on every run (matching it there mis-blamed a healthy parser for an unrelated
+    # startup crash: the 27B-Ultimate quant mismatch, 2026-07-17).
+    (re.compile(r"tool[_-]call[_-]parser.{0,60}?(?:not|unknown|invalid|no such)|"
+                r"(?:invalid|unknown)\s+tool[ _-]call[ _-]parser|"
+                r"tool call parser.*(?:not|unknown|invalid)", re.I),
      "--tool-call-parser",
      "The tool-call-parser name isn't supported by this build. In RECIPE TUNING pick your family's "
      "parser (Qwen -> qwen3_coder, DeepSeek -> deepseek_v3, GLM-4.5 -> glm45, Kimi K2 -> kimi_k2, "
@@ -129,6 +178,21 @@ def diagnose(log_lines: list[str], custom_flags=None) -> str | None:
     # Scan all retained lines. vLLM can flood the tail with repeated EngineDeadError traces after
     # the first EngineCore failure, so a small tail window often misses the actual root cause.
     text = "\n".join(log_lines)
+    # ENDPOINT MODE (serve_url): the pod benched a live serve it did NOT launch, so a transport
+    # wipeout is not an engine-startup problem and RECIPE TUNING is irrelevant — the endpoint is
+    # unreachable or names the model differently. Diagnose it as such (highest priority).
+    if re.search(r"external serve: benching", text, re.I) and \
+       re.search(r"failed in transport|answered none of the", text, re.I):
+        m = re.search(r"served = (\[[^\]]*\]).{0,40}alias present: False", text)
+        if m:
+            return ("The live endpoint rejected every request as an unknown model: it serves "
+                    f"{m.group(1)}, and the bench asked for an id it doesn't have. Re-pick the "
+                    "endpoint from ⌕ Scan — the pod now benches under the served id the endpoint "
+                    "reports — or set the served-model id explicitly, then relaunch (resumable).")
+        return ("The live endpoint answered none of the requests (transport failure). Check the "
+                "Serve URL is reachable from the pod and still up, exposes /v1/chat/completions, "
+                "and serves the model id the bench uses — then relaunch (the run is resumable). "
+                "This is an endpoint/URL problem, not a serve-recipe one.")
     # highest priority: an engine that rejected a specific flag — name it exactly.
     um = _UNRECOGNIZED.search(text)
     if um:

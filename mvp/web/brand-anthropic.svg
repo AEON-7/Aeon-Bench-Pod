@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="64" fill="#05070b"/>
+  <circle cx="64" cy="64" r="51" fill="#14110f" stroke="#ffd166" stroke-width="4"/>
+  <path d="M64 24l38 78H26z" fill="none" stroke="#f6e8d1" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M51 76h26M45 94h38" stroke="#ff8a5c" stroke-width="6" stroke-linecap="round"/>
+  <text x="64" y="66" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#fff">Claude</text>
+</svg>

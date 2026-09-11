@@ -19,7 +19,64 @@ from aeon.targets import OpenAITarget
 
 # Hard per-artifact cap (bytes of UTF-8). The mothership enforces the same cap on
 # ingest — keep the two in sync so a bundle is never rejected for size.
-MAX_HTML_BYTES = 200 * 1024
+#
+# 50 MB is a RUNAWAY GUARD, not a target. The old 200 KB was sized for pure hand-written HTML,
+# where the token budget binds first (65 536 tok is only ~192 KB of text). It stops being enough
+# the moment an artifact embeds its own assets: a base64 data: URI for a texture, a sprite sheet,
+# a few seconds of audio: each is megabytes, and the 200 KB cap cut them mid-string — producing
+# exactly the truncated artifacts we now refuse to publish. A cap that mangles legitimate content
+# is worse than no cap; this one only exists so a pathological generation cannot exhaust memory.
+MAX_HTML_BYTES = 50 * 1024 * 1024
+
+# What ONE submission may carry in artifacts, all told. Per-artifact and per-bundle are different
+# questions: 50 MB is fine for a single asset-heavy artifact, but a bundle carries up to
+# MAX_ARTIFACTS of them, and 24 x 50 MB is not a POST anyone should try to make. The pod fills up
+# to this budget in order and SAYS what did not fit — a bundle the edge rejects loses the whole
+# run, so trimming here is the graceful failure and silence would not be.
+MAX_BUNDLE_ARTIFACT_BYTES = 64 * 1024 * 1024
+
+
+def is_complete(html: str) -> bool:
+    """Did the model actually FINISH the document, or did we cut it off?
+
+    A generation that hits max_tokens stops mid-token: no closing </html>, an unclosed <script>,
+    a CSS rule ending in `box-shadow:`. Such a file renders as a blank or half-drawn page, and it
+    is indistinguishable from bad code unless we check. Every GOD MODE artifact from the first two
+    external runs failed this test, so the whole gallery for those models was dead.
+
+    Deliberately structural, not a linter: we are detecting OUR truncation, not judging the
+    model's work. A complete-but-buggy artifact is a real result and must still be published."""
+    if not html or not html.strip():
+        return False
+    low = html.lower()
+    if "</html>" not in low:
+        return False
+    # an unbalanced <script> means the tail was cut inside JS
+    if low.count("<script") != low.count("</script>"):
+        return False
+    return True
+
+
+def fit_bundle(artifacts, budget: int = MAX_BUNDLE_ARTIFACT_BYTES):
+    """Trim an artifact list to what one submission can actually carry.
+
+    Per-artifact and per-bundle are different limits. An asset-heavy artifact may legitimately be
+    tens of megabytes, but the whole bundle still has to survive one POST — and a bundle the edge
+    rejects loses the ENTIRE run, not just the artifact that overflowed it. Dropping the tail is
+    the graceful failure; the un-postable bundle is not.
+
+    Keeps corpus order (so per-prompt coverage degrades evenly rather than by kind) and returns
+    (kept, dropped) so the caller can say out loud what did not fit. Never silent: a bundle that
+    quietly shipped 6 of 18 artifacts would read on the board as "this model made 6"."""
+    kept, dropped, used = [], [], 0
+    for a in artifacts or []:
+        n = len((a.get("html") or "").encode("utf-8"))
+        if kept and used + n > budget:          # always keep at least one, even if huge
+            dropped.append(a)
+            continue
+        kept.append(a)
+        used += n
+    return kept, dropped
 
 
 def _cap_html(html: str, limit: int = MAX_HTML_BYTES) -> str:
@@ -29,7 +86,7 @@ def _cap_html(html: str, limit: int = MAX_HTML_BYTES) -> str:
     return b[:limit].decode("utf-8", "ignore")
 
 
-def pick_prompts(per_kind: int = 2, seed=None):
+def pick_prompts(per_kind: int = 2, seed=None, only_difficulty=None):
     """Deterministically pick `per_kind` prompts per kind from aeon.arena.PROMPTS.
 
     Same seed (and same prompt corpus) -> same selection, independent of the model —
@@ -41,11 +98,24 @@ def pick_prompts(per_kind: int = 2, seed=None):
     for kind in arena.KINDS:
         pool = sorted((p for p in arena.PROMPTS.get(kind, []) if not p.get("agent_only")),
                       key=lambda p: p["id"])
+        if only_difficulty:                       # GOD MODE BENCH: the draw pool IS the god tier
+            pool = [p for p in pool if p.get("difficulty") == only_difficulty]
         n = min(per_kind, len(pool))
         if n <= 0:
             continue
         rng = random.Random() if seed is None else random.Random(f"aeon-arena|{seed}|{kind}")
-        out.extend((kind, p) for p in rng.sample(pool, n))
+        # GUARANTEED GOD SLOT: when the kind has god_mode prompts, one draw slot is always
+        # a god challenge (seeded choice among them) — god-tier generation is a reliable
+        # part of every bench, not a lottery ticket, at identical total cost. The remaining
+        # slots draw from the rest of the pool exactly as before.
+        gods = [p for p in pool if p.get("difficulty") == "god_mode"]
+        if gods and n >= 1:
+            god_pick = rng.choice(gods)
+            rest = [p for p in pool if p["id"] != god_pick["id"]]
+            picks = [god_pick] + (rng.sample(rest, min(n - 1, len(rest))) if n > 1 else [])
+        else:
+            picks = rng.sample(pool, n)
+        out.extend((kind, p) for p in picks)
     return out
 
 
@@ -72,30 +142,65 @@ class _MockArenaTarget:
                 "streamed": True}
 
 
-def _make_target(target_url, alias, api_key):
+def _make_target(target_url, alias, api_key, conc=1):
     if target_url == "mock":
         return _MockArenaTarget(alias)
-    return OpenAITarget(target_url, alias, api_key=api_key, timeout=600)
+    # scale the per-request timeout with arena concurrency: streams time-slice the serve, so a
+    # long god-tier generation runs slower wall-clock under contention (floored at the proven 600s)
+    return OpenAITarget(target_url, alias, api_key=api_key, timeout=max(600, 120 * max(1, conc)))
+
+
+# A self-contained game/app/animation is a big single file, and a god-tier one is bigger still.
+# 8000 tokens truncated EVERY artifact of the first two external GOD MODE runs; the bench's own
+# --max-tokens default is 32768, so arena generation now matches it instead of silently using a
+# quarter of it. Reasoning models need the headroom twice over: their <think> block is spent from
+# this same budget before any HTML appears.
+DEFAULT_ARENA_MAX_TOKENS = 32768
+# GOD-TIER artifacts are asked for a raycaster, a BVH path tracer, an XPBD cloth solver as ONE
+# self-contained file. Measured against the truncated runs, output runs ~3 chars/token, so:
+#     8 000 tok ->  ~23 KB   (what truncated every artifact of the first two external runs)
+#    32 768 tok ->  ~96 KB
+#    65 536 tok -> ~192 KB
+# The TOKEN budget is now the only thing that bounds a text artifact — the byte cap sits three
+# orders of magnitude above these figures and is a runaway guard, not a storage ceiling. So this
+# number answers one question only: how much thinking + code a god-tier task deserves.
+GOD_ARENA_MAX_TOKENS = 65536
 
 
 def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None,
-                       max_tokens=8000, temperature=0.4, progress_cb=None):
+                       max_tokens=DEFAULT_ARENA_MAX_TOKENS, temperature=0.4, progress_cb=None,
+                       only_difficulty=None, concurrency=1):
     """Generate arena artifacts for one model. NEVER raises.
 
     Returns a list of {kind, prompt_id, title, html, ok, gen_ms, bytes} dicts —
     exactly the shape aeon/ingest.py accepts as bundle["artifacts"]. A failed
     generation (target error, empty/non-HTML output) yields ok=False, html="".
     `progress_cb(done, total, item)` (optional) is called after each artifact.
+
+    `concurrency` artifacts generate IN FLIGHT against the served model — the same
+    endpoint the text/harness boards already hammer with a ThreadPoolExecutor, which
+    batches concurrent streams. Artifacts are independent + unjudged at generation, so
+    this is a pure throughput win; the returned list stays in seeded selection order
+    (written by index, not completion order) and progress is a monotonic main-thread
+    counter, so determinism + the (1,N)->(N,N) progress contract are preserved.
+    `concurrency<=1` keeps the exact single-stream loop (mock / no-GPU fallback).
     """
-    selection = pick_prompts(per_kind=per_kind, seed=seed)
+    # A god-tier draw earns the bigger budget: it is the only scope that asks for a raycaster or a
+    # path tracer as ONE self-contained file, and 8000 tokens truncated every one of them.
+    if only_difficulty == "god_mode" and max_tokens < GOD_ARENA_MAX_TOKENS:
+        max_tokens = GOD_ARENA_MAX_TOKENS
+    selection = pick_prompts(per_kind=per_kind, seed=seed, only_difficulty=only_difficulty)
     total = len(selection)
-    out = []
+    workers = max(1, min(int(concurrency or 1), total or 1))
     try:
-        target = _make_target(target_url, alias, api_key)
+        target = _make_target(target_url, alias, api_key, workers)
     except Exception:
         target = None  # constructor failure -> every artifact reports ok=False below
 
-    for i, (kind, p) in enumerate(selection):
+    def _gen_one(kind, p):
+        """ONE artifact -> its item dict. NEVER raises. Thread-safe: OpenAITarget.chat builds a
+        fresh request per call and holds only immutable config, so worker threads share one target
+        exactly as the text/harness boards do."""
         html, ok, gen_ms = "", False, None
         try:
             if target is None:
@@ -104,18 +209,48 @@ def generate_for_model(target_url, alias, *, api_key=None, per_kind=2, seed=None
                     {"role": "user", "content": p["prompt"]}]
             resp = target.chat(msgs, temperature=temperature, max_tokens=max_tokens)
             html = _cap_html(arena.extract_html(resp.get("text", "")))
-            ok = bool(html.strip()) and "<" in html
             gen_ms = resp.get("e2e_ms")
+            # A truncated document is OUR failure, not the model's, and must never be published
+            # as a working artifact — it renders blank or half-drawn and cannot be fairly voted on.
+            truncated = bool(html.strip()) and not is_complete(html)
+            ok = bool(html.strip()) and "<" in html and not truncated
+            if truncated:
+                print(f"[pod] arena: {kind}/{pid} TRUNCATED at {len(html)} chars "
+                      f"(hit max_tokens={max_tokens}) - recorded as failed, not published")
             if not ok:
                 html = ""
         except Exception:
             html, ok, gen_ms = "", False, None
-        item = {"kind": kind, "prompt_id": p["id"], "title": p["title"], "html": html,
+        return {"kind": kind, "prompt_id": p["id"], "title": p["title"], "html": html,
                 "ok": ok, "gen_ms": gen_ms, "bytes": len(html.encode("utf-8"))}
-        out.append(item)
-        if progress_cb:
-            try:
-                progress_cb(i + 1, total, item)
-            except Exception:
-                pass
+
+    out = [None] * total
+    if workers <= 1:                                   # serial fallback — mock / single-stream
+        for i, (kind, p) in enumerate(selection):
+            out[i] = _gen_one(kind, p)
+            if progress_cb:
+                try:
+                    progress_cb(i + 1, total, out[i])
+                except Exception:
+                    pass
+        return out
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_gen_one, kind, p): i for i, (kind, p) in enumerate(selection)}
+        done = 0
+        try:
+            for fut in as_completed(futs):
+                i = futs[fut]
+                out[i] = fut.result()                  # _gen_one never raises
+                done += 1
+                if progress_cb:                        # monotonic (1..N) on the MAIN thread only
+                    try:
+                        progress_cb(done, total, out[i])
+                    except Exception:
+                        pass
+        except BaseException:                          # interrupt/bug: cancel cleanly, then re-raise
+            for f in futs:
+                f.cancel()
+            raise
     return out

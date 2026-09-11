@@ -1,5 +1,5 @@
 """OpenClawAdapter — drives the `aeon-harness-openclaw` container image (openclaw/openclaw CLI
-inside node:24-slim; built on the DGX, arm64, v2026.6.11).
+inside node:24-slim; arm64 on a DGX Spark. Tracks openclaw's latest release).
 
 Invocation (one one-shot container per task; the pod code runs ON the DGX):
 
@@ -12,8 +12,9 @@ Invocation (one one-shot container per task; the pod code runs ON the DGX):
     {"models": {"providers": {"dgx": {"baseUrl": <model_base_url>, "apiKey": "sk-local",
                                       "api": "openai-completions",
                                       "models": [{"id": "<alias>", "name": "<alias>",
-                                                  "contextWindow": 32768,
-                                                  "maxTokens": 8192}]}}},
+                                                  "contextWindow": <the endpoint's own
+                                                      max_model_len, asked at config time>,
+                                                  "maxTokens": <per-turn ceiling>}]}}},
      "agents": {"defaults": {"model": {"primary": "dgx/<alias>"}}}}
 
 Because /root/.openclaw is where OpenClaw also keeps its session state, mounting a fresh dir
@@ -31,11 +32,21 @@ import os
 import shutil
 import tempfile
 
-from .base import Adapter, AdapterError, run_argv, run_container_io, safe_name, strip_reasoning
+from .base import (Adapter, AdapterError, ensure_image, run_argv, run_container_io,
+                   safe_name, served_context, strip_reasoning)
 
-IMAGE = os.environ.get("AEON_OPENCLAW_IMAGE", "aeon-harness-openclaw")
+# Published multi-arch by the pod repo's harness-images workflow, so ANY pod can pull it.
+# It used to default to the bare local name, which only existed on a rig that had built it
+# by hand — every other pod failed `docker create` and scored 0 on every agentic task.
+# Now the pod BUILDS it locally on first use (see `ensure_image`): no third-party image is
+# redistributed, and the operator's copy comes straight from upstream.
+# Override with the env var to use a locally-built image instead.
+IMAGE = os.environ.get("AEON_OPENCLAW_IMAGE", "aeon-harness-openclaw:latest")
 _PROVIDER_ID = "dgx"
 _API_KEY = "sk-local"
+# Used only when the endpoint will not report its own window (see base.served_context).
+_CTX_FALLBACK = 131072
+_MAX_OUTPUT_TOKENS = int(os.environ.get("AEON_OPENCLAW_MAX_TOKENS", "16384"))
 
 
 def _copy_tree_into(src: str, dst: str) -> None:
@@ -73,6 +84,8 @@ def _rm_root_owned(path: str) -> None:
 
 def build_config(model_base_url: str, served_alias: str) -> dict:
     """The exact openclaw.json this model-run uses (verified schema — see module docstring)."""
+    _ctx = served_context(model_base_url) or _CTX_FALLBACK
+    _max_out = min(_MAX_OUTPUT_TOKENS, max(1024, _ctx // 4))
     return {
         "models": {
             "providers": {
@@ -80,8 +93,13 @@ def build_config(model_base_url: str, served_alias: str) -> dict:
                     "baseUrl": model_base_url,
                     "apiKey": _API_KEY,
                     "api": "openai-completions",
+                    # Declared from the endpoint's own /v1/models, not hardcoded. The literals
+                    # here (131072) and in this module's docstring (32768) had drifted apart from
+                    # each other AND from the recipes, which serve 229376-262144. maxTokens is a
+                    # per-TURN ceiling: it must fit a large artifact without letting one reply
+                    # spend the whole task budget (see hermes._ensure_cfg for the measurement).
                     "models": [{"id": served_alias, "name": served_alias,
-                                "contextWindow": 131072, "maxTokens": 8192}],
+                                "contextWindow": _ctx, "maxTokens": _max_out}],
                 }
             }
         },
@@ -151,6 +169,9 @@ class OpenClawAdapter(Adapter):
     def prepare_run(self, model_base_url: str, served_alias: str, run_root: str):
         """Fresh per-model-run config+state dir (mounted at /root/.openclaw) — a new dir per
         model means OpenClaw's session store starts empty for every model-run."""
+        # build the harness image here if this machine doesn't have it yet - one loud
+        # failure with install instructions beats 0 on every task.
+        ensure_image(self.IMAGE, "openclaw")
         d = os.path.join(run_root, f"openclaw-{safe_name(served_alias)}")
         if os.path.isdir(d):
             shutil.rmtree(d, ignore_errors=True)
@@ -184,13 +205,18 @@ class OpenClawAdapter(Adapter):
             # docker-cp I/O (run_container_io): a bind mount of this pod-local `home` breaks
             # when the pod is containerized (daemon resolves the path on the HOST -> empty
             # /root/.openclaw -> "Unknown model: dgx/<alias>" and no task files).
-            out, err, rc, dur = run_container_io(
-                self.IMAGE,
-                ["agent", "--local", "--json", "--agent", "main",
-                 "-m", task.get("prompt", ""), "--model", model],
-                seed=[(home, "/root/.openclaw")],
-                collect=[("/root/.openclaw/workspace/.", ws)],
-                timeout=timeout, name_hint=f"claw_{served_alias}")
+            from .. import harness_stream      # local: keeps pod.adapters free of a package cycle
+            _obs = harness_stream.observer("openclaw", task.get("id"))
+            try:
+                out, err, rc, dur = run_container_io(
+                    self.IMAGE,
+                    ["agent", "--local", "--json", "--agent", "main",
+                     "-m", task.get("prompt", ""), "--model", model],
+                    seed=[(home, "/root/.openclaw")],
+                    collect=[("/root/.openclaw/workspace/.", ws)],
+                    timeout=timeout, name_hint=f"claw_{served_alias}", on_line=_obs)
+            finally:
+                _obs.close()
             _copy_tree_into(ws, workdir)   # bring the agent's file outcomes back for scoring
         finally:
             _rm_root_owned(home)           # best-effort cleanup (docker-cp output is pod-owned)

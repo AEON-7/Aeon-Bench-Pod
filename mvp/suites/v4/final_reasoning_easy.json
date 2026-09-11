@@ -1,0 +1,40 @@
+[
+ {
+  "id": "v3.reasoning.easy.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "easy",
+  "prompt": "On the island of Velmara, every inhabitant is either a knight (who always tells the truth) or a knave (who always lies). You meet two inhabitants, Marisol and Dario. Marisol says: \"Marisol and Dario are both knaves.\" Exactly one of the two is a knight. Which one is the knight? Answer with exactly one name (Marisol or Dario) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Dario\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Marisol\\s*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.reasoning.easy.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "easy",
+  "prompt": "How many integers from 1 to 84 inclusive are divisible by 6? Put the final answer (a single integer) inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "14"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

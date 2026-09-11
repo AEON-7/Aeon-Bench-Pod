@@ -1,0 +1,55 @@
+[
+ {
+  "id": "v3.instruction.god_mode.01",
+  "category": "Instruction",
+  "tier": 1,
+  "difficulty": "god_mode",
+  "prompt": "Write a formal verification handoff note for an autonomous lunar micro-reactor controller. Follow every constraint exactly:\n- Output exactly 9 non-empty lines and nothing else.\n- The lines must begin with these tags in this exact order: ASSUMPTIONS:, STATE:, HAZARDS:, INVARIANTS:, PROOF:, MONITOR:, RECOVERY:, LIMITS:, DECISION:.\n- Somewhere in the 9 lines, include each exact phrase: two-fault tolerance, fail-operational, latency budget 40 ms, thermal runaway, proof obligation.\n- Do not use markdown bullets, numbering, headings, tables, or code fences.\n- Keep the note technical and safety-critical rather than poetic.",
+  "eval": {
+   "rubric": [
+    {
+     "id": "lines",
+     "question": "Does the response have exactly 9 non-empty lines?",
+     "decision_rule": "Count non-empty lines; true iff exactly 9.",
+     "required": true,
+     "tier0_check": {
+      "type": "structural_count",
+      "unit": "line",
+      "op": "==",
+      "n": 9
+     }
+    },
+    {
+     "id": "tag_order",
+     "question": "Do the 9 lines begin with the required tags in the exact order?",
+     "decision_rule": "True iff line starts match the specified tag sequence.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\AASSUMPTIONS:[^\\n]*\\nSTATE:[^\\n]*\\nHAZARDS:[^\\n]*\\nINVARIANTS:[^\\n]*\\nPROOF:[^\\n]*\\nMONITOR:[^\\n]*\\nRECOVERY:[^\\n]*\\nLIMITS:[^\\n]*\\nDECISION:[^\\n]*\\Z",
+      "mode": "must_match"
+     }
+    },
+    {
+     "id": "required_phrases",
+     "question": "Does the note include all five required exact phrases?",
+     "decision_rule": "True iff every required phrase appears literally.",
+     "required": true,
+     "tier0_check": {
+      "type": "regex_constraint",
+      "pattern": "\\A(?=[\\s\\S]*two-fault tolerance)(?=[\\s\\S]*fail-operational)(?=[\\s\\S]*latency budget 40 ms)(?=[\\s\\S]*thermal runaway)(?=[\\s\\S]*proof obligation)",
+      "mode": "must_match",
+      "ignore_case": false
+     }
+    },
+    {
+     "id": "technical",
+     "question": "Is the note a coherent safety-critical verification handoff rather than filler text?",
+     "decision_rule": "True iff the lines describe assumptions, state, hazards, invariants, proof, monitoring, recovery, limits, and decision in a technically plausible way.",
+     "required": false,
+     "weight": 0.5
+    }
+   ]
+  }
+ }
+]

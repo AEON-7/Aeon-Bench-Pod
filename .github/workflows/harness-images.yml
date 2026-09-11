@@ -1,0 +1,74 @@
+# VALIDATES that the three AGENTIC HARNESS Dockerfiles still build. It does NOT publish them.
+#
+# The pod builds these itself, on whatever machine it lands on, the first time a run needs one
+# (mvp/pod/adapters/base.py → ensure_image). That keeps third-party agent code out of anything we
+# redistribute — every operator's harness comes straight from upstream on their own box.
+#
+# But it moves the failure to the operator: if a pin rots (openclaw is CalVer, opencode-ai's
+# versions move, hermes tracks a git ref), the first person to run agentic on a fresh machine eats
+# it, mid-benchmark. This job is the early-warning: build all three on every change, push nothing.
+#
+# Both arches matter — DGX Spark / Grace-Blackwell rigs are arm64, workstations are amd64 — but a
+# QEMU-emulated arm64 build of these is slow, so arm64 is validated on demand rather than per-push.
+name: harness-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/pod/harness-*.Dockerfile"
+      - ".github/workflows/harness-images.yml"
+  pull_request:
+    paths:
+      - "deploy/pod/harness-*.Dockerfile"
+  schedule:
+    - cron: "17 6 * * 1"      # weekly: catch a pin that rotted without us touching the file
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: "also validate the arm64 build (slow, QEMU-emulated)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read              # no packages:write — this workflow publishes nothing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false        # one rotted pin must not hide the state of the other two
+      matrix:
+        harness: [hermes, openclaw, opencode]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+        if: inputs.arm64
+      - uses: docker/setup-buildx-action@v3
+
+      # The scheduled run MUST NOT use the layer cache. These Dockerfiles say `pkg@latest` and
+      # `--branch main`, so the RUN instruction text never changes — a cached layer replays a
+      # resolution from months ago and this job stays green while every operator's fresh build
+      # breaks. That is the exact shape of the failure it exists to catch (openclaw raised its Node
+      # floor and the install silently produced a CLI that would not start). Push/PR runs keep the
+      # cache: there the question is "did this Dockerfile edit break the build", answered fast.
+      - name: build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/pod          # the harness Dockerfiles are self-contained (no COPY)
+          file: deploy/pod/harness-${{ matrix.harness }}.Dockerfile
+          platforms: ${{ inputs.arm64 && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: false
+          load: false
+          pull: ${{ github.event_name == 'schedule' }}       # re-pull the base image too
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: ${{ github.event_name == 'schedule' && '' || format('type=gha,scope=harness-{0}', matrix.harness) }}
+          cache-to: type=gha,mode=max,scope=harness-${{ matrix.harness }}
+
+      - name: what a failure here means
+        if: failure()
+        run: |
+          echo "::error::harness-${{ matrix.harness }} no longer builds. Every operator's first"
+          echo "::error::agentic run on a fresh machine will now fail this way. Fix the pin in"
+          echo "::error::deploy/pod/harness-${{ matrix.harness }}.Dockerfile before the next release."

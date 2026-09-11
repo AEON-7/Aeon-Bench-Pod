@@ -44,6 +44,11 @@ function decrypt(el, text, dur = 500) {
 const fmtDur = (ms) => ms == null ? "—" : ms < 1000 ? Math.round(ms) + "ms" : (ms / 1000).toFixed(1) + "s";
 const fmtTps = (v) => v == null ? "—" : v >= 100 ? String(Math.round(v)) : (+v).toFixed(1);
 const fmtComp = (v) => v >= 99.95 ? "100" : v.toFixed(1);
+// served context window: 65536 -> "64K" (sub-1K windows stay literal)
+const fmtCtx = (v) => v >= 1024 ? Math.round(v / 1024) + "K" : String(v);
+// the quiet mono context chip — identical grammar on board rows, run detail, bench cards
+const ctxChip = (v) => v == null ? ""
+  : `<span class="mcard-ctx mono" title="max context length this benchmark was served at">${fmtCtx(v)} ctx</span>`;
 const fmtDate = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : "unknown";
 const fmtClock = (ts) => ts ? new Date(ts * 1000).toTimeString().slice(0, 8) : "—";
 const fmtDT = (ts) => ts ? fmtDate(ts) + " " + fmtClock(ts) : "—";
@@ -61,23 +66,24 @@ const fmtModel = (m) => {
   return i < 0 ? escH(s) : `<span class="morg">${escH(s.slice(0, i + 1))}</span>${escH(s.slice(i + 1))}`;
 };
 // fixed capability set shown as boxes in every row (available ones highlighted)
-const CAP_SET = ["Vision", "Audio", "Tool Calling", "Reasoning", "Coding", "Math", "Instruction", "Uncensored"];
-const CAP_ABBR = { Vision: "VIS", Audio: "AUD", "Tool Calling": "TOOL", Reasoning: "RSN",
+const CAP_SET = ["Vision", "Video", "Audio", "Tool Calling", "Reasoning", "Coding", "Math", "Instruction", "Uncensored"];
+const CAP_ABBR = { Vision: "VIS", Video: "VID", Audio: "AUD", "Tool Calling": "TOOL", Reasoning: "RSN",
   Coding: "CODE", Math: "MATH", Instruction: "INST", Uncensored: "UNC" };
 
+// Vision + Audio no longer have their own tabs: their results live in the Global
+// Leaderboard's dials and in each model's run-detail view. (Video keeps its tab.)
+// One board: the Global Leaderboard. Vision/audio/video are dials on it + plates in run
+// detail (their /api/*/leaderboard endpoints stay for API consumers and the dial joins).
 const BOARDS = {
-  text:   { suite: "/api/suite",        lb: "/api/leaderboard",        runs: "/api/runs",
-            speed: [["avg_decode_tps", "tok/s", fmtTps], ["avg_ttft_ms", "TTFT", fmtDur]], coverage: false },
-  vision: { suite: "/api/vision/suite", lb: "/api/vision/leaderboard", runs: "/api/vision/runs",
-            speed: [["avg_ttft_after_image_ms", "img TTFT", fmtDur], ["avg_decode_tps", "tok/s", fmtTps]], coverage: true },
-  audio:  { audio: true },
+  text:  { suite: "/api/suite",       lb: "/api/leaderboard",       runs: "/api/runs",
+           speed: [["avg_decode_tps", "tok/s", fmtTps], ["avg_ttft_ms", "TTFT", fmtDur]], coverage: false },
 };
 let active = "text";
 // Global-leaderboard lens: when true, show ONLY record-eligible (verified HF-pull, signed) runs
 // — the true global ranking. Default off so local runs stay visible (clearly badged) and the
 // board is never bare; the toggle flips to the pure verified view.
 let verifiedOnly = false;
-const ST = { text: {}, vision: {}, audio: {}, harness: {} };
+const ST = { text: {}, harness: {} };
 let HARNESS = null;   // cached /api/harness_board (model × harness matrix)
 // client-side model->meta cache (creator/org card + avatar), so the board fetches
 // each model's metadata at most once. Values: "pending" (Promise) or the meta dict.
@@ -160,8 +166,10 @@ function filteredModels() {
   });
   if (st.vramLimit) ms = ms.filter((m) => m.vram_est_gb == null || m.vram_est_gb <= st.vramLimit);
   if (verifiedOnly) ms = ms.filter((m) => m.record_eligible);
+  // rank by the AEON SCORE (the new total aggregate); older servers fall back to the
+  // weighted category composite — the same number the row shows as its headline
   return ms.map((m) => ({ ...m, comp: composite(m, st.cats || [], st.weights) }))
-    .sort((a, b) => b.comp - a.comp);
+    .sort((a, b) => (b.aeon_score ?? b.comp) - (a.aeon_score ?? a.comp));
 }
 
 function allTags() {
@@ -223,10 +231,272 @@ function renderEligBar() {
   if (cb) cb.onchange = (e) => { verifiedOnly = e.target.checked; renderBoard(); };
 }
 
+// ---- DIAL: the reusable SVG arc gauge ---------------------------------------------------------
+// dial(value, label, opts?) -> HTML string. ONE function renders every gauge on the board.
+//   value      0-100 (clamped) · null/undefined = "not yet tested" (dim + dashed track + "—")
+//   label      engraved uppercase micro-label under the gauge
+//   opts.size  box width in px (default 76; the design range is 72-96)
+//   opts.title tooltip text
+//   opts.note  micro-label for the null state (default "not yet tested")
+//   opts.fmt   value formatter (default: integer)
+// Geometry: a 270° fuel-gauge arc (gap at the bottom) in an 80×80 viewBox. The arc color
+// encodes the VALUE BAND with the site-wide verdict semantics (≥80 green · ≥40 amber · red),
+// identically on every dial. The sweep animates on data arrival via stroke-dashoffset
+// (`dialIn` keyframe, gated on #board.fresh — filter/slider re-renders stay still).
+function _arcPath(cx, cy, r, a0, a1) {
+  const pt = (a) => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const [x0, y0] = pt(a0), [x1, y1] = pt(a1);
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+function dial(value, label, opts) {
+  opts = opts || {};
+  const size = opts.size || 76;
+  const na = value == null || Number.isNaN(+value);
+  const v = na ? 0 : Math.min(100, Math.max(0, +value));
+  const R = 33, L = 2 * Math.PI * R * 0.75;                    // 270° arc length
+  const off = L * (1 - v / 100);
+  const band = na ? "" : v >= 80 ? " pass" : v >= 40 ? " part" : " fail";
+  const fmt = opts.fmt || ((x) => String(Math.round(x)));
+  const path = _arcPath(40, 40, R, 135, 405);
+  // hero: the one oversized gauge per row — instrument tick ring + engraved sub-label
+  const ticks = opts.hero
+    ? `<path class="dial-ticks" d="${_arcPath(40, 40, 38, 135, 405)}" stroke-dasharray="1.4 4.53"/>` : "";
+  return `<div class="dial${band}${na ? " dial-na" : ""}${opts.hero ? " dial-hero" : ""}" style="--dial:${size}px"${opts.title ? ` title="${escA(opts.title)}"` : ""} role="img" aria-label="${escA(label)}: ${na ? (opts.note || "not yet tested") : fmt(v) + " of 100"}">
+    <svg viewBox="0 0 80 80" aria-hidden="true">
+      ${ticks}
+      <path class="dial-track" d="${path}"/>
+      ${na ? "" : `<path class="dial-arc" d="${path}" stroke-dasharray="${L.toFixed(1)} ${(2 * L).toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" style="--c:${L.toFixed(1)}"/>`}
+    </svg>
+    ${opts.sub ? `<span class="dial-sub">${escH(opts.sub)}</span>` : ""}
+    <b class="dial-val${opts.valCls ? " " + opts.valCls : ""}">${na ? "—" : fmt(v)}</b>
+    <span class="dial-lbl">${escH(label)}</span>
+    ${na ? `<span class="dial-note">${escH(opts.note || "not yet tested")}</span>` : ""}
+  </div>`;
+}
+
+// ---- GLOBAL LEADERBOARD: one INSTRUMENT PANEL row per model ----------------------------------
+// rank · AEON SCORE (the headline — brightest element on the board) · identity · dial cluster.
+// Dials follow the /api/leaderboard `dials` contract: INTELLIGENCE / PERFORMANCE / AGENTIC are
+// always drawn (null = honest "not yet tested"), VISION / AUDIO / VIDEO only when tested.
+// Old servers (no `dials` / `aeon_score`) degrade to the category composite headline plus a
+// single intelligence dial — labelled honestly, nothing faked.
+function rowDials(m) {
+  const d = m.dials;
+  if (!d) return dial(m.comp, "intelligence",
+    { title: "text-suite composite (older server — component dials unavailable)" });
+  const out = [];
+  const it = d.intelligence;
+  out.push(dial(it && it.score != null ? it.score : null, "intelligence",
+    { title: "text-suite score — every category × difficulty tier of the best verified run" }));
+  const ag = d.agentic;
+  const agTip = ag && ag.harnesses
+    ? "agentic score — " + Object.entries(ag.harnesses).map(([h, x]) => {
+        const s = x != null && typeof x === "object" ? x.score : x;
+        return `${h} ${s == null ? "—" : Math.round(s)}`;
+      }).join(" · ")
+    : "agentic (hermes · openclaw · opencode) — not yet tested";
+  out.push(dial(ag && ag.score != null ? ag.score : null, "agentic", { title: agTip }));
+  ["vision", "audio", "video"].forEach((k) => {
+    if (d[k] && d[k].score != null)
+      out.push(dial(d[k].score, k,
+        { title: `${k} suite score — click the row: the run detail shows the ${k} results` }));
+  });
+  // the race instrument anchors the FAR RIGHT of every row (CSS order backs this up), so the
+  // tok/s readout lines up down the board no matter how many dials a row draws
+  out.push(perfInstrument(m));
+  return out.join("");
+}
+
+// PERFORMANCE is a MEASUREMENT, not a rating — so it renders as a race-car instrument, not a
+// 0-100 dial: peak aggregate tok/s as the big readout, the tach bar showing its standing
+// within the hardware class (cyan→amber→red, the Live dash's gradient), and the demonstrated
+// concurrency + served context window as cockpit sub-readouts.
+function perfInstrument(m) {
+  const p = m.dials && m.dials.performance;
+  const ctx = m.ctx_len != null ? Math.round(m.ctx_len / 1024) + "K CTX" : "";
+  if (!p || p.peak_agg_tps == null) {
+    return `<div class="perf-inst pi-na" role="img" aria-label="performance: not yet tested">
+      <span class="pi-tps">—</span><span class="pi-unit">tok/s peak</span>
+      <span class="pi-tach"><i style="--p:0%"></i></span>
+      <span class="pi-lbl">performance</span><span class="pi-note">not yet tested</span>
+    </div>`;
+  }
+  const subs = [p.conc != null ? `C${p.conc}` : "", ctx].filter(Boolean).join(" · ");
+  const pct = p.score != null ? Math.min(100, Math.max(0, +p.score)) : 0;
+  // A dial labelled PERFORMANCE has to open PERFORMANCE. It used to carry no handler of its own,
+  // so a click fell through to the row's, which opens the model's best INTELLIGENCE submission —
+  // you clicked the tachometer and got the text run. `p.run` is the perf run that demonstrated
+  // this peak (scoring._perf_percentile_index); when it is present the instrument becomes a real
+  // control, and when it is absent it stays exactly the readout it was.
+  const hit = p.run ? ` data-perf-run="${escA(p.run)}"` : "";
+  const role = p.run ? `role="button" tabindex="0"` : `role="img"`;
+  const act = p.run ? " — open this run's performance metrics" : "";
+  return `<div class="perf-inst${p.run ? " pi-open" : ""}"${hit} ${role} aria-label="performance: peak ${fmtTps(p.peak_agg_tps)} tokens per second${act}" title="peak aggregate throughput demonstrated during the benchmark${p.conc != null ? ` at concurrency ${p.conc}` : ""}${p.hw ? ` on ${p.hw}` : ""} — tach shows standing within this hardware class${act || " · full curves on the Performance tab"}">
+    <span class="pi-tps">${fmtTps(p.peak_agg_tps)}</span><span class="pi-unit">tok/s peak</span>
+    <span class="pi-tach"><i style="--p:${pct.toFixed(1)}%"></i></span>
+    <span class="pi-lbl">performance</span>
+    ${subs ? `<span class="pi-sub">${escH(subs)}</span>` : ""}
+  </div>`;
+}
+
+// CELL-CHUNK category meters: a glowing dot-matrix fill over a ghost-cell track (the Live
+// view's racing-dash language), full category names, band-hued numeral — the score contrast
+// reads in lit cells, hue AND number at once.
+function catBars(cats) {
+  const ORDER = ["Math", "Instruction", "Reasoning", "Coding", "Prose"];
+  const keys = ORDER.filter((c) => cats && cats[c] != null)
+    .concat(Object.keys(cats || {}).filter((c) => !ORDER.includes(c)));
+  if (!keys.length) return "";
+  return `<div class="mrow-cats" role="img" aria-label="per-category scores">` + keys.map((c) => {
+    const v = Math.min(100, Math.max(0, +cats[c] || 0));
+    const band = v >= 80 ? "pass" : v >= 40 ? "part" : "fail";
+    return `<div class="catbar ${band}" title="${escA(c)} — ${v.toFixed(1)} of 100">
+      <span class="catbar-l">${escH(c)}</span>
+      <span class="catbar-cells"><i style="--w:${v.toFixed(1)}%"></i></span>
+      <b class="catbar-v">${Math.round(v)}</b>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+function _aeonTitle(m, headline, isAeon, prov) {
+  if (!isAeon) return `category composite ${fmtComp(headline)} — this server predates the AEON score`;
+  let parts = "";
+  const p = m.aeon_score_parts;
+  if (p && typeof p === "object") {
+    parts = Object.entries(p).map(([k, v]) =>
+      `${k} ${typeof v === "number" ? (v > 0 && v <= 1 ? Math.round(v * 100) + "%" : v) : v}`).join(" · ");
+  }
+  return `AEON SCORE ${fmtComp(headline)} — the OVERALL rating: intelligence + speed + agentic, one number`
+    + (parts ? ` · blend: ${parts}` : "")
+    + (prov ? " · provisional: a component is not yet tested (missing dials never count as zero)" : "");
+}
+
+// Share wiring, shared by every board that renders benchmark cards (global, GOD MODE). The
+// stopPropagation matters: the card itself is a button that opens the run.
+function wireShare(scope, board) {
+  $$(`${scope} .share-btn`).forEach((b) =>
+    b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b, board); });
+}
+
+// The spread behind an averaged score. Absent when a model has one pass (nothing to spread) or
+// when best == worst — a range of "46.9-46.9" is noise, not information. Used by BOTH boards, so
+// they can never drift into describing the same idea two ways.
+function runSpread(m) {
+  const n = m.n_runs || 0;
+  if (n < 2 || m.best == null || m.worst == null) return "";
+  const same = Math.abs(m.best - m.worst) < 0.05;
+  const label = same ? `${fmtComp(m.best)}` : `${fmtComp(m.worst)}\u2013${fmtComp(m.best)}`;
+  return `<span class="run-spread" title="averaged over ${n} benchmark runs${same ? "" :
+    ` \u2014 worst ${fmtComp(m.worst)}, best ${fmtComp(m.best)}`}. The headline is the MEAN; a wide spread means the result is not repeatable.">`
+    + `<b>${n}\u00d7</b> ${escH(label)}</span>`;
+}
+
+function globalRow(m, i) {
+  const isAeon = m.aeon_score != null;
+  const headline = isAeon ? m.aeon_score : (m.comp ?? 0);
+  const prov = isAeon && !!m.aeon_provisional;
+  const band = headline >= 80 ? "pass" : headline >= 40 ? "part" : "fail";
+  const d = m.dials;
+  const bestRun = m.best_intelligence_run
+    ?? (d && d.intelligence && d.intelligence.run) ?? m.run ?? "";
+  const fr = m.frontier || null;
+  const ava = fr && fr.logo_url ? fr.logo_url : "/static/generic-avatar.svg";
+  const creatorHref = fr && fr.website ? ` href="${escA(fr.website)}"` : "";
+  // A ranked run can still be missing agentic - the hardest component for an outside operator to
+  // get working. Say so on the card, and make it clickable: the panel behind it explains the fix
+  // for a human AND gives their agent something to act on.
+  const agBadge = m.agentic_not_counted
+    ? `<button class="elig-badge agentic-untested" data-agentic-help="${escA(m.agentic_status || "missing")}" ` +
+      `title="the agentic suite did not produce a usable score, so it is not part of this AEON score — click to see how to fix it">` +
+      `⚠ agentic untested</button>`
+    : "";
+  const badge = (m.record_eligible
+    ? `<span class="elig-badge verified" title="verified HF-pull controlled run, full benchmark — globally ranked">✓ verified</span>`
+    : m.ranked_excluded === "incomplete"
+    ? `<span class="elig-badge incomplete" title="verified weights, but not a FULL benchmark run (missing agentic or performance) — stored &amp; shown, not counted on the ranked board">✓ verified · not counted</span>`
+    : fr ? `<span class="elig-badge frontier" title="validated hosted frontier API reference — comparison only, not a local-weight attestation">frontier API</span>`
+    : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`) + agBadge;
+  const vram = m.vram_est_gb != null
+    ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
+  const ctx = ctxChip(m.ctx_len);
+  const frontierChip = fr
+    ? `<span class="frontier-chip" title="validated hosted frontier API reference">${escH(fr.brand || fr.provider)} · ${escH(fr.version || fr.model)} · effort ${escH(fr.effort || "default")}</span>`
+    : "";
+  const spread = runSpread(m);   // best/worst across this model's averaged passes
+  return `<div class="mrow${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}"${bestRun ? ` data-run="${escA(bestRun)}"` : ""} data-trust="${m.record_eligible ? "verified" : "local"}" tabindex="0" role="button" aria-label="open the best submission for ${escA(m.model)}" style="--i:${i}">
+    <div class="mrow-rank">${String(i + 1).padStart(2, "0")}</div>
+    <div class="mrow-aeon ${band}${prov ? " prov" : ""}" title="${escA(_aeonTitle(m, headline, isAeon, prov))}">
+      ${dial(headline, isAeon ? "aeon score" : "composite",
+             { hero: true, size: 124, sub: "overall", fmt: fmtComp, valCls: "aeon-val" })}
+      ${prov ? `<span class="aeon-prov">not fully tested</span>` : ""}
+    </div>
+    <div class="mrow-id">
+      <div class="mrow-name">
+        <a class="model-creator mrow-ava${fr ? " frontier" : ""}" data-meta="${escA(m.model)}"${creatorHref} target="_blank" rel="noopener noreferrer" title="${fr ? "frontier provider" : "creator profile"}">
+          <img class="model-avatar${fr ? " frontier" : ""}" data-meta-avatar="${escA(m.model)}" src="${escA(ava)}" alt="" loading="lazy" width="40" height="40">
+        </a>
+        <span class="mrow-model">${fmtModel(m.model)}</span>
+        ${badge}${vram}${ctx}${spread}
+      </div>
+      ${frontierChip}
+      ${catBars(m.categories)}
+      <div class="mcard-acts mrow-acts">
+        <a class="get-model-btn" data-meta-card="${escA(m.model)}" target="_blank" rel="noopener noreferrer" hidden>Get&nbsp;Model</a>
+        <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
+        <span class="mrow-open" aria-hidden="true">open best run ▸</span>
+      </div>
+    </div>
+    <div class="mrow-dials">${rowDials(m)}</div>
+  </div>`;
+}
+
+function _boardEmpty() {
+  return `<div class="board-empty">${verifiedOnly
+    ? "No <b>verified</b> submissions yet. The global leaderboard ranks only models benchmarked through the controlled <b>HF-pull flow</b> — pulled fresh from Hugging Face → hash-verified → run through the harnesses → cryptographically signed. Direct-endpoint runs are stored as <b>local</b> (toggle off to see them)."
+    : "No models match these filters."}</div>`;
+}
+
+// Row click → the model's BEST intelligence submission opens directly (no second click).
+// The Submissions panel keeps the advanced drill-down in reach: its left list shows every
+// benchmark for this model (other runs, other boards) and the detail pane holds per-case data.
+function openBestRun(model, runId) {
+  setSubs(model || null, !!runId);        // openSubmission below writes the deep hash itself
+  if (runId) openSubmission(runId);
+}
+
+function renderGlobalBoard(models) {
+  $("#board").innerHTML = models.map((m, i) => globalRow(m, i)).join("") || _boardEmpty();
+  $$("#board .mrow").forEach((row) => {
+    const open = () => openBestRun(row.dataset.model, row.dataset.run);
+    row.onclick = (ev) => {
+      if (ev.target.closest(".share-btn, .get-model-btn, .model-creator")) return;
+      open();
+    };
+    row.onkeydown = (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === row) { e.preventDefault(); open(); }
+    };
+  });
+  wireShare("#board");
+  // instrument boot: the AEON headline counts up in sync with the dial sweeps — first load only
+  if ($("#board").classList.contains("fresh"))
+    $$("#board .aeon-val").forEach((el, i) => { if (models[i]) countUp(el, models[i].aeon_score ?? models[i].comp); });
+  models.forEach((m) => {
+    const cached = META.get(m.model);
+    if (cached && cached !== "pending") applyMeta(m.model, cached);
+    else if (!m.frontier) fetchMeta(m.model);
+  });
+}
+
 function renderBoard() {
-  const st = ST[active], cfg = BOARDS[active], cats = st.cats || [];
   renderFilters();
   const models = filteredModels();
+  if (active === "text") renderGlobalBoard(models);
+  else renderClassicBoard(models);
+}
+
+// classic wide cards — the VIDEO board keeps this view unchanged
+function renderClassicBoard(models) {
+  const st = ST[active], cfg = BOARDS[active], cats = st.cats || [];
   const speedDefs = cfg.speed || [];
   // Spacious wide cards (replaces the cramped fixed-width table): a big circular creator avatar,
   // the FULL model name (wraps, never truncates), and every metric LABELLED on the card — so no
@@ -256,18 +526,25 @@ function renderBoard() {
     const vram = m.vram_est_gb != null
       ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
     const band = m.comp >= 80 ? "pass" : m.comp >= 40 ? "part" : "fail";
+    const fr = m.frontier || null;
+    const ava = fr && fr.logo_url ? fr.logo_url : "/static/generic-avatar.svg";
+    const creatorHref = fr && fr.website ? ` href="${escA(fr.website)}"` : "";
+    const frontierChip = fr
+      ? `<span class="frontier-chip" title="validated hosted frontier API reference">${escH(fr.brand || fr.provider)} · ${escH(fr.version || fr.model)} · effort ${escH(fr.effort || "default")}</span>`
+      : "";
     return `<div class="mcard${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}" data-trust="${m.record_eligible ? "verified" : "local"}" style="--i:${i}">
       <span class="mcard-ghost" aria-hidden="true">${String(i + 1).padStart(2, "0")}</span>
       <label class="mcard-sel"><input type="checkbox" class="rsel" data-model="${escA(m.model)}" ${checked}></label>
       <div class="mcard-rank">${String(i + 1).padStart(2, "0")}</div>
-      <a class="model-creator mcard-ava" data-meta="${escA(m.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-        <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="52" height="52">
+      <a class="model-creator mcard-ava${fr ? " frontier" : ""}" data-meta="${escA(m.model)}"${creatorHref} target="_blank" rel="noopener noreferrer" title="${fr ? "frontier provider" : "creator profile"}">
+        <img class="model-avatar${fr ? " frontier" : ""}" data-meta-avatar="${escA(m.model)}" src="${escA(ava)}" alt="" loading="lazy" width="52" height="52">
       </a>
       <div class="mcard-id">
         <div class="mcard-name">
           <a class="mlink" data-run="${escA(m.run)}" data-model="${escA(m.model)}">${fmtModel(m.model)}</a>
           ${m.record_eligible
             ? `<span class="elig-badge verified" title="verified HF-pull controlled run — globally ranked">✓ verified</span>`
+            : fr ? `<span class="elig-badge frontier" title="validated hosted frontier API reference — comparison only, not a local-weight attestation">frontier API</span>`
             : `<span class="elig-badge local" title="local / self-reported run — stored &amp; shown, not globally ranked">local</span>`}
           ${vram}
           <span class="mcard-acts">
@@ -275,21 +552,28 @@ function renderBoard() {
             <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
           </span>
         </div>
+        ${frontierChip}
         <div class="mcard-caps">${caps}</div>
       </div>
       <div class="mcard-comp ${band}" style="--pct:${m.comp.toFixed(1)}"><span class="composite">${fmtComp(m.comp)}</span><span class="mcard-complabel">composite</span></div>
       <div class="mcard-metrics">${catCells}${covCell}${spdCells}</div>
     </div>`;
-  }).join("") ||
-    `<div class="board-empty">${verifiedOnly
-      ? "No <b>verified</b> submissions yet. The global leaderboard ranks only models benchmarked through the controlled <b>HF-pull flow</b> — pulled fresh from Hugging Face → hash-verified → run through the harnesses → cryptographically signed. Direct-endpoint runs are stored as <b>local</b> (toggle off to see them)."
-      : "No models match these filters."}</div>`;
+  }).join("") || _boardEmpty();
   $$("#board .rsel").forEach((cb) => cb.onchange = () => {
     cb.checked ? st.selected.add(cb.dataset.model) : st.selected.delete(cb.dataset.model);
     renderChart();
   });
   $$("#board .mlink").forEach((a) => a.onclick = () => openSubmissionsFor(a.dataset.model));
-  $$("#board .share-btn").forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); shareBench(b.dataset.share, b); });
+  // The PERFORMANCE instrument opens the perf run, not the row's intelligence submission.
+  // stopPropagation is the whole point: the row handler is still there and still correct for
+  // every other part of the row, so without it a click would open BOTH and the perf panel would
+  // lose the race. Keyboard gets the same treatment — the instrument is role=button now.
+  $$("#board [data-perf-run]").forEach((el) => {
+    const open = (e) => { e.stopPropagation(); openSubmission(el.dataset.perfRun); };
+    el.onclick = open;
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } };
+  });
+  wireShare("#board");
   // instrument boot: composite counts up in sync with the gauge-ring sweep — first load only
   if ($("#board").classList.contains("fresh")) {
     $$("#board .mcard .composite").forEach((el, i) => { if (models[i]) countUp(el, models[i].comp); });
@@ -297,7 +581,7 @@ function renderBoard() {
   models.forEach((m) => {
     const cached = META.get(m.model);
     if (cached && cached !== "pending") applyMeta(m.model, cached);
-    else fetchMeta(m.model);
+    else if (!m.frontier) fetchMeta(m.model);
   });
   renderChart();
 }
@@ -343,6 +627,222 @@ function renderChart() {
     b.onmouseenter = () => { const c = document.querySelector(`.mcard[data-model="${cssEsc(model)}"]`); if (c) c.classList.add("hint"); };
     b.onmouseleave = () => { const c = document.querySelector(`.mcard[data-model="${cssEsc(model)}"]`); if (c) c.classList.remove("hint"); };
   });
+}
+
+// ---- EXPLORE THE DATA: the expandable board explorer ------------------------------------------
+// /api/explorer gives each board model's category × difficulty matrix (mean score · n ·
+// decode tok/s) off its BEST intelligence run. Two coordinated views over one selection:
+//   · HEATMAP (small multiples, ≤3 models): a luminance-ordered single-hue ramp — dark →
+//     bright cyan encodes magnitude perceptually; verdict green/amber/red stay reserved
+//     for verdicts. Cell numeral = the value (tabular mono); n rides the tooltip; a cell
+//     the run never scored is an honest dashed "—".
+//   · DIFFICULTY-DECAY LINE: x = tiers in order, y = case-weighted mean quality across
+//     the selected categories — one line per model in identity hues (cyan/magenta/gold).
+// Filters are live chips: models (max 3), categories, difficulty tiers (column toggles),
+// hardware bucket + trust tier (single-select facets over WHICH models are offered), and
+// metric QUALITY | SPEED (speed re-colors the heatmap as tok/s normalized to the fastest
+// cell SHOWN — labelled so). Each plate also carries its served-context (ctx_len) + rig
+// facts, so context is an explicit axis of every comparison, never hidden.
+// Old servers without the endpoint: the fetch rejects and the section stays hidden.
+const EXP = { data: null, sel: [], cats: null, diffs: null, metric: "quality",
+              hw: "all", trust: "all" };
+const EXP_COLORS = ["#00f0ff", "#ff5ea8", "#ffd166"];   // identity hues — never verdict colors
+const EXP_MAX = 3;
+
+// luminance band 0-4 for the single-hue ramp (null/NaN = -1: no band, honest gap)
+const expBand = (v) => v == null || Number.isNaN(+v) ? -1 : Math.min(4, Math.floor(+v / 20));
+
+// pure selection toggle: max `max` models, re-click removes, overflow is a no-op
+function expToggleModel(sel, canonical, max = EXP_MAX) {
+  return sel.includes(canonical) ? sel.filter((x) => x !== canonical)
+    : sel.length >= max ? sel : sel.concat(canonical);
+}
+
+// default selection = the single top model by the board's own ranking number
+function expDefaultSel(models) {
+  if (!models || !models.length) return [];
+  const top = models.slice().sort((a, b) =>
+    ((b.aeon_score ?? b.composite) || 0) - ((a.aeon_score ?? a.composite) || 0))[0];
+  return [top.canonical];
+}
+
+// pure facet filter: hardware bucket + trust tier gate WHICH models are offered ("all" = off)
+function expFacetFilter(models, hw, trust) {
+  return (models || []).filter((m) =>
+    (hw === "all" || (m.hw_bucket || "Unlabeled") === hw)
+    && (trust === "all" || (m.trust_tier || "self_reported") === trust));
+}
+
+// one heat plate's header line (pure): identity dot · name · AEON · served ctx · rig.
+// ctx_len is a first-class axis of the comparison — absent means NOT RECORDED, so the
+// fact simply doesn't render (no fake figure, mirrors the board's ctx chip rule).
+function expPlateHead(m, color) {
+  return `<div class="exp-plate-h"><i class="exp-dot" style="background:${color}"></i>`
+    + `<span class="exp-plate-name" title="${escA(m.model)}">${fmtModel(m.model)}</span>`
+    + (m.aeon_score != null ? `<span class="exp-plate-score mono">AEON ${fmtComp(m.aeon_score)}</span>` : "")
+    + (m.ctx_len != null ? `<span class="exp-plate-fact mono" title="max context length this benchmark was served at">${fmtCtx(m.ctx_len)} ctx</span>` : "")
+    + (m.hw_bucket ? `<span class="exp-plate-fact" title="benched on">${escH(m.hw_bucket)}</span>` : "")
+    + `</div>`;
+}
+
+// the fastest cell among the SELECTED models × categories — the speed ramp's honest 100%
+function expTpsMax(models, cats) {
+  let mx = 0;
+  (models || []).forEach((m) => (cats || []).forEach((c) => {
+    Object.values((m.cells || {})[c] || {}).forEach((cell) => {
+      if (cell && cell.tps != null && cell.tps > mx) mx = cell.tps;
+    });
+  }));
+  return mx;
+}
+
+// one model's category × difficulty heat table (pure string renderer)
+function expHeat(m, cats, diffs, metric, tpsMax) {
+  const head = `<tr><th></th>${diffs.map((d) =>
+    `<th class="exp-dh">${escH(diffLabel(d))}</th>`).join("")}</tr>`;
+  const rows = cats.map((c) => {
+    const byd = (m.cells || {})[c] || {};
+    return `<tr><th class="exp-cat">${escH(c)}</th>` + diffs.map((d) => {
+      const cell = byd[d];
+      const val = !cell ? null : metric === "speed" ? cell.tps : cell.score;
+      if (val == null) return `<td class="exp-na">—</td>`;
+      const lum = metric === "speed" ? (tpsMax ? 100 * val / tpsMax : 0) : val;
+      const num = metric === "speed" ? fmtTps(val) : String(Math.round(val));
+      const tip = `${c} × ${diffLabel(d)} — score ${cell.score} · n=${cell.n}`
+        + (cell.tps != null ? ` · ${fmtTps(cell.tps)} tok/s` : "");
+      return `<td class="xb${expBand(lum)}" style="--s:${(Math.min(100, Math.max(0, lum)) / 100).toFixed(3)}" title="${escA(tip)}">${num}</td>`;
+    }).join("") + `</tr>`;
+  }).join("");
+  return `<table class="exp-heat">${head}${rows}</table>`;
+}
+
+// difficulty-decay chart: pure SVG polylines, 3 faint reference lines (0/50/100), no box
+function expLine(models, cats, diffs) {
+  const W = 640, H = 240, L = 34, R = 14, T = 14, B = 30;
+  const x = (i) => L + (diffs.length < 2 ? 0 : i * (W - L - R) / (diffs.length - 1));
+  const y = (v) => T + (100 - v) * (H - T - B) / 100;
+  let g = "";
+  [0, 50, 100].forEach((v) => {
+    g += `<line class="exp-ref" x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"/>`
+      + `<text class="exp-axis" x="${L - 7}" y="${y(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${v}</text>`;
+  });
+  diffs.forEach((d, i) => {
+    g += `<text class="exp-axis" x="${x(i).toFixed(1)}" y="${H - B + 16}" text-anchor="middle">${escH(diffLabel(d))}</text>`;
+  });
+  (models || []).forEach((m, k) => {
+    const col = EXP_COLORS[k % EXP_COLORS.length];
+    const pts = [];
+    diffs.forEach((d, i) => {
+      let s = 0, n = 0;
+      cats.forEach((c) => {
+        const cell = ((m.cells || {})[c] || {})[d];
+        if (cell && cell.score != null && cell.n) { s += cell.score * cell.n; n += cell.n; }
+      });
+      if (n) pts.push({ x: x(i), y: y(s / n), v: s / n, d });
+    });
+    if (!pts.length) return;
+    g += `<polyline class="exp-series" points="${pts.map((p) => p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ")}" style="stroke:${col}"/>`;
+    pts.forEach((p) => {
+      g += `<circle class="exp-pt" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.6" style="fill:${col}"><title>${escH(String(m.model).split("/").pop())} · ${escH(diffLabel(p.d))}: ${p.v.toFixed(1)}</title></circle>`;
+    });
+  });
+  return `<svg class="exp-decay" viewBox="0 0 ${W} ${H}" role="img" aria-label="difficulty decay — mean quality by tier">${g}</svg>`;
+}
+
+function renderExplorer() {
+  const wrap = $("#explorerWrap"), body = $("#explorerBody");
+  if (!wrap || !body) return;
+  const d = EXP.data;
+  if (!d || !(d.models || []).length) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const visible = expFacetFilter(d.models, EXP.hw, EXP.trust);
+  const cats = (d.categories || []).filter((c) => EXP.cats.has(c));
+  const diffs = (d.difficulties || []).filter((k) => EXP.diffs.has(k));
+  const sel = visible.filter((m) => EXP.sel.includes(m.canonical));
+  const modelChips = visible.map((m) => {
+    const k = EXP.sel.indexOf(m.canonical);
+    const tip = `${m.model} — ${m.hw_bucket || "Unlabeled"} · ${(m.trust_tier || "self_reported").replace(/_/g, " ")}`
+      + (m.ctx_len != null ? ` · ${fmtCtx(m.ctx_len)} ctx` : "");
+    return `<button class="chip exp-mchip${k >= 0 ? " on" : ""}" data-c="${escA(m.canonical)}" title="${escA(tip)}">`
+      + (k >= 0 ? `<i class="exp-dot" style="background:${EXP_COLORS[k % EXP_COLORS.length]}"></i>` : "")
+      + escH(String(m.model).split("/").pop()) + `</button>`;
+  }).join("") || `<span class="exp-none">no board model matches this hardware × trust filter</span>`;
+  const catChips = (d.categories || []).map((c) =>
+    `<button class="chip exp-cchip${EXP.cats.has(c) ? " on" : ""}" data-cat="${escA(c)}">${escH(c)}</button>`).join("");
+  const diffChips = (d.difficulties || []).map((k) =>
+    `<button class="chip exp-dchip${EXP.diffs.has(k) ? " on" : ""}" data-v="${escA(k)}">${escH(diffLabel(k))}</button>`).join("");
+  // facet options come from the FULL payload (never the filtered view), "all" first
+  const seg = (cls, cur, opts) => ["all"].concat(opts).map((o) =>
+    `<button class="chip ${cls}${cur === o ? " on" : ""}" data-v="${escA(o)}">${escH(o.replace(/_/g, " "))}</button>`).join("");
+  const hwChips = seg("exp-hw", EXP.hw, [...new Set(d.models.map((m) => m.hw_bucket || "Unlabeled"))]);
+  const trustChips = seg("exp-tr", EXP.trust, [...new Set(d.models.map((m) => m.trust_tier || "self_reported"))]);
+  const tpsMax = expTpsMax(sel, cats);
+  const scaleNote = EXP.metric === "speed"
+    ? (tpsMax ? `heat = <b>tok/s vs fastest shown</b> · brightest = ${fmtTps(tpsMax)} tok/s (the fastest cell in this selection)`
+              : `no speed data recorded for this selection`)
+    : `heat = mean score 0–100 · brighter = higher · n per cell in the tooltip`;
+  const heats = !cats.length || !diffs.length
+    ? `<div class="board-empty">toggle at least one ${cats.length ? "difficulty" : "category"}</div>`
+    : sel.map((m, k) => `<div class="exp-plate">
+        ${expPlateHead(m, EXP_COLORS[k % EXP_COLORS.length])}
+        ${expHeat(m, cats, diffs, EXP.metric, tpsMax)}
+      </div>`).join("") || `<div class="board-empty">pick a model above</div>`;
+  body.innerHTML = `
+    <div class="exp-filters"><span class="flabel">models · max ${EXP_MAX}</span>${modelChips}</div>
+    <div class="exp-filters"><span class="flabel">categories</span>${catChips}
+      <span class="exp-metric"><span class="flabel">metric</span>
+        <button class="chip exp-met${EXP.metric === "quality" ? " on" : ""}" data-met="quality">quality</button>
+        <button class="chip exp-met${EXP.metric === "speed" ? " on" : ""}" data-met="speed">speed</button></span></div>
+    <div class="exp-filters"><span class="flabel">difficulty</span>${diffChips}
+      <span class="exp-fgroup"><span class="flabel">hardware</span>${hwChips}</span>
+      <span class="exp-fgroup"><span class="flabel">trust</span>${trustChips}</span></div>
+    <div class="exp-scale">${scaleNote}</div>
+    <div class="exp-heats">${heats}</div>
+    ${sel.length && cats.length && diffs.length ? `<div class="exp-sec"><span class="exp-sec-t">difficulty decay</span><span class="exp-sec-n">case-weighted mean quality across the selected categories — how each model degrades as questions get harder</span></div>` + expLine(sel, cats, diffs) : ""}`;
+  $$("#explorerBody .exp-mchip").forEach((b) => b.onclick = () => {
+    EXP.sel = expToggleModel(EXP.sel, b.dataset.c); renderExplorer();
+  });
+  $$("#explorerBody .exp-cchip").forEach((b) => b.onclick = () => {
+    EXP.cats.has(b.dataset.cat) ? EXP.cats.delete(b.dataset.cat) : EXP.cats.add(b.dataset.cat);
+    renderExplorer();
+  });
+  $$("#explorerBody .exp-dchip").forEach((b) => b.onclick = () => {
+    EXP.diffs.has(b.dataset.v) ? EXP.diffs.delete(b.dataset.v) : EXP.diffs.add(b.dataset.v);
+    renderExplorer();
+  });
+  $$("#explorerBody .exp-hw").forEach((b) => b.onclick = () => { EXP.hw = b.dataset.v; expReseat(); });
+  $$("#explorerBody .exp-tr").forEach((b) => b.onclick = () => { EXP.trust = b.dataset.v; expReseat(); });
+  $$("#explorerBody .exp-met").forEach((b) => b.onclick = () => {
+    EXP.metric = b.dataset.met; renderExplorer();
+  });
+}
+
+// a facet flip prunes the selection to the models still offered; if none survive, fall
+// back to the top visible model so the panel never strands on a blank view
+function expReseat() {
+  const vis = expFacetFilter((EXP.data || {}).models || [], EXP.hw, EXP.trust);
+  const have = new Set(vis.map((m) => m.canonical));
+  EXP.sel = EXP.sel.filter((c) => have.has(c));
+  if (!EXP.sel.length) EXP.sel = expDefaultSel(vis);
+  renderExplorer();
+}
+
+async function loadExplorer() {
+  const wrap = $("#explorerWrap");
+  if (!wrap) return;
+  try {
+    const d = await api("/api/explorer");
+    EXP.data = d;
+    if (!EXP.cats) EXP.cats = new Set(d.categories || []);
+    if (!EXP.diffs) EXP.diffs = new Set(d.difficulties || []);
+    const vis = expFacetFilter(d.models || [], EXP.hw, EXP.trust);
+    const have = new Set(vis.map((m) => m.canonical));
+    EXP.sel = EXP.sel.filter((c) => have.has(c));       // drop models that left the board/facets
+    if (!EXP.sel.length) EXP.sel = expDefaultSel(vis);
+    renderExplorer();
+  } catch (e) {
+    EXP.data = null; wrap.hidden = true;   // old server (no /api/explorer) or dead link
+  }
 }
 
 function renderWeights() {
@@ -405,15 +905,14 @@ async function loadModels() {
 
 async function loadBoard() {
   const cfg = BOARDS[active];
-  $("#arenaPanel").hidden = true;
-  $("#adminPanel").hidden = true;
-  $("#subsPanel").hidden = true;
-  $("#boardPanel").hidden = !!cfg.audio;
-  $("#audioPanel").hidden = !cfg.audio;
-  $("#detailPanel").hidden = true;
-  { const rp = $("#runPanel"); if (rp) rp.hidden = true; }
-  { const _r = $("#run"); if (_r) _r.style.display = cfg.audio ? "none" : ""; }   // launch button removed — guard
-  if (cfg.audio) return;
+  ["#arenaPanel", "#adminPanel", "#subsPanel", "#detailPanel", "#runPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  $("#boardPanel").hidden = false;
+  { const _r = $("#run"); if (_r) _r.style.display = ""; }   // launch button removed — guard
+  // the text board IS the Global Leaderboard (instrument rows); video keeps the classic cards
+  const isGlobal = active === "text";
+  $("#boardPanel").classList.toggle("global", isGlobal);
+  { const t = $("#boardTitle"); if (t) t.textContent = isGlobal ? "Global Leaderboard" : "Video"; }
   const st = ST[active];
   if (!st.selected) st.selected = new Set();
   if (!st.filters) st.filters = new Set();
@@ -438,6 +937,7 @@ async function loadBoard() {
   renderEligBar();
   freshBoard();          // data arrived → one instrument-boot pass, then still
   renderBoard();
+  loadExplorer();        // EXPLORE THE DATA (fire-and-forget: 404 keeps the section hidden)
 }
 
 // Gate load choreography to DATA ARRIVAL only: slider drags / filter clicks re-render
@@ -450,15 +950,16 @@ function freshBoard() {
 
 async function reloadBoardData() {
   const cfg = BOARDS[active];
-  if (cfg.audio) return;
+  if (!cfg) return;
   ST[active].data = await api(cfg.lb);
   freshBoard();
   renderBoard();
+  loadExplorer();
 }
 
 async function launch() {
   const cfg = BOARDS[active];
-  if (cfg.audio) return;
+  if (!cfg) return;
   const model = ($("#model") || {}).value || "";   // launch form removed — guard
   if (!model) { $("#status").innerHTML = `<span class="err">pick a model first</span>`; return; }
   $("#run").disabled = true;
@@ -485,7 +986,7 @@ async function launch() {
 }
 
 // (the manual audio-probe panel is gone: audio transport is probed automatically inside
-//  every bench — see the audioPanel explainer; a blocked declared-audio model shows the
+//  every bench; a blocked declared-audio model shows the
 //  red audio:BLOCKED stage chip on its job card)
 
 // ---- Generated-artifact arena (Apps / Games / Animations + human voting) ----
@@ -591,7 +1092,7 @@ function closeTip() {
 async function _copyTipAddr() {
   const el = $("#tipAddr"), btn = $("#tipCopy");
   const addr = ((el && el.textContent) || "").trim();
-  try { await navigator.clipboard.writeText(addr); }
+  try { await copyText(addr); }
   catch {                                             // clipboard API unavailable/denied → select+execCommand
     const r = document.createRange(); r.selectNodeContents(el);
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
@@ -674,9 +1175,10 @@ async function logout() {
 // ---- arena view (server-driven random matches across the category) ----
 async function setArena(kind) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.arena === kind));
-  $("#boardPanel").hidden = true; $("#audioPanel").hidden = true; $("#detailPanel").hidden = true;
+  $("#boardPanel").hidden = true; $("#detailPanel").hidden = true;
   $("#adminPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#arenaPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("arena", kind);
   if (!ARENA.byKind[kind]) await loadArenaMeta();
   ARENA.kind = kind;
   $("#arenaTitle").textContent = ARENA.labels[kind] || "Generated";
@@ -742,16 +1244,24 @@ async function nextMatch() {
   }
 }
 
+const _FRAME_REQ = new Map();                       // per-frame generation token
 async function renderFrame(sel, side) {
-  const fr = $(sel);
+  // Same stale-response hazard as the gallery, and here it is a VOTE-INTEGRITY issue: a late
+  // response from a previous match must never paint into the side the evaluator is judging.
+  const myReq = (_FRAME_REQ.get(sel) || 0) + 1;
+  _FRAME_REQ.set(sel, myReq);
+  const fr = resetArtifactFrame(sel) || $(sel);    // stop whatever the previous side was running
   fitArenaFrames();
   if (!ARENA.match) { fr.srcdoc = blankFrame(""); return; }
   try {
     const r = await fetch(`/api/arena/render?match_id=${encodeURIComponent(ARENA.match.match_id)}&side=${side}`,
       { headers: authHeaders() });
     const a = r.ok ? await r.json() : null;
+    if (_FRAME_REQ.get(sel) !== myReq) return;     // superseded by a newer match/side load
     fr.srcdoc = (a && a.html) || blankFrame("failed to load");
-  } catch (e) { fr.srcdoc = blankFrame("failed to load"); }
+  } catch (e) {
+    if (_FRAME_REQ.get(sel) === myReq) fr.srcdoc = blankFrame("failed to load");
+  }
 }
 
 // Scale each 1280×960 virtual-viewport iframe down to its .arena-fit box, so the WHOLE
@@ -855,23 +1365,31 @@ function renderRanking(rows) {
 async function loadRanking() { try { const r = await api("/api/arena/ranking?kind=" + ARENA.kind); renderRanking(r.ranking); } catch (e) {} }
 
 // ---- Code Gallery (public: top-rated artifacts per prompt + full-source download) ----
-const GAL = { kind: "game" };
+// counts: artifact totals per kind, cached as each kind loads (badge on the kind plates)
+const GAL = { kind: "game", filter: "", data: null, counts: {} };
 const GAL_KINDS = [["game", "Games"], ["app", "Apps"], ["animation", "Animations"]];
 
 function setGallery() {
   active = "gallery";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.gallery));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
-  const gp = $("#galleryPanel"); if (gp) gp.hidden = false;
+  const gp = $("#galleryPanel", "#godPanel"); if (gp) gp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("gallery");
   renderGalKinds();
+  bindGalleryControls();
   loadGallery(GAL.kind);
 }
 
+// Kind selector: big machined segment plates (chamfered, mono-engraved), not generic chips.
+// Count badges appear per kind once that kind has loaded at least once (GAL.counts cache).
 function renderGalKinds() {
-  $("#galKinds").innerHTML = GAL_KINDS.map(([k, label]) =>
-    `<button class="chip gal-kind${GAL.kind === k ? " on" : ""}" data-kind="${k}">${label}</button>`).join("");
+  $("#galKinds").innerHTML = GAL_KINDS.map(([k, label]) => {
+    const on = GAL.kind === k, n = GAL.counts[k];
+    return `<button class="gal-kind${on ? " on" : ""}" data-kind="${k}" aria-pressed="${on ? "true" : "false"}">` +
+      `${label}${n != null ? `<span class="gal-kind-n">${n}</span>` : ""}</button>`;
+  }).join("");
   $$("#galKinds .gal-kind").forEach((b) => b.onclick = () => {
     GAL.kind = b.dataset.kind; renderGalKinds(); loadGallery(GAL.kind);
   });
@@ -888,9 +1406,70 @@ async function loadGallery(kind) {
     return;
   }
   if (GAL.kind !== kind) return;                   // sub-tab changed while loading — abandon
+  GAL.data = d;
+  // cache this kind's artifact total for the selector badge (cheap: already in the payload)
+  GAL.counts[kind] = (d.prompts || []).reduce((n, p) => n + (p.artifacts || []).length, 0);
+  renderGalKinds();
   renderGallery(d);
 }
 
+
+function bindGalleryControls() {
+  const inp = $("#galFilter");
+  if (!inp) return;
+  inp.value = GAL.filter || "";
+  if (inp.dataset.bound) return;
+  inp.dataset.bound = "1";
+  inp.oninput = () => {
+    GAL.filter = inp.value || "";
+    if (GAL.data) renderGallery(GAL.data);
+  };
+}
+
+function galMatches(a, p, q) {
+  if (!q) return true;
+  return [a.model, a.model_base, a.harness, p.id, p.title, p.brief]
+    .filter(Boolean).some((x) => String(x).toLowerCase().includes(q));
+}
+
+function galCard(a, p, i) {
+  const stats = a.unrated
+    ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
+    : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
+  // provenance chips: submission date on every card, a bright NEW pulse for <48h arrivals
+  // (fresh work otherwise hides at the tail of the Elo-sorted strip), and the PROMPT's
+  // difficulty tag (verdict hues: easy green / medium amber / hard red)
+  const ts = a.created_at ? new Date(a.created_at * 1000) : null;
+  const isNew = ts && (Date.now() - ts.getTime()) < 48 * 3600 * 1000;
+  const dateChip = ts
+    ? `<span class="gal-date" title="submitted ${escA(ts.toLocaleString())}">${ts.toISOString().slice(0, 10)}</span>`
+    : "";
+  const newChip = isNew ? `<span class="gal-new" title="submitted in the last 48 hours">NEW</span>` : "";
+  // difficulty is a CLOSED SET (it feeds a class token) — unknown/garbage values render nothing.
+  // Full platform tier scale: the arena rates prompts on the same 6 tiers as the text suite.
+  const diff = /^(easy|medium|hard|expert|frontier|god_mode)$/.test(p.difficulty || "") ? p.difficulty : null;
+  const diffChip = diff
+    ? `<span class="gal-diff gd-${diff}" title="prompt difficulty: ${diff}">${diff.replace("_", " ")}</span>`
+    : "";
+  const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
+  const hchip = a.harness
+    ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
+    : "";
+  return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}${i < 3 ? " gp" + (i + 1) : ""}">
+    <div class="gal-card-h">
+      <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
+      <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+        <img class="model-avatar" data-meta-avatar="${escA(metaModel)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
+      <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
+    </div>
+    <div class="gal-stats">${stats}</div>
+    <div class="gal-meta">${newChip}${dateChip}${diffChip}</div>
+    <div class="gal-acts">
+      <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
+      <a class="act-btn act-dl gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">Code</a>
+    </div>
+  </div>`;
+}
 function renderGallery(d) {
   const prompts = d.prompts || [];
   if (!prompts.length) {
@@ -898,37 +1477,27 @@ function renderGallery(d) {
       `artifacts appear here as pods submit generations and evaluators vote in the arena.</p>`;
     return;
   }
+  const q = (GAL.filter || "").trim().toLowerCase();
+  const filtered = prompts.map((p) => ({ ...p, artifacts: (p.artifacts || []).filter((a) => galMatches(a, p, q)) }))
+    .filter((p) => p.artifacts.length);
+  const total = prompts.reduce((n, p) => n + (p.artifacts || []).length, 0);
+  const shown = filtered.reduce((n, p) => n + p.artifacts.length, 0);
+  const cnt = $("#galCount");
+  if (cnt) cnt.textContent = q ? `${shown} match${shown === 1 ? "" : "es"}` : `${total} artifacts`;
+  if (!filtered.length) {
+    $("#galleryBody").innerHTML = `<p class="board-empty">No <b>${escH(d.label || d.kind)}</b> match that filter.</p>`;
+    return;
+  }
   // one section per prompt; a horizontal strip of top-10 cards. Previews are NEVER
-  // rendered inline (30 live iframes would be a resource bomb) — only on click, in the
+  // rendered inline (30 live iframes would be a resource bomb) ? only on click, in the
   // sandboxed overlay below. Model names + prompt text are untrusted -> escaped.
-  $("#galleryBody").innerHTML = prompts.map((p) =>
+  $("#galleryBody").innerHTML = filtered.map((p) =>
     `<div class="gal-sec">
-      <h3 class="gal-title">${escH(p.title)} <span class="note">${escH(p.brief)}</span></h3>
-      <div class="gal-row">` + (p.artifacts || []).map((a, i) => {
-      const stats = a.unrated
-        ? `<span class="gal-unrated" title="no counted votes yet">unrated</span>`
-        : `<b class="gal-elo">${Math.round(a.elo)}</b><span class="gal-wlt">${a.w}W-${a.l}L-${a.t}T · ${a.votes} vote${a.votes === 1 ? "" : "s"}</span>`;
-      const metaModel = a.model_base || a.model;   // avatar/card lookups want the model, not '@harness'
-      const hchip = a.harness
-        ? ` <span class="h-chip h-${escA(a.harness.toLowerCase())}" title="generated through the ${escA(a.harness)} agent harness">⚙ ${escH(a.harness)}</span>`
-        : "";
-      return `<div class="gal-card chamfer-card${i === 0 && !a.unrated ? " first" : ""}">
-        <div class="gal-card-h">
-          <span class="gal-rank mono">${String(i + 1).padStart(2, "0")}</span>
-          <a class="model-creator gal-ava" data-meta="${escA(metaModel)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-            <img class="model-avatar" data-meta-avatar="${escA(metaModel)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="28" height="28"></a>
-          <span class="gal-model" title="${escA(a.model)}">${fmtModel(metaModel)}${hchip}</span>
-        </div>
-        <div class="gal-stats">${stats}</div>
-        <div class="gal-acts">
-          <button class="act-btn act-prev gal-prev" data-id="${escA(a.id)}" data-title="${escA(p.title)}" data-model="${escA(a.model)}">Preview</button>
-          <a class="act-btn act-dl gal-dl" href="/api/arena/download/${encodeURIComponent(a.id)}" title="download the full single-file source">Code</a>
-        </div>
-      </div>`;
-    }).join("") + `</div></div>`).join("");
+      <h3 class="gal-title">${escH(p.title)}${/^(easy|medium|hard|expert|frontier|god_mode)$/.test(p.difficulty || "") ? ` <span class="gal-diff gd-${p.difficulty}">${p.difficulty.replace("_", " ")}</span>` : ""} <span class="note">${escH(p.brief)}</span></h3>
+      <div class="gal-row">` + p.artifacts.map((a, i) => galCard(a, p, i)).join("") + `</div></div>`).join("");
   $$("#galleryBody .gal-prev").forEach((b) =>
     b.onclick = () => openGalPreview(b.dataset.id, b.dataset.title, b.dataset.model));
-  [...new Set(prompts.flatMap((p) => (p.artifacts || []).map((a) => a.model_base || a.model)))].forEach((model) => {
+  [...new Set(filtered.flatMap((p) => (p.artifacts || []).map((a) => a.model_base || a.model)))].forEach((model) => {
     const cached = META.get(model);                // hydrate creator avatars (same as the board)
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
@@ -951,40 +1520,254 @@ function fitGalPreview() {
   const chrome = card.getBoundingClientRect().height - stage.getBoundingClientRect().height;
   const availW = stage.clientWidth;
   const availH = Math.max(160, window.innerHeight * 0.92 - chrome);
+  // FULLSCREEN: the frame fills the display at its own size — CSS clears the transform, so any
+  // scaling here would double-apply and (worse) desync pointer-lock movementX/Y from what's drawn.
+  if (document.fullscreenElement) {
+    scaler.style.width = ""; scaler.style.height = ""; frame.style.transform = "";
+    return;
+  }
   const s = Math.min(1, availW / GAL_VW, availH / GAL_VH);   // never upscale past 1:1
   scaler.style.width = (GAL_VW * s).toFixed(2) + "px";
   scaler.style.height = (GAL_VH * s).toFixed(2) + "px";
   frame.style.transform = "scale(" + s + ")";
 }
 window.addEventListener("resize", fitGalPreview);            // no-ops while the modal is hidden
+// entering/leaving fullscreen changes the geometry AND (on exit) must restore the fit scale
+document.addEventListener("fullscreenchange", () => {
+  fitGalPreview();
+  const f = document.fullscreenElement;
+  if (f && typeof f.focus === "function") f.focus();          // keep keys in the artifact
+});
+
+// INPUT CAPTURE: an artifact is a game/app — while it's open the keyboard belongs to IT, not the
+// page behind it. The sandbox has no allow-same-origin, but contentWindow.focus() is one of the
+// few cross-origin-legal calls, so the parent can hand focus in without weakening the sandbox.
+// Without this, focus stays on the button that opened the modal and WASD/arrows scroll the page.
+function focusArtifactFrame(frame) {
+  if (!frame) return;
+  try { frame.focus({ preventScroll: true }); } catch (e) { try { frame.focus(); } catch (_) {} }
+  try { frame.contentWindow && frame.contentWindow.focus(); } catch (e) {}
+}
+// True while an artifact frame owns the keyboard — the global hotkeys must stand down.
+function artifactHasFocus() {
+  const el = document.activeElement;
+  return !!(el && el.tagName === "IFRAME"
+            && /gal-frame|arena-frame/.test(el.className || ""));
+}
+// Belt-and-braces for the moment before focus lands (and for browsers that drop it): stop the
+// PAGE from scrolling on the keys games use. Never swallow keys once the artifact has focus —
+// those events don't reach the parent at all.
+const _SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+                              " ", "Spacebar", "PageUp", "PageDown", "Home", "End"]);
+function _blockPageScrollKeys(e) {
+  if ($("#galModal").hidden) return;
+  if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;
+  if (_SCROLL_KEYS.has(e.key)) e.preventDefault();
+}
+window.addEventListener("keydown", _blockPageScrollKeys, { passive: false });
+
+// Artifacts are UNTRUSTED model-authored code: one can loop forever (this bug: a rAF draw loop
+// with no cancelAnimationFrame plus scheduled Web Audio), and swapping `srcdoc` on the SAME
+// element is not a dependable stop — the old document keeps burning the main thread while the
+// browser is saturated, so the frame appears stuck on the previous artifact. Replacing the NODE
+// discards the browsing context outright, which IS dependable. The clone keeps every security
+// attribute (sandbox / allow / referrerpolicy) because it is the same element, minus its document.
+function resetArtifactFrame(sel) {
+  const old = $(sel);
+  if (!old) return null;
+  const fresh = old.cloneNode(false);              // same id/class/sandbox/allow/tabindex
+  fresh.removeAttribute("srcdoc");                 // a cloned srcdoc would re-run the artifact
+  old.replaceWith(fresh);
+  return fresh;
+}
 
 // Preview overlay: the artifact runs in a SANDBOXED iframe (same sandbox attrs as the
 // match view — allow-scripts, NO allow-same-origin) and is lazy-fetched only on click.
+let GAL_OPENER = null;                             // element to restore focus to on close
+let GAL_REQ = 0;                                   // generation token: only the NEWEST open paints
 async function openGalPreview(aid, title, model) {
+  // Every open takes a ticket. A render that resolves AFTER the user opened something else must
+  // NOT paint — otherwise the late artifact hijacks the frame and every subsequent preview shows
+  // it instead of the one clicked (owner-reported on the Generative Symphony entry, 2026-07-24).
+  const myReq = ++GAL_REQ;
+  GAL_OPENER = document.activeElement;
   $("#galViewTitle").innerHTML = `<b>${escH(title)}</b> — <span class="mono">${escH(model)}</span>`;
   $("#galViewDl").href = "/api/arena/download/" + encodeURIComponent(aid);
-  $("#galFrame").srcdoc = loadingFrame("compiling artifact…");
+  const frame = resetArtifactFrame("#galFrame") || $("#galFrame");   // hard-stop the previous artifact
+  frame.srcdoc = loadingFrame("compiling artifact…");
   $("#galModal").hidden = false;
-  requestAnimationFrame(fitGalPreview);            // fit once layout has settled
+  document.body.classList.add("modal-open");       // the page behind must not scroll
+  requestAnimationFrame(() => { fitGalPreview(); focusArtifactFrame($("#galFrame")); });
   try {
     const r = await fetch("/api/arena/render?artifact_id=" + encodeURIComponent(aid));
     const a = r.ok ? await r.json() : null;
-    if ($("#galModal").hidden) return;             // closed while loading — don't resurrect it
-    $("#galFrame").srcdoc = (a && a.html) || blankFrame("failed to load");
-  } catch (e) { if (!$("#galModal").hidden) $("#galFrame").srcdoc = blankFrame("failed to load"); }
+    // superseded by a newer open, or closed while loading — either way, do not paint
+    if (myReq !== GAL_REQ || $("#galModal").hidden) return;
+    frame.srcdoc = (a && a.html) || blankFrame("failed to load");
+    // srcdoc swap replaces the document — hand focus to the REAL artifact once it exists
+    frame.addEventListener("load", () => focusArtifactFrame(frame), { once: true });
+  } catch (e) {
+    if (myReq === GAL_REQ && !$("#galModal").hidden) frame.srcdoc = blankFrame("failed to load");
+  }
 }
 function closeGalPreview() {
+  // release anything the artifact grabbed first, or the browser keeps a fullscreen/locked cursor
+  // pointed at a frame we're about to blank
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+  try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {}
+  GAL_REQ++;                                       // invalidate any in-flight render
   $("#galModal").hidden = true;
-  $("#galFrame").srcdoc = blankFrame("");          // unload the artifact — stop its scripts
+  document.body.classList.remove("modal-open");
+  resetArtifactFrame("#galFrame");                 // discard the document — stops rAF/audio for good
+  try { if (GAL_OPENER && GAL_OPENER.focus) GAL_OPENER.focus({ preventScroll: true }); } catch (e) {}
+  GAL_OPENER = null;
+}
+
+// Fullscreen is requested from the PARENT on a real user gesture — the reliable path, and it
+// needs no privilege inside the untrusted document. The `allowfullscreen` attribute additionally
+// lets a model-authored in-game fullscreen button work. Best for FPS/mouse-look: at 1:1 the
+// pointer-lock movement deltas finally match what's drawn (the fit-scale otherwise desyncs them).
+function goFullscreen(frame) {
+  if (!frame) return;
+  const el = document.fullscreenElement;
+  try {
+    if (el) { document.exitFullscreen(); return; }
+    const p = frame.requestFullscreen ? frame.requestFullscreen() : null;
+    if (p && p.then) p.then(() => focusArtifactFrame(frame)).catch(() => {});
+    else focusArtifactFrame(frame);
+  } catch (e) {}
 }
 
 // ---- admin (integrity + moderation; tab visible only to AEON_ADMIN_USERS) ----
 async function setAdmin() {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.admin));
-  $("#boardPanel").hidden = true; $("#audioPanel").hidden = true; $("#detailPanel").hidden = true;
+  $("#boardPanel").hidden = true; $("#detailPanel").hidden = true;
   $("#arenaPanel").hidden = true; $("#subsPanel").hidden = true; $("#runPanel").hidden = true;
   $("#adminPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
-  loadAdminBenches(); loadEvaluators(); loadAdminArtifacts();
+  syncHash("admin");
+  loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); loadAdminLive(); loadIngestLog(); startLiveTicker();
+}
+
+// ---- admin: SUBMISSION LOG (every /api/v1 attempt, accepted or refused) ----
+// A refused bundle creates no run row, and app access-logging is off, so this table is the only
+// evidence that a pod tried at all. It answers the question that cost hours of guessing:
+// "did their pod never send, or did we refuse it?"
+const INGEST_BAD = {
+  NOT_ATTESTED: "weights were not verified against HF — this mothership accepts attested runs only",
+  BAD_SIG: "ed25519 signature did not verify", SCHEMA_INVALID: "bundle failed schema validation",
+  SIZE_EXCEEDED: "bundle over the size cap", REPLAY_NONCE: "run nonce already consumed",
+  UNKNOWN_KEY: "device key not enrolled", REVOKED_KEY: "device key revoked",
+  TOKEN_MISMATCH: "run token did not match", RATE_LIMITED: "rate limited",
+};
+async function loadIngestLog() {
+  const box = $("#ingestLog"); if (!box) return;
+  const rejOnly = ($("#ingestFilter") || {}).value === "1";
+  let d;
+  try {
+    const r = await fetch("/api/admin/ingest_log?limit=200&rejected=" + (rejOnly ? 1 : 0),
+                          { headers: authHeaders() });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    d = await r.json();
+  } catch (e) {
+    box.innerHTML = `<p class="note" style="text-align:left">submission log unavailable (${escH(String(e.message || e))})</p>`;
+    return;
+  }
+  const sum = d.summary || [];
+  const acc = sum.filter((x) => x.outcome === "accepted").reduce((n, x) => n + x.n, 0);
+  const rej = sum.filter((x) => x.outcome === "rejected");
+  const rejN = rej.reduce((n, x) => n + x.n, 0);
+  $("#ingestSummary").innerHTML =
+    `last ${escH(String(d.window_h || 168))}h — <b>${acc}</b> accepted · <b class="${rejN ? "err" : ""}">${rejN}</b> refused`
+    + (rej.length ? " · " + rej.map((x) => `${escH(x.reason || "?")} ×${x.n}`).join(", ") : "");
+  const rows = d.log || [];
+  if (!rows.length) { box.innerHTML = `<p class="note" style="text-align:left">No submission attempts in this window.</p>`; return; }
+  box.innerHTML = rows.map((r) => {
+    const ok = r.outcome === "accepted";
+    const why = r.reason ? (INGEST_BAD[r.reason] || r.note || "") : "";
+    return `<div class="bench-row ing-row${ok ? "" : " flagged"}">
+      <span class="bench-t">${escH(fmtDT(r.at))}</span>
+      <span class="subs-b">${escH(r.route || "?")}</span>
+      <span class="ev-badge ${ok ? "ok" : "bad"}" title="${escA(why)}">${escH(ok ? "accepted" : (r.reason || "refused"))}</span>
+      <span class="bench-m mono">${r.model ? fmtModel(r.model) : "<span class=note>—</span>"}</span>
+      ${r.board ? `<span class="subs-b">${escH(r.board)}</span>` : ""}
+      <span class="note mono">${escH(String(r.status || ""))}</span>
+      ${r.bench_host ? `<span class="live-host mono">${escH(r.bench_host)}</span>` : ""}
+      ${r.remote_ip ? `<span class="note mono" title="client address">${escH(r.remote_ip)}</span>` : ""}
+      ${r.n_bytes ? `<span class="note mono">${Math.round(r.n_bytes / 1024)}kB</span>` : ""}
+      ${why && !ok ? `<span class="note ing-why">${escH(why)}</span>` : ""}
+    </div>`;
+  }).join("");
+}
+
+// ---- admin: LIVE benches (in-flight runs, including other people's pods in the wild) ----
+// A pod that dies mid-bench leaves its row 'running' forever — nothing ever reports the failure —
+// so a run whose progress has not moved for over an hour is surfaced as STALLED rather than shown
+// as healthy. Poll only while the admin tab is actually visible.
+let ADMIN_LIVE_TIMER = null;
+function fmtElapsed(s) {
+  if (s == null) return "—";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : (m ? `${m}m` : `${Math.max(0, Math.round(s))}s`);
+}
+async function loadAdminLive() {
+  const box = $("#adminLive"); if (!box) return;
+  // admin routes are Bearer-gated — api() sends no headers, so this MUST use authHeaders()
+  let d;
+  try {
+    const r = await fetch("/api/admin/live_runs", { headers: authHeaders() });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    d = await r.json();
+  } catch (e) {
+    // say so rather than silently rendering an empty panel (which reads as "nothing running")
+    box.innerHTML = `<p class="note" style="text-align:left">live benches unavailable (${escH(String(e.message || e))})</p>`;
+    return;
+  }
+  const rows = d.runs || [];
+  if (!rows.length) {
+    box.innerHTML = `<p class="note" style="text-align:left">No benches running right now.</p>`;
+    return;
+  }
+  box.innerHTML = rows.map((r) => {
+    const done = r.status !== "running";
+    const pct = (r.n_cases && r.progress != null)
+      ? Math.min(100, Math.round((r.progress / Math.max(1, r.n_cases)) * 100)) : null;
+    // NOTE: informational only — a stalled run is never auto-killed. A full bench can legitimately
+    // take DAYS, so "quiet" is measured from the last scored case, and the operator decides.
+    const quietH = r.quiet_s != null ? (r.quiet_s / 3600) : null;
+    const quietTxt = quietH != null ? `no new cases for ${fmtElapsed(r.quiet_s)}` : "";
+    const state = done
+      ? `<span class="ev-badge ok">${escH(r.status || "done")}</span>`
+      : (r.stalled ? `<span class="ev-badge pending" title="${escA(quietTxt + " — the pod may be gone, but it is left alone; kill it yourself if you want it stopped")}">quiet</span>`
+                   : `<span class="live-dot" title="in flight"></span><span class="ev-badge">running</span>`);
+    const trust = r.trust_tier === "attested" ? `<span class="elig-badge verified">✓</span>` : "";
+    const method = r.attestation_method
+      ? `<span class="subs-b" title="how this run was attested">${escH(r.attestation_method)}</span>` : "";
+    const who = r.bench_host
+      ? `<span class="live-host mono" title="the machine that SERVED the model">${escH(r.bench_host)}</span>` : "";
+    const hw = r.hardware ? `<span class="note">${escH(r.hardware)}</span>` : "";
+    return `<div class="bench-row live-row${r.stalled ? " flagged" : ""}">
+      <span class="bench-t">${escH(fmtElapsed(r.elapsed_s))}</span>
+      <span class="bench-m mono">${fmtModel(r.model)}</span>
+      <span class="subs-b">${escH(r.board || "?")}</span>${trust}${method}${state}
+      <span class="live-prog mono">${r.progress || 0}${r.n_cases ? " / " + r.n_cases : ""}${pct != null ? ` (${pct}%)` : ""}</span>
+      ${!done && r.quiet_s != null ? `<span class="note" title="time since the last scored case landed">last case ${escH(fmtElapsed(r.quiet_s))} ago</span>` : ""}
+      ${who}${hw}
+      <span class="bench-acts">
+        <button class="ghost ev-act bench-open" data-id="${escA(r.id)}">open</button>
+      </span></div>`;
+  }).join("");
+  $$("#adminLive .bench-open").forEach((b) => b.onclick = () => {
+    const t = $("#tabs [data-subs]"); if (t) t.click();
+    openSubmission(b.dataset.id);
+  });
+}
+function startLiveTicker() {
+  if (ADMIN_LIVE_TIMER) clearInterval(ADMIN_LIVE_TIMER);
+  ADMIN_LIVE_TIMER = setInterval(() => {
+    const p = $("#adminPanel");
+    if (!p || p.hidden) { clearInterval(ADMIN_LIVE_TIMER); ADMIN_LIVE_TIMER = null; return; }
+    loadAdminLive();
+  }, 15000);
 }
 
 // ---- admin: bench oversight (disqualify / re-judge / open any run) ----
@@ -1127,18 +1910,30 @@ async function loadAdminArtifacts() {
 }
 
 // ---- Submissions transparency browser (every run fully inspectable) ----
-const SUBS = { board: "", model: null };
+// view: "cards" = unified benchmark cards (one plate per bench JOB, default) ·
+//       "runs"  = the flat per-run pass list (the old view, kept behind the toggle)
+const SUBS = { board: "", model: null, view: "cards", cards: null, sort: "new" };
 
-function setSubs(model) {
+// keepHash: a caller about to open a run detail (openBestRun) skips the plain
+// #/submissions write, so the detail's single pushState is the only history entry —
+// Back then returns to the view the row was clicked on (board / harnesses / …).
+function setSubs(model, keepHash) {
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
-  ["#boardPanel", "#audioPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  // Hide EVERY sibling panel, not a subset. The old list omitted god/perf/harness/compare/live/
+  // gallery, so opening a submission from any of those tabs left the previous panel on screen
+  // covering the detail — clicking a GOD MODE card looked like it did nothing at all.
+  ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#godPanel",
+   "#perfPanel", "#harnessPanel", "#comparePanel", "#livePanel", "#galleryPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  if (!keepHash) syncHash("submissions");
   SUBS.model = model || null;
   loadSubs();
 }
 function openSubmissionsFor(model) { setSubs(model); }
 
 async function loadSubs() {
+  if (SUBS.view === "cards") return loadBenchCards();
   const q = [];
   if (SUBS.board) q.push("board=" + SUBS.board);
   if (SUBS.model) q.push("model=" + encodeURIComponent(SUBS.model));
@@ -1151,6 +1946,164 @@ async function loadSubs() {
     return;
   }
   renderSubsList(d.submissions || []);
+}
+
+// ---- UNIFIED BENCHMARK CARDS (default Submissions view): one chamfered plate per bench JOB —
+// a header (model · trust · hardware · date · engine) plus one chip per BOARD the job produced
+// (TEXT 84.5 · HERMES 71 · … · PERF 517 tok/s · ARENA 12 assets). Chips open the existing
+// run-detail pane for that board's run. Data: GET /api/submissions/cards (jg:/lg: card ids).
+function _subsViewBar() {
+  return `<div class="subs-viewbar">
+    <button class="vb-btn${SUBS.view === "cards" ? " on" : ""}" data-view="cards" title="one card per benchmark job — all boards it produced">▦ benchmark cards</button>
+    <button class="vb-btn${SUBS.view === "runs" ? " on" : ""}" data-view="runs" title="the flat per-run list">☰ runs view</button>
+  </div>`;
+}
+function _bindViewBar() {
+  $$("#subsList .vb-btn").forEach((b) => b.onclick = () => {
+    if (SUBS.view === b.dataset.view) return;
+    SUBS.view = b.dataset.view;
+    loadSubs();
+  });
+}
+
+async function loadBenchCards() {
+  $("#subsList").innerHTML = _subsViewBar() + skel(6, 46);
+  _bindViewBar();
+  let d;
+  try { d = await api("/api/submissions/cards?limit=100"); }
+  catch (e) {
+    $("#subsList").innerHTML = _subsViewBar() + `<p class="board-empty"><b class="err">✗ link down</b> — could not load benchmark cards. <button class="ghost" id="sRetry">↻ retry</button></p>`;
+    _bindViewBar();
+    const rb = $("#sRetry"); if (rb) rb.onclick = loadSubs;
+    return;
+  }
+  SUBS.cards = d.cards || [];
+  renderBenchCards();
+}
+
+// which run a whole-card click opens: text first, then the first board that has a run id
+function _cardPrimaryRun(c) {
+  const b = c.boards || {};
+  for (const k of ["text", "vision", "audio", "video", "perf"]) if (b[k] && b[k].run != null) return b[k].run;
+  if ((b.agentic || []).length && b.agentic[0].run != null) return b.agentic[0].run;
+  return (c.run_ids || [])[0];
+}
+
+function _trustChip(tier, verified) {
+  if (!tier) return `<span class="cmp2-trust-chip">local-only</span>`;
+  const t = verified ? ` title="verified: ${escA(verified)}"` : "";
+  return `<span class="cmp2-trust-chip t-${escA(tier)}"${t}>${tier === "attested" ? "✓ " : ""}${escH(tier)}</span>`;
+}
+
+// board-chip row: every section this job produced, scored, in one strip. Absent boards get NO chip.
+function _cardPrimaryScore(c) {
+  const b = (c && c.boards) || {};
+  const h = b.text || b.god;                       // a GOD MODE job has no text pass
+  return h && h.composite != null ? h.composite : null;
+}
+function _cardPeakTps(c) {
+  const p = ((c && c.boards) || {}).perf;
+  return p && p.peak_agg_tps != null ? p.peak_agg_tps : null;
+}
+function _sortCards(cards) {
+  const key = SUBS.sort === "comp" ? _cardPrimaryScore
+            : SUBS.sort === "perf" ? _cardPeakTps : null;
+  if (!key) return cards.slice().sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+  // null last: a card with no score for this axis has nothing to say about it, and ranking it
+  // as a zero would push genuinely-bad results above genuinely-absent ones.
+  return cards.slice().sort((a, b) => {
+    const x = key(a), y = key(b);
+    if (x == null && y == null) return (b.started_at || 0) - (a.started_at || 0);
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return y - x;
+  });
+}
+
+function _cardChips(c) {
+  const b = c.boards || {}, out = [];
+  const flag = (f) => f ? `<span class="chip-flag" title="this run is flagged">⚑</span>` : "";
+  const band = (v) => v == null ? "na" : v >= 80 ? "pass" : v >= 40 ? "part" : "fail";
+  const chip = (label, val, run, flagged, title, cls) =>
+    out.push(`<button class="pc-chip ${cls}"${run != null ? ` data-run="${escA(run)}"` : ""} title="${escA(title)}">${flag(flagged)}${escH(label)}${val != null ? ` <b>${escH(val)}</b>` : ""}</button>`);
+  const qual = (key, s) => { if (s) chip(key.toUpperCase(), s.composite != null ? fmtComp(s.composite) : "—", s.run, s.flagged,
+    `${key} · ${s.suite_id || "?"} · ${s.n_cases} cases — open this run`, band(s.composite)); };
+  qual("text", b.text);
+  qual("god", b.god);            // a GOD MODE job has no text run — this IS its headline score
+  (b.agentic || []).forEach((h) => chip((h.harness || "?").toUpperCase(), h.score != null ? String(Math.round(h.score)) : "—",
+    h.run, h.flagged, `agentic · ${h.harness || "?"}${h.harness_version ? " " + fmtHver(h.harness_version) : ""} · ${h.n_cases} tasks — open this run`, band(h.score)));
+  qual("vision", b.vision); qual("audio", b.audio); qual("video", b.video);
+  if (b.perf) chip("PERF", b.perf.peak_agg_tps != null ? fmtTps(b.perf.peak_agg_tps) + " tok/s" : "—", b.perf.run, b.perf.flagged,
+    `performance grid · peak aggregate tok/s · conc ${(b.perf.conc_levels || []).map((x) => "c" + x).join(" ") || "?"} — open this run`, "info");
+  if (b.arena) out.push(`<span class="pc-chip info arena-chip" title="${escA(Object.entries(b.arena.kinds || {}).map(([k, n]) => n + " " + k).join(" · ") || "arena artifacts")}">ARENA <b>${b.arena.n_artifacts}</b> assets</span>`);
+  return out.join("");
+}
+
+function _benchCard(c) {
+  const b = c.boards || {};
+  // A GOD MODE bench produces no text run, so its headline is the god composite. Without this
+  // the card renders a blank score above chips that clearly show one.
+  const _head = b.text || b.god;
+  const comp = _head && _head.composite != null ? _head.composite : null;
+  const scls = comp == null ? "" : comp >= 80 ? " pass" : comp >= 40 ? " part" : " fail";
+  const prim = _cardPrimaryRun(c);
+  const nRuns = (c.run_ids || []).length;
+  const meta = [fmtDate(c.started_at), c.hardware, c.engine, nRuns ? nRuns + " run" + (nRuns === 1 ? "" : "s") : null]
+    .filter(Boolean).map(escH).join(" · ");
+  return `<div class="bench-card chamfer-card${c.flagged_any ? " flagged-any" : ""}" data-card="${escA(c.card_id)}"${prim != null ? ` data-run="${escA(prim)}"` : ""} tabindex="0">
+    <div class="bc-head">
+      <a class="model-creator subs-ava" data-meta="${escA(c.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+        <img class="model-avatar" data-meta-avatar="${escA(c.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="30" height="30"></a>
+      <span class="bc-name">${fmtModel(c.model)}</span>
+      ${c.flagged_any ? `<span class="bc-flag" title="one or more runs in this benchmark are flagged">⚑</span>` : ""}
+      <span class="bc-score subs-s${scls}">${comp != null ? fmtComp(comp) : "—"}</span>
+    </div>
+    <div class="bc-meta">${_trustChip(c.trust_tier, c.verified)}${ctxChip(c.ctx_len)}<span class="bc-info">${meta}</span></div>
+    <div class="bc-chips">${_cardChips(c)}</div>
+  </div>`;
+}
+
+function renderBenchCards() {
+  let cards = _sortCards(SUBS.cards || []);
+  if (SUBS.model) cards = cards.filter((c) => c.model === SUBS.model || c.canonical === SUBS.model);
+  if (SUBS.board) cards = cards.filter((c) => (c.boards || {})[SUBS.board]);
+  const hdr = SUBS.model
+    ? `<div class="subs-filter">for <b>${escH(SUBS.model)}</b> · <button class="ghost" id="subsClear">all models</button></div>` : "";
+  const empty = `<p class="note" style="text-align:left">No benchmarks${SUBS.model ? " for this model" : ""} yet.</p>`;
+  let body;
+  if (SUBS.sort === "new") {
+    const days = {};
+    cards.forEach((c) => { (days[_dayKey(c.started_at)] = days[_dayKey(c.started_at)] || []).push(c); });
+    body = Object.keys(days).map((day) =>
+      `<div class="subs-day">${escH(day)}</div>` + days[day].map(_benchCard).join("")).join("") || empty;
+  } else {
+    // Ranked views are a FLAT list on purpose: day headers would re-cluster by date and fight
+    // the ordering the reader just asked for.
+    const label = SUBS.sort === "comp" ? "best composite first" : "best peak throughput first";
+    body = (cards.length
+      ? `<div class="subs-day">${escH(label)}</div>` + cards.map(_benchCard).join("")
+      : empty);
+  }
+  $("#subsList").innerHTML = _subsViewBar() + hdr + body;
+  _bindViewBar();
+  const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
+  const select = (el, run) => {
+    $$("#subsList .bench-card").forEach((x) => x.classList.remove("sel"));
+    el.classList.add("sel");
+    openSubmission(run);
+  };
+  $$("#subsList .bench-card").forEach((el) => el.onclick = (ev) => {
+    if (ev.target.closest(".subs-ava") || ev.target.closest(".pc-chip")) return;
+    if (el.dataset.run) select(el, el.dataset.run);       // card = the job's primary (text) run
+  });
+  $$("#subsList .bench-card .pc-chip[data-run]").forEach((b) => b.onclick = (ev) => {
+    ev.stopPropagation();                                  // chip = that specific board's run
+    select(b.closest(".bench-card"), b.dataset.run);
+  });
+  [...new Set(cards.map((c) => c.model))].forEach((model) => {   // hydrate avatars like the board
+    const cached = META.get(model);
+    if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
+  });
 }
 
 // one time grammar, instrument-style: 2026-07-02 for days, 24h clocks for rows
@@ -1231,7 +2184,8 @@ function renderSubsList(rows) {
         ${cats ? `<div class="subs-cats">${cats}</div>` : ""}
       </div>`;
     }).join("")).join("") || `<p class="note" style="text-align:left">No submissions${SUBS.model ? " for this model" : ""} yet.</p>`;
-  $("#subsList").innerHTML = hdr + `<div class="cmp-bar" id="cmpBar" hidden><button class="ghost" id="cmpGo">⇆ compare selected</button><span class="note" id="cmpBarNote">tick two runs</span></div>` + body;
+  $("#subsList").innerHTML = _subsViewBar() + hdr + `<div class="cmp-bar" id="cmpBar" hidden><button class="ghost" id="cmpGo">⇆ compare selected</button><span class="note" id="cmpBarNote">tick two runs</span></div>` + body;
+  _bindViewBar();
   const clr = $("#subsClear"); if (clr) clr.onclick = () => setSubs(null);
   const select = (el, run) => {
     $$("#subsList .subs-pass").forEach((x) => x.classList.remove("sel"));
@@ -1265,6 +2219,7 @@ function renderSubsList(rows) {
 }
 
 async function openSubmission(runId) {
+  syncHash("submissions", runId, true);   // detail open → pushState (Back closes the detail)
   $("#subsDetail").innerHTML = `<div class="sub-cases">${skel(8, 16)}</div>`;
   let d; try { d = await api("/api/submissions/" + runId); }
   catch (e) { $("#subsDetail").innerHTML = `<p class="err">failed to load</p>`; return; }
@@ -1311,7 +2266,9 @@ function _ipGauge(pct, label) {
     <span class="ip-val">${Math.round(pct)}</span><span class="ip-lbl">${escH(label)}</span></div>`;
 }
 
-const _DIFF_ORDER = ["easy", "medium", "hard", "expert", "frontier"];
+const _DIFF_ORDER = ["easy", "medium", "hard", "expert", "frontier", "god_mode"];
+const _DIFF_LABELS = { god_mode: "GOD MODE" };
+function diffLabel(k) { return _DIFF_LABELS[k] || k || ""; }
 
 function _instrumentPanel(d) {
   const scored = (d.cases || []).filter((c) => typeof c.score === "number");
@@ -1338,15 +2295,16 @@ function _instrumentPanel(d) {
   const diffs = _DIFF_ORDER.filter((k) => diffAgg[k]);
   const ladder = diffs.length < 2 ? "" : `<div class="ip-ladder"><span class="ip-sec">difficulty</span>` +
     diffs.map((k) => {
-      const v = 100 * diffAgg[k].reduce((a, b) => a + b, 0) / diffAgg[k].length;
-      return `<div class="ip-rung"><span class="diff-chip d-${k}">${k}</span>
+      const vals = diffAgg[k];
+      const v = 100 * vals.reduce((a, b) => a + b, 0) / vals.length;
+      return `<div class="ip-rung"><span class="diff-chip d-${k}">${escH(diffLabel(k))}</span>
         <span class="ip-bar"><i class="db-${k}" style="width:${Math.min(100, v).toFixed(1)}%"></i></span>
-        <span class="ip-pct">${Math.round(v)}</span><span class="ip-n">${diffAgg[k].length}</span></div>`;
+        <span class="ip-pct">${Math.round(v)}</span><span class="ip-n">${vals.length}</span></div>`;
     }).join("") + `</div>`;
   // category × difficulty MATRIX: where exactly the run holds up and where it cracks
   let matrix = "";
   if (diffs.length >= 2 && cats.length >= 2) {
-    const head = `<tr><th></th>${diffs.map((k) => `<th><span class="diff-chip d-${k}">${k}</span></th>`).join("")}</tr>`;
+    const head = `<tr><th></th>${diffs.map((k) => `<th><span class="diff-chip d-${k}">${escH(diffLabel(k))}</span></th>`).join("")}</tr>`;
     const trs = cats.map(([c]) => `<tr><th class="ipm-cat">${escH(c)}</th>` + diffs.map((k) => {
       const v = cellAgg[c + " " + k];
       if (!v) return `<td class="ipm-na">·</td>`;
@@ -1371,9 +2329,23 @@ function renderSubmissionDetail(d) {
   // inference engine + bench hardware belong in the RESULT's headline, not just the repro card
   const rp0 = d.reproduction || {};
   const engHw = (rp0.engine ? ` · engine <b>${escH(rp0.engine)}</b>${rp0.serve_mode === "bare" ? ' <span class="micro">(bare metal)</span>' : ""}` : "")
-    + (rp0.hardware_detected || rp0.hardware_claimed ? ` · <span class="catk" title="hardware detected on the bench machine">${escH(rp0.hardware_detected || rp0.hardware_claimed)}</span>` : "");
+    + (rp0.hardware_detected || rp0.hardware_claimed ? ` · <span class="catk" title="hardware detected on the bench machine">${escH(rp0.hardware_detected || rp0.hardware_claimed)}</span>` : "")
+    + (rp0.ctx_len != null ? ` · ${ctxChip(rp0.ctx_len)}` : "");
+  // ENDPOINT-FINGERPRINT evidence: when the run benched a SEPARATE operator-started serve URL and
+  // logprob-fingerprinted it against the hash-verified weights, show an honest chip that stays
+  // distinct from a pod-served attested run (identity-proven, not launched-by-the-pod). All values
+  // are server-recorded but escaped anyway — never inject raw payload into markup.
+  const env = d.env || {};
+  const ef = env.endpoint_fingerprint || {};
+  const attest = (env.attestation_method === "endpoint_fingerprint")
+    ? `<div class="sub-attest">
+        <span class="attest-chip" title="this run benched a separate operator-started serve URL, then logprob-fingerprinted it against the hash-verified weights — identity-proven, distinct from a pod-served attested run">⛓ endpoint-verified (logprob fingerprint)</span>
+        <span class="note attest-facts">${escH(ef.status || "—")}${ef.token_agreement != null ? ` · token agreement <b>${escH(ef.token_agreement)}</b>` : ""}${ef.logprob_divergence != null ? ` · logprob divergence <b>${escH(ef.logprob_divergence)}</b>` : ""}</span>
+        ${ef.limit ? `<div class="note attest-limit">${escH(ef.limit)}</div>` : ""}</div>`
+    : "";
   const meta = `<div class="sub-meta">
     <h3>${escH(r.model)} <span class="tag">${escH(r.board)}</span> ${r.flagged ? '<span class="ev-badge bad">bad bench</span>' : ""}</h3>
+    ${attest}
     <div class="note" style="text-align:left">run <span class="mono">${escH(r.id)}</span> · ${escH(r.status)} · ${escH(r.n_cases)} cases · ${_fmtTime(r.started_at)}<br>
       judge: <b>${judge}</b> · suite ${escH(r.suite_id)} <span class="mono">${escH(r.suite_hash || "")}</span>${r.bench_seed ? ' · fast-bench seed <span class="mono cmp-seedtag">' + escH(r.bench_seed) + "</span>" : ""}${engHw} ·
       <a class="mlink" href="${escA(d.manifest_url)}" target="_blank">signed manifest ↗</a></div>
@@ -1398,7 +2370,7 @@ function renderSubmissionDetail(d) {
     const sc = c.score == null ? (c.status === "tier1_pending" ? "pending" : "—") : (c.score * 100).toFixed(0);
     const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
     const cr = (c.creativity != null && c.creativity > 0) ? ` <span class="ev-badge ok">+${c.creativity} creativity</span>` : "";
-    const df = c.difficulty ? ` <span class="diff-chip d-${escA(c.difficulty)}" title="difficulty class">${escH(c.difficulty)}</span>` : "";
+    const df = c.difficulty ? ` <span class="diff-chip d-${escA(c.difficulty)}" title="difficulty class">${escH(diffLabel(c.difficulty))}</span>` : "";
     const head = `<div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}
         <span class="sub-score ${cls}">${sc}</span>${cr}${c.disputed ? ` <span class="ev-badge disputed" title="${escA(c.disputed_reason || "")}">⚠ agent-judge: likely checker false-negative</span>` : ""}<span class="subs-by">judged by: ${escH(c.judged_by)}</span></div>`;
     if (c.harness_case) {
@@ -1417,16 +2389,48 @@ function renderSubmissionDetail(d) {
       <div class="sub-a"><b>answered:</b><pre>${escH(c.answer)}</pre></div>
       <div class="sub-r"><b>judgement:</b> ${_rationale(c)}</div></div>`;
   }).join("");
-  $("#subsDetail").innerHTML = meta + _instrumentPanel(d) + repro + `<div class="sub-cases">${cases}</div>`;
+  $("#subsDetail").innerHTML = meta + _instrumentPanel(d)
+    + `<div id="subModalities" class="sib-boards"></div>` + repro + `<div class="sub-cases">${cases}</div>`;
+  renderRunModalities(r);
   const rc = $("#reproCopy");
   if (rc) rc.onclick = async () => {
-    try { await navigator.clipboard.writeText(cmdText); } catch (e) { return; }
+    if (!(await copyText(cmdText))) return;
     rc.textContent = "✓ copied"; rc.classList.add("copied");
     setTimeout(() => { rc.textContent = "copy command"; rc.classList.remove("copied"); }, 1400);
   };
   const fb = $("#subFlag"); if (fb) fb.onclick = () => _flagRun(r.id, true);
   const ub = $("#subUnflag"); if (ub) ub.onclick = () => _flagRun(r.id, false);
   const rj = $("#subRejudge"); if (rj) rj.onclick = () => _rejudgeRun(r.id);
+}
+
+// ---- MULTIMODAL RESULTS inside the run detail -------------------------------------------------
+// A model's vision / audio / video runs must be visible FROM its detail view (the board's
+// modality dials point here — e.g. an audio run is one click past the audio dial): fetch the
+// model's other submissions and render one dial plate per modality board — the newest
+// succeeded run of each — that opens that run's own full detail.
+async function renderRunModalities(run) {
+  const host = document.getElementById("subModalities");
+  if (!host || !run || !run.model) return;
+  let d;
+  try { d = await api("/api/submissions?model=" + encodeURIComponent(run.model)); }
+  catch (e) { host.innerHTML = ""; return; }
+  if (document.getElementById("subModalities") !== host) return;   // detail re-rendered mid-fetch
+  const best = {};
+  (d.submissions || []).forEach((r) => {
+    if (!["vision", "audio", "video"].includes(r.board) || r.board === run.board) return;
+    if (r.harness || r.flagged || r.status !== "succeeded" || r.mean_score == null) return;
+    if (!best[r.board] || (r.started_at || 0) > (best[r.board].started_at || 0)) best[r.board] = r;
+  });
+  const plates = ["vision", "audio", "video"].filter((k) => best[k]).map((k) => {
+    const r = best[k];
+    return `<button class="sib-plate" data-run="${escA(r.id)}" title="open this ${k} run — every case, fully inspectable">
+      ${dial(r.mean_score, k, { size: 64 })}
+      <span class="sib-meta">${r.n_cases || "?"} cases · ${fmtDate(r.started_at)}</span></button>`;
+  });
+  if (!plates.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<span class="ip-sec">multimodal results — same model</span>
+    <div class="sib-row">${plates.join("")}</div>`;
+  host.querySelectorAll(".sib-plate").forEach((b) => b.onclick = () => openSubmission(b.dataset.run));
 }
 
 async function _flagRun(runId, flagged) {
@@ -1445,6 +2449,7 @@ async function _rejudgeRun(runId) {
 function setBoard(name) {
   active = name;
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.board === name));
+  syncHash("board");
   loadBoard();
 }
 
@@ -1453,7 +2458,10 @@ let PERF = null;
 // model=null → the ranked list; a set model → its drill-down. The METRIC survives
 // drill/back/drill so the operator's chosen lens is never reset under them.
 let PERF_SEL = { model: null, metric: "agg_decode_tps" };
-let PERF_HW = null;               // hardware filter for the recipe-discovery board (null = all platforms)
+let PERF_HW = null;               // hardware-BUCKET filter for the recipe-discovery board (null = every rig)
+let PERF_HWQ = "";                // live hardware search text (narrows buckets/labels)
+// canonical Spark presets — ALWAYS shown on the filter bar; empty ones render disabled
+const PERF_SPARKS = ["Single DGX Spark", "2× DGX Spark", "3× DGX Spark", "4× DGX Spark"];
 const PERF_METRICS = [
   ["agg_decode_tps", "tok/s aggregate", "higher", "total generated tokens per second across all concurrent streams"],
   ["decode_tps", "tok/s per stream", "higher", "mean single-stream decode speed"],
@@ -1462,21 +2470,188 @@ const PERF_METRICS = [
 ];
 const PERF_COLORS = { overall: "#e3e3ee", Math: "#5ee0ff", Coding: "#7dff9a", Reasoning: "#ffd166", Instruction: "#ff8fa3", Prose: "#c39bff" };
 
+let GOD = null;
+
+// SIMPLE / ADVANCED form modes on the Run tab: simple shows the essentials (link + local
+// weights + validation + Test plan + RUN BENCH); advanced reveals every knob. Persisted.
+function applyRunMode(mode) {
+  const rp = $("#runPanel");
+  if (!rp) return;
+  rp.classList.toggle("simple", mode !== "advanced");
+  $$("#runMode .rm-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode
+    || (mode !== "advanced" && b.dataset.mode === "simple")));
+  try { localStorage.setItem("aeon_runmode", mode); } catch (e) {}
+}
+
+function wireRunMode() {
+  let mode = "simple";
+  try { mode = localStorage.getItem("aeon_runmode") || "simple"; } catch (e) {}
+  applyRunMode(mode);
+  $$("#runMode .rm-btn").forEach((b) => b.onclick = () => applyRunMode(b.dataset.mode));
+}
+
+// INTENT: the top fork on the Run tab. "pull" = the pod pulls weights from HF and serves them;
+// "endpoint" = point at a model that's ALREADY running (live serve / MLX / LM Studio / cluster).
+// Endpoint mode hides every pull-serving field (engine, tuning, local weights, champion…) and
+// surfaces the operator-serve block (scan + serve URL + fingerprint verify).
+function runIntent() {
+  const rp = $("#runPanel");
+  return rp && rp.classList.contains("intent-endpoint") ? "endpoint" : "pull";
+}
+
+let _epAutoScanned = false;      // auto-scan once when the operator first enters endpoint mode
+function applyRunIntent(intent) {
+  const rp = $("#runPanel");
+  if (!rp) return;
+  const endpoint = intent === "endpoint";
+  rp.classList.toggle("intent-endpoint", endpoint);
+  rp.classList.toggle("intent-pull", !endpoint);
+  $$("#runIntent .ri-btn").forEach((b) => b.classList.toggle("active", (b.dataset.intent === "endpoint") === endpoint));
+  try { localStorage.setItem("aeon_runintent", intent); } catch (e) {}
+  // endpoint mode: fingerprint verification is the whole point → default it on; reveal the
+  // operator-serve block (mlxHelp doubles as it); offer the running models right away.
+  if (endpoint) {
+    const ve = $("#verifyEndpoint"); if (ve) ve.checked = true;
+    const mh = $("#mlxHelp"); if (mh) mh.hidden = false;
+    if (!_epAutoScanned && CFG.role === "pod") { _epAutoScanned = true; try { scanEndpoints(); } catch (e) {} }
+  } else {
+    engineChanged();             // back to pull rules (mlxHelp shows only for bare-metal engines)
+  }
+}
+
+function wireRunIntent() {
+  let intent = "pull";
+  try { intent = localStorage.getItem("aeon_runintent") || "pull"; } catch (e) {}
+  applyRunIntent(intent);
+  $$("#runIntent .ri-btn").forEach((b) => b.onclick = () => applyRunIntent(b.dataset.intent));
+}
+
+async function setGod() {
+  active = "god";
+  $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.god));
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
+   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel", "#perfPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+  const gp = $("#godPanel"); if (gp) gp.hidden = false;
+  { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("god");
+  $("#godBody").innerHTML = skel(4, 14);
+  try { GOD = await api("/api/god/board"); } catch (e) { GOD = null; }
+  const ms = (GOD && GOD.models) || [];
+  if (!ms.length) {
+    $("#godBody").innerHTML = `<p class="note" style="text-align:left">No GOD MODE runs yet — launch one from the pod: <b>Run tab → Test plan → GOD MODE BENCH</b>. Only the god tier runs; only attested full passes rank.</p>`;
+    return;
+  }
+  $("#godBody").innerHTML = `<div class="mcards god-board">` + ms.map((m, i) => godRow(m, i)).join("") + `</div>`;
+  $$("#godBody .mrow[data-run]").forEach((r) => {
+    const open = (ev) => {
+      // the action controls own their clicks — same rule as the global board
+      if (ev.target.closest(".share-btn, .get-model-btn, .model-creator")) return;
+      // openBestRun (not openSubmission) — it calls setSubs() FIRST, which performs the panel
+      // switch. Calling openSubmission alone only wrote the deep hash and filled #subsDetail while
+      // #godPanel stayed visible and #detailPanel stayed hidden, so the click appeared to do nothing.
+      openBestRun(r.dataset.model, r.dataset.run);
+    };
+    r.onclick = open;
+    r.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } };
+  });
+  wireShare("#godBody", "god");
+  // hydrate creator avatars + Get-Model links exactly like the global board
+  [...new Set(ms.map((m) => m.model))].forEach((model) => {
+    const cached = META.get(model);
+    if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
+  });
+}
+
+// one GOD MODE board row: rank · white-hot GOD SCORE · sentinel cells · agentic harness chips.
+// Absent components render honestly (untested), never as zeros.
+function godRow(m, i) {
+  const s = m.sentinels;
+  const ag = m.agentic;
+  const prov = !!m.god_provisional;
+  const score = m.god_score;
+  const band = score >= 80 ? "pass" : score >= 40 ? "part" : "fail";
+  const bestRun = (s && s.run) || m.run || m.best_run || "";
+  const badge = m.record_eligible
+    ? `<span class="elig-badge verified" title="verified HF-pull controlled run, FULL god pass (sentinels + agentic) — globally ranked">\u2713 verified</span>`
+    : m.ranked_excluded === "incomplete"
+    ? `<span class="elig-badge incomplete" title="verified weights, but not a FULL god pass (sentinels or agentic missing) — stored &amp; shown, not counted">\u2713 verified \u00b7 not counted</span>`
+    : `<span class="elig-badge local" title="not an attested run — shown, not record-eligible">local</span>`;
+  const vram = m.vram_est_gb != null
+    ? `<span class="mcard-vram" title="estimated VRAM at load">~${m.vram_est_gb} GB</span>` : "";
+  const spread = runSpread(m);
+  const ctx = ctxChip(m.ctx_len);
+  const cov = s
+    ? `<span class="god-cov" title="god sentinels attempted of the run's suite">${s.n_attempted}/${s.n_total} sentinels</span>` : "";
+  // component dials mirror the global board's row, but scoped to what GOD MODE actually measures
+  const agTip = ag && ag.harnesses
+    ? "god agentic — " + Object.entries(ag.harnesses).map(([h, v]) => `${h} ${v == null ? "\u2014" : Math.round(v)}`).join(" \u00b7 ")
+    : "god agentic (hermes \u00b7 openclaw \u00b7 opencode) — not yet tested";
+  // PERFORMANCE rides along from the same perf grid the global board reads. Shown, but NOT folded
+  // into GOD SCORE — that stays 0.6 x sentinels + 0.4 x agentic, so rankings do not silently move.
+  const pf = m.performance;
+  const pfTip = pf && pf.score != null
+    ? `throughput percentile within the ${pf.hw || "same"} hardware bucket`
+      + (pf.peak_agg_tps ? ` — peak ${Math.round(pf.peak_agg_tps)} tok/s aggregate` : "")
+    : "performance grid — not yet run for this model";
+  const dials = [
+    dial(s && s.composite != null ? s.composite : null, "sentinels",
+         { title: "god sentinels — atomic all-or-nothing checkers; a 90%-right answer scores 0" }),
+    dial(ag && ag.score != null ? ag.score : null, "agentic", { title: agTip }),
+    // the SAME race instrument the global board draws (peak tok/s + tach + C/ctx), not a bare
+    // percentile dial — throughput is a measurement and belongs on a god card as much as anywhere.
+    // perfInstrument reads m.dials.performance, so hand it the god row's flat field in that shape.
+    perfInstrument({ dials: { performance: pf }, ctx_len: m.ctx_len }),
+  ].join("");
+  const title = `GOD SCORE — 0.6 \u00d7 sentinels + 0.4 \u00d7 agentic${prov ? " (renormalized: a component is untested)" : ""}`;
+  return `<div class="mrow${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-model="${escA(m.model)}"${bestRun ? ` data-run="${escA(bestRun)}"` : ""} data-trust="${m.record_eligible ? "verified" : "local"}" tabindex="0" role="button" aria-label="open the god run for ${escA(m.model)}" style="--i:${i}">
+    <div class="mrow-rank">${String(i + 1).padStart(2, "0")}</div>
+    <div class="mrow-aeon god-hero ${band}${prov ? " prov" : ""}" title="${escA(title)}">
+      ${dial(score, "god score", { hero: true, size: 124, sub: "overall", fmt: fmtComp, valCls: "aeon-val" })}
+      ${prov ? `<span class="aeon-prov">not fully tested</span>` : ""}
+    </div>
+    <div class="mrow-id">
+      <div class="mrow-name">
+        <a class="model-creator mrow-ava" data-meta="${escA(m.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+          <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40">
+        </a>
+        <span class="mrow-model">${fmtModel(m.model)}</span>
+        ${badge}${vram}${ctx}${cov}${spread}
+      </div>
+      ${catBars(s && s.categories)}
+      <div class="god-harns">${ag && ag.harnesses
+        ? Object.entries(ag.harnesses).map(([h, v]) =>
+            `<span class="god-harn" title="god agentic through ${escA(h)}">${escH(h)} <b>${fmtComp(v)}</b></span>`).join("")
+        : `<span class="god-untested">agentic not yet tested</span>`}</div>
+      <div class="mcard-acts mrow-acts">
+        <a class="get-model-btn" data-meta-card="${escA(m.model)}" target="_blank" rel="noopener noreferrer" hidden>Get&nbsp;Model</a>
+        <button class="share-btn" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">\u2934 share</button>
+        <span class="mrow-open" aria-hidden="true">open god run \u25b8</span>
+      </div>
+    </div>
+    <div class="mrow-dials">${dials}</div>
+  </div>`;
+}
+
 async function setPerf() {
   active = "perf";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.perf));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
-   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel",
+   "#harnessPanel", "#comparePanel", "#livePanel", "#runPanel", "#galleryPanel", "#godPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const pp = $("#perfPanel"); if (pp) pp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  // #/performance/<run-or-canonical> deep link: consume the router's pending drill-down
+  const deep = ROUTE.perfPending; ROUTE.perfPending = null;
+  syncHash("performance", deep);
   $("#perfBody").innerHTML = skel(6, 18);
   try { PERF = await api("/api/perf/board"); } catch (e) { PERF = null; }
   if (!PERF || !(PERF.models || []).length) {
     $("#perfBody").innerHTML = `<p class="note" style="text-align:left">No performance runs yet — the pod submits an <span class="mono">aeon-perf-v1</span> grid with every comprehensive benchmark.</p>`;
     return;
   }
-  PERF_SEL.model = null;               // the tab always opens on the ranked list (metric lens survives)
+  // the tab opens on the ranked list unless a deep link names a run/model (metric lens survives)
+  PERF_SEL.model = deep || null;
   renderPerf();
 }
 
@@ -1655,70 +2830,130 @@ function _perfSpark(m) {
 }
 
 function renderPerf() {
-  const m = PERF_SEL.model ? PERF.models.find((x) => x.canonical === PERF_SEL.model) : null;
+  // rows key per (model × hardware bucket) so the run id is the row identity; canonical
+  // stays as a fallback for anything that still deep-links by model name
+  const m = PERF_SEL.model
+    ? (PERF.models.find((x) => x.run === PERF_SEL.model)
+       || PERF.models.find((x) => x.canonical === PERF_SEL.model))
+    : null;
+  // drill-down = a detail open → pushState (Back closes it); the list replaces. A stale
+  // deep link that matches nothing honestly falls back to the plain #/performance hash.
+  syncHash("performance", m ? PERF_SEL.model : null, !!m);
   if (m) renderPerfDetail(m); else renderPerfList();
 }
 
-// (a) default view: one compact ranked card per model, leaderboard-style. Everything is
-// drawn from the single /api/perf/board payload — no per-card fetches — so the list
-// scales to hundreds of submissions; avatars hydrate through the shared META cache.
+// (a) default view: the board clusters into one engraved section per HARDWARE BUCKET
+// (hwnorm server-side: Spark counts / RTX by model / Apple chip / Unlabeled), cards ranked
+// by peak aggregate tok/s inside their section — the best model+recipe per rig reads at a
+// glance. Everything still draws from the single /api/perf/board payload — no per-card
+// fetches — so the list scales to hundreds of submissions; avatars hydrate via META.
+const _hwBucketOf = (x) => x.hw_bucket || x.hardware || "Unlabeled";
+const _hwHay = (x) => `${x.hw_bucket || ""} ${x.hw_family || ""} ${x.hardware || "unlabeled"}`.toLowerCase();
+// bucket groups in server order (Sparks ascending, other rigs by best peak, Unlabeled last);
+// falls back to row-derived buckets if the payload predates hardware_groups
+function _perfGroups() {
+  if (PERF.hardware_groups && PERF.hardware_groups.length) return PERF.hardware_groups;
+  return [...new Set(PERF.models.map(_hwBucketOf))].map((b) => ({ bucket: b, family: "", label: b }));
+}
+
 function renderPerfList() {
-  // Recipe-discovery board: every model shows all four axes — peak single-stream, peak aggregate,
-  // lowest latency, quality — and the whole board filters by the hardware it was benched on. With a
-  // hardware selected, the throughput / single-stream / latency / quality CHAMPIONS (each an optimal
-  // recipe for that axis) are crowned inline.
-  const hws = (PERF.hardwares && PERF.hardwares.length)
-    ? PERF.hardwares : [...new Set(PERF.models.map((x) => x.hardware).filter(Boolean))];
-  if (PERF_HW && !hws.includes(PERF_HW)) PERF_HW = null;
-  const ms = [...PERF.models]
-    .filter((x) => !PERF_HW || x.hardware === PERF_HW)
-    .sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
-  const champ = (val, lower) => {                     // the winning recipe on one axis within the filter
-    let best = null, bv = null;
-    ms.forEach((x) => { const v = val(x); if (v == null) return; if (bv == null || (lower ? v < bv : v > bv)) { bv = v; best = x; } });
-    return best;
-  };
-  const cAgg = champ((x) => x.peak_agg_tps), cSingle = champ((x) => x.peak_single_tps),
-        cLat = champ((x) => (x.latency || {}).ttft_ms, true), cQual = champ((x) => x.quality);
-  const filterBar = hws.length ? `<div class="perf-filter">
-      <span class="perf-filter-lbl">optimal recipe for</span>
-      <button class="chip hwf${!PERF_HW ? " on" : ""}" data-hw="">all platforms</button>
-      ${hws.map((h) => `<button class="chip hwf${PERF_HW === h ? " on" : ""}" data-hw="${escA(h)}">${escH(h)}</button>`).join("")}
-    </div>` : "";
-  $("#perfBody").innerHTML = filterBar + `<div class="perf-list">` + ms.map((x, i) => {
-    const lat = x.latency || {}, concs = (x.conc_levels || []).filter((c) => x.direct[c]);
-    const crowns = [
-      x === cAgg ? `<span class="pcrown c-agg" title="fastest aggregate throughput here">⚡ throughput</span>` : "",
-      x === cSingle ? `<span class="pcrown c-single" title="fastest single stream here">▸ single-stream</span>` : "",
-      x === cLat ? `<span class="pcrown c-lat" title="lowest latency (TTFT) here">◔ latency</span>` : "",
-      x === cQual ? `<span class="pcrown c-qual" title="highest quality score here">◆ quality</span>` : "",
-    ].filter(Boolean).join("");
-    return `<div class="pcard perf4 chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.canonical)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)}">
-      <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
-      <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
-        <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
-      <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}</span>
-        ${x.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(x.hardware)}</span>` : ""}
-        ${crowns ? `<span class="pcrowns">${crowns}</span>` : ""}</div>
-      <div class="pcard-stats perf4-stats">
-        <div class="spdchip pcard-hero${x === cAgg ? " win" : ""}" title="best real concurrent cohort in the ladder — one category at one concurrency, all streams live"><span class="catk">peak agg tok/s${x.peak_agg_cell ? ` <span class="catx">· ${escH(x.peak_agg_cell.category)} @ c${x.peak_agg_cell.conc}</span>` : ""}</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
-        <div class="spdchip${x === cSingle ? " win" : ""}"><span class="catk">single-stream tok/s</span><span class="catv">${fmtTps(x.peak_single_tps)}</span></div>
-        <div class="spdchip${x === cLat ? " win" : ""}"><span class="catk">latency ttft · tpot</span><span class="catv">${fmtDur(lat.ttft_ms)}<span class="catx"> · ${fmtDur(lat.tpot_ms)}</span></span></div>
-        <div class="spdchip qchip${x === cQual ? " win" : ""}"><span class="catk">quality</span><span class="catv">${x.quality != null ? x.quality.toFixed(1) : "—"}</span></div>
-      </div>
-      <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] + " · recipe ▸" : "recipe ▸ click"}</span></div>
-    </div>`;
-  }).join("") + `</div>`;
-  $$("#perfBody .hwf").forEach((b) => b.onclick = () => { PERF_HW = b.dataset.hw || null; renderPerf(); });
-  $$("#perfBody .pcard").forEach((el) => {
+  const groups = _perfGroups();
+  const have = new Set(groups.map((g) => g.bucket));
+  if (PERF_HW && !have.has(PERF_HW)) PERF_HW = null;
+  const chip = (bucket, label) => `<button class="chip hwf${PERF_HW === bucket ? " on" : ""}" data-hw="${escA(bucket)}">${escH(label || bucket)}</button>`;
+  // the four Spark presets are ALWAYS on the bar — an empty one is a visible invitation
+  const sparkChips = PERF_SPARKS.map((b) => have.has(b) ? chip(b)
+    : `<button class="chip hwf off" disabled aria-disabled="true" title="no submissions yet">${escH(b)}</button>`).join("");
+  const autoChips = groups.filter((g) => !PERF_SPARKS.includes(g.bucket))
+    .map((g) => chip(g.bucket, g.label)).join("");
+  $("#perfBody").innerHTML = `<div class="perf-filter" role="group" aria-label="hardware filter">
+      <span class="perf-filter-lbl">hardware</span>
+      <button class="chip hwf${!PERF_HW ? " on" : ""}" data-hw="">all</button>
+      ${sparkChips}${autoChips}
+      <input id="perfHwSearch" class="perf-hw-search" type="search" placeholder="search hardware…"
+             value="${escA(PERF_HWQ)}" aria-label="search hardware buckets and labels" spellcheck="false">
+    </div><div id="perfSections"></div>`;
+  $$("#perfBody .hwf[data-hw]").forEach((b) => b.onclick = () => { PERF_HW = b.dataset.hw || null; renderPerfList(); });
+  const inp = $("#perfHwSearch");   // sections re-render on input; the field itself never does (focus survives)
+  inp.oninput = () => { PERF_HWQ = inp.value; renderPerfSections(); };
+  renderPerfSections();
+}
+
+function renderPerfSections() {
+  const q = PERF_HWQ.trim().toLowerCase();
+  const secs = [];
+  _perfGroups().forEach((g) => {
+    if (PERF_HW && g.bucket !== PERF_HW) return;
+    let rows = PERF.models.filter((x) => _hwBucketOf(x) === g.bucket);
+    if (q && !g.bucket.toLowerCase().includes(q)) rows = rows.filter((x) => _hwHay(x).includes(q));
+    if (rows.length) secs.push(_perfSection(g, rows));
+  });
+  // chips mirror the live search: a bucket with no match dims (stays clickable to clear into)
+  $$("#perfBody .hwf[data-hw]").forEach((b) => {
+    const bk = b.dataset.hw;
+    if (!bk) return;
+    const hit = !q || bk.toLowerCase().includes(q) ||
+      PERF.models.some((x) => _hwBucketOf(x) === bk && _hwHay(x).includes(q));
+    b.classList.toggle("dim", !hit);
+  });
+  $("#perfSections").innerHTML = secs.join("") ||
+    `<p class="note" style="text-align:left">no hardware matches${q ? ` “${escH(PERF_HWQ.trim())}”` : " this filter"} — clear the search to see every rig</p>`;
+  $$("#perfSections .pcard").forEach((el) => {
     const open = () => { PERF_SEL.model = el.dataset.pm; renderPerf(); };
     el.onclick = (ev) => { if (ev.target.closest(".model-creator")) return; open(); };   // avatar = creator link
     el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
   });
-  [...new Set(ms.map((x) => x.model))].forEach((model) => {   // hydrate avatars (same mechanism as the board)
+  [...new Set(PERF.models.map((x) => x.model))].forEach((model) => {   // hydrate avatars (same mechanism as the board)
     const cached = META.get(model);
     if (cached && cached !== "pending") applyMeta(model, cached); else fetchMeta(model);
   });
+}
+
+// one hardware cluster: engraved centered header ("SINGLE DGX SPARK — 7 models · best 517
+// tok/s") + its cards. Champion crowns are scoped to THIS bucket, so every rig names its
+// own optimal throughput / single-stream / latency / quality recipes.
+function _perfSection(g, rows) {
+  rows = [...rows].sort((a, b) => (b.peak_agg_tps || 0) - (a.peak_agg_tps || 0));
+  const champ = (val, lower) => {
+    let best = null, bv = null;
+    rows.forEach((x) => { const v = val(x); if (v == null) return; if (bv == null || (lower ? v < bv : v > bv)) { bv = v; best = x; } });
+    return best;
+  };
+  const c = { agg: champ((x) => x.peak_agg_tps), single: champ((x) => x.peak_single_tps),
+              lat: champ((x) => (x.latency || {}).ttft_ms, true), qual: champ((x) => x.quality) };
+  const best = rows.find((x) => x.peak_agg_tps != null);
+  const meta = `${rows.length} model${rows.length === 1 ? "" : "s"}` +
+    (best ? ` · best <b>${fmtTps(best.peak_agg_tps)}</b> tok/s` : "");
+  return `<section class="perf-sec">
+    <h3 class="perf-sec-h"><span class="perf-sec-t">${escH(g.bucket)}</span><span class="perf-sec-m">${meta}</span></h3>
+    <div class="perf-list">${rows.map((x, i) => _pcardRow(x, i, c)).join("")}</div></section>`;
+}
+
+function _pcardRow(x, i, c) {
+  const lat = x.latency || {}, concs = (x.conc_levels || []).filter((cc) => x.direct[cc]);
+  const crowns = [
+    x === c.agg ? `<span class="pcrown c-agg" title="fastest aggregate throughput on this hardware">⚡ throughput</span>` : "",
+    x === c.single ? `<span class="pcrown c-single" title="fastest single stream on this hardware">▸ single-stream</span>` : "",
+    x === c.lat ? `<span class="pcrown c-lat" title="lowest latency (TTFT) on this hardware">◔ latency</span>` : "",
+    x === c.qual ? `<span class="pcrown c-qual" title="highest quality score on this hardware">◆ quality</span>` : "",
+  ].filter(Boolean).join("");
+  // data-pm = the RUN id: rows key per (model × hardware bucket), so the model name alone
+  // no longer identifies a row
+  return `<div class="pcard perf4 chamfer-card${i === 0 ? " top" : ""}${i < 3 ? " p" + (i + 1) : ""}" data-pm="${escA(x.run)}" tabindex="0" role="button" aria-label="open performance detail — ${escA(x.model)} on ${escA(x.hardware || "unlabeled hardware")}">
+    <span class="pcard-rank">${String(i + 1).padStart(2, "0")}</span>
+    <a class="model-creator pcard-ava" data-meta="${escA(x.model)}" target="_blank" rel="noopener noreferrer" title="creator profile">
+      <img class="model-avatar" data-meta-avatar="${escA(x.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="40" height="40"></a>
+    <div class="pcard-id"><span class="pcard-name">${fmtModel(x.model)} ${_perfTrust(x.trust_tier)}
+        <span class="pcard-hw" title="hardware detected on the bench machine">${escH(x.hardware || "unlabeled hardware")}</span></span>
+      ${crowns ? `<span class="pcrowns">${crowns}</span>` : ""}</div>
+    <div class="pcard-stats perf4-stats">
+      <div class="spdchip pcard-hero${x === c.agg ? " win" : ""}" title="best real concurrent cohort in the ladder — one category at one concurrency, all streams live"><span class="catk">peak agg tok/s${x.peak_agg_cell ? ` <span class="catx">· ${escH(x.peak_agg_cell.category)} @ c${x.peak_agg_cell.conc}</span>` : ""}</span><span class="catv">${fmtTps(x.peak_agg_tps)}</span></div>
+      <div class="spdchip${x === c.single ? " win" : ""}"><span class="catk">single-stream tok/s</span><span class="catv">${fmtTps(x.peak_single_tps)}</span></div>
+      <div class="spdchip${x === c.lat ? " win" : ""}"><span class="catk">latency ttft · tpot</span><span class="catv">${fmtDur(lat.ttft_ms)}<span class="catx"> · ${fmtDur(lat.tpot_ms)}</span></span></div>
+      <div class="spdchip qchip${x === c.qual ? " win" : ""}"><span class="catk">quality</span><span class="catv">${x.quality != null ? x.quality.toFixed(1) : "—"}</span></div>
+    </div>
+    <div class="pcard-spark">${_perfSpark(x)}<span class="catk">${concs.length ? "agg tok/s · c" + concs[0] + "→c" + concs[concs.length - 1] + " · recipe ▸" : "recipe ▸ click"}</span></div>
+  </div>`;
 }
 
 // The exact attested serve recipe behind a model's perf numbers — same grammar as the run-detail
@@ -1728,7 +2963,16 @@ function _perfRecipe(m) {
   const cmd = rp.docker_run_assembled || rp.bare_cmd;   // bare-metal (MLX) reports the same way
   if (!cmd) return "";
   const d = rp.drafter;
-  const draft = d ? `<br>DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — pulled + mounted at /drafter in the command)</span>` : "";
+  const draft = d ? (() => {
+    const method = String(d.method || "dflash").toLowerCase();
+    const head = method === "dflash"
+      ? `DFlash spec-decode: <b>${escH(d.repo || "z-lab drafter")}</b>${d.revision ? ` <span class="mono">@${escH(String(d.revision).slice(0, 12))}</span>` : ""}`
+      : method.includes("mtp")
+        ? `Native MTP spec-decode: <b>${escH(d.method || "mtp")}</b>`
+        : `Spec-decode: <b>${escH(d.method || method)}</b>`;
+    const note = d.uses_drafter ? "pulled + mounted at /drafter in the command" : "no drafter mount";
+    return `<br>${head}${d.n ? ` · <span class="mono">n=${d.n}</span>` : ""} <span class="micro">(lossless — ${note})</span>`;
+  })() : "";
   return `<div class="sub-repro perf-repro">
     <div class="repro-h"><span class="repro-t">⚙ the recipe behind these numbers</span>
       <span style="display:flex;gap:6px;align-items:center">
@@ -1741,6 +2985,75 @@ function _perfRecipe(m) {
 }
 
 // (b) drill-down: back → model header → metric lens → curves + heatmap + harness table
+// SUSTAINED LOAD — degradation across the whole run, not a rung of the ladder.
+function _perfSustained(m) {
+  const su = m.sustained;
+  if (!su || su.tps_at_low_kv == null || su.tps_at_high_kv == null) return "";
+  const deg = su.degradation_pct;
+  // NEGATIVE degradation means it got FASTER under pressure — real (bigger batches amortise
+  // better), so it is reported as a gain rather than hidden or clamped to zero.
+  const band = deg == null ? "na" : deg >= 20 ? "fail" : deg >= 8 ? "part" : "pass";
+  const verdict = deg == null ? "not comparable"
+    : deg < -1 ? `${Math.abs(deg).toFixed(1)}% FASTER under pressure`
+    : deg <= 1 ? "held steady under pressure"
+    : `${deg.toFixed(1)}% slower under pressure`;
+  const pct = (v) => v == null ? "—" : Math.round(v * 100) + "%";
+  const pre = Number(su.preemptions || 0);
+  return `<div class="perf-card sus-card">
+    <h3 class="perf-h3">sustained load
+      <span class="micro">the ladder above measures a FRESH engine; this is the same engine across the whole
+      bench as KV cache fills — the number an operator actually lives with</span></h3>
+    <div class="sus-row">
+      <div class="sus-verdict ${band}">
+        <div class="sus-big">${escH(verdict)}</div>
+        <div class="sus-sub">${_pfv(su.tps_at_low_kv)} → ${_pfv(su.tps_at_high_kv)} tok/s aggregate</div>
+      </div>
+      <div class="sus-cells">
+        <div class="sus-cell"><b>${pct(su.kv_lo_cut)}</b><span>KV low third</span></div>
+        <div class="sus-cell"><b>${pct(su.kv_hi_cut)}</b><span>KV high third</span></div>
+        <div class="sus-cell${pre > 0 ? " warn" : ""}" title="vLLM evicts and RECOMPUTES a sequence when KV fills — the mechanism behind a slowdown that never errors">
+          <b>${pre.toLocaleString()}</b><span>preemptions</span></div>
+        <div class="sus-cell"><b>${Math.round((su.window_s || 0) / 60)}m</b><span>under load</span></div>
+        ${su.prefix_cache_hit_pct != null
+          ? `<div class="sus-cell"><b>${su.prefix_cache_hit_pct}%</b><span>prefix hits</span></div>` : ""}
+      </div>
+    </div>
+    ${_susSpark(m.sustained_series)}
+    <p class="micro sus-note">${su.n_busy} busy samples over ${Math.round((su.window_s || 0) / 60)} minutes ·
+      KV ${pct(su.kv_pct_min)}–${pct(su.kv_pct_max)} · peak ${su.peak_running} concurrent${
+      su.peak_waiting ? ", " + su.peak_waiting + " queued" : ""}</p>
+  </div>`;
+}
+
+// Throughput over time with KV utilisation behind it. Plain SVG — same as the rest of the board,
+// no chart library, so it renders inside a sandboxed page with no network.
+function _susSpark(series) {
+  const pts = (series || []).filter((p) => p && p.gen_tok_rate != null && p.kv_pct != null);
+  if (pts.length < 4) return "";
+  const W = 720, H = 120, PAD = 4;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t || (t0 + 1);
+  const span = Math.max(1e-6, t1 - t0);
+  const maxT = Math.max(...pts.map((p) => p.gen_tok_rate)) || 1;
+  const x = (p) => PAD + ((p.t - t0) / span) * (W - 2 * PAD);
+  const yT = (p) => H - PAD - (p.gen_tok_rate / maxT) * (H - 2 * PAD);
+  const yK = (p) => H - PAD - Math.min(1, p.kv_pct) * (H - 2 * PAD);
+  const line = (f) => pts.map((p, i) => (i ? "L" : "M") + x(p).toFixed(1) + " " + f(p).toFixed(1)).join(" ");
+  const kvArea = `M${PAD} ${H - PAD} ` + pts.map((p) => "L" + x(p).toFixed(1) + " " + yK(p).toFixed(1)).join(" ")
+    + ` L${(W - PAD).toFixed(1)} ${H - PAD} Z`;
+  // preemption events marked where they happened — the moment throughput had a reason to drop
+  const marks = pts.filter((p) => (p.preempt_d || 0) > 0).map((p) =>
+    `<line x1="${x(p).toFixed(1)}" y1="${PAD}" x2="${x(p).toFixed(1)}" y2="${H - PAD}" class="sus-pre"/>`).join("");
+  return `<svg class="sus-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="throughput and KV utilisation over the run">
+    <path d="${kvArea}" class="sus-kv"/>${marks}
+    <path d="${line(yT)}" class="sus-tps"/>
+  </svg>
+  <div class="sus-legend"><span class="k-tps">▬ aggregate tok/s</span>
+    <span class="k-kv">▬ KV utilisation</span>
+    ${marks ? `<span class="k-pre">▮ preemption</span>` : ""}
+    <span class="k-max">peak ${_pfv(maxT)} tok/s</span></div>`;
+}
+
 function renderPerfDetail(m) {
   const met = PERF_METRICS.find((x) => x[0] === PERF_SEL.metric) || PERF_METRICS[0];
   const [key, label, better] = met;
@@ -1753,7 +3066,7 @@ function renderPerfDetail(m) {
          <img class="model-avatar" data-meta-avatar="${escA(m.model)}" src="/static/generic-avatar.svg" alt="" loading="lazy" width="34" height="34"></a>
        <span class="perf-head-name">${fmtModel(m.model)}</span>
        ${_perfTrust(m.trust_tier)}
-       ${m.hardware ? `<span class="catk" title="hardware detected on the bench machine">${escH(m.hardware)}</span>` : ""}
+       <span class="pcard-hw" title="hardware detected on the bench machine">${escH(m.hardware || "unlabeled hardware")}</span>
        <span class="perf-head-run mono" title="perf run id">run ${escH(m.run)}</span>
        <button class="share-btn" id="perfShare" data-share="${escA(m.canonical || m.model)}" title="copy this benchmark's share link — a social card renders wherever it's posted">⤴ share</button>
      </div>
@@ -1767,13 +3080,14 @@ function renderPerfDetail(m) {
        <div class="perf-card"><h3 class="perf-h3">category × concurrency <span class="micro">brighter = better</span></h3>${_perfHeat(m, key, better)}</div>
      </div>
      ${_perfHarness(m)}
+     ${_perfSustained(m)}
      <p class="note" style="text-align:left">ladder ${m.conc_levels.map((c) => "c" + c).join(" · ")} · benched ${fmtDate(m.started_at)}</p>`;
   $("#perfBack").onclick = () => { PERF_SEL.model = null; renderPerf(); };
   { const sb = $("#perfShare"); if (sb) sb.onclick = () => shareBench(sb.dataset.share, sb); }
   $$("#perfBody .chip[data-pk]").forEach((b) => b.onclick = () => { PERF_SEL.metric = b.dataset.pk; renderPerf(); });
   const prc = $("#perfReproCopy");
   if (prc) prc.onclick = async () => {
-    try { await navigator.clipboard.writeText((m.reproduction || {}).docker_run_assembled || ""); } catch (e) { return; }
+    if (!(await copyText((m.reproduction || {}).docker_run_assembled || ""))) return;
     prc.textContent = "✓ copied"; prc.classList.add("copied");
     setTimeout(() => { prc.textContent = "copy command"; prc.classList.remove("copied"); }, 1400);
   };
@@ -1785,10 +3099,11 @@ function renderPerfDetail(m) {
 async function setHarness() {
   active = "harness";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.harness));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const hp = $("#harnessPanel"); if (hp) hp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("harnesses");
   $("#harnessMatrix").innerHTML = skel(5, 20);
   try { HARNESS = await api("/api/harness_board"); } catch (e) { HARNESS = null; }
   renderHarnessMatrix();
@@ -1899,7 +3214,7 @@ function renderHarnessCompare(p, hs, details) {
   const rows = ids.map((id) => {
     const first = hs.map((h) => byH[h].get(id)).find(Boolean) || {};
     return `<div class="h3c-case">
-      <div class="sub-case-h"><span class="mono">${escH(id)}</span> <span class="tag">${escH(first.category || "")}</span>${first.difficulty ? ` <span class="diff-chip d-${escA(first.difficulty)}">${escH(first.difficulty)}</span>` : ""}</div>
+      <div class="sub-case-h"><span class="mono">${escH(id)}</span> <span class="tag">${escH(first.category || "")}</span>${first.difficulty ? ` <span class="diff-chip d-${escA(first.difficulty)}">${escH(diffLabel(first.difficulty))}</span>` : ""}</div>
       <div class="sub-q"><b>asked:</b> ${escH(first.prompt || "")}</div>
       <div class="h3c-grid" style="--n:${hs.length}">${hs.map((h) => cell(byH[h].get(id))).join("")}</div>
     </div>`;
@@ -1924,7 +3239,7 @@ async function openHarnessCell(model, harness) {
   // switch to the submissions panel (reusing its detail pane) and open the newest run
   active = "subs";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.subs));
-  ["#boardPanel", "#audioPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
+  ["#boardPanel", "#detailPanel", "#arenaPanel", "#adminPanel", "#runPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   $("#subsPanel").hidden = false; { const _r = $("#run"); if (_r) _r.style.display = "none"; }
   SUBS.model = runs[0].model || model; loadSubs();
@@ -1936,16 +3251,24 @@ let CMP = { seeds: [], data: null };
 async function setCompare() {
   active = "compare";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.compare));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const cp = $("#comparePanel"); if (cp) cp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
-  // RUN pickers: any two submissions compare head-to-head (recipe A/Bs included)
+  // capture a still-set compare deep link BEFORE canonicalising the hash to plain #/compare;
+  // a pending deep state keeps its own hash (loadCardCompare/loadRunCompare write the final one)
+  const hashCards = parseCompareHash();
+  if (!CC.pending && !CMP.pendingRuns && !hashCards) syncHash("compare");
+  // PRIMARY: whole-benchmark cards; secondary: run pickers (any two submissions) + seed A/Bs
+  await populateCardPickers();
   await populateRunPickers();
   try { CMP.seeds = (await api("/api/compare/seeds")).seeds || []; } catch (e) { CMP.seeds = []; }
   const sel = $("#cmpSeed");
-  const pick = document.querySelector(".cmp-pick:not(.cmp-runs-pick)");
+  const pick = document.querySelector(".cmp-seed-pick");
   const pending = CMP.pendingRuns; CMP.pendingRuns = null;
+  // deep link (or a still-set compare hash) restores the card compare — but an explicit
+  // "compare selected runs" request wins over a leftover hash (loadRunCompare then resets it)
+  const pendingCards = CC.pending || (pending ? null : hashCards); CC.pending = null;
   if (!CMP.seeds.length) {
     if (pick) pick.hidden = true;                 // never show a dead, empty control
     if (sel) sel.innerHTML = "";
@@ -1955,12 +3278,21 @@ async function setCompare() {
     sel.innerHTML = CMP.seeds.map((s) =>
       `<option value="${escA(s.seed)}">${escH(s.seed)} — ${s.n_models} model${s.n_models === 1 ? "" : "s"}${s.suite_consistent ? "" : " ⚠ mixed suite"}</option>`).join("");
   }
-  if (pending) {                                   // arrived via "compare selected" checkboxes
+  if (pendingCards) {                              // arrived via the #compare= deep link
+    const [a, b] = pendingCards;
+    const sa = $("#cmpCardA"), sb = $("#cmpCardB");
+    if (sa) sa.value = a;
+    if (sb) sb.value = b;
+    loadCardCompare(a, b, false);
+  } else if (pending) {                            // arrived via "compare selected" checkboxes
+    const det = $("#cmpSecondary"); if (det) det.open = true;
     const [a, b] = pending;
     const sa = $("#cmpRunA"), sb = $("#cmpRunB");
     if (sa) sa.value = a;
     if (sb) sb.value = b;
     loadRunCompare(a, b);
+  } else if ((CC.cards || []).length >= 2) {
+    $("#cmpBody").innerHTML = `<p class="board-empty">Pick <b>two benchmarks</b> above and hit <b>⇆ compare benchmarks</b> — every board (text · harnesses · vision · audio · video · perf · arena · recipe) renders side by side, with parity plates where one side has no results. Single-run and seed tools live in the fold above.</p>`;
   } else if (CMP.seeds.length) {
     loadCompare(CMP.seeds[0].seed);
   } else {
@@ -1995,6 +3327,7 @@ function openCompareRuns(a, b) {
 async function loadRunCompare(a, b) {
   if (!a || !b) return;
   if (a === b) { $("#cmpBody").innerHTML = `<p class="board-empty">Pick two different runs.</p>`; return; }
+  syncHash("compare");                              // cmpBody no longer shows the deep-linked card compare
   $("#cmpBody").innerHTML = skel(10);
   let d;
   try { d = await api(`/api/compare_runs?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
@@ -2004,6 +3337,8 @@ async function loadRunCompare(a, b) {
   renderRunCompare();
 }
 
+// A/B head plates: a FIXED grid row template (model / composite / trust / recipe chips / meta)
+// so both plates keep every metric at the same y — symmetry is structural, not content-driven.
 function _cmpHead(side, s, otherComp) {
   const r = s.run || {}, rp = s.reproduction || {};
   const comp = s.composite;
@@ -2011,13 +3346,76 @@ function _cmpHead(side, s, otherComp) {
   const cats = Object.entries(s.categories || {}).map(([c, v]) =>
     `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
   const spec = rp.spec_decode ? ` · spec ${escH(rp.spec_decode)}` : "";
-  return `<div class="cmp2-head${win ? " win" : ""}">
+  const trust = r.trust_tier
+    ? `<span class="cmp2-trust-chip t-${escA(r.trust_tier)}">${r.trust_tier === "attested" ? "✓ " : ""}${escH(r.trust_tier)}</span>`
+    : `<span class="cmp2-trust-chip">local-only</span>`;
+  return `<div class="cmp2-head side-${side === "A" ? "a" : "b"}${win ? " win" : ""}">
     <div class="cmp2-side">${side}</div>
     <div class="cmp2-model">${fmtModel(r.model || "?")}</div>
     <div class="cmp2-comp ${comp == null ? "" : comp >= 80 ? "pass" : comp >= 40 ? "part" : "fail"}">${comp != null ? comp.toFixed(1) : "—"}</div>
+    <div class="cmp2-trust">${trust}</div>
     <div class="cmp2-cats">${cats}</div>
-    <div class="note" style="text-align:left">run <span class="mono">${escH(r.id || "")}</span> · ${r.started_at ? fmtDT(r.started_at) : "—"}<br>
+    <div class="cmp2-meta note">run <span class="mono">${escH(r.id || "")}</span> · ${r.started_at ? fmtDT(r.started_at) : "—"}<br>
       engine <b>${escH(rp.engine || "—")}</b>${spec}${rp.hardware_detected ? ` · ${escH(rp.hardware_detected)}` : ""}</div>
+  </div>`;
+}
+
+// The difference-forward view: a mirrored per-category bar pair ("butterfly"). A grows LEFT
+// from the shared center axis (cyan), B grows RIGHT (magenta), same 0-100 scale, the delta
+// printed in the middle in the winner's hue. Pure div bars — no chart lib.
+function _cmpButterfly(d) {
+  const A = (d.a && d.a.categories) || {}, B = (d.b && d.b.categories) || {};
+  const cats = [...new Set([...Object.keys(A), ...Object.keys(B)])].sort();
+  if (!cats.length) return "";
+  const rows = cats.map((c) => {
+    const av = A[c], bv = B[c];
+    const dl = av != null && bv != null ? av - bv : null;
+    const dTxt = dl == null ? "—"
+      : Math.abs(dl) < 0.05 ? "="
+      : dl > 0 ? `◄ +${Math.abs(dl).toFixed(1)}` : `+${Math.abs(dl).toFixed(1)} ►`;
+    const dCls = dl == null || Math.abs(dl) < 0.05 ? " even" : dl > 0 ? " a" : " b";
+    return `<div class="fly-row">
+      <div class="fly-cell fly-a" title="A · ${escA(c)}: ${av == null ? "—" : av.toFixed(1)}">
+        <span class="fly-val">${av == null ? "—" : av.toFixed(1)}</span><i style="width:${av == null ? 0 : Math.min(100, av)}%"></i></div>
+      <div class="fly-mid"><span class="fly-cat">${escH(c)}</span><span class="fly-delta${dCls}">${dTxt}</span></div>
+      <div class="fly-cell fly-b" title="B · ${escA(c)}: ${bv == null ? "—" : bv.toFixed(1)}">
+        <i style="width:${bv == null ? 0 : Math.min(100, bv)}%"></i><span class="fly-val">${bv == null ? "—" : bv.toFixed(1)}</span></div>
+    </div>`;
+  }).join("");
+  return `<div class="cmp2-fly">
+    <div class="fly-h"><span class="fly-side a">◄ A</span><span class="fly-t">category delta — shared axis, same scale</span><span class="fly-side b">B ►</span></div>
+    ${rows}</div>`;
+}
+
+// ONE per-case compare grammar for run-vs-run AND the job-level sections: A cell | delta
+// spine | B cell. Sides may be null (case not in that run — suite drift): the missing cell
+// says so and the spine stays neutral instead of faking a win.
+function _cmpCaseCell(s, side) {
+  if (!s) return `<div class="cmp2-cell cc-nocase solo-${side}"><span class="note">not in this run</span></div>`;
+  const sc = s.score == null ? "—" : (s.score * 100).toFixed(0);
+  const cls = s.score == null ? "" : s.score >= 0.8 ? "pass" : s.score >= 0.4 ? "part" : "fail";
+  const tps = s.speed && s.speed.decode_tps ? `<span class="micro"> · ${Math.round(s.speed.decode_tps)} tok/s</span>` : "";
+  return `<div class="cmp2-cell"><div class="cmp2-score"><span class="sub-score ${cls}">${sc}</span>${tps}</div>
+    <pre>${escH((s.answer || "").slice(0, 4000))}</pre></div>`;
+}
+function _cmpCaseRow(c) {
+  const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(diffLabel(c.difficulty))}</span>` : "";
+  // per-case delta SPINE: the score gap as a centered badge between the two cells,
+  // pointing at (and tinted in) the winner's hue — not just an edge marker.
+  let spine;
+  if (!c.a || !c.b) spine = `<span class="cmp2-delta even" title="not shared — case ran on one side only">·</span>`;
+  else {
+    const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
+    const dv = Math.round(Math.abs(delta) * 100);
+    spine = delta > 0 ? `<span class="cmp2-delta a" title="A leads by ${dv}">◄ +${dv}</span>`
+      : delta < 0 ? `<span class="cmp2-delta b" title="B leads by ${dv}">+${dv} ►</span>`
+      : `<span class="cmp2-delta even" title="even">=</span>`;
+  }
+  const tier = c.tier != null ? ` · T${escH(c.tier)}` : "";
+  return `<div class="cmp2-case">
+    <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category || "?")}${tier}</span>${df}</div>
+    ${c.prompt != null ? `<div class="sub-q"><b>asked:</b> ${escH((c.prompt || "").slice(0, 700))}</div>` : ""}
+    <div class="cmp2-grid">${_cmpCaseCell(c.a, "a")}<div class="cmp2-spine">${spine}</div>${_cmpCaseCell(c.b, "b")}</div>
   </div>`;
 }
 
@@ -2025,7 +3423,7 @@ function renderRunCompare() {
   const d = CMP.runData; if (!d) return;
   const f = CMP.runFilters || { cat: "", diff: "", diffsOnly: false };
   const cats = [...new Set(d.cases.map((c) => c.category).filter(Boolean))];
-  const diffs = ["easy", "medium", "hard", "expert", "frontier"].filter((x) => d.cases.some((c) => c.difficulty === x));
+  const diffs = _DIFF_ORDER.filter((x) => d.cases.some((c) => c.difficulty === x));
   let rows = d.cases;
   if (f.cat) rows = rows.filter((c) => c.category === f.cat);
   if (f.diff) rows = rows.filter((c) => c.difficulty === f.diff);
@@ -2034,36 +3432,483 @@ function renderRunCompare() {
   const bWins = d.cases.filter((c) => (c.b.score ?? 0) > (c.a.score ?? 0)).length;
   const filters = `<div class="cmp2-filters">
     <label>category <select id="c2Cat"><option value="">all</option>${cats.map((c) => `<option${f.cat === c ? " selected" : ""}>${escH(c)}</option>`).join("")}</select></label>
-    <label>difficulty <select id="c2Diff"><option value="">all</option>${diffs.map((x) => `<option${f.diff === x ? " selected" : ""}>${escH(x)}</option>`).join("")}</select></label>
+    <label>difficulty <select id="c2Diff"><option value="">all</option>${diffs.map((x) => `<option value="${escA(x)}"${f.diff === x ? " selected" : ""}>${escH(diffLabel(x))}</option>`).join("")}</select></label>
     <label class="c2-only"><input type="checkbox" id="c2Only"${f.diffsOnly ? " checked" : ""}> differences only</label>
     <span class="note">A wins ${aWins} · B wins ${bWins} · ${d.cases.length - aWins - bWins} even${(d.only_a.length || d.only_b.length) ? ` · ${d.only_a.length + d.only_b.length} cases not shared (different suites)` : ""}</span>
   </div>`;
-  const cell = (s) => {
-    const sc = s.score == null ? "—" : (s.score * 100).toFixed(0);
-    const cls = s.score == null ? "" : s.score >= 0.8 ? "pass" : s.score >= 0.4 ? "part" : "fail";
-    const tps = s.speed && s.speed.decode_tps ? `<span class="micro"> · ${Math.round(s.speed.decode_tps)} tok/s</span>` : "";
-    return `<div class="cmp2-cell"><div class="cmp2-score"><span class="sub-score ${cls}">${sc}</span>${tps}</div>
-      <pre>${escH((s.answer || "").slice(0, 4000))}</pre></div>`;
-  };
-  const body = rows.map((c) => {
-    const df = c.difficulty ? `<span class="diff-chip d-${escA(c.difficulty)}">${escH(c.difficulty)}</span>` : "";
-    const delta = (c.a.score ?? 0) - (c.b.score ?? 0);
-    const edge = delta > 0 ? `<span class="cmp2-edge a">◄ A</span>` : delta < 0 ? `<span class="cmp2-edge b">B ►</span>` : "";
-    return `<div class="cmp2-case">
-      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category)} · T${c.tier}</span>${df}${edge}</div>
-      <div class="sub-q"><b>asked:</b> ${escH((c.prompt || "").slice(0, 700))}</div>
-      <div class="cmp2-grid">${cell(c.a)}${cell(c.b)}</div>
-    </div>`;
-  }).join("") || `<p class="board-empty">No cases match these filters.</p>`;
+  const body = rows.map(_cmpCaseRow).join("") || `<p class="board-empty">No cases match these filters.</p>`;
   $("#cmpBody").innerHTML =
     `<div class="cmp2-heads">${_cmpHead("A", d.a, (d.b || {}).composite)}${_cmpHead("B", d.b, (d.a || {}).composite)}</div>` +
+    _cmpButterfly(d) +
     filters + `<div class="cmp2-cases">${body}</div>`;
   const cc = $("#c2Cat"); if (cc) cc.onchange = () => { CMP.runFilters.cat = cc.value; renderRunCompare(); };
   const cd = $("#c2Diff"); if (cd) cd.onchange = () => { CMP.runFilters.diff = cd.value; renderRunCompare(); };
   const co = $("#c2Only"); if (co) co.onchange = () => { CMP.runFilters.diffsOnly = co.checked; renderRunCompare(); };
 }
 
+// ---- JOB-LEVEL COMPARE: two whole benchmark cards, EVERY section side by side --------------
+// Fixed section order; a side a card lacks renders the PARITY FILLER plate ("no <section>
+// results for this run") so the gap is explicit. Data: GET /api/compare_cards?a=&b=.
+const CC = { cards: null, data: null, a: null, b: null, sec: {}, pending: null };
+const CC_SECTIONS = [
+  ["text", "Text"], ["agentic", "Agentic harnesses"], ["vision", "Vision"], ["audio", "Audio"],
+  ["video", "Video"], ["perf", "Performance"], ["arena", "Arena assets"], ["recipe", "Recipe"],
+];
+
+// compact board fingerprint for picker option labels: T·H3·V·A·VID·P·AR
+function _cardBoardInitials(c) {
+  const b = (c && c.boards) || {}, parts = [];
+  if (b.text) parts.push("T");
+  if (b.god) parts.push("G");
+  if ((b.agentic || []).length) parts.push("H" + b.agentic.length);
+  if (b.vision) parts.push("V");
+  if (b.audio) parts.push("A");
+  if (b.video) parts.push("VID");
+  if (b.perf) parts.push("P");
+  if (b.arena) parts.push("AR");
+  return parts.join("·");
+}
+function cardOptLabel(c) {
+  const model = (c.model || "?").split("/").pop().slice(0, 30);
+  return `${model} · ${fmtDate(c.started_at)} · ${c.hardware || "unknown hw"} · [${_cardBoardInitials(c) || "—"}]`;
+}
+
+async function populateCardPickers() {
+  const sa = $("#cmpCardA"), sb = $("#cmpCardB");
+  if (!sa || !sb) return;
+  if (!CC.cards) {
+    try { CC.cards = (await api("/api/submissions/cards?limit=100")).cards || []; }
+    catch (e) { CC.cards = []; }
+  }
+  const bar = document.querySelector(".cmp-cards-bar");
+  if (bar) bar.hidden = !CC.cards.length;          // never show a dead, empty control
+  sa.innerHTML = sb.innerHTML = CC.cards.map((c) =>
+    `<option value="${escA(c.card_id)}">${escH(cardOptLabel(c))}</option>`).join("");
+  if (CC.cards.length > 1) sb.selectedIndex = 1;
+}
+
+// ============================================================================
+// HASH ROUTER — every tab has a shareable URL (static SPA: hash routes, no server changes).
+//   #/board (default) · #/performance[/<run-or-canonical>] · #/live · #/run · #/harnesses
+//   #/compare[/<cardA>,<cardB>] · #/submissions[/<run_id>] · #/arena/app|game|animation
+//   #/gallery · #/admin        LEGACY: #compare=A,B still works → redirects to #/compare/A,B.
+// History policy (judgement call, deliberate):
+//   · tab activations + compare loads → history.replaceState — tab hops and A/B picker
+//     iteration must never spam history (matches the old #compare= behavior)
+//   · detail opens (openSubmission run detail, perf model drill-down) → history.pushState,
+//     so Back closes the detail and returns to the view it was opened from
+// Loop guards: history.pushState/replaceState never fire hashchange; on top of that
+// syncHash never rewrites an identical hash, routeApply skips echoes of our own writes
+// (ROUTE.cur), and ROUTE.applying demotes pushes to replaces while a route is being
+// applied so a shared deep link never double-stacks history.
+const ROUTE = { applying: false, perfPending: null, cur: "" };
+const ARENA_KINDS = ["app", "game", "animation"];
+// route segment → the nav button's data-attribute (single source for gate + dispatch)
+const TAB_ATTR = {
+  board: "data-board", performance: "data-perf", god: "data-god", live: "data-live", run: "data-run",
+  harnesses: "data-harness", compare: "data-compare", submissions: "data-subs",
+  arena: "data-arena", gallery: "data-gallery", admin: "data-admin",
+};
+
+// build a canonical hash for a view — run ids / model names / card ids are untrusted
+// strings, so every arg is encodeURIComponent'd (parseRoute decodes symmetrically)
+function routeHash(tab, arg) {
+  if (tab === "compare" && Array.isArray(arg))
+    return "#/compare/" + encodeURIComponent(arg[0]) + "," + encodeURIComponent(arg[1]);
+  return "#/" + tab + (arg != null && arg !== "" ? "/" + encodeURIComponent(arg) : "");
+}
+
+// parse ANY hash → { tab, arg, redirect } — never throws. Unknown/malformed/gated forms
+// land on the board with redirect:true so the router rewrites the bad hash honestly.
+function parseRoute(hash) {
+  const h = String(hash || "");
+  const dec = (s) => { try { return decodeURIComponent(s); } catch (e) { return null; } };
+  const board = (redirect) => ({ tab: "board", arg: null, redirect: !!redirect });
+  if (h === "" || h === "#" || h === "#/") return board(false);           // default view
+  const legacy = /^#compare=([^,]+),(.+)$/.exec(h);                       // pre-router deep link
+  if (legacy) {
+    const a = dec(legacy[1]), b = dec(legacy[2]);
+    return a != null && b != null ? { tab: "compare", arg: [a, b], redirect: true } : board(true);
+  }
+  const m = /^#\/([^/]+)(?:\/(.*))?$/.exec(h);
+  if (!m || !TAB_ATTR[m[1]]) return board(true);
+  const tab = m[1], raw = m[2] == null || m[2] === "" ? null : m[2];
+  if (tab === "compare" && raw != null) {
+    const p = /^([^,]+),(.+)$/.exec(raw);
+    if (!p) return board(true);
+    const a = dec(p[1]), b = dec(p[2]);
+    return a != null && b != null ? { tab, arg: [a, b], redirect: false } : board(true);
+  }
+  if (tab === "arena")                                                     // kind is a closed set
+    return raw != null && ARENA_KINDS.includes(raw) ? { tab, arg: raw, redirect: false } : board(true);
+  if (raw == null) return { tab, arg: null, redirect: false };
+  if (tab !== "performance" && tab !== "submissions") return board(true);  // no other tab takes an arg
+  const arg = dec(raw);
+  return arg != null ? { tab, arg, redirect: false } : board(true);        // bad %-escape → board
+}
+
+// ROLE GATING — the router respects the exact gates applyRole() draws: Live + Run are
+// POD-only, Admin only exists for a signed-in admin. A mothership visitor hitting #/run
+// or #/live is sent to #/board (redirect:true → the URL never claims a hidden view).
+function gateRoute(p, role, adminShown) {
+  if ((p.tab === "live" || p.tab === "run") && role !== "pod")
+    return { tab: "board", arg: null, redirect: true };
+  if (p.tab === "admin" && !adminShown)
+    return { tab: "board", arg: null, redirect: true };
+  return p;
+}
+
+// central hash writer — the ONLY place navigation touches the URL. push=true is the
+// detail-open path (see policy above); everything else replaces the current entry.
+function syncHash(tab, arg, push) {
+  const h = routeHash(tab, arg);
+  ROUTE.cur = h;
+  if (location.hash === h) return;                 // loop guard: identical hash never rewrites
+  const method = push && !ROUTE.applying ? "pushState" : "replaceState";
+  try { history[method](null, "", h); } catch (e) {}
+}
+
+// hide every auxiliary panel before a tab setter reveals its own (fixes panel stacking)
+function hideAuxPanels() {
+  ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#godPanel", "#perfPanel"]
+    .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
+}
+// the single tab dispatch — nav clicks AND the hash router go through here (no duplicate logic)
+function dispatchTab(t) {
+  hideAuxPanels();
+  return t.dataset.admin ? setAdmin() : t.dataset.subs ? setSubs(null)
+    : t.dataset.harness ? setHarness()
+    : t.dataset.compare ? setCompare()
+    : t.dataset.live ? setLive()
+    : t.dataset.run ? setRun()
+    : t.dataset.gallery ? setGallery()
+    : t.dataset.god ? setGod()
+    : t.dataset.perf ? setPerf()
+    : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
+}
+
+// apply a hash: parse → gate → activate the tab through dispatchTab → open deep state
+// (#/submissions/<id> opens the run detail; #/performance/<x> arms the perf drill-down;
+// #/compare/<A>,<B> arms the card compare that setCompare() then loads).
+function routeApply(hash) {
+  if (hash === ROUTE.cur) return;                  // echo of our own write — nothing to do
+  ROUTE.cur = hash;
+  const adminTab = $("#adminTab");
+  let p = gateRoute(parseRoute(hash), CFG.role, !!(adminTab && !adminTab.hidden));
+  const sel = p.tab === "arena" ? `#tabs [data-arena="${p.arg}"]` : `#tabs [${TAB_ATTR[p.tab]}]`;
+  let t = document.querySelector(sel);
+  if (p.tab !== "board" && (!t || t.hidden)) {     // belt-and-braces: NEVER open a hidden tab
+    p = { tab: "board", arg: null, redirect: true };
+    t = document.querySelector("#tabs [data-board]");
+  }
+  ROUTE.applying = true;
+  try {
+    if (p.redirect) syncHash(p.tab, p.arg);        // rewrite gated/legacy/malformed hashes honestly
+    if (p.tab === "performance") ROUTE.perfPending = p.arg;
+    if (p.tab === "compare" && p.arg) CC.pending = p.arg;
+    if (t) dispatchTab(t); else setBoard("text");
+    if (p.tab === "submissions" && p.arg) openSubmission(p.arg);
+  } finally { ROUTE.applying = false; }
+}
+
+// compare deep-link helpers, now router-backed (kept: setCompare/loadCardCompare call them)
+function setCompareHash(a, b) { syncHash("compare", [a, b]); }
+function parseCompareHash() {
+  const p = parseRoute(location.hash);
+  return p.tab === "compare" && p.arg ? p.arg : null;
+}
+
+async function loadCardCompare(a, b, push = true) {
+  if (!a || !b) return;
+  if (a === b) { $("#cmpBody").innerHTML = `<p class="board-empty">Pick two different benchmarks.</p>`; return; }
+  $("#cmpBody").innerHTML = skel(10);
+  let d;
+  try { d = await api(`/api/compare_cards?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
+  catch (e) { $("#cmpBody").innerHTML = `<p class="err">failed to load benchmark comparison</p>`; return; }
+  CC.data = d; CC.a = a; CC.b = b; CC.sec = {};
+  if (push) setCompareHash(a, b);
+  renderCardCompare();
+}
+
+// A/B card head plates: same fixed-row symmetry as the run-compare heads
+function _ccHead(side, card, other) {
+  const c = card || {}, b = c.boards || {};
+  const _h = b.text || b.god;                       // god jobs have no text pass
+  const comp = _h && _h.composite != null ? _h.composite : null;
+  const _oh = other && other.boards ? (other.boards.text || other.boards.god) : null;
+  const oComp = _oh ? _oh.composite : null;
+  const win = comp != null && oComp != null && comp > oComp;
+  const nRuns = (c.run_ids || []).length;
+  return `<div class="cmp2-head side-${side === "A" ? "a" : "b"}${win ? " win" : ""}">
+    <div class="cmp2-side">${side}</div>
+    <div class="cmp2-model">${fmtModel(c.model || "?")}</div>
+    <div class="cmp2-comp ${comp == null ? "" : comp >= 80 ? "pass" : comp >= 40 ? "part" : "fail"}">${comp != null ? comp.toFixed(1) : "—"}</div>
+    <div class="cmp2-trust">${_trustChip(c.trust_tier, c.verified)}${c.flagged_any ? ` <span class="bc-flag" title="one or more runs in this benchmark are flagged">⚑</span>` : ""}</div>
+    <div class="cmp2-cats"><span class="bc-info">[${escH(_cardBoardInitials(c) || "—")}]</span></div>
+    <div class="cmp2-meta note">card <span class="mono">${escH(c.card_id || "")}</span> · ${c.started_at ? fmtDT(c.started_at) : "—"} · ${nRuns} run${nRuns === 1 ? "" : "s"}<br>
+      engine <b>${escH(c.engine || "—")}</b>${c.hardware ? ` · ${escH(c.hardware)}` : ""}</div>
+  </div>`;
+}
+
+// full-width section block: centered engraved header + body
+function _ccSection(key, label, body) {
+  return `<section class="cc-sec cc-sec-${key}"><h3 class="cc-sec-h">${escH(label)}</h3>${body}</section>`;
+}
+// THE parity filler — the owner's explicit ask: an absent side is a visible, labelled gap
+function _ccFiller(section) {
+  return `<div class="cc-filler">no ${escH(section)} results for this run</div>`;
+}
+const _ccBothNone = (label) => `<div class="cc-none">no ${escH(label.toLowerCase())} results on either side</div>`;
+
+// join two per-side case lists on case_id (order: A's order, then B-only appended)
+function _joinCases(aCases, bCases) {
+  const am = new Map((aCases || []).map((c) => [c.case_id, c]));
+  const bm = new Map((bCases || []).map((c) => [c.case_id, c]));
+  const ids = [...new Set([...(aCases || []).map((c) => c.case_id), ...(bCases || []).map((c) => c.case_id)])];
+  return ids.map((id) => {
+    const a = am.get(id) || null, b = bm.get(id) || null;
+    return { case_id: id, category: (a || b || {}).category, tier: (a || b || {}).tier, a, b };
+  });
+}
+
+// quality sections (text / vision / audio / video — same shape): butterfly + per-case grid
+// when both present; content | filler columns when one side is missing.
+function _ccQualSolo(S, side) {
+  const comp = S.composite != null ? `<div class="cc-qual-vs"><span class="cc-qv side-${side}">${S.composite.toFixed(1)}</span><span class="cc-qv-vs">composite</span></div>` : "";
+  const cats = Object.entries(S.categories || {}).map(([c, v]) =>
+    `<span class="subcat" title="${escA(c)}: ${v}"><i style="width:${Math.min(100, v)}%"></i><span class="subcat-k">${escH(c.slice(0, 4))}</span> ${Math.round(v)}</span>`).join("");
+  const cases = (S.cases || []).map((c) => {
+    const sc = c.score == null ? "—" : (c.score * 100).toFixed(0);
+    const cls = c.score == null ? "" : c.score >= 0.8 ? "pass" : c.score >= 0.4 ? "part" : "fail";
+    return `<div class="cmp2-case">
+      <div class="sub-case-h"><span class="mono">${escH(c.case_id)}</span> <span class="tag">${escH(c.category || "?")}${c.tier != null ? ` · T${escH(c.tier)}` : ""}</span>
+        <span class="sub-score ${cls}">${sc}</span></div>
+      <div class="cmp2-cell solo-${side}"><pre>${escH((c.answer || "").slice(0, 4000))}</pre></div>
+    </div>`;
+  }).join("");
+  return `${comp}${cats ? `<div class="subs-cats">${cats}</div>` : ""}<div class="cc-sub">suite ${escH(S.suite_id || "?")}${S.suite_hash ? ` <span class="mono">${escH(S.suite_hash)}</span>` : ""}</div>${cases}`;
+}
+function _ccQualSection(key, label, sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone(label);
+  if (!A || !B) {
+    const side = A ? "a" : "b", S = A || B;
+    const solo = _ccQualSolo(S, side);
+    const filler = _ccFiller(label.toLowerCase());
+    return `<div class="cc-cols"><div class="cc-col">${side === "a" ? solo : filler}</div><div class="cc-col">${side === "a" ? filler : solo}</div></div>`;
+  }
+  const st = CC.sec[key] = CC.sec[key] || { diffsOnly: false };
+  const aWinComp = A.composite != null && B.composite != null && A.composite > B.composite;
+  const bWinComp = A.composite != null && B.composite != null && B.composite > A.composite;
+  const head = `<div class="cc-qual-vs">
+    <span class="cc-qv side-a${aWinComp ? " win" : ""}">${A.composite != null ? A.composite.toFixed(1) : "—"}</span>
+    <span class="cc-qv-vs">composite</span>
+    <span class="cc-qv side-b${bWinComp ? " win" : ""}">${B.composite != null ? B.composite.toFixed(1) : "—"}</span>
+  </div>`;
+  const suite = A.suite_hash && B.suite_hash && A.suite_hash !== B.suite_hash
+    ? `<p class="cc-none"><span class="cmp-ab warn">⚠ different suite versions — not a clean A/B</span></p>`
+    : "";
+  const joined = _joinCases(A.cases, B.cases);
+  let rows = joined;
+  if (st.diffsOnly) rows = rows.filter((c) => ((c.a && c.a.score) ?? -1) !== ((c.b && c.b.score) ?? -1));
+  const aWins = joined.filter((c) => c.a && c.b && (c.a.score ?? 0) > (c.b.score ?? 0)).length;
+  const bWins = joined.filter((c) => c.a && c.b && (c.b.score ?? 0) > (c.a.score ?? 0)).length;
+  const controls = `<div class="cmp2-filters">
+    <label class="c2-only"><input type="checkbox" data-ccsec="${escA(key)}"${st.diffsOnly ? " checked" : ""}> differences only</label>
+    <span class="note">A wins ${aWins} · B wins ${bWins} · ${joined.length - aWins - bWins} even</span>
+  </div>`;
+  return head + suite + _cmpButterfly({ a: { categories: A.categories }, b: { categories: B.categories } })
+    + controls + (rows.map(_cmpCaseRow).join("") || `<p class="board-empty">No differences — both sides scored every case identically.</p>`);
+}
+
+// agentic: per-harness sub-rows — score A vs B, version labels, per-task ✓/✗ aligned on case ids
+function _ccTaskMark(t) {
+  if (!t) return `<span class="cc-task" title="not run">·</span>`;
+  const v = t.score;
+  const cls = v == null ? "" : v >= 0.999 ? "pass" : v <= 0.001 ? "fail" : "part";
+  const txt = v == null ? "…" : v >= 0.999 ? "✓" : v <= 0.001 ? "✗" : Math.round(v * 100);
+  return `<span class="cc-task ${cls}" title="${escA(t.case_id)}: ${v == null ? "pending" : (v * 100).toFixed(0)}">${txt}</span>`;
+}
+function _ccAgenticSolo(S, side) {
+  const hs = Object.keys((S && S.harnesses) || {}).sort();
+  if (!hs.length) return `<p class="cc-none">no harness tasks recorded</p>`;
+  return hs.map((h) => {
+    const r = S.harnesses[h];
+    const tasks = [...(r.tasks || [])].sort((x, y) => String(x.case_id).localeCompare(String(y.case_id)));
+    return `<div class="cc-h-row">
+      <div class="cc-h-head"><b class="cc-h-name">${escH(h.toUpperCase())}</b>
+        <span class="cc-h-score side-${side}">${r.score != null ? r.score.toFixed(1) : "—"}<span class="hver">${escH(fmtHver(r.version))}</span></span></div>
+      <div class="cc-tasks" style="--n:${tasks.length}">
+        <span class="cc-task-side ${side}">${side.toUpperCase()}</span>${tasks.map(_ccTaskMark).join("")}
+      </div></div>`;
+  }).join("");
+}
+function _ccAgenticSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("agentic harness");
+  if (!A || !B) {
+    const side = A ? "a" : "b", solo = _ccAgenticSolo(A || B, side), filler = _ccFiller("agentic harness");
+    return `<div class="cc-cols"><div class="cc-col">${side === "a" ? solo : filler}</div><div class="cc-col">${side === "a" ? filler : solo}</div></div>`;
+  }
+  const ah = A.harnesses || {}, bh = B.harnesses || {};
+  const hs = [...new Set([...Object.keys(ah), ...Object.keys(bh)])].sort();
+  if (!hs.length) return _ccBothNone("agentic harness");
+  return hs.map((h) => {
+    const ra = ah[h], rb = bh[h];
+    const at = new Map(((ra && ra.tasks) || []).map((t) => [t.case_id, t]));
+    const bt = new Map(((rb && rb.tasks) || []).map((t) => [t.case_id, t]));
+    const ids = [...new Set([...at.keys(), ...bt.keys()])].sort((x, y) => String(x).localeCompare(String(y)));
+    const sa = ra && ra.score != null ? ra.score : null, sb = rb && rb.score != null ? rb.score : null;
+    const aWin = sa != null && sb != null && sa > sb, bWin = sa != null && sb != null && sb > sa;
+    const score = (v, r, side, win) => r
+      ? `<span class="cc-h-score side-${side}${win ? " win" : ""}">${v != null ? v.toFixed(1) : "—"}<span class="hver">${escH(fmtHver(r.version))}</span></span>`
+      : `<span class="cc-h-score side-${side}"><span class="note">not run</span></span>`;
+    return `<div class="cc-h-row">
+      <div class="cc-h-head"><b class="cc-h-name">${escH(h.toUpperCase())}</b>
+        ${score(sa, ra, "a", aWin)}<span class="cc-h-vs">vs</span>${score(sb, rb, "b", bWin)}
+        <span class="micro">${ids.length} tasks</span></div>
+      <div class="cc-tasks" style="--n:${ids.length}">
+        <span class="cc-task-side a">A</span>${ids.map((id) => _ccTaskMark(at.get(id))).join("")}
+        <span class="cc-task-side b">B</span>${ids.map((id) => _ccTaskMark(bt.get(id))).join("")}
+      </div></div>`;
+  }).join("");
+}
+
+// perf: aligned table over the UNION of conc levels (overall scope) — a level only one side
+// swept shows "—" on the other; better cell subtly lit (lower TTFT/TPOT, higher tok/s).
+const _CC_PERF_METRICS = [
+  ["ttft_ms", "TTFT", "low"], ["tpot_ms", "TPOT", "low"],
+  ["decode_tps", "decode tok/s", "high"], ["agg_decode_tps", "agg tok/s", "high"],
+];
+function _ccPerfTableData(A, B) {
+  const concs = [...new Set([...((A && A.conc_levels) || []), ...((B && B.conc_levels) || [])])].sort((x, y) => x - y);
+  const cellOf = (S, c) => (S && S.direct && S.direct[c] && S.direct[c].overall) || null;
+  return concs.map((c) => {
+    const ca = cellOf(A, c), cb = cellOf(B, c);
+    return { conc: c, cells: _CC_PERF_METRICS.map(([k, label, dir]) => {
+      const av = ca ? ca[k] : null, bv = cb ? cb[k] : null;
+      let win = null;
+      if (av != null && bv != null && av !== bv) win = (dir === "low" ? av < bv : av > bv) ? "a" : "b";
+      return { k, av, bv, win };
+    }) };
+  });
+}
+const _ccPerfFmt = (k, v) => v == null ? "—" : /_ms$/.test(k) ? fmtDur(v) : fmtTps(v);
+function _ccPerfTable(A, B) {
+  const rows = _ccPerfTableData(A, B);
+  if (!rows.length) return "";
+  const head = `<tr><th>conc</th>${_CC_PERF_METRICS.map(([, label]) =>
+    `<th class="num cc-ma">${escH(label)} <span class="fly-side a">A</span></th><th class="num">${escH(label)} <span class="fly-side b">B</span></th>`).join("")}</tr>`;
+  const body = rows.map((r) => `<tr><td class="mono">c${r.conc}</td>` + r.cells.map((c) =>
+    `<td class="num cc-ca${c.win === "a" ? " cc-best" : ""}">${_ccPerfFmt(c.k, c.av)}</td>` +
+    `<td class="num${c.win === "b" ? " cc-best" : ""}">${_ccPerfFmt(c.k, c.bv)}</td>`).join("") + `</tr>`).join("");
+  return `<div class="cc-perf-wrap"><table class="cmp-tbl cc-perf"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+function _ccPeak(S, side, win) {
+  const pc = S && S.peak_cell;
+  const at = pc ? ` <span class="micro">${pc.conc != null ? "@ c" + escH(pc.conc) : ""}${pc.category ? " · " + escH(pc.category) : ""}</span>` : "";
+  return `<div class="cc-peak side-${side}${win ? " win" : ""}"><span class="cc-peak-lbl">peak aggregate tok/s — ${side.toUpperCase()}</span>
+    <b>${S && S.peak_agg_tps != null ? fmtTps(S.peak_agg_tps) : "—"}</b>${at}</div>`;
+}
+function _ccPerfSolo(S, side) {
+  const rows = _ccPerfTableData(side === "a" ? S : null, side === "a" ? null : S);
+  const body = rows.map((r) => {
+    const cells = r.cells.map((c) => `<td class="num">${_ccPerfFmt(c.k, side === "a" ? c.av : c.bv)}</td>`).join("");
+    return `<tr><td class="mono">c${r.conc}</td>${cells}</tr>`;
+  }).join("");
+  const head = `<tr><th>conc</th>${_CC_PERF_METRICS.map(([, label]) => `<th class="num">${escH(label)}</th>`).join("")}</tr>`;
+  return _ccPeak(S, side, false) + (rows.length
+    ? `<div class="cc-perf-wrap"><table class="cmp-tbl cc-perf"><thead>${head}</thead><tbody>${body}</tbody></table></div>` : "");
+}
+function _ccPerfSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("performance");
+  if (!A || !B) {
+    const side = A ? "a" : "b", solo = _ccPerfSolo(A || B, side), filler = _ccFiller("performance");
+    return `<div class="cc-cols"><div class="cc-col">${side === "a" ? solo : filler}</div><div class="cc-col">${side === "a" ? filler : solo}</div></div>`;
+  }
+  const pa = A.peak_agg_tps, pb = B.peak_agg_tps;
+  const peaks = `<div class="cc-peaks">${_ccPeak(A, "a", pa != null && pb != null && pa > pb)}${_ccPeak(B, "b", pa != null && pb != null && pb > pa)}</div>`;
+  return peaks + _ccPerfTable(A, B);
+}
+
+// arena: artifact chips per side (kind · prompt_id, ok/✗) — click opens the gallery preview
+function _ccArts(S, side) {
+  const arts = (S && S.artifacts) || [];
+  if (!arts.length) return `<p class="cc-none">no artifacts recorded</p>`;
+  return `<div class="cc-arts">` + arts.map((a) =>
+    `<button class="cc-art" data-aid="${escA(a.aid)}" data-side="${side}" data-title="${escA((a.kind || "?") + " · " + (a.prompt_id || "?"))}"
+      title="open this artifact in the gallery preview"><span class="${a.ok ? "ok" : "bad"}">${a.ok ? "✓" : "✗"}</span> ${escH(a.kind || "?")} · ${escH(a.prompt_id || "?")}</button>`).join("") + `</div>`;
+}
+function _ccArenaSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("arena asset");
+  const colA = A ? _ccArts(A, "a") : _ccFiller("arena assets");
+  const colB = B ? _ccArts(B, "b") : _ccFiller("arena assets");
+  return `<div class="cc-cols"><div class="cc-col">${colA}</div><div class="cc-col">${colB}</div></div>`;
+}
+
+// recipe: engine/image/digest/spec lines + serve_flags as two ALIGNED mono lists.
+// Set-diff: a flag only one side carries is lit in that side's hue; shared flags stay muted.
+function _flagAlign(aFlags, bFlags) {
+  const as = aFlags || [], bs = bFlags || [];
+  const aset = new Set(as), bset = new Set(bs);
+  const rows = as.map((f) => ({ a: f, b: bset.has(f) ? f : null }));
+  bs.forEach((f) => { if (!aset.has(f)) rows.push({ a: null, b: f }); });
+  return rows;
+}
+function _ccRecipePlate(S, side, flagRows) {
+  if (!S) return _ccFiller("recipe");
+  const line = (k, v, mono) => v ? `<div class="cc-rline"><span class="catk">${k}</span>${mono ? `<span class="mono">${escH(v)}</span>` : escH(v)}</div>` : "";
+  let spec = "";
+  if (S.spec_decode) { try { spec = typeof S.spec_decode === "string" ? S.spec_decode : JSON.stringify(S.spec_decode); } catch (e) { spec = String(S.spec_decode); } }
+  const flags = flagRows.map((r) => {
+    const f = side === "a" ? r.a : r.b;
+    if (f == null) return `<div class="cc-flag gap">·</div>`;
+    const other = side === "a" ? r.b : r.a;
+    return `<div class="cc-flag${other == null ? " diff-" + side : ""}">${escH(f)}</div>`;
+  }).join("");
+  return `<div class="cc-recipe side-${side}">
+    ${line("engine", S.engine)}${line("image", S.image, true)}${line("digest", S.image_digest, true)}${line("spec decode", spec, true)}
+    ${flagRows.length ? `<div class="cc-flags">${flags}</div>` : `<p class="cc-none">no serve flags recorded</p>`}
+  </div>`;
+}
+function _ccRecipeSection(sec) {
+  const A = sec && sec.a, B = sec && sec.b;
+  if (!A && !B) return _ccBothNone("recipe");
+  const flagRows = _flagAlign(A && A.serve_flags, B && B.serve_flags);
+  return `<div class="cc-cols"><div class="cc-col">${_ccRecipePlate(A, "a", A ? flagRows : [])}</div><div class="cc-col">${_ccRecipePlate(B, "b", B ? flagRows : [])}</div></div>`;
+}
+
+function renderCardCompare(data) {
+  const d = data || CC.data; if (!d) return;
+  const S = d.sections || {};
+  const heads = `<div class="cmp2-heads">${_ccHead("A", d.a, d.b)}${_ccHead("B", d.b, d.a)}</div>`;
+  const secs = CC_SECTIONS.map(([key, label]) => {
+    const sec = S[key];
+    let body;
+    if (key === "agentic") body = _ccAgenticSection(sec);
+    else if (key === "perf") body = _ccPerfSection(sec);
+    else if (key === "arena") body = _ccArenaSection(sec);
+    else if (key === "recipe") body = _ccRecipeSection(sec);
+    else body = _ccQualSection(key, label, sec);
+    return _ccSection(key, label, body);
+  }).join("");
+  $("#cmpBody").innerHTML = heads + secs;
+  // per-section "differences only" toggles re-render in place
+  $$("#cmpBody [data-ccsec]").forEach((cb) => cb.onchange = () => {
+    (CC.sec[cb.dataset.ccsec] = CC.sec[cb.dataset.ccsec] || {}).diffsOnly = cb.checked;
+    renderCardCompare();
+  });
+  // arena chips open the EXISTING gallery preview overlay (sandboxed iframe render path)
+  $$("#cmpBody .cc-art").forEach((btn) => btn.onclick = () => {
+    const card = btn.dataset.side === "a" ? d.a : d.b;
+    openGalPreview(btn.dataset.aid, btn.dataset.title || "artifact", (card && card.model) || "");
+  });
+}
+
 async function loadCompare(seed) {
+  syncHash("compare");                              // cmpBody no longer shows the deep-linked card compare
   $("#cmpBody").innerHTML = skel(10);
   let d; try { d = await api("/api/compare/" + encodeURIComponent(seed)); }
   catch (e) { $("#cmpBody").innerHTML = `<p class="err">failed to load</p>`; return; }
@@ -2097,14 +3942,25 @@ function renderCompare(d) {
     : v <= 0.001 ? `<td class="num cmp-q fail">✗</td>`
     : `<td class="num cmp-q part">${Math.round(v * 100)}</td>`;   // same 0-100 grammar as every score
   const cHead = `<tr><th>tier</th><th>question</th>` + ms.map((m) => `<th class="num">${escH(m.model.split("/").pop())}</th>`).join("") + `</tr>`;
-  const cRows = d.cases.map((c) =>
-    `<tr><td class="cmp-diff t-${escA(c.difficulty || "")}">${escH(c.difficulty || "")}</td>` +
+  // "differences only" (mirrors #c2Only on run-vs-run): hide questions every model scored the same
+  const only = !!CMP.seedDiffsOnly;
+  const differs = (c) => {
+    const vs = ms.map((m) => c.scores[m.model]);
+    return new Set(vs.map((v) => (v == null ? "na" : Math.round(v * 1000)))).size > 1;
+  };
+  const shown = only ? d.cases.filter(differs) : d.cases;
+  const cRows = shown.map((c) =>
+    `<tr><td class="cmp-diff t-${escA(c.difficulty || "")}">${escH(diffLabel(c.difficulty || ""))}</td>` +
     `<td class="cmp-cid mono" title="${escA(c.category + " · " + c.case_id)}">${escH(c.case_id)}</td>` +
-    ms.map((m) => mark(c.scores[m.model])).join("") + `</tr>`).join("");
+    ms.map((m) => mark(c.scores[m.model])).join("") + `</tr>`).join("")
+    || `<tr><td colspan="${ms.length + 2}" style="color:var(--muted)">No differences — every model scored these questions identically.</td></tr>`;
   const caseTbl = `<table class="cmp-tbl cmp-cases"><thead>${cHead}</thead><tbody>${cRows}</tbody></table>`;
+  const onlyCtl = `<label class="c2-only"><input type="checkbox" id="cmpSeedOnly"${only ? " checked" : ""}> differences only</label>`;
   $("#cmpBody").innerHTML =
-    `<div class="cmp-sec"><h3>By category <span class="note">— bold = leads that category</span></h3>${catTbl}</div>` +
-    `<div class="cmp-sec"><h3>By question <span class="note">— ✓ correct · ✗ wrong · all models got the SAME ${d.cases.length} questions</span></h3>${caseTbl}</div>`;
+    `<div class="cmp-sec"><h3>By category <span class="note">— ▸ leads that category</span></h3>${catTbl}</div>` +
+    `<div class="cmp-sec"><h3>By question <span class="note">— ✓ correct · ✗ wrong · all models got the SAME ${d.cases.length} questions${only ? ` · showing ${shown.length} with differences` : ""}</span> ${onlyCtl}</h3>${caseTbl}</div>`;
+  const so = $("#cmpSeedOnly");
+  if (so) so.onchange = () => { CMP.seedDiffsOnly = so.checked; renderCompare(CMP.data); };
 }
 
 // ---- Live benchmark view: watch a RUNNING controlled run (per-category progress + prompt/answer feed) ----
@@ -2112,10 +3968,11 @@ let LIVE_TIMER = null;
 async function setLive() {
   active = "live";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.live));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#runPanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#runPanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const lp = $("#livePanel"); if (lp) lp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("live");
   await pollLive();
   if (LIVE_TIMER) clearInterval(LIVE_TIMER);
   LIVE_TIMER = setInterval(() => {                     // auto-refresh while the tab is active
@@ -2126,17 +3983,20 @@ async function setLive() {
 
 let LIVE_FAILS = 0;
 async function pollLive() {
-  let d;
+  let d, lost = false;
   try { d = await api("/api/live"); LIVE_FAILS = 0; }
   catch (e) {
+    // /api/live is ONE of five sources, and the only one that used to be able to blank the others.
+    // Bailing here froze the throughput dash, the terminal wall and the bench log too — all fed by
+    // endpoints that were answering perfectly — so one hiccup in the run query made a healthy bench
+    // look dead. Carry on with no db run and say so instead.
+    d = { running: [] };
+    lost = true;
     // after 2 consecutive failures the REC light must stop lying
     if (++LIVE_FAILS >= 2) {
       const dot = $("#liveDot"); if (dot) dot.classList.remove("on");
       const lt = $("#tabs [data-live]"); if (lt) lt.classList.remove("has-live");
-      if (active === "live" && LIVE_FAILS === 2)
-        $("#liveBody").insertAdjacentHTML("afterbegin", `<p class="note err" style="text-align:left">stream lost — retrying…</p>`);
     }
-    return;
   }
   // A run spends long stretches in NON-STREAMING dimensions (arena / harness / perf) where no
   // db run is live — the active JOB's stage strip keeps Live honest through those phases.
@@ -2149,10 +4009,49 @@ async function pollLive() {
       // the pod runs ONE bench at a time — everything else waits its turn here
       queued = all.filter((x) => x.status === "queued").reverse();   // list is newest-first; queue runs oldest-first
     } catch (e) { /* jobs API optional — Live still renders db runs */ }
-    // serve-watch telemetry: only while a job runs (idle Live polls stay cheap)
-    if (job) { try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {} }
+    // The dash is an INSTRUMENT, not a decoration: read the engine whenever the engine is there.
+    //
+    // Gating this on `job` is what left a hand-launched run with no throughput panel at all. But
+    // the obvious replacement — "fetch when anything looks live" — fails the same way in a subtler
+    // spot: during an agentic phase there is no db run, and if the case has been thinking quietly
+    // for over two minutes the feed is not "live" either, so every predicate goes false AT ONCE
+    // and the dash disappears in the one stretch where throughput is the only proof the box is
+    // working. Cost of not gating: one loopback Prometheus scrape per poll, on a pod-only view.
+    try { tele = await api("/api/pod/stats", { headers: podHeaders() }); } catch (e) {}
+    // The bench's own stdout — the only source present in EVERY phase and under every launch
+    // method. Polled unconditionally (not gated on `job`), because the case it exists for is
+    // precisely when there is no job and no db run.
+    try {
+      const lt = await api("/api/pod/live_tail?since=" + (LIVE_FEED.since || 0) + "&limit=200",
+                           { headers: podHeaders() });
+      if (lt && Array.isArray(lt.lines)) {
+        LIVE_FEED.lines = LIVE_FEED.lines.concat(lt.lines).slice(-400);
+        LIVE_FEED.since = lt.latest || LIVE_FEED.since;
+        LIVE_FEED.live = !!lt.live;
+        LIVE_FEED.age = lt.age_s;
+        LIVE_FEED.fails = 0;
+      }
+    } catch (e) {
+      // `live` is only ever WRITTEN on success, so a feed that stops answering keeps flying the
+      // green ● LIVE badge over its own last frame — the pod went off the network entirely and the
+      // page still claimed the bench was talking. Two failed polls (~10s) is past any normal blip,
+      // so stop asserting liveness we can no longer observe. The lines stay: the last thing the
+      // bench said is still the most useful thing on screen.
+      if ((LIVE_FEED.fails = (LIVE_FEED.fails || 0) + 1) >= 2) LIVE_FEED.live = false;
+    }
+    // The wall: what each CONCURRENT case is saying. Same unconditional poll as the feed, and for
+    // the same reason — the moment it matters most is the one where nothing else has data.
+    try {
+      const sw = await api("/api/pod/streams?limit=24", { headers: podHeaders() });
+      if (sw && Array.isArray(sw.streams)) {
+        LIVE_STREAMS.rows = sw.streams;
+        LIVE_STREAMS.live = !!sw.live;
+        LIVE_STREAMS.age = sw.age_s;
+        LIVE_STREAMS.n = sw.n_total || sw.streams.length;
+      }
+    } catch (e) { /* older pods publish no wall — the feed still carries the run */ }
   }
-  renderLive(d, job, queued, tele);
+  renderLive(d, job, queued, tele, lost);
 }
 
 // Pending-bench queue strip: runs execute one at a time; paused host containers are
@@ -2166,11 +4065,53 @@ function queueStrip(queued) {
       <span class="lq-pos mono">#${i + 1}</span>
       <b class="lq-model">${escH((q.model || "").split("/").pop() || "?")}</b>
       ${q.preset ? `<span class="tag preset-tag">${escH(q.preset)}</span>` : ""}
-      ${q.difficulty ? `<span class="tag">${escH(q.difficulty)}</span>` : ""}
+      ${q.difficulty ? `<span class="tag">${escH(diffLabel(q.difficulty))}</span>` : ""}
       <span class="note lq-wait">waiting for turn</span>
       <button class="ghost lq-stop" data-id="${escA(q.id)}">✕ remove</button>
     </div>`).join("")}
     <p class="note lq-note">One bench at a time — each queued run starts automatically when the active one finishes. Paused host containers come back only after the whole queue drains.</p>
+  </div>`;
+}
+
+// ---- RACING DASH: live aggregate throughput in dot-matrix, straight off the engine's own
+// Prometheus counters (generation_tokens_total delta/dt = true engine-wide tok/s across every
+// concurrent stream; num_requests_running = live active streams). Renders while a job runs.
+const DOT_FONT = {   // classic 5x7 dot-matrix glyphs, 5-bit rows MSB-left
+  "0": [14, 17, 19, 21, 25, 17, 14], "1": [4, 12, 4, 4, 4, 4, 14], "2": [14, 17, 1, 2, 4, 8, 31],
+  "3": [31, 2, 4, 2, 1, 17, 14], "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14],
+  "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8], "8": [14, 17, 17, 14, 17, 17, 14],
+  "9": [14, 17, 17, 15, 1, 2, 12], " ": [0, 0, 0, 0, 0, 0, 0], "-": [0, 0, 0, 31, 0, 0, 0],
+};
+function dotMatrix(str, cls) {
+  return `<span class="dm ${cls || ""}">` + [...String(str)].map((ch) => {
+    const rows = DOT_FONT[ch] || DOT_FONT[" "];
+    return `<span class="dm-ch">` + rows.map((r) =>
+      [4, 3, 2, 1, 0].map((b) => `<i class="${(r >> b) & 1 ? "on" : ""}"></i>`).join("")
+    ).join("") + `</span>`;
+  }).join("") + `</span>`;
+}
+
+let DASH = { jobId: null, peak: 0 };   // peak-hold per job, like a tach redline memory
+function dashStrip(t, j) {
+  const e = t && t.engine;
+  if (!e || (e.gen_tps == null && e.running == null)) return "";
+  if (!j || DASH.jobId !== j.id) DASH = { jobId: j && j.id, peak: 0 };
+  const tps = e.gen_tps != null ? Math.round(e.gen_tps) : null;
+  if (tps != null && tps > DASH.peak) DASH.peak = tps;
+  const pad = (v, n) => String(v == null ? "-" : v).padStart(n, " ").slice(-n);
+  const pct = DASH.peak ? Math.min(100, 100 * (tps || 0) / DASH.peak) : 0;
+  return `<div class="dash">
+    <div class="dash-main">
+      <div><div class="dash-label">Aggregate throughput</div>${dotMatrix(pad(tps, 4), "dm-xl dm-cyan")}</div>
+      <div class="dash-unit">tok/s</div>
+      <div class="dash-cells">
+        <div class="dash-cell"><div class="dash-label">Active streams</div>${dotMatrix(pad(e.running, 2), "dm-md dm-amber")}</div>
+        <div class="dash-cell"><div class="dash-label">Queued</div>${dotMatrix(pad(e.waiting, 2), "dm-md")}</div>
+        <div class="dash-cell"><div class="dash-label">Peak</div>${dotMatrix(pad(DASH.peak || null, 4), "dm-md dm-red")}</div>
+        ${e.prompt_tps != null ? `<div class="dash-cell"><div class="dash-label">Prefill tok/s</div>${dotMatrix(pad(Math.round(e.prompt_tps), 5), "dm-md")}</div>` : ""}
+      </div>
+    </div>
+    <div class="dash-tach"><i style="width:${pct.toFixed(1)}%"></i></div>
   </div>`;
 }
 
@@ -2200,7 +4141,7 @@ function teleStrip(t, j) {
   const sv = t.serve || {};
   // red only when the engine SHOULD be up: it already spoke (serve_phase) or the bench is past it.
   // 'submitting' excluded — the final submit can outlive a torn-down engine, that's normal.
-  const expectUp = j && (["benchmarking", "vision", "audio", "arena", "harness", "perf"].includes(j.stage)
+  const expectUp = j && (["benchmarking", "vision", "audio", "video", "arena", "harness", "perf"].includes(j.stage)
     || (j.stage === "serving" && j.serve_phase));
   const cls = sv.running ? "up" : expectUp ? "down" : "idle";
   const label = sv.running
@@ -2215,25 +4156,271 @@ function teleStrip(t, j) {
 // with multiple concurrent runs and with a killed+relaunched run of the same model.
 let LIVE_SEEN_MAP = new Map();
 
-function renderLive(d, job, queued, tele) {
+// Rolling tail of the bench's stdout. `since` is the newest timestamp we hold, so each poll
+// asks only for what is new.
+const LIVE_FEED = { lines: [], since: 0, live: false, age: null };
+
+// The terminal pane. Rendered whenever the feed has anything, INCLUDING when no db run and no job
+// exist — that combination is the whole reason it was written.
+function liveTerminal() {
+  if (!LIVE_FEED.lines.length) return "";
+  const cls = (r) => {
+    const t = r.s || "";
+    if (r.k === "err" || /Traceback|Error|FAILED|refus/i.test(t)) return "lt-err";
+    if (/\[pod\]\[stage\]/.test(t)) return "lt-stage";
+    if (/scored\s+[0-9]/.test(t)) return "lt-score";
+    if (/^\s*\[pod\]/.test(t)) return "lt-pod";
+    return "";
+  };
+  const rows = LIVE_FEED.lines.slice(-200).map((r) =>
+    `<div class="lt-row ${cls(r)}"><span class="lt-t">${escH(fmtClock(r.t))}</span>`
+    + `<span class="lt-s">${escH(r.s || "")}</span></div>`).join("");
+  const state = LIVE_FEED.live
+    ? `<span class="lt-live">● LIVE</span>`
+    : `<span class="lt-idle">idle${LIVE_FEED.age != null ? " · last output "
+        + Math.round(LIVE_FEED.age) + "s ago" : ""}</span>`;
+  return `<div class="live-term">
+    <div class="lt-head">▮ bench output ${state}</div>
+    <div class="lt-body" id="ltBody">${rows}</div>
+  </div>`;
+}
+
+const LIVE_STREAMS = { rows: [], live: false, age: null, n: 0 };
+
+// THE TERMINAL WALL — one tile per in-flight case, the model's own voice as it arrives.
+//
+// Shape matters here. Sixteen concurrent streams in one scrolling log interleave into noise; as a
+// grid they read as sixteen separate things, which is what they are. Tiles are ordered live-first
+// (the buffer already sorts them that way), so finished cases sink and never push a running one
+// off the visible rows.
+// THE HARNESS WALL — three panels, one per agentic harness.
+//
+// The harnesses run SEQUENTIALLY, so two of the three are empty at any moment. That is the point:
+// which one is working, and what it is doing, is exactly what an operator cannot otherwise see.
+// The agentic dimension is 40% of GOD SCORE and the longest phase of a god run, and until the pod
+// started publishing container output it rendered as a single `harness:hermes 4/25` counter.
+//
+// Streams arrive keyed `<harness>:<task id>` — namespaced at the source because the same task id
+// runs under all three harnesses and would otherwise collide into one tile.
+const HARNESS_PANELS = [
+  { id: "hermes", name: "Hermes" },
+  { id: "openclaw", name: "OpenClaw" },
+  { id: "opencode", name: "OpenCode" },
+];
+const HARNESS_IDS = new Set(HARNESS_PANELS.map((h) => h.id));
+const swHarness = (r) => String(r.case || "").split(":")[0];
+
+function harnessWall(hRows) {
+  const byH = {};
+  hRows.forEach((r) => { (byH[swHarness(r)] = byH[swHarness(r)] || []).push(r); });
+  const liveTotal = hRows.filter((r) => !r.done).length;
+  // Tiles alone CANNOT tell "finished" from "never started". livestreams evicts a stream
+  // DONE_LINGER_S after it ends, so ~20s past its last task a completed harness has no tiles and
+  // looks identical to one that has not run — and the panel then told the operator "not started"
+  // about a harness that had just scored 25/25. The feed's own
+  // "[pod][stage] harness:<id> <done>/<total>" marker is the authority, and it never expires.
+  const prog = {};
+  _stagesFromFeed().forEach((s) => {
+    const m = /^harness:(.+)$/.exec(s.name || "");
+    if (m) prog[m[1]] = s;
+  });
+  const panels = HARNESS_PANELS.map((h) => {
+    const mine = byH[h.id] || [];
+    const live = mine.filter((r) => !r.done);
+    const st = prog[h.id];
+    const finished = !!st && st.done >= st.total;
+    const cls = finished ? "hw-done" : (st || live.length) ? "hw-active" : "hw-idle";
+    const badge = live.length
+      ? `<span class="lt-live">● ${live.length} running</span>`
+      : finished
+        ? `<span class="sw-done pass">${st.done}/${st.total} done</span>`
+        : st
+          ? `<span class="sw-done">${st.done}/${st.total}</span>`
+          : `<span class="lt-idle">waiting</span>`;
+    const body = mine.length
+      ? `<div class="sw-grid${mine.length === 1 ? " sw-solo" : ""}">${mine.map(swTile).join("")}</div>`
+      : `<div class="hw-empty">${finished ? "complete" : st ? "starting…" : "not started"}</div>`;
+    return `<div class="hw-panel ${cls}">
+      <div class="hw-head"><b>${escH(h.name)}</b> ${badge}</div>
+      ${body}
+    </div>`;
+  }).join("");
+  return `<div class="live-term harness-wall">
+    <div class="lt-head">▮ agentic harnesses ${
+      liveTotal ? `<span class="lt-live">● ${liveTotal} running</span>`
+                : `<span class="lt-idle">idle</span>`}</div>
+    <div class="hw-grid">${panels}</div>
+  </div>`;
+}
+
+function streamWall() {
+  const all = LIVE_STREAMS.rows || [];
+  if (!all.length) return "";
+  // Harness streams get the three-panel treatment; model streams keep the flat grid. A god run
+  // produces both, at different phases, and occasionally overlapping.
+  const hRows = all.filter((r) => HARNESS_IDS.has(swHarness(r)));
+  const rows = all.filter((r) => !HARNESS_IDS.has(swHarness(r)));
+  const hWall = hRows.length ? harnessWall(hRows) : "";
+  if (!rows.length) return hWall;
+  const runningN = rows.filter((r) => !r.done).length;
+  const state = LIVE_STREAMS.live
+    ? `<span class="lt-live">● ${runningN} STREAMING</span>`
+    : `<span class="lt-idle">idle${LIVE_STREAMS.age != null ? " · " + Math.round(LIVE_STREAMS.age) + "s ago" : ""}</span>`;
+  const more = LIVE_STREAMS.n > rows.length
+    ? `<span class="note sw-more">+${LIVE_STREAMS.n - rows.length} more</span>` : "";
+  // One tile is wide when it is the only one — a lone stream should read like a terminal, not
+  // like a card that lost its neighbours.
+  const solo = rows.length === 1 ? " sw-solo" : "";
+  return `<div class="live-term stream-wall">
+    <div class="lt-head">▮ live model output <span class="tag">${rows.length} stream${rows.length === 1 ? "" : "s"}</span> ${state} ${more}</div>
+    <div class="sw-grid${solo}">${rows.map(swTile).join("")}</div>
+  </div>`;
+}
+
+function swTile(r) {
+  const reason = r.reasoning || "";
+  const ans = r.answer || "";
+  // IDLE is the diagnostic. A case can legitimately think for minutes, so this is graduated, not
+  // binary: quiet at first, then amber, then loud — never a verdict, just the number.
+  const idle = r.idle_s == null ? null : Math.round(r.idle_s);
+  const idleCls = idle == null ? "" : idle > 120 ? "sw-stall" : idle > 30 ? "sw-slow" : "";
+  const st = r.done
+    ? (r.status === "scored"
+        ? `<span class="sw-done ${r.score >= 0.999 ? "pass" : r.score > 0 ? "part" : "fail"}">${
+            r.score == null ? "scored" : (100 * r.score).toFixed(0) + "%"}</span>`
+        : `<span class="sw-done fail">${escH(r.status || "done")}</span>`)
+    : `<span class="sw-run ${idleCls}">${idle == null ? "live" : idle + "s idle"}</span>`;
+  const counts = [
+    r.n_reason ? `${r.n_reason.toLocaleString()} reasoning` : "",
+    r.n_answer ? `${r.n_answer.toLocaleString()} answer` : "",
+  ].filter(Boolean).join(" · ") || "waiting for first token";
+  // Answer LAST and bright: it is the newest text and the thing being judged. Reasoning above it
+  // and dim, because it is context for why the answer looks the way it does.
+  const body = (reason ? `<span class="sw-reason">${escH(reason)}</span>` : "")
+             + (ans ? `<span class="sw-ans">${escH(ans)}</span>` : "");
+  return `<div class="sw-tile${r.done ? " sw-tile-done" : ""}">
+    <div class="sw-head"><b class="mono">${escH(r.label || r.case || "?")}</b>${st}</div>
+    <div class="sw-body" data-case="${escA(r.case || "")}">${
+      body || `<span class="sw-wait">…</span>`}</div>
+    <div class="sw-foot mono">${escH(counts)}${
+      r.elapsed_s != null ? ` · ${Math.round(r.elapsed_s)}s` : ""}</div>
+  </div>`;
+}
+
+// Each tile pins to its own newest text, and remembers per-case whether the operator scrolled up.
+// The 5s rebuild would otherwise throw away the position of whichever tile they were reading.
+const _SW_PIN = new Map();
+function _swPin() {
+  document.querySelectorAll("#liveBody .sw-body").forEach((el) => {
+    const k = el.dataset.case || "";
+    if (_SW_PIN.get(k) !== false) _pinBottom(el);
+    el.onscroll = () => {
+      if (el._progScroll) { el._progScroll = false; return; }   // ours, not the operator's
+      _SW_PIN.set(k, el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+    };
+  });
+}
+
+// Scroll to the newest text and SAY SO, because the scroll event a programmatic scroll fires is
+// byte-identical to the one a human fires. Without the flag, an autoscroll that lands short — the
+// element mid-layout, a font still loading — reads back as "the operator scrolled up", and since
+// that verdict latches, the tile never follows its own output again. Observed: one tile on the
+// wall frozen at the top while the other six tracked live.
+function _pinBottom(el) {
+  el._progScroll = true;
+  el.scrollTop = el.scrollHeight;
+}
+
+// Pin to the newest line, but never yank the view while someone is reading back through it.
+let _LT_PINNED = true;
+function _ltPin() {
+  const el = document.getElementById("ltBody");
+  if (!el) return;
+  if (_LT_PINNED) _pinBottom(el);
+  el.onscroll = () => {
+    if (el._progScroll) { el._progScroll = false; return; }
+    _LT_PINNED = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
+}
+
+// Stages parsed straight out of the live feed's "[pod][stage] <name> <done>/<total>" markers —
+// the same lines pod/jobs.py parses for a queued job. Latest value per stage wins, and insertion
+// order is preserved so the strip reads in the order the bench actually ran them.
+function _stagesFromFeed() {
+  const out = new Map();
+  (LIVE_FEED.lines || []).forEach((r) => {
+    const m = /\[pod\]\[stage\]\s+(\S+)\s+(\d+)\/(\d+)/.exec(r.s || "");
+    if (m) out.set(m[1], { name: m[1], done: +m[2], total: +m[3] });
+  });
+  return [...out.values()];
+}
+
+// The bench's identity, remembered across the phases that have no db run — see the synthetic job
+// below. Cleared when a different bench takes over, never on a phase change.
+let _LIVE_RUN_KEY = null, _LIVE_RUN_MODEL = null;
+
+function renderLive(d, job, queued, tele, lost) {
   queued = queued || [];
   const runs = (d && d.running) || [];
-  const activeJob = job && job.status === "running" ? job : null;
+  let activeJob = job && job.status === "running" ? job : null;
+  // NO JOB, but a bench is clearly running (hand-launched, or a phase that creates no DB run).
+  // Build the minimum a job provides so the SAME strips render: identity for the throughput
+  // panel's peak tracker, a model name, and the stage list from the feed's own markers.
+  if (!activeJob && (runs.length || LIVE_FEED.live)) {
+    const st = _stagesFromFeed();
+    // The id has to be STABLE for the whole bench, because the dash keys its peak-hold on it. The
+    // db run exists only during the scored dimensions, so deriving the id purely from `runs` makes
+    // it flip when the bench moves into arena / harness / perf — and the redline silently resets
+    // mid-run. Remember the last real run id and keep using it until a genuinely different bench
+    // shows up, which then correctly starts its own peak.
+    if (runs.length && runs[0].run) { _LIVE_RUN_KEY = runs[0].run; _LIVE_RUN_MODEL = runs[0].model; }
+    activeJob = {
+      id: "live:" + (_LIVE_RUN_KEY || "bench"),
+      model: (runs[0] && runs[0].model) || _LIVE_RUN_MODEL || LIVE_FEED.model || "benchmark in progress",
+      status: "running",
+      stage: st.length ? st[st.length - 1].name : "running",
+      stages: st,
+      _synthetic: true,
+    };
+  }
   const live = runs.length > 0 || !!activeJob || queued.length > 0;
   const dot = $("#liveDot"); if (dot) dot.classList.toggle("on", live);
   const lt = $("#tabs [data-live]"); if (lt) lt.classList.toggle("has-live", live);
   const phaseTag = activeJob && activeJob.serve_phase && activeJob.stage === "serving"
     ? ` <span class="tag tele-phase">engine: ${escH(activeJob.serve_phase)}</span>` : "";
-  const jobStrip = (activeJob ? `<div class="live-job">
-      <h4 class="live-feed-h">run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}
+  // The instrument block: throughput dash, stage strip, host telemetry. Split from the queue,
+  // which belongs at the BOTTOM — it is about work not yet started, and nothing about a bench in
+  // flight should be read after it.
+  //
+  // When a run card is rendered above, it already names the model in a bigger typeface; repeating
+  // it here two lines later just makes the operator read the same string twice. The stage tag is
+  // kept either way, because the run card cannot show it — a db run knows nothing about the
+  // arena / harness / perf phases that follow it.
+  const pipeStrip = (naming) => (activeJob ? `<div class="live-job">
+      <h4 class="live-feed-h">${naming
+        ? `run in progress — ${escH((activeJob.model || "").split("/").pop() || "?")}`
+        : "bench pipeline"}
         <span class="tag">${escH(JOB_STAGE[activeJob.stage] || activeJob.stage || "")}</span>${phaseTag}</h4>
-      ${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "") + queueStrip(queued);
+      ${dashStrip(tele, activeJob)}${stageStrip(activeJob)}${teleStrip(tele, activeJob)}</div>` : "");
   if (!runs.length) {
     LIVE_SEEN_MAP.clear();
-    $("#liveBody").innerHTML = (activeJob || queued.length)
-      ? jobStrip + (activeJob ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf). Case-by-case output appears here during the text and vision suites.</p>` : "")
-      : `<p class="board-empty">No benchmark is running right now. When a controlled pod is mid-run, its per-category progress and the prompts + answers stream here live.</p>`;
-    $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id).then(pollLive));
+    const term = liveTerminal();
+    // NO db run — an arena / harness / perf phase, or a bench that has not opened one yet. There
+    // are no completion stats to lead with, so the instrument block takes the top: its stage strip
+    // IS the progress in these phases. Terminals follow, then the raw log, then the queue.
+    // Scope the failure to the source that actually failed. Everything else on this page comes
+    // from other endpoints and is still current; a blanket "stream lost" over a live wall would be
+    // its own kind of lie.
+    const lostNote = lost
+      ? `<p class="note err" style="text-align:left">Run progress unavailable — retrying. Output below is still live.</p>`
+      : "";
+    $("#liveBody").innerHTML = lostNote + pipeStrip(true) + streamWall() + term
+      + (term ? "" : (activeJob
+          ? `<p class="note" style="text-align:left">This dimension doesn't stream per-case text — the strip above tracks every stage (arena · harnesses · vision · audio · perf).</p>`
+          : `<p class="board-empty">No benchmark is running right now. When a pod is mid-run, its stages, output and per-case answers stream here live.</p>`))
+      + queueStrip(queued);
+    _ltPin(); _swPin();
+    $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
     return;
   }
   const liveKeys = new Set(runs.map((r) => r.run || r.run_id || r.id || r.model || "?"));
@@ -2241,7 +4428,16 @@ function renderLive(d, job, queued, tele) {
   // the 5s innerHTML rebuild must not steal the operator's reading position
   const _feedScroll = [...document.querySelectorAll("#liveBody .live-feed")].map((e) => e.scrollTop);
   const _preScroll = [...document.querySelectorAll("#liveBody .live-a pre")].map((e) => e.scrollTop);
-  $("#liveBody").innerHTML = jobStrip + runs.map((r) => {
+  // ORDER: completion first. An operator opening this page is asking "how far along is it, and is
+  // it passing" — that has to be readable without scrolling past sixteen terminals. Then the
+  // instruments (throughput, stage, host), then the live terminals, then the raw bench log, then
+  // the queue. Read top to bottom it goes: how far · how fast · what it is saying · everything.
+  //
+  // The run card used to carry BOTH — its completion stats and its "latest answers" feed — as one
+  // block, so the stats could not be lifted without dragging a live window up with them. Split in
+  // two here: statsHtml leads the page, feedHtml joins the other live windows below.
+  const statsHtml = [], feedHtml = [];
+  runs.forEach((r) => {
     const runKey = r.run || r.run_id || r.id || r.model || "?";
     let LIVE_SEEN = LIVE_SEEN_MAP.get(runKey);
     if (!LIVE_SEEN) { LIVE_SEEN = new Set(); LIVE_SEEN_MAP.set(runKey, LIVE_SEEN); }
@@ -2267,24 +4463,33 @@ function renderLive(d, job, queued, tele) {
     const _mp = (r.model || "").split("/");
     const mName = _mp[_mp.length - 1] || "model";               // the model being tested (real repo, not the served alias)
     const mOrg = _mp.length > 1 ? _mp.slice(0, -1).join("/") + "/" : "";
-    return `<div class="live-run">
+    statsHtml.push(`<div class="live-run live-run-stats">
       <div class="live-run-h"><b>${escH(mName)}</b>
         <span class="elig-badge run" title="a benchmark is running against this model right now">● Benchmarking Live</span>
         ${mOrg ? `<span class="note mono">${escH(mOrg)}</span>` : ""}
         <span class="mono">${r.done}/${r.n_cases} · ${pct}%</span>${r.mean != null ? ` · mean <b>${r.mean.toFixed(1)}</b>` : ""}
         ${r.trust_tier === "attested" ? ' <span class="elig-badge verified">✓ attested</span>' : ""}</div>
       <div class="live-bar big"><div class="live-bar-fill" style="width:${pct}%"></div></div>
-      <div class="live-cats">${cats}</div>
-      <h4 class="live-feed-h">latest answers</h4>
-      <div class="live-feed">${feed}</div></div>`;
-  }).join("");
+      <div class="live-cats">${cats}</div></div>`);
+    feedHtml.push(`<div class="live-run live-run-feed">
+      <h4 class="live-feed-h">latest scored answers — ${escH(mName)}</h4>
+      <div class="live-feed">${feed}</div></div>`);
+  });
+  $("#liveBody").innerHTML =
+    statsHtml.join("")          // 1. how far along, and is it passing
+    + pipeStrip(false)          // 2. how fast — the racing dash, stage strip, host telemetry
+    + streamWall()              // 3. what each concurrent case is saying right now
+    + feedHtml.join("")         // 4. the answers already scored
+    + liveTerminal()            // 5. the raw bench log
+    + queueStrip(queued);       // 6. work not yet started
+  _ltPin(); _swPin();
   [...document.querySelectorAll("#liveBody .live-feed")].forEach((e, i) => { if (_feedScroll[i]) e.scrollTop = _feedScroll[i]; });
   [...document.querySelectorAll("#liveBody .live-a pre")].forEach((e, i) => { if (_preScroll[i]) e.scrollTop = _preScroll[i]; });
-  $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id).then(pollLive));
+  $$("#liveBody .lq-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b).then(pollLive));
 }
 
 // ---- POD Run tab: launch benchmarks (endpoint / verified-HF) + manage saved keys (pod-only) ----
-const RUN = { keys: [], jobsTimer: null };
+const RUN = { keys: [], frontier: [], jobsTimer: null };
 
 function podToken() { try { return localStorage.getItem("aeon_pod_token") || ""; } catch (e) { return ""; } }
 function podHeaders(extra) {                         // inject the optional lab token on every pod call
@@ -2298,15 +4503,20 @@ function runStatus(msg, cls) {
 }
 
 async function setRun() {
+  wireRunMode();
+  wireRunIntent();
   active = "run";
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", !!t.dataset.run));
-  ["#boardPanel", "#audioPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
+  ["#boardPanel", "#arenaPanel", "#subsPanel", "#adminPanel", "#detailPanel", "#harnessPanel", "#comparePanel", "#livePanel"]
     .forEach((s) => { const e = $(s); if (e) e.hidden = true; });
   const rp = $("#runPanel"); if (rp) rp.hidden = false;
   { const _r = $("#run"); if (_r) _r.style.display = "none"; }
+  syncHash("run");
   await loadSavedKeys();
+  await loadFrontierModels();
   await loadEngines();
   await loadLaunches();
+  loadChampions();      // NOT awaited: an offline mothership must never stall the Run tab
   await pollJobs();
   if (RUN.jobsTimer) clearInterval(RUN.jobsTimer);
   RUN.jobsTimer = setInterval(() => {                // refresh job progress while the tab is active
@@ -2325,7 +4535,40 @@ async function loadSavedKeys() {
       opts.map((k) => `<option value="${escA(k.name)}">${escH(k.name)} (${escH(k.masked)})</option>`).join("");
   };
   fill("#reKey", RUN.keys.filter((k) => k.kind !== "hf_token"), "— none —");
+  fill("#frKey", RUN.keys.filter((k) => k.kind !== "hf_token"), "— choose API key —");
   fill("#hfKey", RUN.keys.filter((k) => k.kind === "hf_token"), "— public —");
+}
+
+async function loadFrontierModels() {
+  try { RUN.frontier = (await api("/api/pod/frontier", { headers: podHeaders() })).models || []; }
+  catch (e) { RUN.frontier = []; }
+  const sel = $("#frModel");
+  if (!sel) return;
+  sel.innerHTML = RUN.frontier.length
+    ? RUN.frontier.map((m) =>
+        `<option value="${escA(m.id)}">${escH(m.brand || m.provider)} · ${escH(m.version || m.model)} · effort ${escH(m.effort || "default")}</option>`).join("")
+    : `<option value="">— no approved frontier definitions —</option>`;
+  renderFrontierInfo();
+}
+
+function curFrontier() {
+  const id = $("#frModel") && $("#frModel").value;
+  return (RUN.frontier || []).find((m) => m.id === id) || null;
+}
+
+function renderFrontierInfo(msg, cls) {
+  const el = $("#frInfo"); if (!el) return;
+  const m = curFrontier();
+  if (!m) { el.innerHTML = msg ? `<span class="${cls || ""}">${escH(msg)}</span>` : ""; return; }
+  const bits = [
+    `<b>${escH(m.display_name || m.brand || m.model)}</b>`,
+    `<span class="mono">${escH(m.model)}</span>`,
+    `provider ${escH(m.provider_name || m.provider)}`,
+    `effort ${escH(m.effort || "default")}`,
+  ];
+  el.innerHTML = bits.join(" · ") +
+    (msg ? ` <span class="${cls || ""}">· ${escH(msg)}</span>` : "") +
+    `<div class="note">Frontier references are validated hosted API runs for comparison against local models; they are shown on the board but are not local-weight attestations.</div>`;
 }
 
 // ---- LAUNCH TEMPLATES: prior runs as starting points — tweak one knob, relaunch ---------------
@@ -2346,7 +4589,7 @@ async function loadLaunches() {
     if (p.concurrency) bits.push("c" + p.concurrency);
     const nf = (p.serve_flags || []).filter((t) => String(t).startsWith("-")).length;
     if (nf) bits.push(nf + " tuned flags");
-    if (p.drafter_hf) bits.push("DFlash");
+    if (p.drafter_hf) bits.push(/dspark/i.test(p.drafter_hf) ? "DSpark" : "DFlash");
     return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
   }).join("");
 }
@@ -2391,6 +4634,7 @@ function applyServeFlags(list) {
   }
   if (extras.length && $("#tuneExtra"))
     $("#tuneExtra").value = extras.map((x) => (/\s/.test(x) ? `'${x}'` : x)).join(" ");
+  syncSpecUI();                            // method-aware chrome follows the applied selection
   updateTuneCount();
 }
 
@@ -2420,10 +4664,14 @@ function applyLaunchParams(p, statusMsg) {
     syncTemp(); }
   { const pa = $("#hfPauseAll"); if (pa) pa.checked = p.pause_all !== false && p.pause_all != null ? !!p.pause_all : true; }
   { const rs = $("#hfRestore"); if (rs) rs.checked = p.restore_paused !== false; }
+  set("#sparkNodes", p.spark_nodes);
+  { const ve = $("#verifyEndpoint"); if (ve) ve.checked = !!p.verify_endpoint; }
   set("#veImage", p.engine_image);
   set("#veServeUrl", p.serve_url);
   set("#drafterHf", p.drafter_hf);
   set("#tuneServeCmd", p.serve_cmd);
+  // explicit modality toggles replay once the re-validation below repopulates the chips
+  RUN.tplMods = Array.isArray(p.modalities) ? p.modalities : null;
   if (p.engine && $("#veEngine")) {
     $("#veEngine").value = p.engine;
     RUN.enginePinned = true;                          // a template IS an explicit engine choice —
@@ -2460,7 +4708,9 @@ function engineChanged() {
     (e.image ? ` · image <span class="mono">${escH(e.image)}</span>` : "") +
     ` · formats <span class="mono">${e.formats.join("/")}</span>`;
   const bare = e && e.containerized === false;         // MLX / LM Studio: operator-started serve
-  const mh = $("#mlxHelp"); if (mh) mh.hidden = !bare;
+  // the operator-serve block shows for bare-metal engines OR whenever the operator is pointing
+  // at an already-running model (endpoint intent) — same block, doubling as both
+  const mh = $("#mlxHelp"); if (mh) mh.hidden = !(bare || runIntent() === "endpoint");
   const img = $("#veImage"); if (img) img.disabled = !!bare;
   if (bare) updateMlxCmd();
   renderTune(e);
@@ -2487,6 +4737,9 @@ function _restoreTuneBody(vals) {
   });
 }
 
+// The DOM id of a flag's card (used by the failed-job "check these toggles" chips)
+function _tuneCardId(flag) { return "card_tf_" + String(flag).replace(/[^a-z0-9]/gi, "_"); }
+
 function renderTune(e) {
   const wrap = $("#tuneWrap"), body = $("#tuneBody");
   if (!wrap || !body) return;
@@ -2497,34 +4750,86 @@ function renderTune(e) {
   const sameEngine = !!e && RUN.tuneEngine === e.id;
   const keep = sameEngine ? _tuneBodyValues() : null;
   RUN.tuneEngine = e ? e.id : null;
+  RUN.tuneFlags = flags;                               // catalog defs: conflict eval + hint linking
   wrap.hidden = !flags.length;                         // bare engines (MLX/LM Studio): no knob grammar yet
   if (!flags.length) { body.innerHTML = ""; updateTuneCount(); return; }
-  body.innerHTML = flags.map((f) => {
-    const id = "tf_" + f.flag.replace(/[^a-z0-9]/gi, "_");
-    let ctl;
-    if (f.kind === "enum") {
-      ctl = `<select id="${id}" data-flag="${escA(f.flag)}" data-kind="enum">
-        <option value="">— engine default —</option>` +
-        f.options.map((o) => `<option value="${escA(o)}">${escH(o)}</option>`).join("") + `</select>`;
-    } else if (f.kind === "bool") {
-      ctl = `<label class="tune-bool"><input type="checkbox" id="${id}" data-flag="${escA(f.flag)}" data-kind="bool"> on</label>`;
-    } else if (f.kind === "number") {
-      ctl = `<input type="number" id="${id}" data-flag="${escA(f.flag)}" data-kind="number"` +
-        (f.step ? ` step="${f.step}"` : "") + (f.min != null ? ` min="${f.min}" data-min="${f.min}"` : "") +
-        (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
-    } else {
-      ctl = `<input type="text" id="${id}" data-flag="${escA(f.flag)}" data-kind="string" spellcheck="false"` +
-        (f.default != null ? ` placeholder="${escA(String(f.default))}"` : "") + `>`;
-    }
-    return `<div class="tune-row" title="${escA(f.note || "")}">
-      <span class="tune-k">${escH(f.label)} <span class="mono tune-f">${escH(f.flag)}</span></span>
-      ${ctl}<span class="tune-n">${escH(f.note || "")}</span></div>`;
-  }).join("");
+  // Every flag is its own machined CARD in a balanced grid: engraved name + mono flag literal,
+  // the control (same data-flag/data-kind serialization — collectServeFlags is untouched),
+  // a one-line description, a PROS/CONS pair, and a live amber conflict strip.
+  body.innerHTML =
+    `<div class="tune-sec-h">engine flags — ${escH(e.name || e.id)}</div>` +
+    flags.map((f) => {
+      const id = "tf_" + f.flag.replace(/[^a-z0-9]/gi, "_");
+      let ctl;
+      if (f.kind === "enum") {
+        ctl = `<select id="${id}" data-flag="${escA(f.flag)}" data-kind="enum">
+          <option value="">— engine default —</option>` +
+          f.options.map((o) => `<option value="${escA(o)}">${escH(o)}</option>`).join("") + `</select>`;
+      } else if (f.kind === "bool") {
+        ctl = `<label class="tune-bool"><input type="checkbox" id="${id}" data-flag="${escA(f.flag)}" data-kind="bool"> on</label>`;
+      } else if (f.kind === "number") {
+        ctl = `<input type="number" id="${id}" data-flag="${escA(f.flag)}" data-kind="number"` +
+          (f.step ? ` step="${f.step}"` : "") + (f.min != null ? ` min="${f.min}" data-min="${f.min}"` : "") +
+          (f.default != null ? ` placeholder="${f.default} (default)"` : "") + `>`;
+      } else {
+        ctl = `<input type="text" id="${id}" data-flag="${escA(f.flag)}" data-kind="string" spellcheck="false"` +
+          (f.default != null ? ` placeholder="${escA(String(f.default))}"` : "") + `>`;
+      }
+      const pc = (f.pros || f.cons)
+        ? `<div class="tune-pc">${f.pros ? `<span class="tune-pro">${escH(f.pros)}</span>` : ""}` +
+          `${f.cons ? `<span class="tune-con">${escH(f.cons)}</span>` : ""}</div>` : "";
+      return `<div class="tune-card chamfer-card" id="${_tuneCardId(f.flag)}" data-cardflag="${escA(f.flag)}" title="${escA(f.note || "")}">
+        <div class="tune-card-h"><span class="tune-k">${escH(f.label)}</span><span class="mono tune-f">${escH(f.flag)}</span></div>
+        ${ctl}
+        <p class="tune-desc">${escH(f.desc || f.note || "")}</p>
+        ${pc}
+        <div class="tune-warn" hidden></div>
+      </div>`;
+    }).join("");
   body.querySelectorAll("[data-flag]").forEach((el) => {
     el.oninput = updateTuneCount; el.onchange = updateTuneCount;
   });
   if (keep) _restoreTuneBody(keep);
   updateTuneCount();
+  renderTuneAlert(RUN.jobs);              // re-apply the implicated-flag highlight after a rebuild
+}
+
+// ---- LIVE CONFLICT SURFACING: a flag whose catalog "conflicts" entry matches the validated
+// model / selected engine / host platform (and, when value_re gates it, the control's current
+// value) gets an amber warning strip + border. Never a hard-disable — operator freedom.
+
+function _conflictTargets() {
+  const model = (RUN.val && (RUN.val.repo || "")) || ($("#hfLink") ? $("#hfLink").value.trim() : "");
+  return { model, plat: (RUN.engines && RUN.engines.platform) || {}, engine: RUN.tuneEngine || "" };
+}
+
+function _conflictHits(f, el, tgt) {
+  const val = !el ? "" : el.dataset.kind === "bool" ? (el.checked ? "on" : "") : (el.value || "");
+  return (f.conflicts || []).filter((c) => {
+    try {
+      let hit = false;
+      if (c.model_re) hit = !!tgt.model && new RegExp(c.model_re, "i").test(tgt.model);
+      else if (c.engine_re) hit = !!tgt.engine && new RegExp(c.engine_re, "i").test(tgt.engine);
+      else if (c.platform) hit = tgt.plat[c.platform] === true
+        || tgt.plat.accel === c.platform || tgt.plat.os === c.platform;
+      if (hit && c.value_re) hit = !!val && new RegExp(c.value_re, "i").test(val);
+      return hit;
+    } catch (err) { return false; }                    // a bad regex in the catalog never breaks the panel
+  });
+}
+
+function evalTuneConflicts() {
+  const tgt = _conflictTargets();
+  (RUN.tuneFlags || []).forEach((f) => {
+    const card = document.getElementById(_tuneCardId(f.flag)); if (!card) return;
+    const hits = _conflictHits(f, card.querySelector("[data-flag]"), tgt);
+    const warn = card.querySelector(".tune-warn");
+    if (warn) {
+      warn.hidden = !hits.length;
+      warn.innerHTML = hits.map((c) => `⚠ ${escH(c.why || "risky with this model / host")}`).join("<br>");
+    }
+    card.classList.toggle("conflict", !!hits.length);
+  });
 }
 
 // minimal quote-aware tokenizer for the freeform extras (JSON values carry spaces)
@@ -2557,25 +4862,120 @@ function collectServeFlags() {
   return out.length ? out : null;
 }
 
-// The SPEC DECODE block: preset templates target the /drafter mount (needs a drafter card);
-// custom JSON is passed through when it parses. Sets the inline drafter state line.
+function parsedSpecConfig(raw) {
+  try { return JSON.parse(raw || ""); } catch (e) { return null; }
+}
+
+function specUsesDrafter(cfg) {
+  // DFlash always drafts from an external card; DSpark only in its drafter form —
+  // its native (in-checkpoint) form ships the DSpark weights inside the target checkpoint.
+  const m = cfg && String(cfg.method || "").toLowerCase();
+  return !!cfg && (m === "dflash" || m === "dspark")
+    && String(cfg.model || "").includes("/drafter");
+}
+
+// The currently-selected speculative config (preset value or custom JSON), parsed, or null.
+function curSpecConfig() {
+  const sel = $("#specSel"); if (!sel || !sel.value) return null;
+  if (sel.value === "custom")
+    return parsedSpecConfig(($("#specCustom") && $("#specCustom").value.trim()) || "");
+  return parsedSpecConfig(sel.value);
+}
+
+// A selected config that runs WITHOUT a drafter card: native MTP heads, or DSpark's
+// in-checkpoint form (method dspark with no /drafter model — the DSpark weights ship
+// inside the target checkpoint). Gates the drafter-field hide + the launch payload.
+function specIsNative(cfg) {
+  if (cfg === undefined) cfg = curSpecConfig();
+  if (!cfg) return false;
+  const m = String(cfg.method || "").toLowerCase();
+  return m.includes("mtp") || (m === "dspark" && !specUsesDrafter(cfg));
+}
+
+// Display label for a drafter-based spec method ("DFlash" / "DSpark") in status lines.
+function specMethodLabel(cfg) {
+  return String((cfg && cfg.method) || "").toLowerCase() === "dspark" ? "DSpark" : "DFlash";
+}
+
+// The SPEC DECODE block: DFlash/DSpark drafter presets target the /drafter mount and need a
+// drafter card; native MTP (built-in heads) and native DSpark (in-checkpoint weights) need none.
+// Custom JSON is passed through when it parses. Sets the inline drafter state line.
 function specConfigJson() {
   const sel = $("#specSel"); if (!sel || !sel.value) return null;
   const st = $("#drafterState");
   if (sel.value === "custom") {
     const raw = ($("#specCustom") && $("#specCustom").value.trim()) || "";
     if (!raw) return null;
-    try { JSON.parse(raw); } catch (e) {
+    const cfg = parsedSpecConfig(raw);
+    if (!cfg) {
       if (st) { st.textContent = "✗ custom config is not valid JSON"; st.className = "drafter-state mono bad"; }
+      return null;
+    }
+    if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+      if (st) { st.textContent = `▸ ${specMethodLabel(cfg)} custom config references /drafter; paste the drafter HF card`; st.className = "drafter-state mono warn"; }
       return null;
     }
     return raw;
   }
-  if (!($("#drafterHf") && $("#drafterHf").value.trim())) {
-    if (st) { st.textContent = "▸ paste the drafter HF card to arm this preset"; st.className = "drafter-state mono warn"; }
+  const cfg = parsedSpecConfig(sel.value);
+  if (specUsesDrafter(cfg) && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+    if (st) { st.textContent = `▸ paste the drafter HF card to arm this ${specMethodLabel(cfg)} preset`; st.className = "drafter-state mono warn"; }
     return null;                                     // preset references /drafter — no card, no flag
   }
+  if (cfg && st) {
+    const n = cfg.num_speculative_tokens || "?";
+    const m = String(cfg.method || "").toLowerCase();
+    if (m.includes("mtp")) {
+      st.textContent = `native MTP armed (n=${n}; no drafter card needed)`;
+      st.className = "drafter-state mono ok";
+    } else if (m === "dspark" && specIsNative(cfg)) {
+      st.textContent = `native DSpark armed (n=${n}; in-checkpoint — no drafter card needed)`;
+      st.className = "drafter-state mono ok";
+    }
+  }
   return sel.value;
+}
+
+// Method-aware SPEC DECODE chrome: the custom-JSON row, the drafter-field visibility (native
+// MTP / in-checkpoint DSpark need no drafter card — and a hidden field must never silently
+// ride a launch, see _validatedExtras), and the method desc + pros/cons card in the
+// tune-card grammar.
+const SPEC_METHOD_CARDS = {
+  dflash: { desc: "A z-lab drafter proposes n tokens per step; the target model verifies every one, so answers are bit-identical.",
+            pro: "+ lossless speedup", con: "− needs a matching z-lab drafter" },
+  mtp:    { desc: "The checkpoint's own multi-token-prediction heads draft ahead — served natively, no external drafter model.",
+            pro: "+ no drafter needed, native heads", con: "− only on MTP-trained checkpoints" },
+  dspark: { desc: "DeepSeek-style DSpark block drafting — a DSpark head drafts ahead in parallel; runs from an external DSpark drafter card or fully in-checkpoint on DSpark-trained models.",
+            pro: "+ lossless speedup; in-checkpoint form needs no drafter download",
+            con: "− needs DSpark-trained weights (e.g. *dspark_*_blockN) and a V2-runner engine (aeon-vllm-ultimate / vLLM ≥0.25)" },
+};
+
+function syncSpecUI() {
+  const sel = $("#specSel"); if (!sel) return;
+  const cr = $("#specCustomRow"); if (cr) cr.hidden = sel.value !== "custom";
+  const cfg = curSpecConfig();
+  const method = String((cfg && cfg.method) || "").toLowerCase();
+  const isMtp = method.includes("mtp");
+  // native forms (MTP heads / in-checkpoint DSpark): no drafter fields
+  const df = $("#drafterField"); if (df) df.hidden = specIsNative(cfg);
+  const card = $("#specMethodCard");
+  if (card) {
+    const m = isMtp ? SPEC_METHOD_CARDS.mtp
+            : method === "dflash" ? SPEC_METHOD_CARDS.dflash
+            : method === "dspark" ? SPEC_METHOD_CARDS.dspark : null;
+    card.hidden = !m;
+    if (m) {
+      const d = $("#specMethodDesc"), p = $("#specMethodPro"), c = $("#specMethodCon");
+      if (d) d.textContent = m.desc;
+      if (p) p.textContent = m.pro;
+      if (c) c.textContent = m.con;
+    }
+  }
+  // spec turned off with no drafter card in play: clear a stale method/armed status line
+  if (!sel.value && !($("#drafterHf") && $("#drafterHf").value.trim())) {
+    const st = $("#drafterState");
+    if (st) { st.textContent = ""; st.className = "drafter-state mono"; }
+  }
 }
 
 let DRAFTER_VAL_ID = null;
@@ -2610,6 +5010,7 @@ function updateTuneCount() {
   const n = (collectServeFlags() || []).filter((t) => t.startsWith("-")).length;
   c.hidden = !n;
   c.textContent = n ? `${n} override${n > 1 ? "s" : ""} active` : "";
+  evalTuneConflicts();                     // value_re-gated conflicts follow every control change
 }
 
 // The bare-metal serve helper (MLX / LM Studio): exact startup commands, per engine — what the
@@ -2658,6 +5059,193 @@ async function scanModels() {
   if (d.host_scan === false && CFG.role === "pod") {
     runStatus("scanned container mounts only — to sweep the WHOLE host (HF cache, LM Studio, model folders), re-run the pod with:  -v \"$HOME:/host-home:ro\" -e AEON_HOST_HOME_DIR=\"$HOME\"  (one-time, read-only)", "warn");
   }
+}
+
+// ---- live-endpoint discovery: find running OpenAI-compatible serves to verify against ----
+// Fingerprint verification needs BOTH a live serve_url AND an hf_link: the pod hash-verifies the
+// HF weights, then logprob-fingerprints the endpoint against them. This scan finds the live
+// endpoint so the operator never hand-types a URL; the HF link is still theirs to supply (the
+// served alias is not an HF repo path). Optional ?hosts sweeps LAN / cluster nodes too.
+async function scanEndpoints() {
+  const btn = $("#scanEndpoints"), out = $("#scanEndpointsResult");
+  if (btn) { btn.disabled = true; btn.textContent = "⌕ scanning…"; }
+  let d;
+  const rh = ($("#veRemoteHost") && $("#veRemoteHost").value.trim()) || "";
+  // Remote serving machine: probe ITS http ports too (not just localhost), and hand `remote` so the
+  // scan can inspect its docker daemon. Derive the http host from the ssh destination (user@host ->
+  // host); a bare ssh-config alias has no dotted address to probe, so skip hosts= for that.
+  let q = "";
+  if (rh) {
+    const host = rh.split("@").pop();
+    const probeable = /[.:]/.test(host) || /^\d+\.\d+\.\d+\.\d+$/.test(host);   // ip / fqdn only
+    q = "?remote=" + encodeURIComponent(rh) + (probeable ? "&hosts=" + encodeURIComponent(host) : "");
+  }
+  try { d = await api("/api/pod/scan_endpoints" + q, { headers: podHeaders() }); }
+  catch (e) {
+    const msg = (e && (e.error || e.detail || e.message)) || "network error";
+    if (out) out.innerHTML = `<div class="scan-ep-err">endpoint scan failed — ${escH(msg)}</div>`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "⌕ Scan for running instances"; }
+  if (!d) return;                                         // fetch error already rendered; never throws
+  renderScanEndpoints(d);
+}
+
+// Clipboard that also works OVER PLAIN HTTP. navigator.clipboard is gated on a SECURE CONTEXT,
+// so it is present on localhost but absent when the pod dashboard is opened from another machine
+// at http://<lan-ip>:8091 — the exact case these copy buttons exist for. Fall back to the legacy
+// execCommand path there. Returns true only when the text really made it to the clipboard.
+async function copyText(text) {
+  try {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* fall through to the legacy path */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";                 // keep it off-screen without scrolling the page
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);    // iOS needs the explicit range
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Flash a copy button so the click is never silent — including when copying is refused.
+async function copyButton(btn, text) {
+  const label = btn.dataset.label || btn.textContent;
+  btn.dataset.label = label;
+  const ok = await copyText(text);
+  // a Mac user pressing Ctrl+C copies nothing — name the right key for the platform
+  const mac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
+  btn.textContent = ok ? "copied ✓" : (mac ? "press ⌘C" : "press Ctrl+C");
+  if (!ok) {                                     // give them a selection to copy by hand
+    try {
+      const el = btn.closest(".ep-ssh-row");
+      const code = el && el.querySelector(".ep-ssh-cmd");
+      if (code) {
+        const r = document.createRange();
+        r.selectNodeContents(code);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    } catch (e) {}
+  }
+  setTimeout(() => { btn.textContent = label; }, 1600);
+}
+
+function epSourceLabel(src) {
+  if (!src) return "";
+  if (src === "served-root" || src === "served-id") return "from the serve";
+  if (src === "docker-model-arg") return "from the container";
+  if (src.indexOf("docker-mount") === 0) return "from the model folder";
+  return src;
+}
+
+function renderScanEndpoints(d) {
+  const out = $("#scanEndpointsResult"); if (!out) return;
+  const eps = (d && d.endpoints) || [];
+  if (!eps.length) {
+    out.innerHTML = `<div class="scan-ep-empty">no running OpenAI-compatible servers found on this host` +
+      ` — start your serve, or add <span class="mono">?hosts</span> for LAN nodes</div>`;
+    return;
+  }
+  out.innerHTML = eps.map((ep) => {
+    const url = ep.url || "";
+    // new pods send ep.served (one entry per physical model — aliases folded — with the HF repo
+    // autodetected); fall back to the flat id list for an older pod that predates autodetect
+    const served = Array.isArray(ep.served) && ep.served.length
+      ? ep.served
+      : (Array.isArray(ep.models) ? ep.models : []).map((id) => ({ ids: [id] }));
+    const rows = served.map((s) => {
+      const ids = Array.isArray(s.ids) ? s.ids : [];
+      const label = ids.length ? ids.map(escH).join(" · ") : "no model id reported";
+      const one = ids[0] || "";                          // the served id to bench THIS model under
+      const hf = s.hf_guess || "";
+      const fmt = s.format === "gguf" ? ` <span class="scan-ep-fmt">GGUF</span>` : "";
+      let chip;
+      if (hf) {
+        chip = `<span class="scan-ep-guess ${escA(s.confidence || "")}">✓ <span class="mono">${escH(hf)}</span>` +
+          `<em>· auto ${escH(epSourceLabel(s.source))}</em></span>${fmt}`;
+      } else if (s.local_name) {
+        chip = `<span class="scan-ep-guess local">local model <span class="mono">${escH(s.local_name)}</span> · HF link needed</span>${fmt}`;
+      } else {
+        chip = `<span class="scan-ep-guess none">HF repo not exposed · paste the link</span>${fmt}`;
+      }
+      return `<div class="scan-ep-row">` +
+        `<div class="scan-ep-meta"><span class="scan-ep-models">${label}</span>${chip}</div>` +
+        `<button type="button" class="ghost scan-ep-use" data-url="${escA(url)}" data-hf="${escA(hf)}"` +
+        ` data-rev="${escA(s.hf_revision || "")}" data-source="${escA(s.source || "")}"` +
+        ` data-conf="${escA(s.confidence || "")}" data-localname="${escA(s.local_name || "")}"` +
+        ` data-fmt="${escA(s.format || "")}" data-model="${escA(one)}">use this</button>` +
+        `</div>`;
+    }).join("");
+    return `<div class="scan-ep-ep"><div class="scan-ep-url mono">${escH(url)}</div>${rows}</div>`;
+  }).join("");
+  $$("#scanEndpointsResult .scan-ep-use").forEach((b) =>
+    b.onclick = () => useScannedEndpoint(b.dataset));
+}
+
+// Wire a scanned endpoint into verified-target mode: serve URL + fingerprint on, operator-serve
+// block revealed, and — when the pod autodetected the HF repo — the link prefilled, leaving the
+// operator nothing to do but launch. A guess only PREFILLS: the launch still pulls+hashes those
+// weights and fingerprints the endpoint against them, so a wrong guess fails verification, never
+// a false attestation. `ds` is the picked row's dataset {url, hf, rev, source, conf, localname, model}.
+function useScannedEndpoint(ds) {
+  ds = ds || {};
+  const su = $("#veServeUrl");
+  if (su) { su.value = ds.url || ""; su.dataset.model = ds.model || ""; }  // bench under this served id
+  const ve = $("#verifyEndpoint"); if (ve) ve.checked = true;
+  const mh = $("#mlxHelp"); if (mh) mh.hidden = false;    // reveal the operator-serve block if collapsed
+  const prompt = $("#verifyHfPrompt");
+  const link = $("#hfLink");
+  const hf = (ds.hf || "").trim();
+  const model = (ds.model || "").trim();
+  const localName = (ds.localname || "").trim();
+  // fill ONLY when empty or still auto-filled — a hand-typed link is the user's override and wins
+  const canFill = link && (!link.value.trim() || link.dataset.auto === "1");
+  let filled = "";
+  if (hf && canFill) {
+    link.value = hf + (ds.rev ? "@" + ds.rev : "");
+    link.dataset.auto = "1";
+    filled = hf;
+    if (typeof scheduleValidate === "function") scheduleValidate();
+  } else if (!hf && model && canFill
+             && /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/.test(model) && !model.includes(" ")) {
+    link.value = model;                                  // back-compat: served id is itself a repo
+    link.dataset.auto = "1";
+    filled = model;
+    if (typeof scheduleValidate === "function") scheduleValidate();
+  }
+  if (prompt) {
+    prompt.hidden = false;
+    let msg = filled
+      ? (ds.conf === "medium"
+          ? `HF repo <span class="mono">${escH(filled)}</span> inferred from the serve's model folder — <b>confirm it's the exact repo</b>, then launch to verify`
+          : `✓ HF repo auto-detected from the running serve: <span class="mono">${escH(filled)}</span> — launch to verify (edit if the repo differs)`)
+      : localName
+      ? `detected local model <span class="mono">${escH(localName)}</span> — the serve doesn't expose its HF repo; paste the Hugging Face link to verify it`
+      : model
+      ? `provide the Hugging Face link for <span class="mono">${escH(model)}</span> to verify this live model`
+      : "provide the Hugging Face link for this model to verify it";
+    if (ds.fmt === "gguf") {
+      // GGUF: the exact quant FILE hash-verifies bit-for-bit against a GGUF repo, but the logprob
+      // fingerprint is cross-engine (the reference is captured via vLLM), so an endpoint fingerprint
+      // may land self_reported. Set expectations honestly.
+      msg += ` <span class="ep-note-gguf">· GGUF quant: point at the repo that hosts this exact <span class="mono">.gguf</span> — it hash-verifies bit-for-bit, though the live-endpoint fingerprint is cross-engine and may record self_reported.</span>`;
+    }
+    prompt.innerHTML = msg;
+  }
+  if (link) link.focus();
 }
 
 // Filterable scan dropdown: with hundreds of local models a raw <select> is unusable, so a
@@ -2742,10 +5330,13 @@ function closePodModal() { const m = $("#podModal"); if (m) m.hidden = true; }
 
 // Share a benchmark: copy its /share/<model> link — the server renders a 1200×630 social card
 // (rank · composite · peak concurrent tok/s · owner avatar) wherever the link is posted.
-async function shareBench(model, btn) {
+async function shareBench(model, btn, board) {
+  // ?b=god selects the GOD MODE card. Without it a god-only run is not on the global board at all,
+  // the lookup fails, and the unfurl falls back to the generic AEON image.
   const url = location.origin.replace(/^http:\/\/(127|localhost)[^/]*/, "https://aeon-bench.com")
-    + "/share/" + encodeURIComponent((model || "").replace(/\//g, "__"));
-  try { await navigator.clipboard.writeText(url); } catch (e) { return; }
+    + "/share/" + encodeURIComponent((model || "").replace(/\//g, "__"))
+    + (board === "god" ? "?b=god" : "");
+  if (!(await copyText(url))) return;
   if (btn) {
     const t = btn.textContent;
     btn.textContent = "✓ link copied"; btn.classList.add("copied");
@@ -2836,6 +5427,58 @@ function valRender(st) {
   // FAMILY BEST-PRACTICE PRESET row: when validation detected a model family, offer a one-click
   // recipe fill (editable afterward). Rendered as its own strip below the validation message.
   renderPresetRow(st.family_preset);
+  evalTuneConflicts();                     // model identity changed — re-check model_re conflicts
+  // MODALITIES chips: populated once the repo resolved (config-declared modalities), hidden
+  // while validation is idle/failed/in flight.
+  renderModChips((s === "validated" || s === "resolved") ? (st.modalities || ["text"]) : null);
+}
+
+// ---- MODALITY toggles (VISION / AUDIO / VIDEO) -------------------------------------------
+// Auto-populated from the validate response's config-declared modalities (lit = declared);
+// each chip is toggleable so an operator can FORCE-ENABLE a modality the config hides (config
+// lies) or DISABLE a flaky one. Untouched chips send nothing — the pod keeps its auto,
+// probe-gated default; any click switches the launch to an explicit --modalities list.
+
+function renderModChips(mods) {
+  const row = $("#modRow"); if (!row) return;
+  if (!mods) { row.hidden = true; RUN.mods = null; RUN.modsTouched = false; return; }
+  RUN.mods = { vision: mods.includes("vision"), audio: mods.includes("audio"),
+               video: mods.includes("video") };
+  RUN.modsTouched = false;
+  if (Array.isArray(RUN.tplMods)) {                    // a template carried explicit toggles
+    RUN.mods = { vision: RUN.tplMods.includes("vision"), audio: RUN.tplMods.includes("audio"),
+                 video: RUN.tplMods.includes("video") };
+    RUN.modsTouched = true;
+    RUN.tplMods = null;
+  }
+  row.hidden = false;
+  syncModChips();
+}
+
+function syncModChips() {
+  $$("#modRow .mod-chip").forEach((b) => {
+    const on = !!(RUN.mods && RUN.mods[b.dataset.mod]);
+    b.classList.toggle("on", on);
+    b.title = `${b.dataset.mod} suite ${on ? "RUNS (still capability-probed at run time)"
+      : "is SKIPPED"} — click to toggle`;
+  });
+  const note = $("#modNote");
+  if (note) note.textContent = RUN.modsTouched
+    ? "operator override — sent with the launch"
+    : "auto-detected from the model config · probe-gated at run time · click to override";
+}
+
+function toggleModChip(mod) {
+  if (!RUN.mods) return;
+  RUN.mods[mod] = !RUN.mods[mod];
+  RUN.modsTouched = true;
+  syncModChips();
+}
+
+// null = untouched (the pod auto-detects, probe-gated); a list = explicit toggles ([] = all off)
+function modalitiesPayload() {
+  if (!RUN.mods || !RUN.modsTouched) return null;
+  return ["vision", "audio", "video"].filter((m) => RUN.mods[m]);
 }
 
 // "Apply best-performing template": if THIS model was benched before on this pod, offer the
@@ -2898,6 +5541,105 @@ function renderPresetRow(fp) {
   };
 }
 
+// ---- CHAMPION RECIPES: the mothership's winning recipe per model on THIS hardware -------------
+// The pod proxies /api/pod/recipes/champions -> mothership /api/recipes/champions filtered to its
+// detected hardware label (a DGX Spark pod sees what won on a DGX Spark). Applying one fills the
+// same controls the family-preset chip fills (engine, Recipe Tuning, spec decode) — then the user
+// tweaks freely. Offline/empty degrades to a muted note; the Run tab never depends on the network.
+
+async function loadChampions() {
+  if (RUN.champs === undefined) {                      // once per page load — no repeat 5s stalls offline
+    RUN.champs = null;                                 // in flight
+    let d = null;
+    try { d = await api("/api/pod/recipes/champions", { headers: podHeaders() }); } catch (e) { d = null; }
+    RUN.champs = (d && d.available && d.champions) || [];
+    RUN.champHw = (d && d.hardware) || null;
+  }
+  renderChampRow();
+}
+
+function renderChampRow() {
+  const row = $("#champRow"); if (!row) return;
+  const list = RUN.champs || [];
+  row.hidden = false;
+  const hwEl = $("#champHw");
+  if (hwEl) hwEl.textContent = "best on " + (RUN.champHw || "your hardware");
+  const sel = $("#champSel"), btn = $("#champApply"), prov = $("#champProv");
+  if (!list.length) {                                  // empty OR fetch failed: same muted state
+    if (sel) { sel.hidden = true; sel.innerHTML = ""; }
+    if (btn) btn.hidden = true;
+    if (prov) prov.innerHTML = `<span class="champ-empty">no champion recipes for this hardware yet</span>`;
+    return;
+  }
+  if (sel) {
+    sel.hidden = false; sel.disabled = false;
+    sel.innerHTML = list.map((c, i) => {
+      const bits = [(c.model || c.canonical || "?").split("/").pop().slice(0, 44), c.engine || "engine?"];
+      if (c.peak_agg_tps != null) bits.push(Math.round(c.peak_agg_tps) + " tok/s");
+      if (c.quality != null) bits.push("quality " + Number(c.quality).toFixed(1));
+      if (c.drafter) {
+        const dm = String(c.drafter.method || "dflash").toLowerCase();
+        bits.push(dm.includes("mtp") ? "MTP" : dm === "dspark" ? "DSpark" : "DFlash");
+      }
+      return `<option value="${i}">${escH(bits.join(" · "))}</option>`;
+    }).join("");
+  }
+  if (btn) { btn.hidden = false; btn.disabled = false; }
+  renderChampProv();
+}
+
+function renderChampProv() {
+  const prov = $("#champProv"); if (!prov) return;
+  const i = +(($("#champSel") && $("#champSel").value) || 0);
+  const c = (RUN.champs || [])[i];
+  if (!c) { prov.innerHTML = ""; return; }
+  const when = c.started_at ? new Date(c.started_at * 1000).toISOString().slice(0, 10) : "";
+  const cell = c.peak_agg_cell ? ` (${c.peak_agg_cell.category} @ c${c.peak_agg_cell.conc})` : "";
+  const bits = [`run ${c.run || "?"}`];
+  if (when) bits.push(when);
+  if (c.peak_agg_tps != null) bits.push(`${Math.round(c.peak_agg_tps)} tok/s peak${cell}`);
+  if (c.quality != null) bits.push(`quality ${Number(c.quality).toFixed(1)}`);
+  if (c.trust_tier) bits.push(c.trust_tier);
+  if (c.drafter && c.drafter.repo) {
+    const dm = String(c.drafter.method || "dflash").toLowerCase();
+    bits.push(`${dm === "dspark" ? "DSpark" : "DFlash"} ${c.drafter.repo}${c.drafter.n ? " n=" + c.drafter.n : ""}`);
+  } else if (c.drafter && String(c.drafter.method || "").toLowerCase().includes("mtp"))
+    bits.push(`native MTP${c.drafter.n ? " n=" + c.drafter.n : ""}`);
+  else if (c.drafter && String(c.drafter.method || "").toLowerCase() === "dspark")
+    bits.push(`native DSpark${c.drafter.n ? " n=" + c.drafter.n : ""}`);
+  prov.innerHTML = escH(bits.join(" · "));
+}
+
+function applyChampion() {
+  const i = +(($("#champSel") && $("#champSel").value) || 0);
+  const ch = (RUN.champs || [])[i]; if (!ch) return;
+  // engine first — switching re-renders the tuning catalog the flags land in
+  const es = $("#veEngine");
+  if (ch.engine && es && [...es.options].some((o) => o.value === ch.engine && !o.disabled)) {
+    es.value = ch.engine;
+    RUN.enginePinned = true;                           // a champion IS an explicit engine choice
+    engineChanged();
+  }
+  const wrap = $("#tuneWrap");
+  if (wrap) wrap.open = true;                          // reveal Recipe Tuning
+  if ($("#tuneBody") && $("#tuneBody").children.length === 0) engineChanged();  // render the catalog first
+  // custom image only when the champion ran a non-catalog image
+  const e = curEngine();
+  if ($("#veImage")) $("#veImage").value = (ch.image && (!e || e.image !== ch.image)) ? ch.image : "";
+  // serve flags -> the data-flag controls (+ extras for unknowns) + --speculative-config -> spec block
+  applyServeFlags(ch.serve_flags || []);
+  if (ch.drafter && ch.drafter.repo && $("#drafterHf")) {
+    $("#drafterHf").value = ch.drafter.repo;           // hash-validated like the model at launch
+    validateDrafter();
+  }
+  // a champion is a per-model recipe: offer its model when the user hasn't picked one yet
+  const hl = $("#hfLink");
+  if (hl && ch.hf_repo && !hl.value.trim()) { hl.value = ch.hf_repo; delete hl.dataset.auto; scheduleValidate(); }
+  runStatus(`applied the ${RUN.champHw || "hardware"} champion recipe for ` +
+    `${(ch.model || "?").split("/").pop()} (run ${ch.run || "?"}) — tweak anything, then Launch`, "ok");
+  if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ block: "nearest" });
+}
+
 function renderKeys() {
   const box = $("#savedKeys"); if (!box) return;
   if (!RUN.keys.length) { box.innerHTML = `<p class="note" style="text-align:left">No saved keys yet.</p>`; return; }
@@ -2919,6 +5661,22 @@ async function addKey() {
   $("#keyName").value = ""; $("#keyVal").value = "";
   runStatus("saved '" + name + "'", "ok");
   loadSavedKeys();
+}
+
+async function saveInlineApiKey(prefix, targetSel) {
+  const nameEl = $("#" + prefix + "KeyName"), valEl = $("#" + prefix + "KeyVal");
+  const name = (nameEl && nameEl.value.trim()) || "";
+  const value = (valEl && valEl.value) || "";
+  if (!name || !value) { runStatus("API key name and value are required", "err"); return; }
+  try {
+    await api("/api/pod/keys", { method: "POST", headers: podHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, value, kind: "api_key" }) });
+  } catch (e) { runStatus("save failed: " + JSON.stringify(e), "err"); return; }
+  if (valEl) valEl.value = "";
+  runStatus("saved API key '" + name + "' and selected it", "ok");
+  await loadSavedKeys();
+  const sel = $(targetSel);
+  if (sel) sel.value = name;
 }
 
 async function deleteKey(name) {
@@ -2951,10 +5709,59 @@ async function runEndpointBench() {
       perf_max_conc: maxConcVal("#reMaxConc"), concurrency: maxConcVal("#reConc") }, "#reLaunch");
 }
 
+async function validateFrontierApi() {
+  const m = curFrontier(), key = $("#frKey") && $("#frKey").value;
+  if (!m) { runStatus("choose an approved frontier model", "err"); return; }
+  if (!key) { runStatus("choose a saved API key for " + (m.provider_name || m.provider), "err"); return; }
+  const btn = $("#frValidate"); if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/pod/frontier/validate", {
+      method: "POST",
+      headers: podHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ frontier_id: m.id, api_key_name: key }),
+    });
+    renderFrontierInfo(`validated ${r.model || m.model}`, "ok");
+    runStatus(`validated frontier API: ${m.display_name || m.id}`, "ok");
+  } catch (e) {
+    renderFrontierInfo("validation failed", "err");
+    runStatus("frontier validation failed: " + JSON.stringify(e), "err");
+  }
+  if (btn) btn.disabled = false;
+}
+
+async function runFrontierBench() {
+  const m = curFrontier(), key = $("#frKey") && $("#frKey").value;
+  if (!m) { runStatus("choose an approved frontier model", "err"); return; }
+  if (!key) { runStatus("choose a saved API key for " + (m.provider_name || m.provider), "err"); return; }
+  const plan = ($("#frPlan") && $("#frPlan").value) || null;
+  await launchRun("/api/pod/run/frontier",
+    { frontier_id: m.id, api_key_name: key, preset: plan,
+      difficulty: plan === "hard-bench" ? null : ($("#frDiff").value || null),
+      perf_max_conc: maxConcVal("#frMaxConc"), concurrency: maxConcVal("#frConc"),
+      max_tokens: tokBudgetVal("#frMaxTok") }, "#frLaunch");
+}
+
 // The validated-bench launch payload: engine + custom image always travel; the local dir rides
 // ONLY when it hash-validated (a mismatched local copy is ignored — the pod pulls fresh, which
 // still validates); the serve URL rides only on the MLX bare-metal path.
 function _validatedExtras() {
+  // ENDPOINT intent ("point at a running model"): the pod does NOT serve — it benches the live
+  // serve URL and fingerprints it against the HF weights. None of the pull-serving knobs apply,
+  // so send a clean minimal payload with the serve URL riding regardless of engine.
+  if (runIntent() === "endpoint") {
+    const su = $("#veServeUrl");
+    return {
+      engine: null, engine_image: null, local_dir: null,
+      serve_url: (su && su.value.trim()) || null,
+      // the served-model id the endpoint answers to (from the scan pick) — the pod benches under
+      // THIS id, not its own alias; null lets the pod adopt the endpoint's first served id
+      endpoint_model: (su && su.dataset.model) || null,
+      // ssh destination of the machine running the serve — the pod probes ITS hardware and
+      // reads ITS docker daemon, so a remote bench is filed under the right rig
+      remote_host: ($("#veRemoteHost") && $("#veRemoteHost").value.trim()) || null,
+      serve_flags: [], drafter_hf: null, serve_cmd: null,
+    };
+  }
   const eng = $("#veEngine") ? $("#veEngine").value || null : null;
   const e = curEngine();
   const localOk = RUN.val && RUN.val.state === "validated" && $("#hfLocal").value.trim();
@@ -2965,7 +5772,10 @@ function _validatedExtras() {
     // bare-metal engines (MLX / LM Studio): the pod benches the operator-started serve
     serve_url: (e && e.containerized === false && $("#veServeUrl") && $("#veServeUrl").value.trim()) || null,
     serve_flags: collectServeFlags(),        // recipe tuning — merged server-side, recorded with the run
-    drafter_hf: ($("#drafterHf") && $("#drafterHf").value.trim()) || null,  // validated + mounted /drafter
+    // DFlash/DSpark drafter card: validated + mounted at /drafter. Never rides a native launch
+    // (MTP heads / in-checkpoint DSpark) — the field is hidden then, and hidden state must not
+    // silently pull/mount a drafter.
+    drafter_hf: (!specIsNative() && $("#drafterHf") && $("#drafterHf").value.trim()) || null,
     serve_cmd: ($("#tuneServeCmd") && $("#tuneServeCmd").value.trim()) || null,  // FULL serve override (verbatim)
   };
 }
@@ -2987,6 +5797,11 @@ function tempValue() {
 async function runHfVerified() {
   const hf_link = $("#hfLink").value.trim();
   if (!hf_link) { runStatus("HF link is required", "err"); return; }
+  // endpoint intent points at a serve that must already be up — the URL is mandatory (the pod
+  // benches it in place and does NOT serve the weights itself)
+  if (runIntent() === "endpoint" && !($("#veServeUrl") && $("#veServeUrl").value.trim())) {
+    runStatus("Serve URL is required — ⌕ Scan for a running instance or paste its URL", "err"); return;
+  }
   // The TEST PLAN rides on the main launch (default: comprehensive — the full benchmark).
   // Hard Bench owns its own tiers (hard,expert), so Scope only applies to the other plans.
   const plan = ($("#hfPlan") && $("#hfPlan").value) || null;
@@ -2999,8 +5814,16 @@ async function runHfVerified() {
       arena_per_kind: (() => { const v = parseInt(($("#hfArenaN") || {}).value, 10);
                                return Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : null; })(),
       temperature: tempValue(),                          // 0 = greedy/deterministic (default)
-      pause_all: !!($("#hfPauseAll") && $("#hfPauseAll").checked),
-      restore_paused: !!($("#hfRestore") && $("#hfRestore").checked),
+      // NEVER clear the host in endpoint mode — stopping containers would kill the very serve
+      // we're pointing at. Clear-host is a pull-mode concept (free the GPU for the pod's own serve).
+      pause_all: runIntent() !== "endpoint" && !!($("#hfPauseAll") && $("#hfPauseAll").checked),
+      restore_paused: runIntent() === "endpoint" ? false : !!($("#hfRestore") && $("#hfRestore").checked),
+      modalities: modalitiesPayload(),                   // null = auto; list = MODALITIES chips
+      // operator-declared multi-node DGX Spark cluster size (null unless ≥2) — the pod sees only
+      // its own node, so the bucket (2×/3×/4×) can't be auto-detected
+      spark_nodes: (v => v >= 2 ? v : null)(parseInt($("#sparkNodes")?.value, 10) || 0),
+      // logprob-fingerprint the serve URL against the hash-verified weights (match → attested)
+      verify_endpoint: !!$("#verifyEndpoint")?.checked,
       ..._validatedExtras() }, "#hfLaunch");
 }
 
@@ -3028,11 +5851,11 @@ async function launchRun(path, body, btnSel) {
 const JOB_STAGE = { queued: "queued", starting: "starting", resolving: "resolving HF ref",
   pulling: "pulling weights", verifying: "verifying signature", verify_failed: "✗ verification FAILED",
   serving: "serving model", benchmarking: "benchmarking", submitting: "submitting",
-  done: "done", error: "error", stopped: "stopped" };
+  stopping: "stopping + cleaning up", done: "done", error: "error", stopped: "stopped" };
 
 async function pollJobs() {
   let d; try { d = await api("/api/pod/jobs", { headers: podHeaders() }); } catch (e) { return; }
-  renderJobs((d && d.jobs) || []);
+  renderJobs((d && d.jobs) || [], (d && d.pending) || []);
 }
 
 let JOB_STAGES = {};   // job id -> last seen stage (drives the departures-board flash)
@@ -3052,9 +5875,74 @@ function stageStrip(j) {
   }).join("") + `</div>`;
 }
 
-function renderJobs(jobs) {
-  const box = $("#runJobs"); if (!box) return;
-  if (!jobs.length) { box.innerHTML = ""; return; }
+// ---- FAILED-BENCH TROUBLESHOOTING: link the diagnosed hint back to the exact tuning card ----
+
+// Which catalog flags a diagnosis hint implicates: every current-engine flag whose literal name
+// (sans leading dashes) appears in the hint text — the diagnostics table always names its
+// related flag in prose ("set kv-cache-dtype = auto", "lower gpu-memory-utilization", …).
+// Drafter / spec-decode failures implicate the SPEC DECODE block instead.
+function _hintFlags(hint) {
+  const t = String(hint || "");
+  if (!t) return [];
+  const out = [];
+  (RUN.tuneFlags || []).forEach((f) => {
+    const name = String(f.flag).replace(/^-+/, "");
+    if (name.length < 2) return;                       // "-c": too short to match safely
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp("(^|[^a-z0-9])" + esc + "($|[^a-z0-9])", "i").test(t)) out.push(f.flag);
+  });
+  if (/drafter|dflash|speculative/i.test(t)) out.push("--speculative-config");
+  return [...new Set(out)];
+}
+
+// Scroll to + pulse the tuning card for a flag (the spec block for --speculative-config).
+function focusTuneCard(flag) {
+  const wrap = $("#tuneWrap"); if (wrap) wrap.open = true;
+  const el = flag === "--speculative-config"
+    ? $("#tuneSpec") : document.getElementById(_tuneCardId(flag));
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.remove("pulse"); void el.offsetWidth;   // restart the pulse animation
+  el.classList.add("pulse");
+  setTimeout(() => el.classList.remove("pulse"), 2600);
+}
+
+// The last-failed-bench banner INSIDE the tuning panel — troubleshooting lives where the fix
+// happens. Shows the newest job's failure hint (dismissible, per job id) and highlights the
+// implicated cards amber; a newer successful run clears it naturally.
+function renderTuneAlert(jobs) {
+  const box = $("#tuneAlert"); if (!box) return;
+  const latest = (jobs || []).find((x) => x.status === "done"
+    || ((x.status === "error" || x.stage === "verify_failed") && x.hint));
+  const failed = latest && latest.status !== "done" ? latest : null;
+  const flags = failed ? _hintFlags(failed.hint) : [];
+  $$("#tuneBody .tune-card").forEach((c) =>
+    c.classList.toggle("implicated", flags.includes(c.dataset.cardflag)));
+  { const sp = $("#tuneSpec");
+    if (sp) sp.classList.toggle("implicated", flags.includes("--speculative-config")); }
+  if (!failed || RUN.tuneAlertDismissed === failed.id) {
+    box.hidden = true; box.innerHTML = ""; return;
+  }
+  box.hidden = false;
+  box.innerHTML = `<span class="tune-alert-t">⚠ last bench failed</span>` +
+    `<span class="tune-alert-msg">${escH(failed.hint)}${flags.length ? " — implicated flag highlighted below" : ""}</span>` +
+    (flags.length ? `<span class="tune-alert-flags">${flags.map((fl) =>
+      `<button class="tune-flag-chip" data-flag="${escA(fl)}">${escH(fl)}</button>`).join("")}</span>` : "") +
+    `<button class="tune-alert-x" title="dismiss">✕</button>`;
+  box.querySelector(".tune-alert-x").onclick = () => {
+    RUN.tuneAlertDismissed = failed.id; renderTuneAlert(RUN.jobs);
+  };
+  box.querySelectorAll(".tune-flag-chip").forEach((b) =>
+    b.onclick = () => focusTuneCard(b.dataset.flag));
+}
+
+function renderJobs(jobs, pending) {
+  RUN.jobs = jobs;                          // renderTune re-applies implicated marks from here
+  pending = pending || [];
+  const box = $("#runJobs"); if (!box) { renderTuneAlert(jobs); return; }
+  renderTuneAlert(jobs);
+  if (!jobs.length && !pending.length) { box.innerHTML = ""; return; }
+  const isPod = CFG.role === "pod";              // submit/resume are POD-only affordances
   box.innerHTML = `<h4 class="live-feed-h">recent runs</h4>` + jobs.map((j) => {
     const stg = JOB_STAGE[j.stage] || j.stage || j.status;
     const cls = j.status === "done" ? "ok" : (j.status === "error" || j.stage === "verify_failed") ? "err"
@@ -3062,10 +5950,25 @@ function renderJobs(jobs) {
     const kindB = j.kind === "verified" ? `<span class="elig-badge verified">✓ verified</span>` : `<span class="tag">endpoint</span>`;
     const live = (j.run_id && j.status === "running") ? `<button class="ghost job-live">● Live</button>` : "";
     const stop = (j.status === "running" || j.status === "queued") ? `<button class="ghost job-stop" data-id="${escA(j.id)}">stop</button>` : "";
+    // interrupted (stopped / died mid-bench) with intact local results -> continue in place
+    const resume = (isPod && j.resumable && (j.status === "stopped" || j.status === "error"))
+      ? `<button class="ghost job-resume" data-id="${escA(j.id)}">⟲ RESUME</button>` : "";
     const err = j.error ? `<div class="note job-err">${escH(j.error)}</div>` : "";
     // engine-error DIAGNOSIS: a plain-language "what to change in your recipe" hint parsed from
     // the failure log (names the exact custom flag when one caused it).
     const hint = j.hint ? `<div class="job-hint"><b>▸ fix</b> ${escH(j.hint)}</div>` : "";
+    // …and the diagnosed hint linked back to the exact RECIPE TUNING cards it implicates
+    const hf = j.hint ? _hintFlags(j.hint) : [];
+    const toggles = hf.length ? `<div class="job-flags"><span class="job-flags-t">⚠ check these toggles</span>` +
+      hf.map((fl) => `<button class="tune-flag-chip" data-flag="${escA(fl)}" title="scroll to this flag in RECIPE TUNING">${escH(fl)}</button>`).join("") + `</div>` : "";
+    // finished-but-unsubmitted (mothership/network down at submit time): the results are safe
+    // in pod.db + pending_submits — one BIG button pushes them up, idempotently (job_sig dedup).
+    const submitB = (isPod && j.submit_state === "pending_submit")
+      ? `<div class="job-submit-row"><button class="primary job-submit" data-id="${escA(j.id)}">⬆ SUBMIT TO MOTHERSHIP</button></div>` : "";
+    const dup = j.submit_state === "duplicate"
+      ? `<div class="note job-dup">✓ job already submitted and available on the Mothership</div>` : "";
+    const incomplete = j.submit_state === "incomplete"
+      ? `<div class="note job-err">incomplete bench — not submitted; ⟲ RESUME to finish the remaining cases</div>` : "";
     const flash = JOB_STAGES[j.id] !== undefined && JOB_STAGES[j.id] !== j.stage ? " stage-flash" : "";
     JOB_STAGES[j.id] = j.stage;
     return `<div class="job-row${flash}">
@@ -3074,15 +5977,76 @@ function renderJobs(jobs) {
       ${kindB}<span class="job-stage">${escH(stg)}</span>
       ${j.serve_phase && j.stage === "serving" ? `<span class="tag tele-phase">${escH(j.serve_phase)}</span>` : ""}
       ${j.preset ? `<span class="tag preset-tag">${escH(j.preset)}</span>` : ""}
-      ${j.difficulty ? `<span class="tag">${escH(j.difficulty)}</span>` : ""}
-      ${live}${stop}${stageStrip(j)}${err}${hint}</div>`;
-  }).join("");
+      ${j.difficulty ? `<span class="tag">${escH(diffLabel(j.difficulty))}</span>` : ""}
+      ${live}${stop}${resume}${stageStrip(j)}${err}${hint}${toggles}${incomplete}${dup}${submitB}</div>`;
+  }).join("")
+  // Unsubmitted-results cards: persisted sessions with no in-memory job — they survive a pod
+  // restart, so a bench completed while the mothership was down is never lost.
+  + (isPod ? pending.map((p) => `<div class="job-row pend-row">
+      <span class="job-mk warn"></span>
+      <span class="mono job-model">${escH((p.model || "").split("/").pop() || p.model || "?")}</span>
+      <span class="tag">${escH(p.suite_id || "")}</span>
+      <span class="job-stage">unsubmitted results${p.created_at ? " · benched " + new Date(p.created_at * 1000).toLocaleString() : ""}</span>
+      <div class="job-submit-row"><button class="primary job-submit-sig" data-sig="${escA(p.job_sig)}">⬆ SUBMIT TO MOTHERSHIP</button></div>
+    </div>`).join("") : "");
   $$(".job-live").forEach((b) => b.onclick = () => $("#tabs [data-live]").click());
-  $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id));
+  $$(".job-stop").forEach((b) => b.onclick = () => stopJob(b.dataset.id, b));
+  $$(".job-resume").forEach((b) => b.onclick = () => resumeJob(b.dataset.id));
+  $$(".job-submit").forEach((b) => b.onclick = () => submitJob(b.dataset.id, b));
+  $$(".job-submit-sig").forEach((b) => b.onclick = () => submitPendingSig(b.dataset.sig, b));
+  box.querySelectorAll(".tune-flag-chip").forEach((b) =>
+    b.onclick = () => focusTuneCard(b.dataset.flag));
 }
 
-async function stopJob(id) {
-  try { await api("/api/pod/jobs/" + encodeURIComponent(id) + "/stop", { method: "POST", headers: podHeaders() }); } catch (e) {}
+async function stopJob(id, button = null) {
+  if (button) { button.disabled = true; button.textContent = "stopping…"; }
+  try {
+    const r = await api("/api/pod/jobs/" + encodeURIComponent(id) + "/stop",
+      { method: "POST", headers: podHeaders() });
+    if (!r || !r.ok) throw new Error("the pod did not confirm the stop request");
+  } catch (e) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "stop failed";
+      button.title = String(e && e.message || e);
+    }
+    return;
+  }
+  await pollJobs();
+}
+
+async function resumeJob(id) {
+  let r;
+  try { r = await api("/api/pod/jobs/" + encodeURIComponent(id) + "/resume", { method: "POST", headers: podHeaders() }); }
+  catch (e) { runStatus("resume failed: " + (e && e.error ? e.error : JSON.stringify(e)), "err"); return; }
+  runStatus(`resumed — job ${r.job_id} continues from the last scored case`, "ok");
+  pollJobs();
+}
+
+// shared outcome line for both deferred-submit buttons: the duplicate answer is the owner's
+// exact wording; a failure reassures that nothing was lost.
+function submitOutcome(r) {
+  runStatus(r.duplicate ? "job already submitted and available on the Mothership"
+    : r.ok ? "results submitted to the mothership ✓"
+    : "submit failed (" + (r.message || r.error || ("HTTP " + r.http)) + ") — results are still safe locally; try again once the mothership is reachable",
+    r.ok ? "ok" : "err");
+}
+
+async function submitJob(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "SUBMITTING…"; }
+  let r;
+  try { r = await api("/api/pod/jobs/" + encodeURIComponent(id) + "/submit", { method: "POST", headers: podHeaders() }); }
+  catch (e) { r = { ok: false, error: (e && e.error) || JSON.stringify(e) }; }
+  submitOutcome(r);
+  pollJobs();
+}
+
+async function submitPendingSig(sig, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "SUBMITTING…"; }
+  let r;
+  try { r = await api("/api/pod/submit/" + encodeURIComponent(sig), { method: "POST", headers: podHeaders() }); }
+  catch (e) { r = { ok: false, error: (e && e.error) || JSON.stringify(e) }; }
+  submitOutcome(r);
   pollJobs();
 }
 
@@ -3111,6 +6075,9 @@ async function init() {
   bind("#reLaunch", runEndpointBench);
   bind("#hfLaunch", runHfVerified);
   { const ts = $("#tplSel"); if (ts) ts.onchange = () => { if (ts.value !== "") applyLaunchTemplate(+ts.value); }; }
+  // champion recipes (mothership winners for this hardware): pick -> provenance, apply -> fill
+  { const cs = $("#champSel"); if (cs) cs.onchange = renderChampProv; }
+  bind("#champApply", applyChampion);
   // validated-bench wiring: auto-validate on model input; engine dropdown; MLX bare-metal helper
   const vIn = (sel, fn) => { const el = $(sel); if (el) el.oninput = fn; };
   vIn("#hfLink", () => { $("#hfLink").dataset.auto = ""; scheduleValidate(); });   // manual link = override
@@ -3118,13 +6085,19 @@ async function init() {
   // selection (scan/browse), never free-typed — so it can't be edited to a path that
   // sidesteps the check. Clearing it is a DELIBERATE mode switch to "pull the repo fresh".
   bind("#hfLocalClear", () => setLocalWeights(""));
+  // MODALITIES chips: any click switches the launch from auto-detected to explicit toggles
+  $$("#modRow .mod-chip").forEach((b) => b.onclick = () => toggleModChip(b.dataset.mod));
   vIn("#tuneExtra", updateTuneCount);
   // spec-decode block: drafter card validates like the model; presets arm --speculative-config
+  // (DFlash/DSpark drafter forms need the card; native MTP and in-checkpoint DSpark hide the
+  //  drafter fields entirely — syncSpecUI)
   { const dh = $("#drafterHf"); if (dh) dh.oninput = () => { clearTimeout(RUN.dfDeb); RUN.dfDeb = setTimeout(validateDrafter, 700); updateTuneCount(); }; }
-  { const ss = $("#specSel"); if (ss) ss.onchange = () => { const cr = $("#specCustomRow"); if (cr) cr.hidden = ss.value !== "custom"; updateTuneCount(); }; }
-  vIn("#specCustom", updateTuneCount);
+  { const ss = $("#specSel"); if (ss) ss.onchange = () => { syncSpecUI(); updateTuneCount(); }; }
+  vIn("#specCustom", () => { syncSpecUI(); updateTuneCount(); });
+  syncSpecUI();                            // initial chrome (drafter field shown, method card hidden)
   bind("#lwScan", scanModels);
   bind("#lwBrowse", openBrowse);
+  bind("#scanEndpoints", scanEndpoints);   // find a live OpenAI-compatible serve → verify against it
   bind("#browseClose", closeBrowse);
   bind("#browseUse", () => {
     if (BROWSE.path) setLocalWeights(BROWSE.path);
@@ -3138,7 +6111,7 @@ async function init() {
   { const es = $("#veEngine"); if (es) es.onchange = () => { RUN.enginePinned = true; engineChanged(); }; }
   bind("#mlxCopy", async () => {
     const b = $("#mlxCopy");
-    try { await navigator.clipboard.writeText($("#mlxCmd").textContent); } catch (e) { return; }
+    if (!(await copyText($("#mlxCmd").textContent))) return;
     b.textContent = "✓ copied"; setTimeout(() => { b.textContent = "copy command"; }, 1400);
   });
   bind("#keyAdd", addKey);
@@ -3148,7 +6121,7 @@ async function init() {
   // Run-a-Bench-Pod quickstart copy buttons (mothership CTA)
   $$(".podq-copy").forEach((b) => b.onclick = async () => {
     const pre = $("#" + b.dataset.cmd); if (!pre) return;
-    try { await navigator.clipboard.writeText(pre.textContent); } catch (e) { return; }
+    if (!(await copyText(pre.textContent))) return;
     b.textContent = "✓ copied"; b.classList.add("copied");
     setTimeout(() => { b.textContent = "copy"; b.classList.remove("copied"); }, 1400);
   });
@@ -3156,22 +6129,27 @@ async function init() {
     try { localStorage.setItem("aeon_pod_token", $("#podToken").value.trim()); } catch (e) {}
     runStatus("pod token set", "ok"); loadSavedKeys();
   });
-  $$("#tabs .tab").forEach((t) => t.onclick = () => {
-    // hide ALL aux panels first — each setter then reveals its own (fixes panel stacking)
-    ["#comparePanel", "#livePanel", "#runPanel", "#harnessPanel", "#galleryPanel", "#perfPanel"].forEach((s) => { const e = $(s); if (e) e.hidden = true; });
-    return t.dataset.admin ? setAdmin() : t.dataset.subs ? setSubs(null)
-      : t.dataset.harness ? setHarness()
-      : t.dataset.compare ? setCompare()
-      : t.dataset.live ? setLive()
-      : t.dataset.run ? setRun()
-      : t.dataset.gallery ? setGallery()
-      : t.dataset.perf ? setPerf()
-      : t.dataset.arena ? setArena(t.dataset.arena) : setBoard(t.dataset.board);
-  });
+  // one dispatch for nav clicks and the hash router (dispatchTab pre-hides aux panels;
+  // each setter reveals its own panel and writes its route via syncHash)
+  $$("#tabs .tab").forEach((t) => t.onclick = () => dispatchTab(t));
   { const cs = $("#cmpSeed"); if (cs) cs.onchange = () => loadCompare(cs.value); }
   { const go = $("#cmpRunsGo"); if (go) go.onclick = () => loadRunCompare($("#cmpRunA").value, $("#cmpRunB").value); }
+  { const go = $("#cmpCardsGo"); if (go) go.onclick = () => loadCardCompare($("#cmpCardA").value, $("#cmpCardB").value); }
+  // hash router: Back/Forward and pasted links land here (our own history writes never
+  // fire hashchange). A stray in-page href="#" click empties the hash — re-assert the
+  // current route instead of yanking the user to the default board.
+  window.addEventListener("hashchange", () => {
+    const h = location.hash || "";
+    if ((h === "" || h === "#" || h === "#/") && ROUTE.cur && ROUTE.cur !== h) {
+      try { history.replaceState(null, "", ROUTE.cur); } catch (e) {}
+      return;
+    }
+    routeApply(h);
+  });
   $("#subsBoard").onchange = () => { SUBS.board = $("#subsBoard").value; loadSubs(); };
-  $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); };
+  { const ss = $("#subsSort"); if (ss) ss.onchange = () => { SUBS.sort = ss.value; loadSubs(); }; }
+  $("#adminRefresh").onclick = () => { loadAdminBenches(); loadEvaluators(); loadAdminArtifacts(); loadAdminLive(); loadIngestLog(); };
+  { const f = $("#ingestFilter"); if (f) f.onchange = loadIngestLog; }
   $("#adminKind").onchange = loadAdminArtifacts;
   $("#arenaPrompt").onchange = () => { ARENA.pinned = $("#arenaPrompt").value; nextMatch(); };
   bind("#arenaGenBtn", arenaGenerate);     // generation moved to pods; button may be absent
@@ -3198,6 +6176,49 @@ async function init() {
   $("#pwModal").onclick = (e) => { if (e.target.id === "pwModal") closePwModal(); };
   // gallery preview overlay: close on X / backdrop (Esc handled with the other modals below)
   { const gc = $("#galClose"); if (gc) gc.onclick = closeGalPreview; }
+  // remote serving machine: the ONE command that authorizes this pod there, per shell.
+  // NOTE ssh-copy-id does NOT exist on Windows — PowerShell must pipe the key over ssh instead
+  // (and strip CR, or the trailing  silently corrupts the authorized_keys line).
+  { const rh = $("#veRemoteHost");
+    const KEY = "~/.aeon/id_ed25519";                     // the pod's own identity (auto-created)
+    const cmds = (dest) => ({
+      ps: `Get-Content "$env:USERPROFILE\\.aeon\\id_ed25519.pub" | ssh ${dest} `
+        + `"mkdir -p ~/.ssh && chmod 700 ~/.ssh && tr -d '\\r' >> ~/.ssh/authorized_keys `
+        + `&& chmod 600 ~/.ssh/authorized_keys"`,
+      mac: `ssh-copy-id -i ${KEY}.pub ${dest}`,
+      linux: `ssh-copy-id -i ${KEY}.pub ${dest}`,
+    });
+    let keyFetched = false;
+    const upd = async () => {
+      const v = (rh.value || "").trim();
+      const help = $("#veRemoteHelp");
+      if (help) help.hidden = !v;
+      if (!v) return;
+      const c = cmds(v);
+      $$("#veRemoteHelp .ep-ssh-cmd").forEach((el) => { el.textContent = c[el.dataset.os] || ""; });
+      if (!keyFetched) {                                  // create the key so the command can work
+        keyFetched = true;
+        try {
+          const k = await api("/api/pod/ssh_key", { headers: podHeaders() });
+          const n = $("#veSshKeyNote");
+          if (n) n.textContent = k && k.pubkey
+            ? `this pod's key: ${String(k.pubkey).slice(0, 46)}…  (${k.pub_path})`
+            : "no ssh key yet — install openssh (ssh-keygen) on this pod to use a remote host";
+        } catch (e) {}
+      }
+    };
+    if (rh) { rh.addEventListener("input", upd); upd(); }
+    $$(".ep-ssh-copy").forEach((b) => b.onclick = () => {
+      const el = document.querySelector(`#veRemoteHelp .ep-ssh-cmd[data-os="${b.dataset.os}"]`);
+      copyButton(b, (el && el.textContent) || "");
+    });
+  }
+  // ⛶ fullscreen (gallery preview + each arena side). Parent-side requestFullscreen on a real
+  // user gesture, then focus back into the frame so the game keeps the keyboard.
+  { const gf = $("#galFull"); if (gf) gf.onclick = () => goFullscreen($("#galFrame")); }
+  $$(".arena-full").forEach((b) => b.onclick = () => goFullscreen($("#" + b.dataset.full)));
+  // clicking anywhere on an artifact frame's stage hands the keyboard back to the artifact
+  { const st = $("#galStage"); if (st) st.addEventListener("mousedown", () => focusArtifactFrame($("#galFrame"))); }
   { const gm = $("#galModal"); if (gm) gm.onclick = (e) => { if (e.target.id === "galModal") closeGalPreview(); }; }
   // tip jar: header + footer triggers, close on X / backdrop, copy each wallet
   { const tb = $("#tipBtn"); if (tb) tb.onclick = openTip; }
@@ -3210,12 +6231,19 @@ async function init() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("#tipModal").hidden) { closeTip(); return; }      // Esc closes the tip modal
     if (e.key === "Escape" && !$("#authModal").hidden) { closeAuth(); return; }   // Esc always closes the dialog
-    if (e.key === "Escape" && !$("#galModal").hidden) { closeGalPreview(); return; }  // Esc closes the preview
+    // Esc closes the preview — but the browser spends the FIRST Esc exiting fullscreen / releasing
+    // pointer lock. Closing on that one would rip the modal away when the player only wanted their
+    // cursor back, so stand down while either is held; the next Esc closes.
+    if (e.key === "Escape" && !$("#galModal").hidden
+        && !document.fullscreenElement && !document.pointerLockElement) { closeGalPreview(); return; }
     if (e.key === "Escape" && !$("#browseModal").hidden) { closeBrowse(); return; }   // Esc closes the browser
     if (e.key === "Escape" && !$("#podModal").hidden) { closePodModal(); return; }    // Esc closes the pod quickstart
     const ap = $("#arenaPanel");
     if (!ap || ap.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || "")) return;
+    // IFRAME matters: while an artifact frame holds focus its keys are ITS input, not hotkeys —
+    // without this, WASD in an arena game hits 'a' and casts a vote (auto-advancing the match).
+    if (/INPUT|SELECT|TEXTAREA|IFRAME/.test((e.target && e.target.tagName) || "")) return;
+    if (artifactHasFocus() || document.fullscreenElement || document.pointerLockElement) return;
     const map = { a: "a", b: "b", t: "tie" };
     const w = map[e.key.toLowerCase()];
     if (!w) return;
@@ -3224,6 +6252,8 @@ async function init() {
   });
   // Enter submits in every launch/key form (there are no <form> elements, so no native submit)
   [["#reBase", "#reLaunch"], ["#reModel", "#reLaunch"], ["#hfLink", "#hfLaunch"],
+   ["#frMaxTok", "#frLaunch"],
+   ["#frKeyVal", "#frKeySave"], ["#reKeyVal", "#reKeySave"],
    ["#keyVal", "#keyAdd"], ["#podToken", "#podTokenSave"]].forEach(([i, b]) => {
     const el = $(i);
     if (el) el.onkeydown = (e) => {
@@ -3232,6 +6262,11 @@ async function init() {
       const btn = $(b); if (btn && !btn.disabled) btn.click();
     };
   });
+  bind("#frValidate", validateFrontierApi);
+  bind("#frLaunch", runFrontierBench);
+  bind("#frKeySave", () => saveInlineApiKey("fr", "#frKey"));
+  bind("#reKeySave", () => saveInlineApiKey("re", "#reKey"));
+  { const fm = $("#frModel"); if (fm) fm.onchange = () => renderFrontierInfo(); }
   // Enter in the username field advances to the password field
   { const au = $("#authUser"); if (au) au.onkeydown = (e) => { if (e.key === "Enter") $("#authPass").focus(); }; }
   // HUD readouts — both are TRUE data, never decoration:
@@ -3264,5 +6299,114 @@ async function init() {
     setInterval(() => { if (active !== "live") pollLive(); }, 15000);
   }
   await loadBoard();                        // no loadModels(): the launch form is gone
+  // apply the initial route — a refresh keeps you where you were, a shared link opens the
+  // exact view (#/submissions/<id> · #/compare/A,B · legacy #compare= · any tab). A plain,
+  // gated or malformed hash just canonicalises to #/board: the default board is already
+  // rendered above, so no double fetch.
+  const p0 = gateRoute(parseRoute(location.hash), CFG.role, !!(AUTH.user && AUTH.user.admin));
+  if (p0.tab === "board") syncHash("board");
+  else routeApply(location.hash);
 }
-init();
+// ---- Node test hook (test_dial_row.js · test_routing.js) --------------------------------------
+// Under `AEON_WEB_TEST=1 node …` export the pure renderers (dial/globalRow are plain string
+// builders) plus applyRole + CFG for the role-gating fixture, and the router units
+// (parseRoute/routeHash/gateRoute/syncHash/ROUTE), instead of booting the app.
+// In a browser `process` is undefined, so this branch is inert and init() runs as always.
+if (typeof process !== "undefined" && process.env && process.env.AEON_WEB_TEST === "1"
+    && typeof module !== "undefined") {
+  module.exports = { dial, rowDials, globalRow, _boardEmpty, _aeonTitle, applyRole, CFG, escH, escA, fmtComp,
+    fmtCtx, ctxChip, parseRoute, routeHash, gateRoute, syncHash, ROUTE, godRow,
+    expBand, expHeat, expLine, expToggleModel, expDefaultSel, expTpsMax, expFacetFilter, expPlateHead, galCard };
+} else {
+  init();
+}
+
+// ---- "agentic untested" help ------------------------------------------------------------------
+// Agentic is 30% of the AEON score and by far the hardest part to get running on someone else's
+// machine: it needs a usable docker socket, three harness images built locally, and a served
+// context of at least 64K. A run missing it still ranks (on what it measured) - but the operator
+// has to be able to find out WHY and what to do, without reading the source. Two audiences, one
+// panel: steps a person can follow, and a block they can paste to an agent.
+const AGENTIC_HELP = {
+  failed: {
+    head: "The agentic harnesses ran, but every one scored ~0",
+    what: "That is almost never the model. Every task failing through a real harness means the " +
+          "server never converted the model's tool calls into OpenAI <code>tool_calls</code>, so " +
+          "the agent saw a model that refuses to use tools. A genuinely weak model still scores " +
+          "something. The usual cause is a missing or wrong <code>--tool-call-parser</code>.",
+    steps: [
+      "Check tool calling in one request \u2014 the pod does this automatically now, and prints the verdict before the suite starts.",
+      "If the parser is wrong, the probe prints the exact flag to restart the serve with.",
+      "Re-run the benchmark. Nothing else needs to change.",
+    ],
+  },
+  missing: {
+    head: "The agentic suite never ran",
+    what: "The three coding-agent harnesses run as containers the pod builds on first use. If the " +
+          "pod cannot reach Docker, cannot build them, or the model is served with a context " +
+          "window below 64K (the Hermes harness refuses less), agentic is skipped entirely.",
+    steps: [
+      "Make sure the pod can use Docker: it needs <code>-v /var/run/docker.sock:/var/run/docker.sock</code>, and your user must be able to run <code>docker info</code> without sudo.",
+      "Serve the model with at least 64K context (<code>--max-model-len 65536</code>).",
+      "Leave enough disk for the harness images \u2014 roughly 3 GB each, built once and cached.",
+      "Re-run with the default <code>comprehensive</code> preset, which includes all three harnesses.",
+    ],
+  },
+};
+
+const AGENTIC_AGENT_PROMPT = `My AEON Bench run is missing its agentic score. Please fix it and re-run.
+Check, in order:
+1. Can the pod use Docker?  docker exec aeon-pod docker info
+   If not, recreate the pod with:  -v /var/run/docker.sock:/var/run/docker.sock
+2. Can it build the harness images?
+   docker exec aeon-pod sh -c 'for h in hermes openclaw opencode; do docker build -f /app/harness/harness-$h.Dockerfile -t aeon-harness-$h:latest /app/harness; done'
+   A failure here prints the prerequisites and the exact command to run.
+3. Is the model served with at least 64K context? The Hermes harness refuses anything smaller.
+   Serve with --max-model-len 65536.
+4. Does tool calling actually work? The pod probes this before the suite and prints a verdict.
+   If it reports a wrong parser it also prints the exact flag, e.g.
+   --tool-call-parser qwen3_coder --enable-auto-tool-choice
+   Find the right one from the model's chat template (AGENTS.md section 4(e-parsers)).
+5. Re-run with the comprehensive preset (the default) so all three harnesses run.
+Report back which of the five was wrong.`;
+
+function openModal(html) {
+  const body = document.getElementById("helpBody");
+  const modal = document.getElementById("helpModal");
+  if (!body || !modal) return;
+  body.innerHTML = html;
+  modal.hidden = false;
+  const x = document.getElementById("helpClose");
+  if (x) { x.onclick = () => { modal.hidden = true; }; setTimeout(() => x.focus(), 30); }
+  modal.onclick = (ev) => { if (ev.target === modal) modal.hidden = true; };
+}
+
+function showAgenticHelp(kind) {
+  const h = AGENTIC_HELP[kind] || AGENTIC_HELP.missing;
+  const body =
+    `<h3>\u26a0 Agentic untested \u2014 ${escH(h.head)}</h3>` +
+    `<p class="ag-what">${h.what}</p>` +
+    `<p class="ag-note">This run is still <b>ranked</b> on everything it did measure. Agentic is ` +
+    `simply left out of its AEON score rather than counted as a zero \u2014 an untested skill is ` +
+    `not a failed one.</p>` +
+    `<h4>How to fix it</h4><ol class="ag-steps">` +
+    h.steps.map((x) => `<li>${x}</li>`).join("") + `</ol>` +
+    `<h4>Or hand this to your agent</h4>` +
+    `<pre class="ag-prompt" id="agPrompt">${escH(AGENTIC_AGENT_PROMPT)}</pre>` +
+    `<button class="btn" id="agCopy">copy for agent</button> ` +
+    `<a class="btn" href="https://github.com/AEON-7/Aeon-Bench-Pod/blob/main/AGENTS.md#4e-parsers-tool-call--reasoning-parsers--the-setting-that-quietly-costs-30" target="_blank" rel="noopener noreferrer">full guide</a>`;
+  openModal(body);
+  const c = document.getElementById("agCopy");
+  if (c) c.onclick = () => {
+    navigator.clipboard.writeText(AGENTIC_AGENT_PROMPT).then(() => { c.textContent = "copied \u2713"; });
+  };
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-agentic-help]");
+  if (!b) return;
+  e.preventDefault();
+  e.stopPropagation();                       // never also open the row behind the badge
+  showAgenticHelp(b.getAttribute("data-agentic-help"));
+});
+

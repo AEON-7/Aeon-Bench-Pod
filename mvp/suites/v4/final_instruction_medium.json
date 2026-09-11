@@ -1,0 +1,44 @@
+[
+ {
+  "id": "v3.instruction.medium.01",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Write a short description of a signal-tower keeper named Orvin. Requirements: (1) it must be exactly 3 sentences long, written as one paragraph with each sentence ending in a period, question mark, or exclamation mark (do not use abbreviations with periods like 'Mr.' or 'e.g.'); (2) it must contain the word 'lantern' at least once; (3) it must not contain the word 'sea' anywhere, in any capitalization — this includes hyphenated forms like 'sea-spray' (words that merely contain those letters with no word break, such as 'seas' or 'seaside', are fine). Output only the paragraph, nothing else.",
+  "eval": {
+   "checkers": [
+    {"type": "structural_count", "unit": "sentence", "op": "==", "n": 3},
+    {"type": "regex_constraint", "pattern": "\\blantern\\b", "mode": "must_match"},
+    {"type": "regex_constraint", "pattern": "\\bsea\\b", "mode": "must_not_match"}
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.medium.02",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Write a list of exactly 5 lines, with no blank lines between them, describing an imaginary robot called Zimrell. Every line must begin with the exact three characters 'Zim' (capital Z, lowercase i and m) as its first characters — for example a line could start with 'Zimrell' or 'Zim's'. Output only the 5 lines, nothing else.",
+  "eval": {
+   "checkers": [
+    {"type": "structural_count", "unit": "line", "op": "==", "n": 5},
+    {"type": "regex_constraint", "pattern": "(?m)^(?!Zim)", "mode": "must_not_match", "ignore_case": false}
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v3.instruction.medium.03",
+  "category": "Instruction",
+  "tier": 0,
+  "difficulty": "medium",
+  "prompt": "Take the phrase 'copper falcon nine vex' and reply with its words in REVERSE order, all lowercase, separated by single spaces, with no punctuation and no other text of any kind. Your entire reply must be exactly that reversed phrase.",
+  "eval": {
+   "checkers": [
+    {"type": "exact_match", "value": "vex nine falcon copper", "normalize": true, "ignore_case": false}
+   ],
+   "combine": "all"
+  }
+ }
+]

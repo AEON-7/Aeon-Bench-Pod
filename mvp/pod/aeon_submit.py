@@ -90,17 +90,17 @@ class Pod:
             time.sleep(min(2 ** attempt, 20))            # 1, 2, 4, 8, 16 s
         raise last
 
-    def _get(self, path):
+    def _get(self, path, retries=5):
         req = urllib.request.Request(self.base + path, headers={"User-Agent": _UA})
-        with self._open(req, 20) as r:
+        with self._open(req, 20, retries=retries) as r:
             return json.loads(r.read())
 
-    def _post(self, path, obj, headers=None):
+    def _post(self, path, obj, headers=None, retries=5):
         req = urllib.request.Request(
             self.base + path, data=json.dumps(obj).encode(),
             headers={"Content-Type": "application/json", "User-Agent": _UA, **(headers or {})}, method="POST")
         try:
-            with self._open(req, 120) as r:               # 120s: large signed bundles over the tunnel
+            with self._open(req, 120, retries=retries) as r:   # 120s: large signed bundles over the tunnel
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())           # genuine app error after retries -> code+body
@@ -117,11 +117,18 @@ class Pod:
                           {"public_key": self.pub, "signature": self._sign(_canon(body)),
                            "model": model, "suite_id": suite_id, "board": board})
 
-    def submit(self, run_id, run_nonce, run_token, results, *, final=True, **extra):
+    def submit(self, run_id, run_nonce, run_token, results, *, final=True, retries=5, **extra):
         bundle = {"run_id": run_id, "run_nonce": run_nonce, "results": results, "final": final, **extra}
         return self._post("/api/v1/runs/%s/results" % run_id,
                           {"bundle": bundle, "signature": self._sign(_canon(bundle))},
-                          headers={"X-Aeon-Run-Token": run_token})
+                          headers={"X-Aeon-Run-Token": run_token}, retries=retries)
+
+    def job_status(self, job_sig, retries=1):
+        """GET /api/v1/jobs/{job_sig} -> {exists, run_id, status}: lets a pod skip re-uploading
+        a bundle the mothership already committed (deferred/offline submits). Raises on network
+        failure / an old mothership without the route — callers treat that as 'unknown'.
+        Low-retry by default: this is a cheap pre-check, the submit itself does the retrying."""
+        return self._get("/api/v1/jobs/" + job_sig, retries=retries)
 
     def run_and_submit(self, model, suite_id, results, board="text", **extra):
         self.enroll()                                   # idempotent

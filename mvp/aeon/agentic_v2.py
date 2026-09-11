@@ -40,7 +40,17 @@ from __future__ import annotations
 import os
 import re
 
-SUITE_ID = "aeon-agentic-v2.2"   # v2.2: +5 GOD-MODE frontier tasks (arena-artifact producing)
+# v2.3: +5 GOD MODE tasks (distinct god_mode tier)
+# v2.4: +harness self-config setup case (agentic.setup.<harness> — minted per harness by
+#        pod.run_harness2 from pod.harness_skills, scored 1.0/0.5/0.0; changes the harness
+#        suite composition, so old and new runs must never mix in one matrix cell)
+# v2.5: GOD MODE brought to 5 tasks per gallery category (app/game/animation) = 15, from 4/4/2.
+#        The five new ones sit deliberately beyond frontier — each needs a real algorithm
+#        implemented correctly (causal identification with backdoor/frontdoor + AIPW, alpha-beta
+#        search on a hex board, an incompressible Navier-Stokes solver, a BVH path tracer with
+#        importance sampling, XPBD cloth with self-collision) rather than a canvas with motion.
+#        A bigger, harder corpus moves scores, so this is a new suite era.
+SUITE_ID = "aeon-agentic-v2.5"
 
 _WS = re.compile(r"\s+")
 

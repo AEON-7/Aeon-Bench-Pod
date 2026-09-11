@@ -72,12 +72,14 @@ _BUILTIN = [
 
 # The corpus (generated + adversarially verified; every gold answer independently
 # re-derived and executed through the real evaluators before admission) lives in
-# suites/cases.json — built by suites/build_all_cases.py from suites/v3/*.json.
-# v3 design: 150 cases, 5 categories x 5 difficulty tiers with an exponential hard
-# skew (easy 2 / medium 3 / hard 5 / expert 8 / frontier 12 per category). easy+medium
-# are CANARIES (is the model configured right / can a weak model score at all); the
-# ranking signal lives in hard->frontier, which is 83% of the suite by count.
-# When the corpus is healthy it IS the whole suite (exactly 150). The tiny _BUILTIN
+# suites/cases.json — built by suites/build_all_cases.py from suites/v4/*.json.
+# v4 design: 160 cases, 5 categories x 6 difficulty tiers with an exponential hard
+# skew plus mandatory GOD MODE sentinels (easy 2 / medium 3 / hard 5 / expert 8 /
+# frontier 12 / god_mode 2 per category). easy/medium/hard are carried over from v3
+# UNCHANGED — easy+medium are CANARIES (is the model configured right / can a weak
+# model score at all); v4 dials up only the ranking tiers (all-new expert/frontier
+# cells + a second god_mode sentinel), which is most of the suite by count.
+# When the corpus is healthy it IS the whole suite (exactly 160). The tiny _BUILTIN
 # set is a FALLBACK only — a missing/malformed corpus degrades to built-ins so the
 # mock pipeline still works, never a half-merged hybrid.
 _CASES_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "suites", "cases.json")
@@ -106,12 +108,68 @@ def _load_cases():
 
 CASES = _load_cases()
 
+# Frozen corpora of LEGACY suite versions, composed on demand from their per-cell
+# suites/<ver>/ files (exactly what build_all_cases.py shipped from). Needed wherever a
+# legacy-fallback board must be JOINED against its own corpus (e.g. the explorer during the
+# window after a suite bump) — labeling old runs with the new suite's difficulty table would
+# be a mislabeled grid, and refusing entirely would hide runs the board honestly shows.
+_LEGACY_DIRS = {"aeon-suite-v3": "v3", "aeon-suite-v2": "v2", "aeon-suite-v1": "v1"}
+_LEGACY_CACHE: dict = {}
+
+
+def legacy_cases(suite_id):
+    """Corpus for `suite_id`: the live CASES when current, else the frozen legacy cells
+    (unknown version / missing dir -> empty list, never a raise)."""
+    if not suite_id or suite_id == SUITE_ID:
+        return CASES
+    if suite_id in _LEGACY_CACHE:
+        return _LEGACY_CACHE[suite_id]
+    out, seen = [], set()
+    ver = _LEGACY_DIRS.get(suite_id)
+    cell_dir = os.path.join(os.path.dirname(_CASES_FILE), ver) if ver else None
+    if cell_dir and os.path.isdir(cell_dir):
+        try:
+            for fn in sorted(os.listdir(cell_dir)):
+                if not fn.endswith(".json"):
+                    continue
+                with open(os.path.join(cell_dir, fn), "r", encoding="utf-8") as f:
+                    arr = json.load(f)
+                for c in arr if isinstance(arr, list) else []:
+                    if isinstance(c, dict) and all(k in c for k in _REQUIRED)                             and c["id"] not in seen:
+                        seen.add(c["id"])
+                        out.append(c)
+        except Exception:
+            out = []   # a bad legacy cell file yields an empty (honest) explorer, not a 500
+    _LEGACY_CACHE[suite_id] = out
+    return out
+
+
+def all_known_cases():
+    """Current corpus + every shipped legacy corpus, current-first (an id in multiple
+    versions keeps its CURRENT definition — carried cases are byte-identical anyway).
+    For display joins that must label runs from ANY suite era: a v3 run's expert/frontier
+    ids must not vanish from a difficulty breakdown just because v4 replaced those cells."""
+    out = {c["id"]: c for c in CASES}
+    for sid in _LEGACY_DIRS:
+        for c in legacy_cases(sid):
+            out.setdefault(c["id"], c)
+    return list(out.values())
+
+
+def corpus_size_for(suite_id):
+    """Authoritative case count for a run's OWN suite — coverage floors must measure a run
+    against the corpus it actually ran (a full 155-case v3 pass is 100% coverage forever,
+    not 155/160 of a suite that did not exist yet). Unknown/unshipped versions fall back to
+    the current corpus size (conservative: partial mystery runs never sneak past the gate)."""
+    cases = legacy_cases(suite_id)
+    return len(cases) if cases else len(CASES)
+
 # fixed order drives the radar axes; every generated category maps to one of these
 CATEGORIES = ["Math", "Instruction", "Reasoning", "Coding", "Prose"]
-SUITE_ID = "aeon-suite-v3" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
+SUITE_ID = "aeon-suite-v4" if len(CASES) > len(_BUILTIN) else "aeon-mvp-mini"
 
 
-DIFFICULTIES = ["easy", "medium", "hard", "expert", "frontier"]
+DIFFICULTIES = ["easy", "medium", "hard", "expert", "frontier", "god_mode"]
 
 
 def _grid():

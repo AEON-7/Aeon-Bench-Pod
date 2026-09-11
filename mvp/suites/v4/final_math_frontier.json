@@ -1,0 +1,194 @@
+[
+ {
+  "id": "v4.math.frontier.01",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Let A = 3^(4^(5^6)) and B = 7^(8^9), where a^b^c denotes a^(b^c) (right-associative exponent towers) and all exponentiations are over the positive integers. Compute (A + B) mod 1000, reported as a single integer in {0, ..., 999}. Warning: in the reduction of A, the base and modulus of a required sub-computation are NOT coprime, so Euler's theorem does not apply directly at that step - handle it correctly (e.g. via the eventual periodicity of powers, or CRT). Put ONLY the final integer inside \\boxed{} - no words, no congruence signs, no leading zeros.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "282"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.02",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Count the permutations sigma of {1, 2, ..., 10} such that for EVERY position i in {1, ..., 10}, sigma(i) is NOT congruent to i, i+1, or i+2 modulo 10 (congruence modulo 10 wraps cyclically, identifying 11 with 1 and 12 with 2, so each position has exactly 3 forbidden values and 7 allowed values - but the choices interact across positions). The answer is a single positive integer; inclusion-exclusion over the forbidden-position board, a transfer-matrix method, or careful exhaustive bookkeeping all work if executed exactly. Put ONLY that integer inside \\boxed{} - no commas, no thousands separators, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "126565"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.03",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A token moves on the integer positions 0, 1, 2, 3, 4, 5, 6. From any position k with 1 <= k <= 5 it steps to k+1 with probability 0.55 and to k-1 with probability 0.45; every step takes exactly 1 second. Position 0 is a REFLECTING wall: from 0 the token moves to 1 with probability 1 (this move also takes 1 second). Position 6 is ABSORBING: the process stops the instant the token reaches 6. The token starts at position 2. Compute the expected total time, in seconds, until absorption. Beware: the standard gambler's-ruin duration formula does NOT apply because of the reflecting boundary - set up and solve the full linear system for the expected hitting times exactly (the answer is rational), then round to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no units, no fractions, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "21.7129"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.04",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A random generator emits one symbol per draw, independently across draws: A with probability 0.40, B with probability 0.25, C with probability 0.15, D with probability 0.12, and E with probability 0.08. Compute the expected number of draws needed until every one of the five symbols has appeared at least once. The unequal probabilities matter: use the inclusion-exclusion identity E[T] = sum over nonempty subsets S of (-1)^(|S|+1) / p(S), where p(S) is the sum of the probabilities of the symbols in S (31 terms in total), or any equivalent exact method - and keep every intermediate term exact (the answer is rational). Round to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no fractions, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "17.7035"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.05",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Evaluate the infinite series S = SUM from n=1 to infinity of 1 / ( n^2 (n+1)^2 (n+2)^2 ). Derive the exact closed form first - a full partial-fraction decomposition reduces S to a rational number plus a rational multiple of zeta(2) = pi^2/6; note that naive term-by-term numerical summation is unlikely to deliver 6 correct decimals. Then evaluate the closed form numerically, carrying at least 9 significant digits in pi, and round to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no pi, no fractions, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.029901"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.06",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Compute the improper integral I = INTEGRAL from 0 to infinity of [ (cos(2x) - cos(5x)) / x^2  -  3 e^(-4x) sin(3x) / x ] dx. The combined integrand extends continuously to x = 0 and the integral converges; moreover EACH of the two pieces converges separately, and they require two DIFFERENT classical techniques (one is a Frullani-type / integration-by-parts reduction, the other a Laplace-transform-type parameter integral). Derive the exact closed form, then evaluate it numerically carrying at least 9 significant digits in every constant (the result is sensitive at the 6th decimal), and round to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no symbols, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "2.781886"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.07",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Solve the coupled linear system of ODEs x'(t) = -x + 4y and y'(t) = -2x + 3y with initial conditions x(0) = 2 and y(0) = -1, where primes denote d/dt. The coefficient matrix has complex-conjugate eigenvalues, so the solution mixes a real exponential with trigonometric factors. Compute the value of x(0.8) + y(0.8), carrying full precision through the exponential and trigonometric evaluations (note cos(1.6) is small and negative - a sign slip there ruins everything). Round to exactly 4 decimal places and INCLUDE the sign. Put ONLY the final number inside \\boxed{} - no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "-15.6371"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.08",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A tetrahedron PQRS has these exact edge lengths (all in the same unit): PQ = 8, PR = 9, PS = 11, QR = 12, QS = 10, RS = 13; it is non-degenerate. Compute the radius of its INSCRIBED sphere (the insphere, internally tangent to all four faces) - NOT the circumscribed sphere. Use r = 3V / (A1 + A2 + A3 + A4), where V is the volume (obtainable from the Cayley-Menger determinant, 288 V^2 = det[[0,1,1,1,1],[1,0,PQ^2,PR^2,PS^2],[1,PQ^2,0,QR^2,QS^2],[1,PR^2,QR^2,0,RS^2],[1,PS^2,QS^2,RS^2,0]], or by placing coordinates) and A1..A4 are the four triangular face areas (Heron's formula on faces PQR, PQS, PRS, QRS - match each face to its OWN three edges). Round r to exactly 4 decimal places. Put ONLY the final number inside \\boxed{} - no units, no radicals, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "1.8891"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.09",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "An elliptical orbit has eccentricity e = 0.72 and mean anomaly M = 1.3 radians. Step 1: solve Kepler's equation E - e sin(E) = M for the eccentric anomaly E, which lies in (0, pi); at this high eccentricity you must iterate (Newton or equivalent) all the way to convergence - obtain E accurate to at least 8 decimal places, since the final answer is sensitive to it. Step 2: compute the true anomaly nu = 2 arctan( sqrt((1+e)/(1-e)) * tan(E/2) ), using the principal arctan branch (valid here because E/2 lies in (0, pi/2)). Report nu in DEGREES, rounded to exactly 3 decimal places. Put ONLY the final number inside \\boxed{} - no degree symbol, no radians, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "149.866"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.10",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A weighted six-sided die shows face k with probability k/21, for k = 1, 2, 3, 4, 5, 6. You may roll it up to 3 times. After each of the first two rolls you observe the face and either STOP (banking that face value as your final payoff, ending the game) or discard it and roll again; if you reach the third roll you must bank whatever it shows. You play the strategy that maximizes expected payoff (with these probabilities no stop-or-continue decision is ever a tie, so the optimal strategy is unique). Compute the expected payoff under optimal play by exact backward induction over rationals - the skewed probabilities shift both the continuation values AND the stopping thresholds relative to a fair die, so recompute the threshold at each stage rather than reusing fair-die lore. Round the exact rational result to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no fractions, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "5.270597"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.11",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Define the sequence a_1 = 2, a_2 = 7, and a_n = 5 a_(n-1) + 3 a_(n-2) for n >= 3. Compute a_50 mod 1000, reported as the residue in {0, ..., 999}. The terms grow to dozens of digits, so reduce modulo 1000 as you go - but every one of the 48 modular update steps must be exact, and a single arithmetic slip anywhere in the chain propagates to a wrong final residue (there is no self-correction). Put ONLY the final integer inside \\boxed{} - no words, no leading zeros, no commas.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "807"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.math.frontier.12",
+  "category": "Math",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A fair coin is flipped exactly 25 times. Compute the probability that the resulting sequence of 25 outcomes contains NO run of 3 or more consecutive heads anywhere (runs of 1 or 2 consecutive heads are allowed; tails are unrestricted). Count the valid sequences exactly - a linear recurrence conditioned on the number of trailing heads (a tribonacci-type recurrence with the CORRECT initial conditions) works - then divide by 2^25 = 33554432. The division is exact in decimal (the denominator is a power of 2), so a correct count yields the exact probability. Round the probability to exactly 6 decimal places. Put ONLY the final number inside \\boxed{} - no fractions, no percentages, no words.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "0.140094"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

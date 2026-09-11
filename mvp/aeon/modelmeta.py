@@ -144,6 +144,51 @@ def _strip_suffixes(name: str) -> str:
     return n.strip().strip("/-_.")
 
 
+# Tokens dropped when deriving the Perf dial model_family cohort key. Recipe / chat /
+# AEON-variant markers only — NOT precision/quant tokens. Quant stays in the family
+# key so BF16 and NVFP4-MIXED are different Perf cohorts (solo MIXED -> Perf 100).
+# Same-quant peers still percentile against each other on the same hw.
+_FAMILY_DROP_TOKENS = frozenset({
+    "aeon", "ultimate", "uncensored", "abliterated", "heretic", "deckard",
+    "dflash", "mtp", "xs",
+    "instruct", "chat", "it", "thinking", "reasoning", "omni",
+})
+# Quant/precision tokens deliberately KEPT (not in _FAMILY_DROP_TOKENS):
+# nvfp4, mixed, awq, awqfull, gptq, gguf, ggml, mlx, bnb, fp16, fp8, bf16,
+# int4, int8, and literal q*/iq*/Nbit parts after split.
+
+
+def model_family(name: str) -> str:
+    """Perf dial cohort family = architecture stem + quant/precision suffix.
+
+    Cohort key is (hw_bucket, model_family). We strip org prefixes and AEON/chat
+    recipe tokens, but KEEP quant/precision tokens (bf16, nvfp4, mixed, fp8, …)
+    so a BF16 build does not race an NVFP4-MIXED build of the same architecture.
+    Solo peers in a (hw, family) cohort score Perf = 100 until another same-hw
+    same-quant family run challenges them.
+
+    Does **not** call ``_strip_suffixes`` (that helper eats bf16/fp8/… for HF
+    avatar resolution); only ``@tag`` / ``:latest`` are removed here.
+
+    Examples
+    --------
+    ``AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED`` -> ``qwen3.8-27b-nvfp4-mixed``
+    ``aeon-7/qwen3.8-27b-aeon-ultimate-uncensored-bf16``         -> ``qwen3.8-27b-bf16``
+    ``aeon-7/qwen3.8-27b-aeon-ultimate-uncensored-nvfp4``        -> ``qwen3.8-27b-nvfp4``
+    ``AEON-7/Ornith-1.0-35B-AEON-Ultimate-Uncensored-NVFP4``     -> ``ornith-1.0-35b-nvfp4``
+    ``Qwen/Qwen2.5-72B-Instruct``                                -> ``qwen2.5-72b``
+    """
+    s = (name or "").strip()
+    s = re.sub(r"@.*$", "", s)
+    s = re.sub(r":latest$", "", s, flags=re.IGNORECASE)
+    s = s.strip().strip("/-_.").lower()
+    if "/" in s:
+        s = s.rsplit("/", 1)[-1]
+    parts = [p for p in re.split(r"[-_]+", s) if p]  # keep dots (qwen3.8, ornith-1.0)
+    kept = [p for p in parts if p not in _FAMILY_DROP_TOKENS]
+    return "-".join(kept) if kept else (s or "unknown")
+
+
 def _match_curated(bare: str):
     """Find a curated *vendor* org by a fragment in the bare model name. Own orgs are
     handled separately by whole-token matching (see _name_has_own_token), so they are
@@ -179,8 +224,15 @@ def _hf_avatar(name: str) -> str | None:
             req = urllib.request.Request(url, headers={"User-Agent": "aeon-bench/0.4"})
             with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as r:
                 data = json.loads(r.read(_MAX_HTTP_BYTES).decode("utf-8", "replace"))  # FIX(LOW): bound read
-            if data.get("avatarUrl"):
-                return data["avatarUrl"]
+            av = data.get("avatarUrl")
+            if av:
+                # HF returns a RELATIVE url for accounts with no custom picture — its generated
+                # identicon, "/avatars/<hash>.svg". Stored verbatim that resolved against
+                # aeon-bench.com and 404'd, so every such creator (most community submitters)
+                # showed no avatar on the boards at all. Absolutise it against huggingface.co.
+                if av.startswith("/"):
+                    av = HF.rstrip("/") + av
+                return av
         except Exception:
             continue
     return None

@@ -22,6 +22,42 @@ class TargetError(RuntimeError):
     pass
 
 
+def _streams():
+    """The live-stream buffer, or None. Imported lazily and cached: aeon/ runs on the mothership
+    too, where buffering model output would be pointless and unwanted."""
+    global _STREAMS_MOD
+    try:
+        return _STREAMS_MOD
+    except NameError:
+        pass
+    try:
+        from pod import livestreams as _ls
+        _STREAMS_MOD = _ls
+    except Exception:
+        _STREAMS_MOD = None
+    return _STREAMS_MOD
+
+
+def no_answer_reason(exc=None, text=None):
+    """Classify ONE generation attempt for the no-answer fairness rule: a case that yields
+    NO ANSWER is a technical glitch, not a wrong answer — the runner re-runs it in up to
+    two retry passes, and only when every pass fails does it become results.status
+    ='no_answer' (score NULL; the mothership weights it at ¼ of a case).
+
+    Returns None for a genuine answer, else a short reason string:
+      * 'transport: <exc>'  — the attempt RAISED (connection refused/reset, timeout,
+        HTTP failure incl. TargetError from a non-2xx response): nothing was generated;
+      * 'empty_completion'  — the request succeeded (HTTP 200) but the completion is
+        empty or whitespace-only: still not an answer.
+    Any NON-EMPTY completion is an ANSWER — a wrong answer scores 0 at full weight and
+    is never retried by this rule."""
+    if exc is not None:
+        return f"transport: {exc!r}"[:200]
+    if text is None or not str(text).strip():
+        return "empty_completion"
+    return None
+
+
 def _clean(messages):
     """Send only standard OpenAI fields (drop internal tags like _case_id)."""
     return [{"role": m["role"], "content": m["content"]} for m in messages]
@@ -46,6 +82,13 @@ def image_block(png_bytes):
 def audio_block(wav_bytes, fmt="wav"):
     b64 = base64.b64encode(wav_bytes).decode()
     return {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
+
+
+def video_block(mp4_bytes, mime="video/mp4"):
+    """OpenAI-compatible video content part — the vLLM convention for qwen-vl-style
+    models ({"type":"video_url"}), mirroring image_block's data-URL transport."""
+    b64 = base64.b64encode(mp4_bytes).decode()
+    return {"type": "video_url", "video_url": {"url": f"data:{mime};base64," + b64}}
 
 
 def _prompt_chars(messages):
@@ -101,6 +144,21 @@ def _audio_stats(messages):
     return n, nbytes
 
 
+def _video_stats(messages):
+    """(n_video, total_decoded_bytes) across video_url blocks in the messages."""
+    n, nbytes = 0, 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict) and blk.get("type") == "video_url":
+                    n += 1
+                    url = blk.get("video_url", {}).get("url", "")
+                    payload = url.split(",", 1)[1] if "," in url else url
+                    nbytes += (len(payload) * 3) // 4
+    return n, nbytes
+
+
 # Per-request HTTP timeout. Under concurrency each stream INDIVIDUALLY slows (the server
 # time-slices decode across N streams) even though total wall time drops, so a fixed timeout
 # that is fine at c=1 spuriously kills healthy long generations at c=24. The pod scales it
@@ -116,12 +174,49 @@ def _http_timeout():
         return _BASE_TIMEOUT
 
 
+def _generated_tokens(usage_tokens, gen_chars):
+    """(tokens, estimated?) for one generation.
+
+    NEVER counts streamed FRAMES. That was the old fallback and it is only a token count if the
+    server emits one token per frame — exactly the assumption that breaks when a server or proxy
+    coalesces the stream. On the live GLM-5.2 run it recorded 1-4 "tokens" for answers hundreds of
+    tokens long, which understated aggregate throughput by ~100x and inflated the decode rate by
+    ~1000x.
+
+    `gen_chars` counts EVERYTHING generated, reasoning included: hidden thinking is produced work
+    and belongs in throughput even though it never reaches the answer."""
+    if usage_tokens:
+        return int(usage_tokens), False
+    return max(1, gen_chars // 4), True          # ~4 chars/token; wrong by tens of percent, not 100x
+
+
+def _decode_rate(out_tok, tok_chunks, t_first_tok, t_last_tok):
+    """Observed decode rate in tok/s, or None when no decode phase was observed.
+
+    Measured across the REAL token window — first token-bearing chunk to last — not to stream
+    close, so trailing [DONE]/usage frames and teardown never enter the denominator.
+
+    `tok_chunks < 2` means every token arrived in a single delta: the server did not really
+    stream, or a proxy coalesced the frames. There is then no inter-token interval anywhere in
+    the data, so the rate is UNDEFINED and we say so. This is not a judgement about how fast
+    hardware can be — a genuinely very fast serve that streams properly is measured and believed."""
+    if tok_chunks < 2 or t_first_tok is None or t_last_tok is None:
+        return None
+    span = t_last_tok - t_first_tok
+    if span <= 0:
+        return None
+    # the first chunk's tokens were produced BEFORE this window opened (they are TTFT's business)
+    decoded = max(1, (out_tok or 1) - 1)
+    return decoded / span
+
+
 class OpenAITarget:
-    def __init__(self, base_url, model, api_key=None, timeout=None):
+    def __init__(self, base_url, model, api_key=None, timeout=None, extra_body=None):
         self.base_url = _ipv4(base_url.rstrip("/"))
         self.model = model
         self.api_key = api_key
         self.timeout = timeout or _http_timeout()   # None -> env-scaled default (see above)
+        self.extra_body = extra_body or {}
 
     def _headers(self):
         h = {"Content-Type": "application/json"}
@@ -153,6 +248,12 @@ class OpenAITarget:
             res["audio_bytes"] = abytes
             # honest label: this TTFT includes upload + server decode + prefill (§6c.5)
             res["ttft_after_audio_ms"] = res.get("ttft_ms")
+        nv, vbytes = _video_stats(messages)
+        if nv:
+            res["n_video"] = nv
+            res["video_bytes"] = vbytes
+            # honest label: this TTFT includes upload + server decode + prefill (§6c.5)
+            res["ttft_after_video_ms"] = res.get("ttft_ms")
         return res
 
     def _post(self, payload, stream):
@@ -161,7 +262,32 @@ class OpenAITarget:
         req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
         return urllib.request.urlopen(req, timeout=self.timeout)
 
+    def _apply_extra(self, payload, max_tokens):
+        if not self.extra_body:
+            return payload
+        token_field = self.extra_body.get("_token_field")
+        omit_temperature = bool(self.extra_body.get("_omit_temperature"))
+        for k, v in self.extra_body.items():
+            if not str(k).startswith("_"):
+                payload[k] = v
+        if token_field and token_field != "max_tokens":
+            payload.pop("max_tokens", None)
+            payload[str(token_field)] = max_tokens
+        if omit_temperature:
+            payload.pop("temperature", None)
+        return payload
+
     def _chat_stream(self, messages, temperature, max_tokens):
+        # The case id rides the prompt as an internal tag (_clean strips it before sending), so a
+        # stream can be attributed to its case without threading anything new through the runner.
+        _live_cid = None
+        try:
+            _live_cid = messages[0].get("_case_id") if messages else None
+            _ls = _streams()
+            if _ls is not None and _ls.enabled() and _live_cid:
+                _ls.begin(_live_cid)
+        except Exception:
+            _live_cid = None
         payload = {
             "model": self.model,
             "messages": _clean(messages),
@@ -170,9 +296,12 @@ class OpenAITarget:
             "max_tokens": max_tokens,
             "stream_options": {"include_usage": True},
         }
+        payload = self._apply_extra(payload, max_tokens)
         t0 = time.perf_counter()
         ttft = None          # time to the FIRST generated token of ANY kind (incl. hidden reasoning)
-        chunks = 0           # streamed token-chunks (reasoning + content) — for timing + fallback count
+        t_last_tok = None    # timestamp of the LAST token-bearing chunk (the decode window's end)
+        gen_chars = 0        # ALL generated characters (content + hidden reasoning) — token estimate
+        chunks = 0           # streamed token-chunks (reasoning + content) — timing only, NEVER a token count
         parts = []           # ANSWER text only (content); reasoning is never part of the answer
         usage = None
         finish = None        # finish_reason of the last choice; "length" == hit max_tokens (truncated)
@@ -208,6 +337,16 @@ class OpenAITarget:
                         ttft = time.perf_counter() - t0
                     if c or reasoning:
                         chunks += 1
+                        gen_chars += len(c or "") + len(reasoning or "")
+                        t_last_tok = time.perf_counter()   # the real end of the token window
+                        # LIVE: publish the delta so the dashboard can render this stream as a
+                        # terminal. Cheap and best-effort — never in the timing path's way.
+                        _ls = _streams()
+                        if _ls is not None and _ls.enabled() and _live_cid:
+                            if reasoning:
+                                _ls.chunk(_live_cid, reasoning, "reasoning")
+                            if c:
+                                _ls.chunk(_live_cid, c, "answer")
                     if c:
                         parts.append(c)
                 if obj.get("usage"):
@@ -217,16 +356,19 @@ class OpenAITarget:
         if not text and chunks == 0:
             # Server streamed nothing useful — treat as a non-stream fallback.
             return self._chat_once(messages, temperature, max_tokens)
-        out_tok = (usage or {}).get("completion_tokens") or chunks or max(1, len(text) // 4)
+        out_tok, out_est = _generated_tokens((usage or {}).get("completion_tokens"), gen_chars)
         in_tok, in_est = _input_tokens(messages, usage)
-        decode_span = (t_last - t0) - (ttft or 0.0)
-        tps = (out_tok / decode_span) if decode_span > 1e-6 else None
+        tps = _decode_rate(out_tok, chunks,
+                           (t0 + ttft) if ttft is not None else None, t_last_tok)
         return {
             "text": text,
             "ttft_ms": round(ttft * 1000, 2) if ttft is not None else None,
             "decode_tps": round(tps, 2) if tps else None,
             "e2e_ms": round((t_last - t0) * 1000, 2),
             "output_tokens": out_tok,
+            # measured from the server's usage block, or estimated from generated characters —
+            # a consumer computing throughput deserves to know which
+            "output_tokens_estimated": out_est,
             "input_tokens": in_tok,
             "input_tokens_estimated": in_est,
             "finish_reason": finish,
@@ -242,6 +384,7 @@ class OpenAITarget:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        payload = self._apply_extra(payload, max_tokens)
         t0 = time.perf_counter()
         try:
             resp = self._post(payload, stream=False)
@@ -254,7 +397,8 @@ class OpenAITarget:
         choice0 = (obj.get("choices") or [{}])[0]
         text = choice0.get("message", {}).get("content", "") or ""
         finish = choice0.get("finish_reason")
-        out_tok = (obj.get("usage") or {}).get("completion_tokens") or max(1, len(text) // 4)
+        out_tok, out_est = _generated_tokens(
+            (obj.get("usage") or {}).get("completion_tokens"), len(text))
         in_tok, in_est = _input_tokens(messages, obj.get("usage"))
         return {
             "text": text,
@@ -262,10 +406,172 @@ class OpenAITarget:
             "decode_tps": None,
             "e2e_ms": round((t_last - t0) * 1000, 2),
             "output_tokens": out_tok,
+            # measured from the server's usage block, or estimated from generated characters —
+            # a consumer computing throughput deserves to know which
+            "output_tokens_estimated": out_est,
             "input_tokens": in_tok,
             "input_tokens_estimated": in_est,
             "finish_reason": finish,
             "truncated": finish == "length",
+            "streamed": False,
+        }
+
+
+class AnthropicTarget:
+    """Anthropic Messages API adapter with the same Target.chat contract."""
+
+    def __init__(self, base_url, model, api_key=None, timeout=None, extra_body=None):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout or _http_timeout()
+        self.extra_body = extra_body or {}
+
+    def _headers(self):
+        h = {
+            "Content-Type": "application/json",
+            "anthropic-version": os.environ.get("AEON_ANTHROPIC_VERSION", "2023-06-01"),
+        }
+        if self.api_key:
+            h["x-api-key"] = self.api_key
+        return h
+
+    def _messages(self, messages):
+        system, out = [], []
+        for m in messages:
+            role = m.get("role") or "user"
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                content = "\n".join(
+                    str(b.get("text", "")) for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+            if role == "system":
+                system.append(str(content))
+            elif role in ("user", "assistant"):
+                out.append({"role": role, "content": str(content)})
+            else:
+                out.append({"role": "user", "content": str(content)})
+        payload = {"messages": out or [{"role": "user", "content": ""}]}
+        if system:
+            payload["system"] = "\n\n".join(system)
+        return payload
+
+    def _base_payload(self, messages, max_tokens, stream):
+        payload = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "stream": stream,
+            **self._messages(_clean(messages)),
+        }
+        if self.extra_body:
+            payload.update(self.extra_body)
+        return payload
+
+    def _post(self, payload):
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self.base_url + "/messages",
+            data=data,
+            headers=self._headers(),
+            method="POST",
+        )
+        return urllib.request.urlopen(req, timeout=self.timeout)
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        try:
+            return self._chat_stream(messages, max_tokens)
+        except TargetError:
+            raise
+        except Exception:
+            return self._chat_once(messages, max_tokens)
+
+    def _chat_stream(self, messages, max_tokens):
+        payload = self._base_payload(messages, max_tokens, True)
+        t0 = time.perf_counter()
+        ttft = None
+        t_last_tok = None    # timestamp of the LAST token-bearing chunk (the decode window's end)
+        gen_chars = 0        # ALL generated characters (text + thinking) — token estimate
+        chunks = 0           # frames, for timing only — NEVER a token count
+        parts = []
+        usage = {}
+        stop_reason = None
+        try:
+            resp = self._post(payload)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise TargetError(f"HTTP {e.code} from {self.base_url}: {body}")
+        with resp as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                typ = obj.get("type")
+                if typ == "content_block_delta":
+                    delta = obj.get("delta") or {}
+                    text = delta.get("text") or delta.get("thinking") or ""
+                    if text and ttft is None:
+                        ttft = time.perf_counter() - t0
+                    if text:
+                        chunks += 1
+                        gen_chars += len(text)
+                        t_last_tok = time.perf_counter()   # the real end of the token window
+                    if delta.get("type") == "text_delta" and delta.get("text"):
+                        parts.append(delta["text"])
+                elif typ == "message_delta":
+                    usage.update(obj.get("usage") or {})
+                    stop_reason = (obj.get("delta") or {}).get("stop_reason") or stop_reason
+                elif typ == "message_stop":
+                    break
+        t_last = time.perf_counter()
+        text = "".join(parts)
+        out_tok, out_est = _generated_tokens(usage.get("output_tokens"), gen_chars)
+        tps = _decode_rate(out_tok, chunks,
+                           (t0 + ttft) if ttft is not None else None, t_last_tok)
+        return {
+            "text": text,
+            "ttft_ms": round(ttft * 1000, 2) if ttft else None,
+            "decode_tps": round(tps, 2) if tps else None,
+            "e2e_ms": round((t_last - t0) * 1000, 2),
+            "output_tokens": out_tok,
+            "finish_reason": stop_reason,
+            "truncated": stop_reason == "max_tokens",
+            "streamed": True,
+        }
+
+    def _chat_once(self, messages, max_tokens):
+        payload = self._base_payload(messages, max_tokens, False)
+        t0 = time.perf_counter()
+        try:
+            resp = self._post(payload)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise TargetError(f"HTTP {e.code} from {self.base_url}: {body}")
+        with resp as r:
+            obj = json.loads(r.read().decode("utf-8", "replace"))
+        t_last = time.perf_counter()
+        text = "".join(
+            b.get("text", "") for b in obj.get("content", [])
+            if b.get("type") == "text"
+        )
+        out_tok, out_est = _generated_tokens(
+            (obj.get("usage") or {}).get("output_tokens"), len(text))
+        stop_reason = obj.get("stop_reason")
+        return {
+            "text": text,
+            "ttft_ms": None,
+            "decode_tps": None,
+            "e2e_ms": round((t_last - t0) * 1000, 2),
+            "output_tokens": out_tok,
+            "finish_reason": stop_reason,
+            "truncated": stop_reason == "max_tokens",
             "streamed": False,
         }
 
@@ -323,36 +629,101 @@ class MockTarget:
         }
 
 
-class MockVisionTarget:
-    """Canned slot-formatted answers for the vision suite, keyed by _case_id —
-    lets the vision board be exercised with zero GPU. probe_vision() short-circuits
-    this class to vision_ok=True, so these only need to satisfy the suite cases."""
+# wrong-on-purpose reply for '*-bad' mock personas: in-slot everywhere, correct nowhere
+# (closed_set rejects non-members, count_slot mismatches, CER blows past every threshold,
+# and no keyword group matches)
+_BAD_REPLY = ("<answer>zzzz</answer><count>-999</count><ocr>#####</ocr>"
+              "<object>zzzz</object><color>zzzz</color>")
 
-    GOOD = {
-        "vision.ocr.token": "<ocr>AEON</ocr>",
-        "vision.count.circles": "<count>4</count>",
-        "vision.color.square": "<answer>red</answer>",
-        "vision.spatial.quadrant": "<answer>top-left</answer>",
-        "vision.relation.leftof": "<answer>red circle</answer>",
-        "vision.chart.maxbar": "<answer>B</answer>",
-        "vision.chart.value": "<count>3</count>",
-        "vision.vqa.mcq": "<answer>triangle</answer>",
-        "vision.detail.tiny": "<ocr>k7</ocr>",
-        "vision.multi.morecount": "<answer>second</answer>",
-        "vision.describe.scene": "<object>circle</object><color>red</color>",
-    }
+
+def _gold_case_answer(case):
+    """Derive the CORRECT reply for a suite case from its OWN eval spec, so mock targets
+    never drift from the suite. Slot checkers emit their slot-formatted answers; keyword
+    checkers emit one sentence carrying the first synonym of every group in group order
+    (so ordered_keywords holds); a Tier-1 rubric emits its tier0-shadow slots."""
+    ev = case["eval"]
+    if "rubric" in ev:
+        return "".join(
+            "<{s}>{a}</{s}>".format(s=cr["tier0_check"].get("slot", "answer"),
+                                    a=cr["tier0_check"]["answer"])
+            for cr in ev["rubric"] if "tier0_check" in cr)
+    parts, kw, kw_slot, kw_scan = [], [], "answer", False
+    for chk in ev["checkers"]:
+        t = chk["type"]
+        if t in ("keyword_all", "keyword_set", "ordered_keywords", "keyword_any"):
+            groups = chk.get("groups") or ([chk["keywords"]] if chk.get("keywords") else [])
+            kw += [g[0] for g in groups if g]
+            kw_slot = chk.get("slot", "answer")
+            kw_scan = kw_scan or chk.get("scan") == "text"
+        elif t == "count_slot":
+            slot = chk.get("slot", "count")
+            parts.append(f"<{slot}>{chk['value']}</{slot}>")
+        elif t == "closed_set":
+            slot = chk.get("slot", "answer")
+            parts.append(f"<{slot}>{chk['answer']}</{slot}>")
+        elif t == "cer_threshold":
+            slot = chk.get("slot", "ocr")
+            parts.append(f"<{slot}>{chk['value']}</{slot}>")
+    if kw:
+        sent = "it shows " + ", then ".join(kw)
+        parts.append(sent if kw_scan else f"<{kw_slot}>{sent}</{kw_slot}>")
+    return " ".join(parts) or "<answer>unknown</answer>"
+
+
+class MockVisionTarget:
+    """Slot-formatted answers for the vision suite, keyed by _case_id — lets the vision
+    board be exercised with zero GPU. probe_vision() short-circuits this class to
+    vision_ok=True. The gold table is DERIVED from vision_suite's own checkers
+    (_gold_case_answer), so it never drifts from the suite. Personas: 'mock-vision*'
+    answers correctly; any '*-bad' persona answers wrong on every case."""
 
     def __init__(self, persona="mock-vision"):
         self.model = persona
+        self.bad = persona.endswith("-bad")
+        self._table = None
+
+    def _gold(self):
+        if self._table is None:
+            from . import vision_suite  # deferred: no import cycle
+            self._table = {c["id"]: _gold_case_answer(c) for c in vision_suite.CASES}
+        return self._table
 
     def chat(self, messages, *, temperature=0.0, max_tokens=512):
         cid = messages[0].get("_case_id") if messages else None
-        text = self.GOOD.get(cid, "<answer>unknown</answer>")
+        text = _BAD_REPLY if self.bad else self._gold().get(cid, "<answer>unknown</answer>")
         n, nbytes = _img_stats(messages)
         time.sleep(0.005)
         return {"text": text, "ttft_ms": 11.0, "decode_tps": 90.0, "e2e_ms": 9.0,
                 "output_tokens": max(1, len(text) // 4), "streamed": True,
                 "n_images": n, "image_bytes": nbytes, "ttft_after_image_ms": 11.0}
+
+
+class MockVideoTarget:
+    """Slot-formatted answers for the video suite, keyed by _case_id — lets the video
+    board be exercised with zero GPU (and no ffmpeg: the mock never decodes anything).
+    probe_video() short-circuits this class to video_ok=True. The gold table is DERIVED
+    from video_suite's own checkers (_gold_case_answer). Personas: 'mock-video*' answers
+    correctly; any '*-bad' persona answers wrong on every case."""
+
+    def __init__(self, persona="mock-video"):
+        self.model = persona
+        self.bad = persona.endswith("-bad")
+        self._table = None
+
+    def _gold(self):
+        if self._table is None:
+            from . import video_suite  # deferred: no import cycle
+            self._table = {c["id"]: _gold_case_answer(c) for c in video_suite.CASES}
+        return self._table
+
+    def chat(self, messages, *, temperature=0.0, max_tokens=512):
+        cid = messages[0].get("_case_id") if messages else None
+        text = _BAD_REPLY if self.bad else self._gold().get(cid, "<answer>unknown</answer>")
+        n, nbytes = _video_stats(messages)
+        time.sleep(0.005)
+        return {"text": text, "ttft_ms": 11.0, "decode_tps": 90.0, "e2e_ms": 9.0,
+                "output_tokens": max(1, len(text) // 4), "streamed": True,
+                "n_video": n, "video_bytes": nbytes, "ttft_after_video_ms": 11.0}
 
 
 class MockAudioTarget:

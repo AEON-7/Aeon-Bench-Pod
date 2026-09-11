@@ -1,88 +1,177 @@
 ---
-name: deploy-aeon-pod
+name: run-aeon-benchmark
 description: >
-  Use when asked to deploy, stand up, or operate an AEON Bench pod — run a controlled
-  benchmark of an LLM on your own hardware (pull → verify weights → serve → benchmark
-  through text + 3 agentic harnesses + vision/audio/arena/perf → sign → submit attested),
-  or point at an existing endpoint for a quick self-reported run, then read the results.
-  This is the OPERATE-the-system skill; the separate judge skill covers evaluating outputs.
+  Use when asked to run, benchmark, evaluate, or score an LLM with AEON Bench.
+  You run the AEON Bench Pod on the user's machine, point it at a model, run the
+  benchmark, and submit the signed result to the public leaderboard at aeon-bench.com.
+  All work happens on the pod. The mothership only shows the board and accepts results.
 ---
 
-# Skill: Deploy & operate an AEON benchmark pod
+# Run an AEON Bench benchmark
 
-You install the pod (once) and then **run benchmarks with it**. Setup lives in
-[`AGENTS.md`](AGENTS.md); harness internals in [`deploy/pod/AGENTS.md`](deploy/pod/AGENTS.md).
-This skill is the operating procedure.
+**What you are doing:** start a pod (a Docker container), point it at a model, run the benchmark,
+hand the user a link. The pod verifies the model's weights against Hugging Face and signs the
+result, which is what makes it rankable.
 
-## Mental model
+**Before you start, tell the user this:** a full run takes **hours** on a large model. That is
+normal. They can close the tab; it keeps going.
 
-- **The pod is the control plane ("A")**, the served model is the subject ("B"). The pod never
-  scores itself — it benchmarks the served alias `model-under-test` and submits a signed bundle.
-- **Harnesses are ephemeral.** For the agentic suite the pod spawns a **fresh container per
-  task** (Hermes / OpenClaw / OpenCode) via the Docker socket and tears it down — because agents
-  accumulate state and would "learn" across tasks. You don't start them yourself; the pod does.
-- **Trust tier is earned, not claimed.** A run pulled+verified from HuggingFace through this flow
-  is `attested` (globally rankable). Pointing at an endpoint you already serve is `self_reported`.
+---
 
-## 1 — Deploy
+## Step 1 — Start the pod
 
-**One-shot (recommended):** set `.env` (`AEON_HF_LINK`, `AEON_MOTHERSHIP`), then
-`docker compose -f deploy/pod/docker-compose.yml up --build`. This runs the whole
-pull→verify→serve→bench→submit flow and exits; the dashboard (`pod-dashboard`) stays up on `:8080`.
+Always pull first. A stale pod produces results that do not match the live board.
 
-**Native/interactive:** `cd mvp && AEON_ROLE=pod python serve.py` → open `:8080` → **Run** tab.
+```bash
+docker pull ghcr.io/aeon-7/aeon-pod:latest && docker rm -f aeon-pod
+docker run -d --name aeon-pod --network host --gpus all \
+  -v /var/run/docker.sock:/var/run/docker.sock -v aeon-pod-state:/root/.aeon \
+  -v "$HOME/aeon-models:/models" -e AEON_MODELS_HOST_DIR="$HOME/aeon-models" \
+  -v "$HOME:/host-home:ro" -e AEON_HOST_HOME_DIR="$HOME" \
+  ghcr.io/aeon-7/aeon-pod:latest
+```
 
-## 2 — Run a benchmark (the CLI: `python -m pod.aeon_pod`)
+Every mount matters. Drop the docker socket and the coding-agent tests cannot run.
 
-Pick the mode that matches what you have:
+- **No NVIDIA GPU** (Apple silicon, CPU-only): remove `--gpus all`, replace `--network host` with
+  `-p 8091:8091`.
+- Check it worked: `curl -s localhost:8091/healthz`. The dashboard is http://localhost:8091.
 
-| Goal | Command shape |
+Then connect the MCP server so you can drive it without clicking:
+
+```json
+{ "mcpServers": { "aeon-bench-pod": {
+    "command": "python",
+    "args": ["/path/to/Aeon-Bench-Pod/mvp/mcp/aeon_pod_mcp.py"],
+    "env": { "AEON_BASE": "http://127.0.0.1:8091" }
+} } }
+```
+
+No MCP? Use the dashboard: **Run tab → paste the HF link → launch**. Same flow.
+
+---
+
+## Step 2 — Decide how to point at the model
+
+**Ask one question: is the model already running as a server?**
+
+**YES — it is already serving.** Use this. It does not download and does not restart their server.
+
+```
+aeon_pod_scan_endpoints()            → gives you `hf_guess` (the model's HF repo) and the URL
+aeon_pod_run(hf_link=<hf_guess>, serve_url=<url>, verify_endpoint=true)
+```
+If the server is on a **different machine**, add `remote_host="user@host"` to BOTH calls, and run
+`aeon_pod_ssh_key()` first so the user can authorize this pod's key on that host. Without
+`remote_host` the result is filed under the wrong hardware.
+
+**NO — it is not running.** Use this. The pod downloads and verifies the weights.
+
+```
+aeon_pod_run(hf_link="org/Model")
+```
+
+**Already downloaded and you want to skip the re-download:**
+
+```
+aeon_pod_scan_models()                                    → gives you the repo id and path
+aeon_pod_run(hf_link=<repo id>, local_dir=<path>)
+```
+
+**`hf_link` is required in all three.** It is the identity the pod hash-verifies. A run without it
+can never rank, so never omit it to "save time".
+
+Point at the **exact repo being served** — the specific quant, not the base model.
+
+---
+
+## Step 3 — Run it
+
+`hf_link` is the only required argument. Everything else already defaults correctly:
+`preset="comprehensive"` is the full exam and the only shape that ranks **on the global board**.
+
+Do not set `preset`, `engine`, `serve_flags`, or `concurrency` unless the user asked for something
+specific. The pod picks the right recipe for their hardware.
+
+One optional improvement: `aeon_pod_champion_recipes()` returns proven settings for the detected
+hardware. If it returns one, pass its `serve_flags` to `aeon_pod_run`.
+
+**The two presets that rank**, so you can pick when the user asks for one by name:
+
+| Preset | What it is | Where it ranks |
+|---|---|---|
+| `comprehensive` *(default)* | The full exam: text · 3 coding-agent harnesses · vision · audio · video · arena · performance. | Global leaderboard. |
+| `god-mode` | Beyond-frontier only: god-tier questions + 15 god coding-agent tasks + arena + performance. Most models score low; that is the point. | Its own GOD MODE board. |
+
+Anything else (`--fast`, `--limit`, `--difficulty`, `--category`) is a local check and never ranks.
+
+**If the user hands you a specific serve recipe**, use it as given and change only what is unsafe
+for their hardware. The one value to check: `--gpu-memory-utilization` above ~0.8 hangs a
+unified-memory box (DGX Spark) — drop it to 0.6–0.7 and say you did. Also set `--perf-max-conc` to
+match the serve's `--max-num-seqs`, or the top of the performance ladder measures queueing instead
+of throughput. Everything else — quantization flags, spec-decode, parsers — comes from the model's
+Hugging Face card; read it before writing a recipe. Details in [`AGENTS.md`](AGENTS.md) §4(c-quant)
+and §4(f).
+
+**If the model is slow with big outputs** — the card says thinking-on-by-default, or it is a
+≥20B dense model without spec-decode, or a probe shows under ~25 tok/s single-stream — the
+default time budgets will quietly **delete the hardest tasks instead of scoring them**. Set the
+slow-model ceilings: env `AEON_HTTP_TIMEOUT=36000 GOD_TASK_TIMEOUT_S=21600 AEON_HARNESS_CONC=2`,
+flags `--concurrency 2 --max-tokens <the card's recommended total, e.g. 393216 for Qwen3.8>
+--retry-max-tokens 0`. Then tell the human the run will take **1–2.5 days** — that is the honest
+cost, not a hang. Decision rule + full table: [`AGENTS.md`](AGENTS.md) §4(e-slow).
+
+---
+
+## Step 4 — Watch it
+
+```
+aeon_pod_jobs()      → per-stage progress
+aeon_pod_stats()     → live tokens/sec, proof it is moving
+```
+
+Give the user the dashboard URL so they can watch: `http://<host>:8091`.
+
+**Read what the pod prints before the coding-agent stage.** If it says `WRONG TOOL-CALL PARSER`, it
+also prints the exact flag to restart the serve with. Apply it and re-run — otherwise that third of
+the score comes back near zero for a reason unrelated to the model.
+
+If the run is interrupted: `aeon_pod_resume()` continues from the last scored case. Nothing is lost.
+
+---
+
+## Step 5 — Hand off
+
+Finished runs submit themselves. If the mothership was unreachable, `aeon_pod_submit()` pushes them
+later — it is idempotent, so calling it twice is safe.
+
+Tell the user: the model name, the score and rank, the link, and one sentence on why it is
+trustworthy ("weights hash-verified against Hugging Face and signed").
+
+---
+
+## If something goes wrong
+
+| What you see | What to do |
 |---|---|
-| **Attested** (pull+verify+serve+submit, globally rankable) | `--hf-link org/Model --mothership $M --harness all` |
-| **Attested, sidecar-served** (weights pulled+verified separately, engine already up) | `--modelref /weights/.aeon-modelref.json --target $URL --mothership $M --harness all` |
-| **Local self-reported** (endpoint you already serve) | `--target $URL --model <served-name> --mothership $M` |
-| **Quick smoke** (first N cases) | add `--limit 8` |
-| **Hard tier only** (grouped on its own board) | add `--difficulty hard` (or `easy,medium,hard,expert`) |
-| **True A/B** (identical questions across models) | add `--fast --seed <shared-seed> --per-cell 5` |
-| **Just the agentic harnesses** (skip text/vision/audio/perf) | add `--harness all --harness-only` |
+| `WEIGHTS VERIFICATION FAILED` | Stop. This is correct behaviour. The repo does not match the weights. Do not work around it. |
+| A harness image will not build | The pod prints the prerequisites and the exact build command. Usually the docker socket mount is missing. |
+| `WRONG TOOL-CALL PARSER` | Restart the serve with the flag it prints, then re-run. |
+| The run finishes but agentic scored ~0 | The plumbing failed, not the model. It still ranks, badged "agentic untested". Fix and re-run when you can. |
+| Submission rejected `NOT_ATTESTED` | The weights were not verified against Hugging Face. Re-run with a correct `hf_link`. |
+| It is taking hours | That is normal. Do not kill it. |
 
-Other useful flags: `--arena N` (games/apps/animations per kind, default 2; `0` disables),
-`--no-vision` / `--no-audio` (default on, probe-gated), `--perf` (concurrency-ladder perf grid),
-`--concurrency N`, `--max-tokens` / `--retry-max-tokens` (reasoning-model headroom),
-`--judge <frontier-id>` (else deterministic-only), `--hardware "<label>"`.
+---
 
-A full attested run measures, in order: text suite → arena generation → the 3 harnesses →
-vision → audio → perf; each dimension submits its own bundle carrying the verified `weights_hash`,
-`repo@revision`, serve recipe, and detected hardware.
+## Rules
 
-## 3 — Operating rules that bite
+1. **Pull the latest pod image before every session.**
+2. **Always pass `hf_link`.** Without it the run cannot rank.
+3. **Do not present a smoke test, subset, or unverified run as validated.**
+4. **Never bypass weight verification.** A verification stop is by design.
+5. **Do not kill a slow run.** Benchmarks legitimately take days on large models.
+6. **A run missing its coding-agent score is still worth submitting.** It ranks on what it measured
+   and says what to fix. A partial honest result beats no result.
 
-- **Serve ≥64K context for the agentic suite.** The Hermes harness refuses any model reporting a
-  context window <64K (its tool-calling minimum) and every task fails `harness_error`. Serve with
-  `--max-model-len 65536` (or higher) so it passes natively.
-- **Unified-memory GPUs (DGX Spark/GB10) hard-hang on exhaustion.** `--gpu-memory-utilization` is
-  a fraction of *total* unified memory shared with the OS + other processes — size it for
-  co-residents (0.6–0.72), and never start a serve until the previous model's memory is released.
-- **Weights that don't verify are refused.** The pull step exits non-zero if the on-disk bytes
-  don't match HuggingFace's published LFS sha256 — by design; don't bypass it for an attested run.
-- **First boot is slow** on the DGX engine (weight load + compile + autotune, ~10–15 min). Wait for
-  `/v1/models` to list `model-under-test` before benchmarking; a silent boot is not a hang.
-- **The device key persists** at `~/.aeon/device_key.pem`; keep it to stay the same enrolled device.
-
-## 4 — Read the results
-
-- **Locally:** the pod dashboard (`:8080`) — the **Live** view streams per-category progress + the
-  prompt/answer feed while running; your run history + full per-case transparency afterward.
-- **Globally:** once a verified run is accepted, it appears on the mothership leaderboard
-  (`aeon-bench.com`) — text board (comprehensive vs hard grouped separately), the AI-Harness
-  matrix (model × Hermes/OpenClaw/OpenCode with disclosed versions), Arena, Compare-by-seed, and
-  full Submissions transparency (prompt, answer, score, judge rationale, signed manifest).
-
-## Failure triage (exact string → fix)
-
-- `harness hermes … harness_error 0.0` on every task → served context <64K; re-serve at ≥65536.
-- `WEIGHTS VERIFICATION FAILED` → the HF snapshot didn't hash-match; re-pull, check the revision.
-- submit `URLError` / timeout → mothership unreachable; check `AEON_MOTHERSHIP` + connectivity.
-- engine `not ready within Ns` → boot slower than the wait cap; raise it or check `docker logs`.
-- FlashInfer JIT / illegal-memory errors on Blackwell → set `--attention-backend TRITON_ATTN`
-  (see the engine's startup guide).
+Deeper detail — engines, recipe flags, tool-call parsers, remote serves, the scoring contract —
+is in [`AGENTS.md`](AGENTS.md). You do not need it for a normal run.

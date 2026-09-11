@@ -1,0 +1,206 @@
+[
+ {
+  "id": "v4.coding.frontier.01",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef count_regex(pattern: str, n: int, mod: int) -> int\n\nThe alphabet is binary: 'a' and 'b'. `pattern` is a regular expression in this mini-language: the atoms 'a', 'b' and '.' (which matches either letter); grouping with '(' and ')'; alternation '|' (lowest precedence - an alternative MAY be empty, so '(a|)' matches 'a' or the empty string); and the quantifiers '*', '+', '?', each applying to the immediately preceding atom or group. Return the number of strings of length EXACTLY n over {a,b} that the ENTIRE pattern matches (full match, not search), reduced modulo mod.\n\nConstraints: pattern is syntactically valid, 1 <= len(pattern) <= 30, and no quantifier is applied directly to a quantified expression; 0 <= n <= 10**18; 2 <= mod <= 10**9 + 7 and mod is NOT guaranteed prime. It is guaranteed that determinizing the standard Thompson NFA of the pattern by subset construction yields at most 32 reachable DFA states. Since n reaches 10**18, any O(n)-time DP is hopeless: build the DFA and raise its transition matrix to the n-th power (polynomial in DFA size, logarithmic in n). Beware the classic wrong answer: counting NFA paths of length n counts ambiguous strings multiple times - you MUST determinize before powering.\n\nExamples: count_regex('(ab|ba)*', 6, 10**9 + 7) == 8; count_regex('(a|b)*', 0, 1000003) == 1. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "assert count_regex('(a|b)*', 0, 1000003) == 1\nassert count_regex('(ab|ba)*', 6, 1000000007) == 8\nassert count_regex('a*b*a*', 12, 1000000007) == 79\nassert count_regex('(a|b)*abba(a|b)*', 20, 998244353) == 724288\nassert count_regex('(aab|b)*(a|)', 10**18, 1000000007) == 260277651\nassert count_regex('((ab)*|(ba)*)((a|b)?)', 10**18, 999999937) == 2\nassert count_regex('(a|bb)*(ab|b)+a?', 10**17 + 7, 912837471) == 558563588",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.02",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef kth_product(a: list[int], k: int) -> int\n\nConsider all n*(n-1)/2 pairwise products a[i]*a[j] with i < j (values, not distinct values: equal products count separately). Sort them ascending and return the k-th (1-indexed).\n\nConstraints: 2 <= len(a) <= 100000; -10**9 <= a[i] <= 10**9 with negatives, zeros and duplicates all present in hidden tests; 1 <= k <= n*(n-1)/2 (k can approach 5*10**9, far beyond anything enumerable). Materializing or even streaming all pairs is impossible - binary search on the answer value and COUNT pairs with product <= v in O(n) or O(n log n) per probe. The counting is the minefield: multiplying by a negative flips the inequality direction, zero products must be bucketed separately, and the sign classes (neg*neg positive, neg*pos negative, pos*pos positive) each need their own two-pointer scan. All arithmetic must stay exact (Python ints).\n\nExamples: kth_product([-4, 2, 3], 1) == -12 (products are -12, -8, 6); kth_product([0, 0, 5, -5], 4) == 0. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(90210)\na_big = [next(_g) % (2 * 10**9 + 1) - 10**9 for _ in range(100000)]\nassert kth_product([-4, 2, 3], 1) == -12\nassert kth_product([-4, 2, 3], 3) == 6\nassert kth_product([0, 0, 5, -5], 4) == 0\nassert kth_product([-3, -2, -1, 1, 2, 3], 5) == -3\nassert kth_product([-3, -2, -1, 1, 2, 3], 10) == 2\nassert kth_product([2, 2, 2], 2) == 4\nassert kth_product(a_big, 1) == -999933662034486536\nassert kth_product(a_big, 4999950000) == 999986360006872784\nassert kth_product(a_big, 2499975000) == 643383611048156\nassert kth_product(a_big, 3133713371) == 80735118175725698\nassert kth_product(a_big, 4999000017) == 981266659312766679",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.03",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef range_kth(a: list[int], queries: list[tuple[int, int, int]]) -> list[int]\n\nEach query (l, r, k) uses 0-based INCLUSIVE indices l <= r and 1-based k <= r - l + 1: return the k-th smallest element of the slice a[l..r] (with multiplicity - the k-th entry of the sorted slice). Return the answers in query order.\n\nConstraints: 1 <= len(a) <= 100000; 1 <= len(queries) <= 100000; -10**9 <= a[i] <= 10**9 with duplicates. Hidden tests use 100000 elements and 100000 queries whose ranges average ~25000 elements, so answering each query independently - even with CPython's C-speed sorted()/heapq on each slice - is hundreds of seconds and will NOT finish. You need a real algorithm: a persistent segment tree over compressed values (kth via root difference walk), a merge-sort tree with binary search, or offline parallel binary search with a Fenwick tree.\n\nExample: range_kth([5, 1, 4, 1, 3], [(0, 4, 2), (1, 3, 3), (2, 2, 1), (0, 4, 5)]) == [1, 4, 4, 5]. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\n_g = _rnd(60606)\nn = 100000\na_big = [next(_g) % (2 * 10**9 + 1) - 10**9 for _ in range(n)]\nqs_big = []\nfor _ in range(100000):\n    l = next(_g) % n\n    r = l + next(_g) % (n - l)\n    k = 1 + next(_g) % (r - l + 1)\n    qs_big.append((l, r, k))\nM61 = 2**61 - 1\nassert range_kth([5, 1, 4, 1, 3], [(0, 4, 2), (1, 3, 3), (2, 2, 1), (0, 4, 5)]) == [1, 4, 4, 5]\nassert range_kth([7, 7, 7], [(0, 2, 3)]) == [7]\nassert range_kth([-5, 3], [(0, 1, 1), (0, 1, 2)]) == [-5, 3]\n_res = range_kth(a_big, qs_big)\nassert len(_res) == 100000\nassert sum((i + 7) * (v % M61) for i, v in enumerate(_res)) % M61 == 1984176238498320527",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.04",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef min_circle_r2(points: list[tuple[int, int]]) -> tuple[int, int]\n\nReturn the EXACT squared radius of the minimum enclosing circle of the given integer points (the smallest circle containing all of them, boundary included), as a fraction in lowest terms: a tuple (p, q) with r^2 == p/q, q >= 1, gcd(p, q) == 1. The minimum enclosing circle is unique, so p/q is fully determined.\n\nConstraints: 1 <= len(points) <= 400; |x|, |y| <= 10**6; duplicates, all-collinear inputs and adversarial co-circular families (180+ lattice points on one common circle, with interior noise) are all present in hidden tests. Floating-point Welzl WILL be rejected: the expected answers include fractions whose numerators exceed 10**37, so every containment test and circumcenter must be computed in exact rational arithmetic (fractions.Fraction or cross-multiplied integers). Remember the circle is determined by 2 or 3 support points; handle the collinear-triple case and use a randomized incremental (Welzl / move-to-front) scheme so the exact arithmetic stays near-linear in practice.\n\nExamples: min_circle_r2([(0, 0), (2, 0)]) == (1, 1); min_circle_r2([(0, 0), (4, 0), (2, 3)]) == (169, 36); min_circle_r2([(5, 5)]) == (0, 1). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nimport math\nassert min_circle_r2([(5, 5)]) == (0, 1)\nassert min_circle_r2([(1, 1), (1, 1), (1, 1)]) == (0, 1)\nassert min_circle_r2([(0, 0), (2, 0)]) == (1, 1)\nassert min_circle_r2([(0, 0), (2, 0), (1, 1)]) == (1, 1)\nassert min_circle_r2([(0, 0), (4, 0), (2, 3)]) == (169, 36)\nassert min_circle_r2([(0, 0), (10, 0), (4, 0)]) == (25, 1)\ncirc = []\nR2 = 5525 * 5525\nfor x in range(-5525, 5526):\n    y2 = R2 - x * x\n    y = math.isqrt(y2)\n    if y * y == y2:\n        circ.append((x, y))\n        if y:\n            circ.append((x, -y))\nassert len(circ) == 180\nassert min_circle_r2(circ) == (30525625, 1)\n_g = _rnd(31415)\npts_noise = list(circ)\nfor _ in range(400 - len(circ)):\n    pts_noise.append((next(_g) % 9001 - 4500, next(_g) % 9001 - 4500))\nassert min_circle_r2(pts_noise) == (149393425, 4)\n_g = _rnd(27182)\npts_rand = [(next(_g) % 2000001 - 1000000, next(_g) % 2000001 - 1000000) for _ in range(400)]\nassert min_circle_r2(pts_rand) == (50650552770662073720301160090224355425, 27676220952575424794663522)",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.05",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef union_area(rects: list[tuple[int, int, int, int]]) -> int\n\nEach tuple (x1, y1, x2, y2) with x1 < x2 and y1 < y2 is an axis-aligned rectangle covering the half-open region [x1, x2) x [y1, y2). Return the EXACT area of the union of all rectangles as a Python int.\n\nConstraints: 0 <= len(rects) <= 50000; coordinates in [-2*10**9, 2*10**9]; heavy overlap, exact duplicates, chains of rectangles sharing edges, and areas up to ~4*10**18 all occur. The compressed-grid brute force is a (10**5)^2-cell scan and will NOT finish; per-rectangle inclusion-exclusion is exponential. The intended solution is a sweep line over x-events with a segment tree over compressed y-intervals that maintains the total covered y-length under +1/-1 coverage updates. Exact integer arithmetic only - the answers overflow doubles.\n\nExamples: union_area([(0, 0, 4, 3)]) == 12; union_area([(0, 0, 2, 2), (1, 1, 3, 3)]) == 7; union_area([]) == 0. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nassert union_area([]) == 0\nassert union_area([(0, 0, 4, 3)]) == 12\nassert union_area([(0, 0, 2, 2), (1, 1, 3, 3)]) == 7\nassert union_area([(0, 0, 1, 1), (0, 0, 1, 1)]) == 1\nassert union_area([(0, 0, 1, 1), (1, 0, 2, 1)]) == 2\nassert union_area([(-10**9, -10**9, 10**9, 10**9)]) == 4 * 10**18\n_g = _rnd(50505)\nB = 10**9\nrects_big = []\nfor _ in range(50000):\n    x1 = next(_g) % (2 * B) - B\n    y1 = next(_g) % (2 * B) - B\n    w = 1 + next(_g) % (10**8)\n    h = 1 + next(_g) % (10**8)\n    rects_big.append((x1, y1, x1 + w, y1 + h))\nassert union_area(rects_big) == 4332072620530109273",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.06",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef perm_lcs(p: list[int], q: list[int]) -> int\n\nReturn the length of the longest common subsequence (not necessarily contiguous) of the two sequences p and q.\n\nConstraints: 1 <= len(p) == len(q) == n <= 200000, and both p and q are PERMUTATIONS of 0..n-1 (every value appears exactly once in each). The classic O(n^2) LCS table is 4*10**10 cells at n = 200000 and will NOT run in time or memory - the permutation structure is not a decoration, it is the door: relabel one sequence by the positions its values occupy in the other, and the problem becomes something you can solve in O(n log n). Handle n = 1 and identical/reversed permutations.\n\nExamples: perm_lcs([2, 0, 1, 3], [0, 1, 2, 3]) == 3; perm_lcs([0, 1, 2, 3], [3, 2, 1, 0]) == 1. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nassert perm_lcs([2, 0, 1, 3], [0, 1, 2, 3]) == 3\nassert perm_lcs([0], [0]) == 1\nassert perm_lcs([0, 1, 2, 3], [3, 2, 1, 0]) == 1\nassert perm_lcs([1, 0, 3, 2], [1, 0, 3, 2]) == 4\n_g = _rnd(70707)\nn = 200000\np = list(range(n)); q = list(range(n))\nfor i in range(n - 1, 0, -1):\n    j = next(_g) % (i + 1)\n    p[i], p[j] = p[j], p[i]\nfor i in range(n - 1, 0, -1):\n    j = next(_g) % (i + 1)\n    q[i], q[j] = q[j], q[i]\nassert perm_lcs(p, q) == 877\nassert perm_lcs(p, p[::-1]) == 1\n_g2 = _rnd(80808)\nq3 = p[:]\nfor _ in range(5000):\n    i = next(_g2) % (n - 1)\n    q3[i], q3[i + 1] = q3[i + 1], q3[i]\nassert perm_lcs(p, q3) == 195245",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.07",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef max_closure_profit(profits: list[int], deps: list[tuple[int, int]]) -> int\n\nThere are n = len(profits) projects. You may select any subset S that is CLOSED under dependencies: whenever i is in S and (i, j) is in deps, j must also be in S. Return the maximum possible value of sum(profits[i] for i in S). The empty set is allowed, so the answer is never negative.\n\nConstraints: 1 <= n <= 3000; 0 <= len(deps) <= 12000; -10**6 <= profits[i] <= 10**6; deps may contain duplicates, self-loops and CYCLES (mutually dependent projects), and dependency chains thousands of nodes deep occur - mind Python's recursion limit. Per-node greedy ('take a positive node if its own closure is net positive') is wrong when closures share negative nodes; DP does not apply on a cyclic graph. This is the maximum-weight closure problem: answer = (sum of positive profits) - (min s-t cut) on the network with source->i of capacity profits[i] for positive i, i->sink of capacity -profits[i] for negative i, and INFINITE capacity dependency arcs. Implement a proper max-flow (Dinic with BFS levels + blocking flow) - 12000 infinite arcs on 3000 nodes is far beyond augmenting one path at a time with DFS on an adjacency matrix.\n\nExamples: max_closure_profit([10, -3], [(0, 1)]) == 7; max_closure_profit([6, -2, -3], [(0, 1), (1, 2), (2, 0)]) == 1 (the cycle is all-or-nothing). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nassert max_closure_profit([5], []) == 5\nassert max_closure_profit([-5], []) == 0\nassert max_closure_profit([10, -3], [(0, 1)]) == 7\nassert max_closure_profit([10, -20], [(0, 1)]) == 0\nassert max_closure_profit([6, -2, -3], [(0, 1), (1, 2), (2, 0)]) == 1\nassert max_closure_profit([3, 3, -4], [(0, 2), (1, 2)]) == 2\n_g = _rnd(11888)\nn = 3000\nprof_chain = [next(_g) % 200001 - 100000 for _ in range(n)]\ndeps_chain = [(i, i + 1) for i in range(n - 1)]\nassert max_closure_profit(prof_chain, deps_chain) == 3842446\n_g = _rnd(40404)\nprof_rand = [next(_g) % 2000001 - 1000000 for _ in range(n)]\ndeps_rand = [(next(_g) % n, next(_g) % n) for _ in range(12000)]\nassert max_closure_profit(prof_rand, deps_rand) == 27779921",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.08",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef expected_steps(n: int, edges: list[tuple[int, int]], start: int, targets: list[int]) -> tuple[int, int]\n\nA token starts on vertex `start` of a directed multigraph with vertices 0..n-1. Each step, it moves along one outgoing edge of its current vertex chosen uniformly at random - parallel edges count with multiplicity, and a self-loop is a real step that stays put. The walk stops the moment the token stands on any vertex in `targets` (if start is already a target the answer is 0 steps). Return the EXACT expected number of steps as a fraction in lowest terms: (p, q) with q >= 1 and gcd(p, q) == 1.\n\nConstraints: 1 <= n <= 40; 0 <= len(edges) <= 500; the expectation is guaranteed finite (from every vertex reachable from start, some target remains reachable), and every reachable non-target vertex has at least one outgoing edge. Vertices unreachable from start may have NO outgoing edges - do not let them poison your linear system. Set up E[v] = 1 + (1/deg(v)) * sum(E[w]) over the reachable non-target vertices and solve EXACTLY with fractions.Fraction Gaussian elimination - the hidden 40-state answer has a numerator around 10**18, so any float or Fraction(float).limit_denominator() detour produces the wrong reduced fraction.\n\nExamples: expected_steps(2, [(0, 1)], 0, [1]) == (1, 1); expected_steps(2, [(0, 0), (0, 1)], 0, [1]) == (2, 1) (a fair coin takes 2 flips on average to leave). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nassert expected_steps(2, [(0, 1)], 0, [1]) == (1, 1)\nassert expected_steps(2, [(0, 0), (0, 1)], 0, [1]) == (2, 1)\nassert expected_steps(3, [(0, 1), (1, 0), (1, 2)], 0, [2]) == (4, 1)\nassert expected_steps(2, [(0, 1), (0, 1), (0, 0)], 0, [1]) == (3, 2)\nassert expected_steps(1, [], 0, [0]) == (0, 1)\nassert expected_steps(4, [(0, 1), (1, 0), (1, 3), (2, 0)], 1, [3, 2]) == (3, 1)\n_g = _rnd(24601)\nn = 40\nedges = []\nfor u in range(n - 1):\n    edges.append((u, u + 1))\n    for _ in range(2):\n        edges.append((u, next(_g) % n))\nassert expected_steps(n, edges, 0, [n - 1]) == (1560569673271556653, 28030943857084543)",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.09",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef eval_expr(ops: list[tuple[str, str, int, str]], expr: str) -> int\n\nImplement a table-driven integer expression evaluator. Each ops entry is (symbol, meaning, precedence, kind):\n- symbol: 1 or 2 punctuation characters (never digits, letters or parentheses);\n- kind: 'infixl' (left-associative binary), 'infixr' (right-associative binary), or 'prefix' (unary);\n- meaning for infix kinds: 'add', 'sub', 'mul', 'div', 'mod', 'pow'; for prefix: 'neg';\n- precedence: an int 1..9 (higher binds tighter).\n\nSemantics: exact Python ints. 'div' is FLOOR division rounding toward negative infinity (Python //) and 'mod' is Python %; division or modulo by zero raises ValueError. 'pow' with a negative exponent raises ValueError; 0 to the 0th is 1. expr contains only digits, '(' , ')' and operator symbols - NO whitespace (any other character, including a space, raises ValueError). Integer literals are runs of digits.\n\nTokenization: at each position match the LONGEST operator symbol in the table (2-character symbols before 1-character ones). A symbol may appear in the table BOTH as a prefix and as an infix entry (like '-'); which one applies is decided by position (operand expected -> prefix, operator expected -> infix). At most one prefix and one infix entry exist per symbol, and infix operators sharing a precedence level share the same associativity.\n\nParsing (precedence climbing): a prefix operator of precedence p parses its operand with minimum binding power p (so it swallows every following infix operator of precedence >= p before negating). An 'infixl' operator of precedence p parses its right side with minimum binding power p + 1; an 'infixr' with p. Parenthesized subexpressions reset the minimum binding power to 0. Any malformed expression - dangling operator, missing operand, unbalanced or empty parentheses, trailing tokens - raises ValueError.\n\nWith table [('-','neg',1,'prefix'), ('-','sub',2,'infixl'), ('^','pow',4,'infixr')]: eval_expr(T, '-2^2') == -4 (the low-precedence prefix minus swallows the pow), but with the prefix entry at precedence 9 the same expression is 4. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "PY_TABLE = [('+', 'add', 1, 'infixl'), ('-', 'sub', 1, 'infixl'), ('*', 'mul', 2, 'infixl'),\n            ('/', 'div', 2, 'infixl'), ('%', 'mod', 2, 'infixl'), ('-', 'neg', 3, 'prefix'),\n            ('^', 'pow', 4, 'infixr')]\nT1 = [('-', 'neg', 1, 'prefix'), ('-', 'sub', 2, 'infixl'), ('^', 'pow', 4, 'infixr')]\nT2 = [('-', 'neg', 9, 'prefix'), ('-', 'sub', 2, 'infixl'), ('^', 'pow', 4, 'infixr')]\nT3 = [('@', 'sub', 3, 'infixr')]\nT4 = [('@', 'sub', 3, 'infixl')]\nT5 = [('*', 'mul', 5, 'infixl'), ('**', 'pow', 7, 'infixr'), ('-', 'neg', 6, 'prefix'), ('-', 'sub', 1, 'infixl')]\nassert eval_expr(PY_TABLE, '2+3*4-5%3') == 12\nassert eval_expr(PY_TABLE, '-7/2') == -4\nassert eval_expr(PY_TABLE, '2^3^2') == 512\nassert eval_expr(PY_TABLE, '(2+3)*(4-(5-6))') == 25\nassert eval_expr(PY_TABLE, '--4--4') == 8\nassert eval_expr(PY_TABLE, '19%-5') == -1\nassert eval_expr(T1, '-2^2') == -4\nassert eval_expr(T2, '-2^2') == 4\nassert eval_expr(T3, '100@20@5') == 85\nassert eval_expr(T4, '100@20@5') == 75\nassert eval_expr(T5, '2**3*4') == 32\nassert eval_expr(T5, '2*-3') == -6\nassert eval_expr(T5, '-2**2') == -4\nassert eval_expr(T5, '2**(3-1)**2') == 16\ndef _raises(fn):\n    try:\n        fn(); return False\n    except ValueError:\n        return True\nassert _raises(lambda: eval_expr(T5, '2**'))\nassert _raises(lambda: eval_expr(T5, '2**-1'))\nassert _raises(lambda: eval_expr(PY_TABLE, '4/(2-2)'))\nassert _raises(lambda: eval_expr(PY_TABLE, '(1+2'))\nassert _raises(lambda: eval_expr(PY_TABLE, '1 + 2'))\nassert _raises(lambda: eval_expr(PY_TABLE, '()'))\nassert _raises(lambda: eval_expr(PY_TABLE, '3+'))\nassert _raises(lambda: eval_expr(PY_TABLE, '3 4'))",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.10",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef pair_sum_counts(a: list[int], b: list[int], queries: list[int]) -> list[int]\n\nFor each query value s, count the pairs (i, j) with a[i] + b[j] == s, and return the counts in query order. Counts are exact ints (they exceed 2**32 in hidden tests only in aggregate; individual counts fit easily, but do everything in exact Python ints anyway). A query with no pairs (including s outside any reachable sum, queries up to 10**6) answers 0.\n\nConstraints: 1 <= len(a), len(b) <= 60000; 0 <= values <= 60000; 1 <= len(queries) <= 130000. The double loop is 3.6*10**9 pair visits and the distinct-value double loop is just as dead - the hidden inputs cover the full value range on both sides. The intended solution is a CONVOLUTION of the two value histograms: pack the histograms into one big Python integer with fixed-width lanes (64 bits per coefficient) and let CPython's Karatsuba big-int multiply do the convolution, or write an NTT; then answer every query by lookup. numpy is not importable in the grading sandbox.\n\nExample: pair_sum_counts([1, 2, 2], [3, 4], [4, 5, 6, 7, 999999]) == [1, 3, 2, 0, 0]. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nassert pair_sum_counts([1, 2, 2], [3, 4], [4, 5, 6, 7, 999999]) == [1, 3, 2, 0, 0]\nassert pair_sum_counts([0, 0, 0], [0, 0], [0, 1]) == [6, 0]\nassert pair_sum_counts([60000], [60000], [120000]) == [1]\n_g = _rnd(12321)\nn = 60000\nV = 60001\na_big = [next(_g) % V for _ in range(n)]\nb_big = [next(_g) % V for _ in range(n)]\nqs_big = [next(_g) % (2 * V) for _ in range(100000)]\nM61 = 2**61 - 1\n_res = pair_sum_counts(a_big, b_big, qs_big)\nassert len(_res) == 100000\nassert sum((i + 11) * v for i, v in enumerate(_res)) % M61 == 150042580684574\nassert sum(pair_sum_counts(a_big, b_big, list(range(2 * V)))) == 3600000000",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.11",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef palin_stats(s: str) -> tuple[int, int]\n\nReturn the pair (D, T) where D is the number of DISTINCT non-empty palindromic substrings of s, and T is the TOTAL number of palindromic substring occurrences - i.e. the number of index pairs (i, j), i <= j, such that s[i..j] is a palindrome (each occurrence counts, so 'aa' contributes to T at every position it appears).\n\nConstraints: 0 <= len(s) <= 200000, lowercase letters. One hidden test is 'a' * 200000, where T is 20000100000 (about 2*10**10 occurrences) - anything that touches each occurrence individually, including expand-around-center with per-occurrence work or hashing every candidate substring, is dead; O(n^2) substring enumeration dies even earlier. A palindromic tree (eertree) gives both numbers in O(n * alphabet): D is the node count and T is the sum of suffix-link-propagated occurrence counts; Manacher's algorithm can deliver T as a radius sum if you prefer, but D still needs eertree-grade deduplication.\n\nExamples: palin_stats('abacaba') == (7, 12); palin_stats('aaaa') == (4, 10); palin_stats('') == (0, 0). Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\nassert palin_stats('') == (0, 0)\nassert palin_stats('a') == (1, 1)\nassert palin_stats('aaaa') == (4, 10)\nassert palin_stats('abacaba') == (7, 12)\nassert palin_stats('abcbab') == (6, 9)\n_g = _rnd(13131)\ns_ab = ''.join('ab'[next(_g) & 1] for _ in range(200000))\nassert palin_stats(s_ab) == (2732, 599494)\nassert palin_stats('a' * 200000) == (200000, 20000100000)\n_g = _rnd(414141)\ns_abc = ''.join('abc'[next(_g) % 3] for _ in range(200000))\nassert palin_stats(s_abc) == (1962, 401457)",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.coding.frontier.12",
+  "category": "Coding",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Write a Python function with the exact signature:\n\ndef dyn_conn(n: int, ops: list[tuple[str, int, int]]) -> list[bool]\n\nVertices are 0..n-1; the graph starts empty. Each op is ('+', u, v): add undirected edge {u, v}; ('-', u, v): remove edge {u, v}; or ('?', u, v): report whether u and v are currently connected. Return the answers to the '?' ops in order.\n\nGuarantees: u != v for every op; a '+' never adds an edge that is currently present (no parallel duplicates); a '-' always removes an edge that IS currently present ({u, v} unordered, so ('-', v, u) may remove ('+', u, v)); edges removed earlier can be re-added later. Constraints: 1 <= n <= 50000; 1 <= len(ops) <= 100000 with ~30000 queries. Removals kill plain union-find, and BFS per query is ~10**9 edge visits - both will time out. The intended solution is OFFLINE: compute each edge's presence intervals over the operation timeline, hang them on a segment tree over time, then DFS that tree with a union-find supporting ROLLBACK (union by rank/size, NO path compression), answering each query at its leaf. Watch the rollback discipline (undo exactly to the mark, including rank changes) and edges still present at the end of the timeline.\n\nExample: dyn_conn(4, [('+', 0, 1), ('?', 0, 1), ('+', 1, 2), ('?', 0, 2), ('-', 0, 1), ('?', 0, 2), ('?', 1, 2)]) == [True, True, False, True]. Use only the Python standard library. The grader appends hidden asserts to your code and runs everything with a hard 25-second limit, so respect the stated complexity requirements. Output only a single Python code block.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "unit_test",
+     "test": "def _rnd(seed):\n    s = seed\n    while True:\n        s = (s * 6364136223846793005 + 1442695040888963407) % (1 << 64)\n        yield s >> 33\ndef _gen_ops(g, n, T):\n    cur = {}\n    elist = []\n    ops = []\n    while len(ops) < T:\n        r = next(g) % 100\n        if r < 40 or not elist:\n            u = next(g) % n\n            v = next(g) % n\n            if u == v:\n                continue\n            key = (min(u, v), max(u, v))\n            if key in cur:\n                continue\n            cur[key] = len(elist)\n            elist.append(key)\n            ops.append(('+', key[0], key[1]))\n        elif r < 70:\n            idx = next(g) % len(elist)\n            key = elist[idx]\n            last = elist[-1]\n            elist[idx] = last\n            cur[last] = idx\n            elist.pop()\n            del cur[key]\n            ops.append(('-', key[0], key[1]))\n        else:\n            u = next(g) % n\n            v = next(g) % n\n            if u == v:\n                continue\n            ops.append(('?', u, v))\n    return ops\nassert dyn_conn(4, [('+', 0, 1), ('?', 0, 1), ('+', 1, 2), ('?', 0, 2), ('-', 0, 1), ('?', 0, 2), ('?', 1, 2)]) == [True, True, False, True]\nassert dyn_conn(2, [('?', 0, 1), ('+', 0, 1), ('?', 0, 1), ('-', 1, 0), ('?', 0, 1), ('+', 0, 1), ('?', 0, 1)]) == [False, True, False, True]\n_g = _rnd(51515)\nops_big = _gen_ops(_g, 3000, 100000)\n_res = dyn_conn(3000, ops_big)\nassert len(_res) == 29724\nassert sum(_res) == 20736\nM61 = 2**61 - 1\nassert sum((i + 3) * (1 if b else 0) for i, b in enumerate(_res)) % M61 == 393676045",
+     "timeout": 25
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

@@ -1,0 +1,200 @@
+[
+ {
+  "id": "v4.reasoning.frontier.01",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "On the island of Morvane every inhabitant is either a knight (every statement they make is true) or a knave (every statement they make is false). Nine islanders stand in a numbered row — position 1 Bryn, 2 Calla, 3 Dorn, 4 Eshe, 5 Farr, 6 Gil, 7 Hesta, 8 Ivo, 9 Jun — and each makes TWO statements. A knight's two statements are both true; a knave's two statements are both false.\n- Bryn: (a) \"Calla is a knave.\" (b) \"The total number of knights among the nine of us is odd.\"\n- Calla: (a) \"Dorn and Eshe are of the same type (both knights or both knaves).\" (b) \"Bryn is a knave.\"\n- Dorn: (a) \"At least four of the nine of us are knights.\" (b) \"Jun is a knight.\"\n- Eshe: (a) \"Farr is a knave or Gil is a knave (inclusive or).\" (b) \"Dorn is a knight.\"\n- Farr: (a) \"Exactly four of the nine of us are knaves.\" (b) \"Hesta and Ivo are of different types.\"\n- Gil: (a) \"Bryn's second statement is true.\" (b) \"Eshe is a knave.\"\n- Hesta: (a) \"Exactly one of Bryn, Calla and Dorn is a knight.\" (b) \"Farr is a knight.\"\n- Ivo: (a) \"Jun's first statement is false.\" (b) \"Hesta is a knight.\"\n- Jun: (a) \"Ivo is a knave.\" (b) \"The number of knaves among the nine of us is odd.\"\nThere is exactly one assignment of types consistent with all eighteen statements. Compute the SUM of the position numbers (1 through 9) of the KNAVES. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "27"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.02",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Below are twelve numbered statements, S1 through S12. Each statement is either true or false, and the statements refer to one another. \"If X then Y\" is the material conditional, and \"or\" is inclusive.\nS1: \"Exactly three of statements S1, S2, S3 and S4 are true.\"\nS2: \"Statement S11 is false.\"\nS3: \"If statement S5 is true, then statement S7 is true.\"\nS4: \"Statements S9 and S10 have the same truth value.\"\nS5: \"Exactly seven of the twelve statements are true.\"\nS6: \"Statement S1 is false.\"\nS7: \"At least one of statements S2 and S8 is true.\"\nS8: \"Statements S6 and S12 have different truth values.\"\nS9: \"Statements S3 and S4 have different truth values.\"\nS10: \"At least six of the twelve statements are false.\"\nS11: \"Exactly one of statements S7, S8 and S9 is true.\"\nS12: \"Statement S10 is false.\"\nThere is exactly one assignment of truth values to S1–S12 under which every statement's content matches its assigned truth value. Compute the SUM of the indices of the TRUE statements (for example, if exactly S2 and S5 were true the answer would be 7). Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "44"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.03",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Count the strings of length 14 over the alphabet {P, Q, R} that satisfy ALL four conditions simultaneously:\n(a) no two adjacent letters are equal;\n(b) the letter P appears exactly five times;\n(c) the letter Q is never immediately followed by the letter R (the substring \"QR\" never occurs anywhere in the string);\n(d) the first letter of the string and the last letter of the string are different.\nGive the exact count. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "116"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.04",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Eight people — Ansel, Brix, Cato, Dree, Emlin, Fost, Garrow and Hale — are to be seated in a single row of eight chairs numbered 1 through 8 from left to right, one person per chair. Two chairs are adjacent when their numbers differ by exactly 1. Count the seatings that satisfy ALL of the following:\n1. Exactly one person sits between Ansel and Brix (their chair numbers differ by exactly 2).\n2. Cato and Dree are not in adjacent chairs.\n3. EXACTLY ONE of the following two conditions holds (one is true and the other is false): (i) Emlin's chair number is lower than Fost's chair number; (ii) Fost and Garrow are in adjacent chairs.\n4. Hale's chair number is a prime number (2, 3, 5 or 7).\n5. Dree's chair number is lower than Ansel's chair number.\n6. Brix is in neither chair 1 nor chair 8.\nGive the exact number of valid seatings. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "718"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.05",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Consider classical propositional logic over the six atoms p, q, r, s, t, u. \"If X then Y\" is the material conditional, and \"or\" is always inclusive. Take these seven premises:\nP1: If p then (q or r).\nP2: (not q) or s.\nP3: If r then (t or u).\nP4: If s then not t.\nP5: p or u.\nP6: not (u and q).\nP7: t or q.\nNow consider these six candidate conclusions:\nC1: If p then s.\nC2: If u then r.\nC3: If not t then q.\nC4: r or s.\nC5: If t then not q.\nC6: s or u.\nA conclusion is entailed when it is true in every truth assignment (out of the 64 possible) that satisfies all seven premises simultaneously. Let M be the number of truth assignments that satisfy all seven premises, and let S be the sum of the indices of the entailed conclusions (for example, if exactly C1 and C4 were entailed, S would be 5; if none were entailed, S would be 0). Report the single integer 100*M + S. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "508"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.06",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A radio network has nine relay stations named Kel, Mor, Nav, Osk, Pru, Qem, Rin, Sol and Tam. Exactly these seventeen pairs of stations are directly linked:\nKel–Mor, Kel–Nav, Kel–Pru, Kel–Tam, Mor–Nav, Mor–Osk, Mor–Sol, Nav–Osk, Nav–Rin, Osk–Pru, Osk–Tam, Pru–Qem, Qem–Rin, Qem–Sol, Rin–Sol, Rin–Tam, Sol–Tam.\nEach station must be assigned exactly one of four frequencies (F1, F2, F3, F4), and directly linked stations must receive different frequencies. In addition, the regulator imposes three extra requirements:\n(i) Kel must be assigned F1;\n(ii) Sol must not be assigned F3;\n(iii) Mor and Rin must be assigned different frequencies (they interfere at long range even though they are not directly linked).\nCount the number of distinct valid frequency assignments (assignments differing at any station count as different; the four frequencies are distinguishable). Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "196"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.07",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Six conference talks — Calyx, Drossel, Enko, Harmun, Lorn and Sable — are each assigned one time slot (the slots are numbered 1 through 6, one talk per slot) AND one room (the rooms are lettered A through F, one talk per room). Define the room index as A=1, B=2, C=3, D=4, E=5, F=6. All of the following are true:\n1. Drossel's slot number is exactly one more than Calyx's slot number.\n2. Calyx is in an even-numbered slot.\n3. Lorn is in an odd-numbered slot, and Lorn is not in room B.\n4. Sable is in an odd-numbered slot.\n5. Enko's room index equals Enko's slot number.\n6. Exactly one of the six talks has a room index equal to its slot number.\n7. Harmun's slot number is smaller than the slot number of the talk assigned to room F.\n8. Sable's room index is exactly two more than Drossel's room index.\n9. The talk in slot 1 is in room D.\n10. Calyx is not in room A.\n11. Drossel's room index is smaller than Calyx's room index.\n12. Harmun's room index is exactly two less than Harmun's slot number.\nThere is exactly one assignment of slots and rooms satisfying all clues. Report the single integer 10*(Sable's slot number) + (Harmun's room index). Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "52"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.08",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Twelve players, labeled 1 through 12, stand in a circle in clockwise label order (player 1 is immediately clockwise of player 12). They play an elimination game in rounds numbered k = 1, 2, 3, ... In round k the count goes up to 2k, as follows: one designated player is counted \"1\", the player immediately clockwise of them (among players still in the game) is counted \"2\", and so on clockwise, counting only players still in the game and wrapping around the circle as many times as needed; the player counted \"2k\" is eliminated and leaves the circle immediately. In round 1 the count starts at player 1 (player 1 is counted \"1\"). In every later round the count starts at the player who was standing immediately clockwise of the player just eliminated (that player is counted \"1\"). After eleven rounds one player remains. Let W be the label of the last remaining player and let E be the label of the player eliminated in round 6 (the sixth player to be eliminated). Report the single integer 100*W + E. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "408"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.09",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Ten islanders stand in a line at positions 1 through 10. Each is either a knight (always tells the truth) or a knave (always lies). Each makes one statement:\n- Every islander at an ODD position i says: \"The number of knights among the people at positions 1 through i, counting myself, is odd.\"\n- Every islander at an EVEN position i says: \"The number of knaves among all ten of us is at least i.\"\nThere is exactly one assignment of types consistent with all ten statements. Now encode the line as a 10-bit binary number: write 1 for each knight and 0 for each knave, in position order, with position 1 as the MOST significant bit and position 10 as the least significant bit. Report the decimal value of that binary number. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "962"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.10",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Five clubs — Aldwyn, Breka, Corvel, Dimme and Estran — played a single round-robin tournament: every pair of clubs played exactly one match (ten matches in total). A win is worth 3 points, a draw 1 point to each side, a loss 0 points. The final point totals were: Aldwyn 3, Breka 4, Corvel 5, Dimme 6, Estran 7. It is also known that Breka beat Aldwyn. These facts determine the result of every one of the ten matches uniquely. Let D be the total number of drawn matches in the tournament, let W be the number of matches Corvel won, and let X be the number of matches Estran drew. Report the single integer 100*D + 10*W + X. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "511"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.11",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "Eight people — Pia, Quon, Rafe, Sil, Tova, Ume, Vint and Wren — are to be seated at a round table with seats numbered 1 through 8 clockwise, one person per seat. Two seats are adjacent when their numbers differ by 1, and seat 8 is also adjacent to seat 1. Seat k is directly opposite seat k+4 (so 1-5, 2-6, 3-7 and 4-8 are the opposite pairs). Count the seatings that satisfy ALL of the following:\n1. Pia is directly opposite neither Quon nor Rafe.\n2. Quon and Sil are in adjacent seats.\n3. Tova and Ume are directly opposite each other.\n4. Vint's seat number is odd.\n5. Rafe and Tova are not in adjacent seats.\n6. Wren's seat number is greater than Pia's seat number.\n7. EXACTLY ONE of the following two conditions holds (one is true and the other is false): (i) Sil's seat number is even; (ii) Quon is in seat 1.\nSeatings that differ by rotation or reflection still count as different (the seats are numbered and fixed). Give the exact number of valid seatings. Put the final integer inside \\boxed{}.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "numeric_tolerance",
+     "value": "56"
+    }
+   ],
+   "combine": "all"
+  }
+ },
+ {
+  "id": "v4.reasoning.frontier.12",
+  "category": "Reasoning",
+  "tier": 0,
+  "difficulty": "frontier",
+  "prompt": "A seal was stolen from Harrowgate Hall by exactly one of seven stewards: Odran, Pemm, Rassa, Sten, Tavik, Ulla or Vorn. Every steward is exactly one of three kinds: RELIABLE (both of their statements are true), FALSE-TONGUED (both of their statements are false), or HALF-TONGUED (their FIRST statement is true and their SECOND statement is false — in that order). It is known that exactly three of the seven are reliable, exactly two are false-tongued, and exactly two are half-tongued. Under questioning each steward made two statements:\n- Odran: (1) \"Vorn is innocent.\" (2) \"I am not the thief.\"\n- Pemm: (1) \"The thief is false-tongued.\" (2) \"Vorn's second statement is false.\"\n- Rassa: (1) \"Sten's second statement is true.\" (2) \"Tavik is the thief.\"\n- Sten: (1) \"Pemm is not half-tongued.\" (2) \"Ulla is innocent.\"\n- Tavik: (1) \"I am innocent.\" (2) \"Odran's first statement is false.\"\n- Ulla: (1) \"The thief's second statement is false.\" (2) \"Rassa is false-tongued.\"\n- Vorn: (1) \"Exactly one of Odran and Pemm is reliable.\" (2) \"The thief is not half-tongued.\"\nThere is exactly one combination of thief and kind-assignment consistent with all of this. Who stole the seal? Finish with your answer as exactly one name inside \\boxed{}, e.g. \\boxed{Name} — the bare name only, nothing else inside the braces.",
+  "eval": {
+   "checkers": [
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{\\s*Sten\\s*\\}",
+     "mode": "must_match"
+    },
+    {
+     "type": "regex_constraint",
+     "pattern": "\\\\boxed\\{[^}]*\\b(Odran|Pemm|Rassa|Tavik|Ulla|Vorn)\\b[^}]*\\}",
+     "mode": "must_not_match"
+    }
+   ],
+   "combine": "all"
+  }
+ }
+]

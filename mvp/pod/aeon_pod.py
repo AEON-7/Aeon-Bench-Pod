@@ -654,8 +654,14 @@ def _vision_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, ma
         print(f"  [vision] {done['i']:2d}/{n}  {cid:26s} {status:15s} {s}")
         _stage("vision", done["i"], n)
 
-    pr = runner.run_vision_benchmark(rid, alias, target, params={"temperature": temperature,
-                                     "max_tokens": max_tokens}, progress_cb=cb)
+    # Keep model=alias for the OpenAI served name; thread HF identity so local dials join MIXED.
+    pr = runner.run_vision_benchmark(
+        rid, alias, target, params={"temperature": temperature, "max_tokens": max_tokens},
+        progress_cb=cb, hf_repo=repo, hf_revision=provenance.get("hf_revision"),
+        trust_tier="attested", model_verified="verified",
+        weights_hash=provenance.get("weights_hash"), recipe=provenance.get("recipe"),
+        deployment_manifest=provenance.get("deployment_manifest"),
+        bench_seed=provenance.get("bench_seed"))
     if not pr.get("vision_ok"):
         print(f"[pod] vision: model reports NO vision capability ({pr.get('error')}) — not submitting a vision run")
         return None
@@ -693,8 +699,13 @@ def _audio_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, max
         print(f"  [audio] {done['i']:2d}/{n}  {cid:26s} {status:15s} {s}")
         _stage("audio", done["i"], n)
 
-    pr = runner.run_audio_benchmark(rid, alias, target, params={"temperature": temperature,
-                                    "max_tokens": max_tokens}, progress_cb=cb)
+    pr = runner.run_audio_benchmark(
+        rid, alias, target, params={"temperature": temperature, "max_tokens": max_tokens},
+        progress_cb=cb, hf_repo=repo, hf_revision=provenance.get("hf_revision"),
+        trust_tier="attested", model_verified="verified",
+        weights_hash=provenance.get("weights_hash"), recipe=provenance.get("recipe"),
+        deployment_manifest=provenance.get("deployment_manifest"),
+        bench_seed=provenance.get("bench_seed"))
     if not pr.get("audio_ok"):
         if declared_audio:
             # visible in the GUI stage strip (red chip), not just this log line
@@ -742,8 +753,13 @@ def _video_and_submit(pod, repo, target, alias, *, env, provenance, job_ctx, max
         print(f"  [video] {done['i']:2d}/{n}  {cid:26s} {status:15s} {s}")
         _stage("video", done["i"], n)
 
-    pr = runner.run_video_benchmark(rid, alias, target, params={"temperature": temperature,
-                                    "max_tokens": max_tokens}, progress_cb=cb)
+    pr = runner.run_video_benchmark(
+        rid, alias, target, params={"temperature": temperature, "max_tokens": max_tokens},
+        progress_cb=cb, hf_repo=repo, hf_revision=provenance.get("hf_revision"),
+        trust_tier="attested", model_verified="verified",
+        weights_hash=provenance.get("weights_hash"), recipe=provenance.get("recipe"),
+        deployment_manifest=provenance.get("deployment_manifest"),
+        bench_seed=provenance.get("bench_seed"))
     if not pr.get("video_ok"):
         print(f"[pod] video: model/endpoint does not accept video_url "
               f"({pr.get('transport')}: {str(pr.get('error'))[:160]}) — not submitting a video run")

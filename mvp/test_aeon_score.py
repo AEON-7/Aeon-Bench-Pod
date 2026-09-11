@@ -5,7 +5,7 @@ Covers the scoring/data side of the Global Leaderboard redesign:
     null = not tested, never zero)
   * aeon_score blend (0.5/0.3/0.2), renormalized over present components,
     aeon_provisional flag when agentic/performance are missing
-  * performance percentile ranked WITHIN (hw_bucket, model_family) (solo cohort = 100; cross-family / cross-hw isolated)
+  * performance percentile ranked WITHIN (hw_bucket, model_family) (quant kept in family; solo = 100; MIXED!=BF16; same-quant peers percentile; cross-hw isolated)
   * audio_leaderboard surfaces board='audio' runs (the lost Gemma audio data),
     joined to the text board by CANONICAL id (lowercased hf_repo), not the alias
   * best_intelligence_run = the highest-composite ELIGIBLE text run
@@ -35,15 +35,16 @@ os.environ["AEON_DB"] = os.path.join(_TMP, "test.db")
 from aeon import audio_suite, db, hwnorm, scoring  # noqa: E402
 from aeon import suite as suite_mod  # noqa: E402
 
-FULL = "lab/qwen3.8-27b-aeon-ultimate-uncensored"  # intel+agentic+perf; family qwen3.8-27b
+FULL = "lab/qwen3.8-27b-aeon-ultimate-uncensored-bf16"  # intel+agentic+perf; family qwen3.8-27b-bf16
 IA = "lab/intel-agentic-model"       # intelligence + agentic (no perf) -> reweighted
 TEXT_ONLY = "lab/text-only-model"    # intelligence only -> every other dial null
 BEST = "lab/best-run-model"          # 2 eligible runs + 1 higher self_reported run
-SLOW = "lab/qwen3.8-27b-nvfp4"       # same family as FULL/MID (Spark) — slow peer
-MID = "lab/qwen3.8-27b-aeon-mixed"   # same family as FULL/SLOW (Spark) — mid peer
+SLOW = "lab/qwen3.8-27b-bf16"        # same BF16 family as FULL/MID (Spark) — slow peer
+MID = "lab/qwen3.8-27b-aeon-bf16"    # same BF16 family as FULL/SLOW (Spark) — mid peer
+MIXED_SOLO = "lab/qwen3.8-27b-aeon-ultimate-uncensored-nvfp4-mixed"  # different quant cohort -> solo 100
 LONER = "lab/single-bucket-model"    # only row in its (hw, family) cohort -> 100
-OTHER_FAM = "lab/ornith-1.0-35b-aeon-ultimate"  # different family, same Spark — must not affect
-SAME_FAM_5090 = "lab/qwen3.8-27b-aeon-fp8"       # same family, different hw — must not affect
+OTHER_FAM = "lab/ornith-1.0-35b-aeon-ultimate-nvfp4"  # different arch family, same Spark
+SAME_FAM_5090 = "lab/qwen3.8-27b-aeon-ultimate-bf16"  # same BF16 family, different hw
 NOANS = "lab/quarter-weight-model"   # no_answer scoring math
 COVER = "lab/noans-coverage-model"   # scored < floor but scored+no_answer >= floor
 OLD = "lab/old-plain-run-model"      # invariance: no no_answer rows anywhere
@@ -168,11 +169,12 @@ def main():
     _text_run(FULL, score=1.0)
     _harness_run(FULL, "hermes", [0.8])
     _harness_run(FULL, "opencode", [0.6])
-    full_perf = _perf_run(FULL, HW_SPARK, 100.0)   # fastest of 3 in qwen3.8-27b@Spark -> 100
-    _perf_run(MID, HW_SPARK, 60.0)            # middle of same-family Spark cohort -> 50
-    _perf_run(SLOW, HW_SPARK, 30.0)           # slowest of same-family Spark cohort -> 0
-    _perf_run(OTHER_FAM, HW_SPARK, 999.0)     # different family @ Spark — must NOT pull FULL off 100
-    _perf_run(SAME_FAM_5090, HW_5090, 5.0)    # same family @ 5090 — must NOT enter Spark cohort
+    full_perf = _perf_run(FULL, HW_SPARK, 100.0)   # fastest of 3 in qwen3.8-27b-bf16@Spark -> 100
+    _perf_run(MID, HW_SPARK, 60.0)            # middle of same-quant Spark cohort -> 50
+    _perf_run(SLOW, HW_SPARK, 30.0)           # slowest of same-quant Spark cohort -> 0
+    _perf_run(MIXED_SOLO, HW_SPARK, 12.0)     # NVFP4-MIXED quant — different cohort, solo -> 100
+    _perf_run(OTHER_FAM, HW_SPARK, 999.0)     # different arch @ Spark — must NOT pull FULL off 100
+    _perf_run(SAME_FAM_5090, HW_5090, 5.0)    # same BF16 family @ 5090 — must NOT enter Spark cohort
     _perf_run(LONER, HW_5090, 20.0)           # only row in its (hw, family) cohort -> 100
     _audio_run(FULL, score=0.5)
 
@@ -217,7 +219,7 @@ def main():
           and d["agentic"]["excluded"] == [] and d["agentic"]["all_failed"] is False,
           "agentic dial = mean of available harness scores")
     check(d["performance"] == {"score": 100.0, "peak_agg_tps": 100.0, "hw": spark_bucket,
-                               "family": "qwen3.8-27b", "conc": 8, "run": full_perf},
+                               "family": "qwen3.8-27b-bf16", "conc": 8, "run": full_perf},
           "performance dial = top percentile in its (hw, family) cohort (+ concurrency)")
     # The run is what makes the dial CLICKABLE. Without it the board's PERFORMANCE instrument has
     # nothing to open and a click falls through to the row handler, which opens the model's best
@@ -259,28 +261,37 @@ def main():
     check(round(sum(mixed.values()) / len(mixed), 1) == 58.0,
           "agentic mean excludes the failed harness (58.0, not the 39.5 of all three)")
 
-    # ---- perf percentile within (hw_bucket, model_family) ---------------------------------
+    # ---- perf percentile within (hw_bucket, model_family); quant KEPT in family ------------
     from aeon import modelmeta as _mm
     for name, want_fam in (
-        (FULL, "qwen3.8-27b"),
-        (MID, "qwen3.8-27b"),
-        (SLOW, "qwen3.8-27b"),
-        (OTHER_FAM, "ornith-1.0-35b"),
-        ("AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED", "qwen3.8-27b"),
+        (FULL, "qwen3.8-27b-bf16"),
+        (MID, "qwen3.8-27b-bf16"),
+        (SLOW, "qwen3.8-27b-bf16"),
+        (MIXED_SOLO, "qwen3.8-27b-nvfp4-mixed"),
+        (OTHER_FAM, "ornith-1.0-35b-nvfp4"),
+        ("AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED", "qwen3.8-27b-nvfp4-mixed"),
+        ("aeon-7/qwen3.8-27b-aeon-ultimate-uncensored-bf16", "qwen3.8-27b-bf16"),
         ("Qwen/Qwen2.5-72B-Instruct", "qwen2.5-72b"),
     ):
         check(_mm.model_family(name) == want_fam, f"model_family({name!r}) -> {want_fam}")
+    check(_mm.model_family(FULL) != _mm.model_family(MIXED_SOLO),
+          "BF16 and NVFP4-MIXED are different Perf cohorts")
 
     idx = scoring._perf_percentile_index()
-    for canon, want in ((FULL, 100.0), (MID, 50.0), (SLOW, 0.0), (LONER, 100.0),
-                        (OTHER_FAM, 100.0), (SAME_FAM_5090, 100.0)):
+    for canon, want in ((FULL, 100.0), (MID, 50.0), (SLOW, 0.0), (MIXED_SOLO, 100.0),
+                        (LONER, 100.0), (OTHER_FAM, 100.0), (SAME_FAM_5090, 100.0)):
         p = idx[canon]
         check(p["score"] == want, f"{canon} perf percentile within its (hw, family) = {want}")
-    check(idx[FULL]["family"] == "qwen3.8-27b", "FULL dial carries model_family key")
-    check(idx[OTHER_FAM]["family"] == "ornith-1.0-35b",
-          "different family on same Spark is its own solo cohort (100), not racing Qwen")
+    check(idx[FULL]["family"] == "qwen3.8-27b-bf16", "FULL dial carries quant-aware model_family")
+    check(idx[MIXED_SOLO]["family"] == "qwen3.8-27b-nvfp4-mixed",
+          "MIXED dial is its own quant family (solo -> 100), not racing BF16")
+    check(idx[MIXED_SOLO]["score"] == 100.0, "solo MIXED cohort -> Perf dial = 100")
+    check(idx[OTHER_FAM]["family"] == "ornith-1.0-35b-nvfp4",
+          "different arch on same Spark is its own cohort (100), not racing Qwen-BF16")
     check(idx[SAME_FAM_5090]["hw"] == hwnorm.normalize_label(HW_5090)["bucket"],
-          "same family on a different hw bucket is isolated from the Spark cohort")
+          "same BF16 family on a different hw bucket is isolated from the Spark cohort")
+    check(idx[SAME_FAM_5090]["family"] == "qwen3.8-27b-bf16",
+          "5090 peer shares BF16 family key but not the Spark cohort")
     check(idx[LONER]["hw"] == hwnorm.normalize_label(HW_5090)["bucket"],
           "loner keeps its own hw bucket label")
     check(idx[LONER]["score"] == 100.0, "solo (hw, family) cohort -> Perf dial = 100")

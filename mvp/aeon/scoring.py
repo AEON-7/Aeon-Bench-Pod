@@ -316,8 +316,9 @@ def _perf_percentile_index():
 
     Cohort key = (hw_bucket, model_family) — never a cross-model race inside one hw
     bucket. A Spark Qwen3.8-27B only races other Spark Qwen3.8-27B family peers
-    (AEON/quant/chat suffixes stripped via modelmeta.model_family); Ornith on the
-    same Spark does not move its dial. 100 = fastest in cohort (or the only row —
+    (AEON/chat recipe tokens stripped; quant/precision KEPT via modelmeta.model_family
+    so bf16 vs nvfp4-mixed are different cohorts); Ornith on the same Spark does
+    not move its dial. 100 = fastest in cohort (or the only row —
     solo stays 100 until another same-hw same-family run challenges it); 0 =
     slowest. A model with rows on several rigs keeps its best showing (ties broken
     by higher absolute peak)."""

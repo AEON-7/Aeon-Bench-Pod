@@ -144,43 +144,48 @@ def _strip_suffixes(name: str) -> str:
     return n.strip().strip("/-_.")
 
 
-# Tokens dropped when deriving the Perf dial model_family cohort key. These are recipe /
-# quant / chat / AEON-variant markers — not the architecture identity. Kept aligned with
-# AEON HF naming (...-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED) so Qwen3.8-27B variants cohort
-# together while Ornith / Gemma stay separate families.
+# Tokens dropped when deriving the Perf dial model_family cohort key. Recipe / chat /
+# AEON-variant markers only — NOT precision/quant tokens. Quant stays in the family
+# key so BF16 and NVFP4-MIXED are different Perf cohorts (solo MIXED -> Perf 100).
+# Same-quant peers still percentile against each other on the same hw.
 _FAMILY_DROP_TOKENS = frozenset({
     "aeon", "ultimate", "uncensored", "abliterated", "heretic", "deckard",
-    "nvfp4", "mixed", "awq", "awqfull", "gptq", "gguf", "ggml", "mlx", "bnb",
-    "fp16", "fp8", "bf16", "int4", "int8", "dflash", "mtp", "xs",
+    "dflash", "mtp", "xs",
     "instruct", "chat", "it", "thinking", "reasoning", "omni",
 })
-_FAMILY_DROP_RE = re.compile(
-    r"^(?:q\d[\w.]*|iq\d[\w.]*|\d+bit)$", re.IGNORECASE,
-)
+# Quant/precision tokens deliberately KEPT (not in _FAMILY_DROP_TOKENS):
+# nvfp4, mixed, awq, awqfull, gptq, gguf, ggml, mlx, bnb, fp16, fp8, bf16,
+# int4, int8, and literal q*/iq*/Nbit parts after split.
 
 
 def model_family(name: str) -> str:
-    """Base architecture family for Perf dial cohorts (same-hw x same-family).
+    """Perf dial cohort family = architecture stem + quant/precision suffix.
 
-    Practical key AEON already needs for fair speed ranking: normalize a canonical /
-    hf_repo / display name down to the architecture stem (e.g. ``qwen3.8-27b``),
-    stripping org prefixes and AEON/quant/chat recipe suffixes. Solo peers in a
-    (hw_bucket, model_family) cohort score Perf = 100 until another same-family
-    same-hw run challenges them.
+    Cohort key is (hw_bucket, model_family). We strip org prefixes and AEON/chat
+    recipe tokens, but KEEP quant/precision tokens (bf16, nvfp4, mixed, fp8, …)
+    so a BF16 build does not race an NVFP4-MIXED build of the same architecture.
+    Solo peers in a (hw, family) cohort score Perf = 100 until another same-hw
+    same-quant family run challenges them.
+
+    Does **not** call ``_strip_suffixes`` (that helper eats bf16/fp8/… for HF
+    avatar resolution); only ``@tag`` / ``:latest`` are removed here.
 
     Examples
     --------
-    ``AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED`` -> ``qwen3.8-27b``
-    ``aeon-7/qwen3.8-27b-aeon-ultimate-uncensored-nvfp4``       -> ``qwen3.8-27b``
-    ``AEON-7/Ornith-1.0-35B-AEON-Ultimate-Uncensored-NVFP4``    -> ``ornith-1.0-35b``
-    ``Qwen/Qwen2.5-72B-Instruct``                               -> ``qwen2.5-72b``
+    ``AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED`` -> ``qwen3.8-27b-nvfp4-mixed``
+    ``aeon-7/qwen3.8-27b-aeon-ultimate-uncensored-bf16``         -> ``qwen3.8-27b-bf16``
+    ``aeon-7/qwen3.8-27b-aeon-ultimate-uncensored-nvfp4``        -> ``qwen3.8-27b-nvfp4``
+    ``AEON-7/Ornith-1.0-35B-AEON-Ultimate-Uncensored-NVFP4``     -> ``ornith-1.0-35b-nvfp4``
+    ``Qwen/Qwen2.5-72B-Instruct``                                -> ``qwen2.5-72b``
     """
-    s = _strip_suffixes(name or "").strip().lower()
+    s = (name or "").strip()
+    s = re.sub(r"@.*$", "", s)
+    s = re.sub(r":latest$", "", s, flags=re.IGNORECASE)
+    s = s.strip().strip("/-_.").lower()
     if "/" in s:
         s = s.rsplit("/", 1)[-1]
     parts = [p for p in re.split(r"[-_]+", s) if p]  # keep dots (qwen3.8, ornith-1.0)
-    kept = [p for p in parts
-            if p not in _FAMILY_DROP_TOKENS and not _FAMILY_DROP_RE.match(p)]
+    kept = [p for p in parts if p not in _FAMILY_DROP_TOKENS]
     return "-".join(kept) if kept else (s or "unknown")
 
 

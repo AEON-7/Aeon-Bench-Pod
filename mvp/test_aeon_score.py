@@ -5,7 +5,7 @@ Covers the scoring/data side of the Global Leaderboard redesign:
     null = not tested, never zero)
   * aeon_score blend (0.5/0.3/0.2), renormalized over present components,
     aeon_provisional flag when agentic/performance are missing
-  * performance percentile ranked WITHIN the hw bucket (single-row bucket = 100)
+  * performance percentile ranked WITHIN (hw_bucket, model_family) (solo cohort = 100; cross-family / cross-hw isolated)
   * audio_leaderboard surfaces board='audio' runs (the lost Gemma audio data),
     joined to the text board by CANONICAL id (lowercased hf_repo), not the alias
   * best_intelligence_run = the highest-composite ELIGIBLE text run
@@ -35,13 +35,15 @@ os.environ["AEON_DB"] = os.path.join(_TMP, "test.db")
 from aeon import audio_suite, db, hwnorm, scoring  # noqa: E402
 from aeon import suite as suite_mod  # noqa: E402
 
-FULL = "lab/full-model"              # intelligence + agentic + performance (+ audio)
+FULL = "lab/qwen3.8-27b-aeon-ultimate-uncensored"  # intel+agentic+perf; family qwen3.8-27b
 IA = "lab/intel-agentic-model"       # intelligence + agentic (no perf) -> reweighted
 TEXT_ONLY = "lab/text-only-model"    # intelligence only -> every other dial null
 BEST = "lab/best-run-model"          # 2 eligible runs + 1 higher self_reported run
-SLOW = "lab/slow-spark-model"        # perf cohort filler (Spark bucket)
-MID = "lab/mid-spark-model"          # perf cohort filler (Spark bucket)
-LONER = "lab/single-bucket-model"    # only row in its bucket -> percentile 100
+SLOW = "lab/qwen3.8-27b-nvfp4"       # same family as FULL/MID (Spark) — slow peer
+MID = "lab/qwen3.8-27b-aeon-mixed"   # same family as FULL/SLOW (Spark) — mid peer
+LONER = "lab/single-bucket-model"    # only row in its (hw, family) cohort -> 100
+OTHER_FAM = "lab/ornith-1.0-35b-aeon-ultimate"  # different family, same Spark — must not affect
+SAME_FAM_5090 = "lab/qwen3.8-27b-aeon-fp8"       # same family, different hw — must not affect
 NOANS = "lab/quarter-weight-model"   # no_answer scoring math
 COVER = "lab/noans-coverage-model"   # scored < floor but scored+no_answer >= floor
 OLD = "lab/old-plain-run-model"      # invariance: no no_answer rows anywhere
@@ -166,10 +168,12 @@ def main():
     _text_run(FULL, score=1.0)
     _harness_run(FULL, "hermes", [0.8])
     _harness_run(FULL, "opencode", [0.6])
-    full_perf = _perf_run(FULL, HW_SPARK, 100.0)   # fastest of 3 in the Spark bucket -> 100
-    _perf_run(MID, HW_SPARK, 60.0)            # middle of 3 -> 50
-    _perf_run(SLOW, HW_SPARK, 30.0)           # slowest of 3 -> 0
-    _perf_run(LONER, HW_5090, 20.0)           # only row in its bucket -> 100
+    full_perf = _perf_run(FULL, HW_SPARK, 100.0)   # fastest of 3 in qwen3.8-27b@Spark -> 100
+    _perf_run(MID, HW_SPARK, 60.0)            # middle of same-family Spark cohort -> 50
+    _perf_run(SLOW, HW_SPARK, 30.0)           # slowest of same-family Spark cohort -> 0
+    _perf_run(OTHER_FAM, HW_SPARK, 999.0)     # different family @ Spark — must NOT pull FULL off 100
+    _perf_run(SAME_FAM_5090, HW_5090, 5.0)    # same family @ 5090 — must NOT enter Spark cohort
+    _perf_run(LONER, HW_5090, 20.0)           # only row in its (hw, family) cohort -> 100
     _audio_run(FULL, score=0.5)
 
     _text_run(IA, score=1.0)
@@ -213,8 +217,8 @@ def main():
           and d["agentic"]["excluded"] == [] and d["agentic"]["all_failed"] is False,
           "agentic dial = mean of available harness scores")
     check(d["performance"] == {"score": 100.0, "peak_agg_tps": 100.0, "hw": spark_bucket,
-                               "conc": 8, "run": full_perf},
-          "performance dial = top percentile in its hw bucket (+ the peak cell's concurrency)")
+                               "family": "qwen3.8-27b", "conc": 8, "run": full_perf},
+          "performance dial = top percentile in its (hw, family) cohort (+ concurrency)")
     # The run is what makes the dial CLICKABLE. Without it the board's PERFORMANCE instrument has
     # nothing to open and a click falls through to the row handler, which opens the model's best
     # INTELLIGENCE submission — a tachometer that shows you the text run.
@@ -255,13 +259,31 @@ def main():
     check(round(sum(mixed.values()) / len(mixed), 1) == 58.0,
           "agentic mean excludes the failed harness (58.0, not the 39.5 of all three)")
 
-    # ---- perf percentile within bucket ----------------------------------------------------
-    for canon, want in ((MID, 50.0), (SLOW, 0.0), (LONER, 100.0)):
-        p = scoring._perf_percentile_index()[canon]
-        check(p["score"] == want, f"{canon} perf percentile within its bucket = {want}")
-    check(scoring._perf_percentile_index()[LONER]["hw"] ==
-          hwnorm.normalize_label(HW_5090)["bucket"],
-          "single-row bucket keeps its own hw bucket label")
+    # ---- perf percentile within (hw_bucket, model_family) ---------------------------------
+    from aeon import modelmeta as _mm
+    for name, want_fam in (
+        (FULL, "qwen3.8-27b"),
+        (MID, "qwen3.8-27b"),
+        (SLOW, "qwen3.8-27b"),
+        (OTHER_FAM, "ornith-1.0-35b"),
+        ("AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4-MIXED", "qwen3.8-27b"),
+        ("Qwen/Qwen2.5-72B-Instruct", "qwen2.5-72b"),
+    ):
+        check(_mm.model_family(name) == want_fam, f"model_family({name!r}) -> {want_fam}")
+
+    idx = scoring._perf_percentile_index()
+    for canon, want in ((FULL, 100.0), (MID, 50.0), (SLOW, 0.0), (LONER, 100.0),
+                        (OTHER_FAM, 100.0), (SAME_FAM_5090, 100.0)):
+        p = idx[canon]
+        check(p["score"] == want, f"{canon} perf percentile within its (hw, family) = {want}")
+    check(idx[FULL]["family"] == "qwen3.8-27b", "FULL dial carries model_family key")
+    check(idx[OTHER_FAM]["family"] == "ornith-1.0-35b",
+          "different family on same Spark is its own solo cohort (100), not racing Qwen")
+    check(idx[SAME_FAM_5090]["hw"] == hwnorm.normalize_label(HW_5090)["bucket"],
+          "same family on a different hw bucket is isolated from the Spark cohort")
+    check(idx[LONER]["hw"] == hwnorm.normalize_label(HW_5090)["bucket"],
+          "loner keeps its own hw bucket label")
+    check(idx[LONER]["score"] == 100.0, "solo (hw, family) cohort -> Perf dial = 100")
 
     # ---- reweighting + provisional --------------------------------------------------------
     ia = row(lb, IA)

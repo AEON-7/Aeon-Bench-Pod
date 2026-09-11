@@ -672,12 +672,21 @@ def perf_board():
         # cells — each category is a REAL concurrent cohort at that rung; the categories never
         # ran together in one pool, so the stored 'overall' (old mixed-pool runs: a cross-
         # category tally; new isolated runs: a time-weighted figure) is never displayed as-is.
-        for scopes in direct.values():
+        # Normalize each category cell to AEON concurrent-total agg, then mean for overall.
+        for _conc_lvl, scopes in direct.items():
+            for _cat, _cell in list(scopes.items()):
+                if _cat == "overall" or not isinstance(_cell, dict):
+                    continue
+                if _cell.get("agg_source") not in ("concurrent_window",):
+                    _dec = _cell.get("decode_tps")
+                    if isinstance(_dec, (int, float)) and _conc_lvl:
+                        _cell["agg_decode_tps"] = round(float(_dec) * float(_conc_lvl), 2)
+                        _cell["agg_source"] = "saturated_est_decode_x_conc"
             cat_cells = [v for k, v in scopes.items() if k != "overall" and isinstance(v, dict)]
             if not cat_cells:
                 continue
-            def _catmean(key):
-                vals = [c.get(key) for c in cat_cells if isinstance(c.get(key), (int, float))]
+            def _catmean(key, _cells=cat_cells):
+                vals = [c.get(key) for c in _cells if isinstance(c.get(key), (int, float))]
                 return round(sum(vals) / len(vals), 2) if vals else None
             scopes["overall"] = {
                 "ttft_ms": _catmean("ttft_ms"), "ttft_p95": _catmean("ttft_p95"),
@@ -691,12 +700,23 @@ def perf_board():
         # category × concurrency cell (e.g. Coding @ c32). Never the cross-category MEAN
         # row: that understates the demonstrated peak by roughly the category count
         # (each rung's mean averages fast cells with slow ones).
+        # AEON lock: peak_agg = best cell concurrent-total tok/s.
+        # New runs store concurrent-window agg (agg_source=concurrent_window).
+        # Historical runs stored TTFT-diluted tokens/wall — reconstruct the
+        # simultaneous total as decode_tps x conc (saturated-cohort estimate).
         peak_agg, peak_cell = None, None
         for conc_lvl, scopes in direct.items():
             for cat, cell in scopes.items():
                 if cat == "overall" or not isinstance(cell, dict):
                     continue
+                src = cell.get("agg_source")
                 a = cell.get("agg_decode_tps")
+                dec = cell.get("decode_tps")
+                if src not in ("concurrent_window",) and isinstance(dec, (int, float)) and conc_lvl:
+                    # Prefer saturated simultaneous estimate over legacy wall-diluted agg
+                    a = round(float(dec) * float(conc_lvl), 2)
+                    cell["agg_decode_tps"] = a
+                    cell["agg_source"] = "saturated_est_decode_x_conc"
                 if isinstance(a, (int, float)) and (peak_agg is None or a > peak_agg):
                     peak_agg, peak_cell = a, {"category": cat, "conc": conc_lvl}
         hwlabel, hwn = info["_hw_label"], info["_hw"]
@@ -719,7 +739,7 @@ def perf_board():
             "spark_count": hwn["spark_count"],
             "conc_levels": sorted(concs),
             # the four axes the recipe-discovery tool ranks on (per model, filterable by hardware):
-            "peak_agg_tps": peak_agg,                     # best real cohort (category × conc cell)
+            "peak_agg_tps": peak_agg,                     # best concurrent-total tok/s cohort (AEON agg)
             "peak_agg_cell": peak_cell,                   # provenance: which cell demonstrated it
             "peak_single_tps": _lowest_conc_metric(c_lo, "decode_tps", max),  # single-stream speed
             "latency": {"ttft_ms": _lowest_conc_metric(c_lo, "ttft_ms", min),
@@ -846,8 +866,11 @@ def _champion_drafter(recipe):
 
 
 def _peak_agg_cell(results):
-    """Best REAL cohort in a perf run's ladder: max agg_decode_tps over the
-    perf.direct.<category>.c<N> cells (never the cross-category mean — see perf_board)."""
+    """Best REAL cohort: max concurrent-total tok/s over category×conc cells.
+
+    AEON lock: prefer stored concurrent-window agg; for legacy tokens/wall cells
+    reconstruct simultaneous total as decode_tps × conc.
+    """
     peak, cell = None, None
     for x in results:
         parts = str(x.get("case_id") or "").split(".")
@@ -858,7 +881,14 @@ def _peak_agg_cell(results):
             conc = int(parts[3][1:])
         except ValueError:
             continue
-        a = (x.get("evidence") or {}).get("agg_decode_tps")
+        ev = x.get("evidence") or {}
+        a = ev.get("agg_decode_tps")
+        src = ev.get("agg_source")
+        dec = ev.get("decode_tps_mean")
+        if dec is None:
+            dec = ev.get("decode_tps")  # board cells use short name
+        if src not in ("concurrent_window",) and isinstance(dec, (int, float)) and conc:
+            a = round(float(dec) * float(conc), 2)
         if isinstance(a, (int, float)) and (peak is None or a > peak):
             peak, cell = a, {"category": parts[2], "conc": conc}
     return peak, cell

@@ -3,7 +3,7 @@
 DIRECT-to-model latency/throughput at a concurrency ladder (1,4,8,16,32) over
 fixed per-category prompt sets, capturing per-stream decode tok/s, TTFT ms and
 prefill throughput (prompt_tokens / ttft_sec), plus an AGGREGATE decode tok/s
-per level (sum output_tokens / level wall clock). Also a lighter through-harness
+per level (total tokens / concurrent decode window — true simultaneous throughput). Also a lighter through-harness
 timing mode driven by a caller-supplied runner callable (no adapter imports).
 
 Public API:
@@ -192,7 +192,22 @@ def _engine_tokens(target_url):
     return None
 
 
-def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None):
+
+def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None, conc=None):
+    """Aggregate per-request timings into a cell.
+
+    AEON lock — two different rates, do not confuse them:
+
+    * ``decode_tps_mean`` — per-stream decode tok/s (decode-phase only; excludes TTFT).
+    * ``agg_decode_tps`` — **true simultaneous aggregate throughput**: total tokens
+      produced by all concurrent sessions divided by the **concurrent decode window**
+      (first token of any stream → last token of any stream). That is total tok/s
+      across sessions while they are running together — NOT tokens/full-wall (TTFT
+      diluted) and NOT a post-hoc ``mean_decode × N`` product (though that product
+      is kept as ``agg_saturated_est`` when rates are uniform and the wave is full).
+
+    ``tokens_per_wall_s`` preserves the legacy wall-diluted rate for debug.
+    """
     ttfts = [r["ttft_ms"] for r in reqs if r.get("ttft_ms") is not None]
     dtps = [r["decode_tps"] for r in reqs if r.get("decode_tps") is not None]
     ptps = [r["prefill_tps"] for r in reqs if r.get("prefill_tps") is not None]
@@ -200,33 +215,64 @@ def _agg(reqs, wall_clock_s, n_errors=0, engine_tokens=None):
     tpots = [r["tpot_ms"] for r in reqs if r.get("tpot_ms") is not None]
     out_sum = sum(r.get("output_tokens") or 0 for r in reqs)
     in_sum = sum(r.get("input_tokens") or 0 for r in reqs)
+    decode_mean = _r(_mean(dtps))
+    tokens = engine_tokens if engine_tokens is not None else out_sum
+    tok_wall = _r(tokens / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None
+
+    # Concurrent decode window from absolute timestamps (perf_counter) when present.
+    starts = [r["decode_t0"] for r in reqs
+              if isinstance(r.get("decode_t0"), (int, float))]
+    ends = [r["decode_t1"] for r in reqs
+            if isinstance(r.get("decode_t1"), (int, float))]
+    conc_n = int(conc) if conc is not None else None
+    saturated_est = (
+        _r(float(decode_mean) * float(conc_n))
+        if (decode_mean is not None and conc_n and conc_n > 0) else None
+    )
+
+    agg, agg_source, window_s = None, None, None
+    if starts and ends:
+        span = max(ends) - min(starts)
+        if span > 0 and tokens is not None:
+            agg = _r(tokens / span)
+            agg_source = "concurrent_window"
+            window_s = round(span, 3)
+    if agg is None and saturated_est is not None:
+        # No timestamps (historical / non-stream): best estimate of simultaneous
+        # total while a full cohort is decoding together.
+        agg = saturated_est
+        agg_source = "saturated_est_decode_x_conc"
+    if agg is None:
+        agg = tok_wall
+        agg_source = "tokens_per_wall" if tok_wall is not None else None
+
     return {
         "n": len(reqs),
         "n_errors": n_errors,
         "ttft_ms_mean": _r(_mean(ttfts)),
         "ttft_ms_p50": _r(_pct(ttfts, 50)),
         "ttft_ms_p95": _r(_pct(ttfts, 95)),
-        "decode_tps_mean": _r(_mean(dtps)),          # mean per-stream decode tok/s
-        "prefill_tps_mean": _r(_mean(ptps)),         # mean prompt_tokens/ttft_sec
+        "decode_tps_mean": decode_mean,          # per-stream decode tok/s
+        "prefill_tps_mean": _r(_mean(ptps)),
         "e2e_ms_mean": _r(_mean(e2es)),
-        # TPOT: mean inter-token latency during decode (ms/token) — the steady-state
-        # "feel" of a stream once it starts; complements TTFT (how long until it starts)
         "tpot_ms_mean": _r(_mean(tpots), 3),
         "tpot_ms_p50": _r(_pct(tpots, 50), 3),
         "tpot_ms_p95": _r(_pct(tpots, 95), 3),
         "output_tokens_total": out_sum,
         "input_tokens_total": in_sum,
-        # AGGREGATE decode tok/s: total generated tokens over the level's wall clock. Under
-        # concurrency this IS the headline throughput — every in-flight stream's tokens over the
-        # elapsed time of the batch. Prefer the engine's own counter delta: it tallies every token
-        # it generated (reasoning included) across all streams, so it needs no estimation and
-        # cannot be skewed by how the HTTP stream was framed.
-        "agg_decode_tps": _r((engine_tokens if engine_tokens is not None else out_sum)
-                             / wall_clock_s) if wall_clock_s and wall_clock_s > 0 else None,
+        # Headline AGG = concurrent-window total tok/s (AEON).
+        "agg_decode_tps": agg,
+        "agg_source": agg_source,
+        "concurrent_window_s": window_s,
+        "agg_saturated_est": saturated_est,     # decode_mean x conc (steady-state estimate)
+        "conc": conc_n,
+        "tokens_per_wall_s": tok_wall,           # legacy TTFT-diluted wall rate
         "tokens_source": "engine" if engine_tokens is not None else "client",
         "engine_tokens_total": _r(engine_tokens) if engine_tokens is not None else None,
         "input_tokens_estimated": any(r.get("input_tokens_estimated") for r in reqs),
     }
+
+
 
 
 # ---------------------------------------------------------------- direct grid
@@ -250,6 +296,20 @@ def _one_request(target, category, prompt, temperature, max_tokens):
     # over hundreds of tokens, which reads as a 0.005 ms per-token latency. If no decode phase was
     # observed there is no per-token latency to report, and None says exactly that.
     tpot = _r(1000.0 / resp["decode_tps"], 3) if resp.get("decode_tps") else None
+    # Absolute decode window (perf_counter): prefer server-stream stamps from the
+    # target; otherwise reconstruct from request-local wall + ttft + decode rate.
+    d0 = resp.get("decode_t0")
+    d1 = resp.get("decode_t1")
+    if d0 is None and ttft is not None:
+        # chat() just returned — backdate decode window from e2e/ttft/decode_tps
+        t_end = time.perf_counter()
+        e2e_s = (resp.get("e2e_ms") or 0) / 1000.0
+        t_req0 = t_end - e2e_s if e2e_s > 0 else t_end
+        d0 = t_req0 + (ttft / 1000.0)
+        if resp.get("decode_tps") and out_tok > 1:
+            d1 = d0 + ((out_tok - 1) / float(resp["decode_tps"]))
+        else:
+            d1 = t_end
     return {
         "category": category,
         "ttft_ms": ttft,
@@ -260,6 +320,8 @@ def _one_request(target, category, prompt, temperature, max_tokens):
         "output_tokens": resp.get("output_tokens") or 0,
         "input_tokens": in_tok,
         "input_tokens_estimated": in_est,
+        "decode_t0": d0,
+        "decode_t1": d1,
     }
 
 
@@ -351,7 +413,7 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
             eng_delta = (eng1 - eng0) if (eng0 is not None and eng1 is not None
                                           and eng1 >= eng0) else None
             cell = _agg(reqs, cw, n_errors=len(errors),   # aggregates over the CELL's wall
-                        engine_tokens=eng_delta)
+                        engine_tokens=eng_delta, conc=int(conc))
             cell["cell_wall_s"] = round(cw, 3)
             _tile.close(cell)                    # publish the figure that reaches the perf board
             cell_engine_tokens.append(eng_delta)
@@ -365,7 +427,8 @@ def run_direct_grid(target_url, alias, *, api_key=None, conc_levels=(1, 4, 8, 16
                             engine_tokens=(sum(cell_engine_tokens)
                                            if cell_engine_tokens
                                            and all(t is not None for t in cell_engine_tokens)
-                                           else None)),
+                                           else None),
+                            conc=int(conc)),
             "categories": cats,
             "requests": all_reqs,
             "errors": all_errs,

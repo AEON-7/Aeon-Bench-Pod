@@ -85,7 +85,7 @@ def test_agg_hand_check():
     assert a["e2e_ms_mean"] == 650.0
     assert a["output_tokens_total"] == 200
     assert a["input_tokens_total"] == 400
-    assert a["agg_decode_tps"] == 20.0                  # 200 tok / 10 s
+    assert a["agg_decode_tps"] == 20.0                  # no timestamps/conc -> wall fallback
 
 
 def test_direct_grid_shape_and_math():
@@ -338,3 +338,38 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_agg_concurrent_window():
+    """AEON lock: agg = total tokens / concurrent decode window (not wall, not mean*N alone)."""
+    # Two streams overlapping: both decode [0,10], 100 tokens each, decode_tps 10.
+    # Window span=10, tokens=200 -> agg=20. Saturated est with conc=2: mean 10 * 2 = 20.
+    reqs = [
+        {"category": "Math", "ttft_ms": 100.0, "decode_tps": 10.0, "prefill_tps": 1000.0,
+         "e2e_ms": 1100.0, "tpot_ms": 100.0, "output_tokens": 100, "input_tokens": 50,
+         "decode_t0": 100.0, "decode_t1": 110.0},
+        {"category": "Math", "ttft_ms": 100.0, "decode_tps": 10.0, "prefill_tps": 1000.0,
+         "e2e_ms": 1100.0, "tpot_ms": 100.0, "output_tokens": 100, "input_tokens": 50,
+         "decode_t0": 100.0, "decode_t1": 110.0},
+    ]
+    # wall_clock deliberately longer (TTFT diluted) — must NOT win
+    a = perf_grid._agg(reqs, wall_clock_s=50.0, conc=2)
+    assert a["agg_source"] == "concurrent_window"
+    assert a["agg_decode_tps"] == 20.0          # 200 tokens / 10s window
+    assert a["tokens_per_wall_s"] == 4.0        # 200 / 50 wall
+    assert a["agg_saturated_est"] == 20.0       # 10 * 2
+    assert a["decode_tps_mean"] == 10.0
+
+
+def test_agg_saturated_est_without_timestamps():
+    """Without decode_t0/t1, fall back to decode_mean x conc (simultaneous estimate)."""
+    reqs = [
+        {"category": "Math", "ttft_ms": 100.0, "decode_tps": 23.55, "prefill_tps": 100.0,
+         "e2e_ms": 8000.0, "tpot_ms": 42.0, "output_tokens": 106, "input_tokens": 600},
+        {"category": "Math", "ttft_ms": 100.0, "decode_tps": 23.55, "prefill_tps": 100.0,
+         "e2e_ms": 8000.0, "tpot_ms": 42.0, "output_tokens": 106, "input_tokens": 600},
+    ]
+    a = perf_grid._agg(reqs, wall_clock_s=63.8, conc=8)
+    assert a["agg_source"] == "saturated_est_decode_x_conc"
+    assert a["agg_decode_tps"] == 188.4          # 23.55 * 8 — the remembered ~180
+    assert abs(a["tokens_per_wall_s"] - (212 / 63.8)) < 0.05

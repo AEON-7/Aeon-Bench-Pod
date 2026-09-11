@@ -322,7 +322,10 @@ def run_benchmark(run_id, model, target_url, judge_model=None, params=None,
 
 
 def run_vision_benchmark(run_id, model, target_url, judge_model=None, params=None,
-                         progress_cb=None, api_key=None):
+                         progress_cb=None, api_key=None,
+                         hf_repo=None, hf_revision=None, trust_tier="self_reported",
+                         model_verified=None, canonical_id=None, weights_hash=None,
+                         recipe=None, deployment_manifest=None, bench_seed=None, job_sig=None):
     """The VISION board run loop (DESIGN §6c). Capability-probe first; on failure
     the model is recorded `capability_absent` and never appears on the vision
     board (and is untouched on the text board)."""
@@ -338,7 +341,11 @@ def run_vision_benchmark(run_id, model, target_url, judge_model=None, params=Non
     pr = probe.probe_vision(target)
     db.create_run(run_id, model=model, target_url=target_url, judge_model=model, judge_is_self=True,
                   suite_id=vs.SUITE_ID, suite_hash=vs.suite_hash(), n_cases=len(vs.CASES),
-                  params=params, env=env, board="vision", vision_probe_json=json.dumps(pr))
+                  params=params, env=env, board="vision", vision_probe_json=json.dumps(pr),
+                  hf_repo=hf_repo, hf_revision=hf_revision, trust_tier=trust_tier,
+                  model_verified=model_verified, canonical_id=canonical_id,
+                  weights_hash=weights_hash, recipe=recipe,
+                  deployment_manifest=deployment_manifest, bench_seed=bench_seed, job_sig=job_sig)
     if not pr.get("vision_ok"):
         db.finish_run(run_id, "capability_absent", error=pr.get("error"))
         if progress_cb:
@@ -374,7 +381,10 @@ def run_vision_benchmark(run_id, model, target_url, judge_model=None, params=Non
 
 
 def run_video_benchmark(run_id, model, target_url, params=None,
-                        progress_cb=None, api_key=None):
+                        progress_cb=None, api_key=None,
+                        hf_repo=None, hf_revision=None, trust_tier="self_reported",
+                        model_verified=None, canonical_id=None, weights_hash=None,
+                        recipe=None, deployment_manifest=None, bench_seed=None, job_sig=None):
     """The VIDEO board run loop — mirrors run_vision_benchmark/run_audio_benchmark.
     probe_video gates first; on failure the model is recorded `capability_absent` and
     never appears on the video board (and is untouched on other boards). Every case is
@@ -394,7 +404,11 @@ def run_video_benchmark(run_id, model, target_url, params=None,
     pr = probe.probe_video(target)
     db.create_run(run_id, model=model, target_url=target_url, judge_model=None, judge_is_self=False,
                   suite_id=vids.SUITE_ID, suite_hash=vids.suite_hash(), n_cases=len(vids.CASES),
-                  params=params, env=env, board="video", vision_probe_json=json.dumps(pr))
+                  params=params, env=env, board="video", vision_probe_json=json.dumps(pr),
+                  hf_repo=hf_repo, hf_revision=hf_revision, trust_tier=trust_tier,
+                  model_verified=model_verified, canonical_id=canonical_id,
+                  weights_hash=weights_hash, recipe=recipe,
+                  deployment_manifest=deployment_manifest, bench_seed=bench_seed, job_sig=job_sig)
     if not pr.get("video_ok"):
         db.finish_run(run_id, "capability_absent", error=pr.get("error"))
         if progress_cb:
@@ -430,7 +444,10 @@ def run_video_benchmark(run_id, model, target_url, params=None,
 
 
 def run_audio_benchmark(run_id, model, target_url, params=None,
-                        progress_cb=None, api_key=None):
+                        progress_cb=None, api_key=None,
+                        hf_repo=None, hf_revision=None, trust_tier="self_reported",
+                        model_verified=None, canonical_id=None, weights_hash=None,
+                        recipe=None, deployment_manifest=None, bench_seed=None, job_sig=None):
     """The AUDIO board run loop (DESIGN §6c.6) — mirrors run_vision_benchmark.
     probe_audio gates first; on failure the model is recorded `capability_absent`
     and never appears on the audio board (and is untouched on other boards).
@@ -448,7 +465,11 @@ def run_audio_benchmark(run_id, model, target_url, params=None,
     pr = probe.probe_audio(target)
     db.create_run(run_id, model=model, target_url=target_url, judge_model=None, judge_is_self=False,
                   suite_id=aus.SUITE_ID, suite_hash=aus.suite_hash(), n_cases=len(aus.CASES),
-                  params=params, env=env, board="audio", vision_probe_json=json.dumps(pr))
+                  params=params, env=env, board="audio", vision_probe_json=json.dumps(pr),
+                  hf_repo=hf_repo, hf_revision=hf_revision, trust_tier=trust_tier,
+                  model_verified=model_verified, canonical_id=canonical_id,
+                  weights_hash=weights_hash, recipe=recipe,
+                  deployment_manifest=deployment_manifest, bench_seed=bench_seed, job_sig=job_sig)
     if not pr.get("audio_ok"):
         db.finish_run(run_id, "capability_absent", error=pr.get("error"))
         if progress_cb:

@@ -4143,6 +4143,13 @@ function teleStrip(t, j) {
   // 'submitting' excluded — the final submit can outlive a torn-down engine, that's normal.
   const expectUp = j && (["benchmarking", "vision", "audio", "video", "arena", "harness", "perf"].includes(j.stage)
     || (j.stage === "serving" && j.serve_phase));
+  if (sv.remote) {   // endpoint job on another host (remote / multi-node serve): no local container to watch
+    const cls = sv.reachable ? "up" : expectUp ? "down" : "idle";
+    const label = sv.reachable
+      ? `● remote engine ${escH(sv.remote)} · metrics live`
+      : `○ remote engine ${escH(sv.remote)} · /metrics not reachable from the pod (throughput dash hidden)`;
+    return `<div class="tele-strip"><span class="tele-serve ${cls}">${label}</span>${gs.join("")}</div>`;
+  }
   const cls = sv.running ? "up" : expectUp ? "down" : "idle";
   const label = sv.running
     ? `● aeon-bench-serve up${sv.cpu ? ` · cpu ${escH(sv.cpu)} · ${escH(sv.mem || "?")}` : ""}`

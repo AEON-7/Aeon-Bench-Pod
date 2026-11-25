@@ -109,13 +109,39 @@ def _prom_total(text: str, name: str):
     return total if found else None
 
 
-def _engine_metrics():
+_LOCAL_HOSTS = ("127.0.0.1", "localhost", "0.0.0.0", "::1", "host.docker.internal")
+
+
+def _remote_target():
+    """(host, metrics_url) of the running job's engine when it is NOT the pod's own serve --
+    an endpoint job benching a remote / multi-node serve (e.g. gb10 TP=2 over Tailscale).
+    None when there is no such job; then the local aeon-bench-serve contract applies."""
+    try:
+        from urllib.parse import urlsplit
+        from pod import jobs
+        j = next((x for x in jobs.list_jobs() if x.get("status") == "running"), None)
+        base = (j or {}).get("base_url") or ""
+        if not base.startswith(("http://", "https://")):
+            return None                       # no job, frontier://, or pod-launched serve
+        u = urlsplit(base)
+        if (u.hostname or "") in _LOCAL_HOSTS:
+            return None
+        return u.netloc, f"{u.scheme}://{u.netloc}/metrics"
+    except Exception:
+        return None
+
+
+def _engine_metrics(url=None):
     """{gen_tps, prompt_tps, running, waiting} from the live engine, or None when no engine
-    is serving (idle pod / non-vLLM engine) — the dash simply hides then."""
+    is serving (idle pod / non-vLLM engine) — the dash simply hides then. `url` points the
+    scrape at a remote engine's /metrics; default is the local bench contract port."""
     import urllib.request
     port = os.environ.get("AEON_SERVE_PORT", "8000")
+    url = url or f"http://127.0.0.1:{port}/metrics"
+    if _ENGINE_LAST.get("url") != url:           # target changed: restart the rate window
+        _ENGINE_LAST.update(url=url, t=0.0, gen=None, prompt=None)
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3) as r:
+        with urllib.request.urlopen(url, timeout=3) as r:
             text = r.read().decode("utf-8", "replace")
     except Exception:
         _ENGINE_LAST.update(t=0.0, gen=None, prompt=None)   # engine gone: reset the rate window
@@ -141,7 +167,17 @@ def sample() -> dict:
     now = time.time()
     if _CACHE["v"] is not None and now - _CACHE["t"] < _TTL:
         return _CACHE["v"]
-    v = {"gpu": _gpu(), "ram": _ram(), "load": _load(), "serve": _serve_container(),
-         "engine": _engine_metrics(), "at": int(now)}
+    remote = _remote_target()
+    if remote:
+        # The engine lives on another host: there is no local aeon-bench-serve container to
+        # find, and "not running" would be a false alarm. Report the remote engine instead;
+        # local GPU/RAM/CPU still describe the pod host only.
+        engine = _engine_metrics(remote[1])
+        serve = {"running": False, "remote": remote[0], "reachable": engine is not None}
+    else:
+        engine = _engine_metrics()
+        serve = _serve_container()
+    v = {"gpu": _gpu(), "ram": _ram(), "load": _load(), "serve": serve,
+         "engine": engine, "at": int(now)}
     _CACHE.update(t=now, v=v)
     return v
